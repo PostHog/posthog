@@ -21,12 +21,15 @@ from dataclasses import field
 from typing import Any, Final
 from uuid import UUID
 
+from django.db import transaction
+
 from posthog.dataclasses import frozen
 
 from products.alerts.backend.facade.contracts import (
     DestinationBucket,
     DestinationEligibility,
     DestinationHoldBack,
+    FlowDrafts,
     FlowPort,
     FlowPortIssue,
     FlowPortProblem,
@@ -50,6 +53,11 @@ from products.alerts.backend.logic.destinations import (
 from products.alerts_platform.backend.facade.api import configuration_ids_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import ALERT_TRANSITION_EVENT, AlertEventKind
 from products.cdp.backend.models.hog_functions.hog_function import DERIVED_FILTER_KEYS, HogFunction
+from products.workflows.backend.facade.alert_destinations import (
+    AlertWorkflowRefused,
+    alert_workflow_ids,
+    create_alert_destination_workflow,
+)
 
 # Native delivery sends these, so they need no workflow.
 _NATIVE_BUCKETS: Final = frozenset(
@@ -295,6 +303,10 @@ def _ported_masking(functions: list[HogFunction], log: PlaceholderLog) -> dict[s
     return {**masking, "hash": _rewrite_value(masking.get("hash"), None, log)}
 
 
+def _send_step_id(transition: str) -> str:
+    return f"send_{transition}"
+
+
 def _action(action_id: str, name: str, action_type: str, config: dict[str, Any]) -> dict[str, Any]:
     return {"id": action_id, "name": name, "description": "", "type": action_type, "config": config}
 
@@ -332,7 +344,10 @@ def _flow(
     ]
     send_steps = [
         _action(
-            f"send_{transition}", f"Send on {transition}", "function", {"template_id": template_id, "inputs": inputs}
+            _send_step_id(transition),
+            f"Send on {transition}",
+            "function",
+            {"template_id": template_id, "inputs": inputs},
         )
         for transition, inputs in steps
     ]
@@ -379,6 +394,7 @@ def _port(
 
     rewritten: list[str] = []
     steps: list[tuple[str, dict[str, Any]]] = []
+    secret_input_keys: dict[str, tuple[str, ...]] = {}
     for function in enabled:
         issues.extend(
             FlowPortIssue(problem=_STOPPING_HOLD_BACKS[hold_back], hog_function_id=function.id)
@@ -398,6 +414,10 @@ def _port(
             issues.append(transition)
         else:
             steps.append((str(transition), inputs))
+            # A secret schema key with no value is stored as `None`, and the step carries nothing for it.
+            secret_input_keys[_send_step_id(str(transition))] = tuple(
+                sorted(key for key, entry in (function.encrypted_inputs or {}).items() if isinstance(entry, dict))
+            )
 
     shared = Counter(transition for transition, _ in steps)
     issues.extend(
@@ -425,6 +445,7 @@ def _port(
         )
     return FlowPort(
         alert_id=alert_id,
+        configuration_id=configuration_id,
         hog_function_ids=tuple(function.id for function in group),
         template_id=group[0].template_id,
         bucket=bucket,
@@ -432,6 +453,7 @@ def _port(
         issues=tuple(dict.fromkeys(issues)),
         left_out=tuple(function.id for function in group if not function.enabled),
         flow=flow,
+        secret_input_keys=secret_input_keys,
     )
 
 
@@ -488,6 +510,57 @@ def flow_ports(
                 bucket=bucket,
                 transition_by_event_id=transition_by_event_id,
             )
+
+
+def _drafts_refusal(team_id: int, ports: tuple[FlowPort, ...]) -> str | None:
+    if any(port.flow is None for port in ports):
+        return "A destination cannot become a workflow."
+    configuration_ids = {port.configuration_id for port in ports if port.configuration_id is not None}
+    existing = [
+        workflow_id
+        for configuration_id in configuration_ids
+        for workflow_id in alert_workflow_ids(team_id=team_id, configuration_id=configuration_id)
+    ]
+    if existing:
+        return f"The alert already has workflows ({', '.join(map(str, existing))}). Delete them first."
+    return None
+
+
+def create_flow_drafts(
+    *,
+    team_id: int,
+    alert: NamedAlert,
+    allowed_event_ids: Collection[str],
+    transition_by_event_id: Mapping[str, AlertEventKind],
+) -> FlowDrafts:
+    """Creates a draft workflow for each customized destination of one alert, and leaves its HogFunctions as they are.
+
+    Nothing is created when any destination is stopped, when the alert has workflows from an earlier run, or when
+    Workflows refuses the trigger or a secret.
+    """
+    ports = tuple(
+        flow_ports(
+            team_id=team_id,
+            alerts=[alert],
+            allowed_event_ids=allowed_event_ids,
+            transition_by_event_id=transition_by_event_id,
+        )
+    )
+    refusal = _drafts_refusal(team_id, ports)
+    if refusal is not None:
+        return FlowDrafts(ports=ports, refusal=refusal)
+    try:
+        with transaction.atomic():
+            created = tuple(
+                create_alert_destination_workflow(
+                    team_id=team_id, user_id=None, content=port.flow, secret_input_keys=port.secret_input_keys
+                )
+                for port in ports
+                if port.flow is not None
+            )
+    except AlertWorkflowRefused as error:
+        return FlowDrafts(ports=ports, refusal=str(error))
+    return FlowDrafts(ports=ports, workflow_ids=created)
 
 
 def flow_port_report_lines(ports: Iterable[FlowPort]) -> Iterator[str]:

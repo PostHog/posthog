@@ -330,6 +330,7 @@ export const HogFlowStateEnumApi = {
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
  * * `transactional_emails` - Transactional emails
+ * * `alerts` - Alerts
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
@@ -337,6 +338,7 @@ export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
     TransactionalEmails: 'transactional_emails',
+    Alerts: 'alerts',
 } as const
 
 /**
@@ -679,7 +681,8 @@ export interface HogFlowApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -781,7 +784,8 @@ export interface HogFlowUpdateApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -883,7 +887,8 @@ export interface PatchedHogFlowUpdateApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1114,7 +1119,8 @@ export interface HogFlowConvertedToBroadcastApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts */
     readonly origin_product: HogFlowOriginProductEnumApi
 }
 
@@ -2134,7 +2140,8 @@ export interface SendCalendarFlowApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     /** User who created the workflow. */
     readonly created_by: UserBasicApi | null
@@ -2780,6 +2787,7 @@ export type HogFlowsListParams = {
 export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof typeof HogFlowsListOriginProduct]
 
 export const HogFlowsListOriginProduct = {
+    Alerts: 'alerts',
     Broadcasts: 'broadcasts',
     Loops: 'loops',
     TransactionalEmails: 'transactional_emails',

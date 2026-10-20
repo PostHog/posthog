@@ -90,6 +90,12 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_push",  # Push notification actions
 }
 
+
+def billable_action_types(actions: list[dict]) -> list[str]:
+    """The billable action types a workflow's actions use, sorted, as `HogFlow.billable_action_types` stores them."""
+    return sorted({action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES})
+
+
 # Action types that send a message to a person. A workflow containing at least one of these is a
 # "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
 # MESSAGING_ACTION_TYPES (products/workflows/frontend/Workflows/workflowTypeFilters.ts), which the list's

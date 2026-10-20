@@ -160,6 +160,8 @@ class FlowPort:
     """One alert destination, the HogFunctions behind it, and the workflow that would replace them."""
 
     alert_id: str
+    # None when the alert has no platform configuration, which stops the port.
+    configuration_id: UUID | None
     hog_function_ids: tuple[UUID, ...]
     template_id: str | None
     bucket: DestinationBucket
@@ -170,6 +172,18 @@ class FlowPort:
     # The workflow as the HogFlow API takes it, or None when an issue stops the port. Holds the
     # destination's secret inputs, so it stays out of `repr`.
     flow: dict[str, Any] | None = field(default=None, repr=False)
+    # Per step id, the inputs that were secret on the HogFunction the step replaces.
+    secret_input_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+@frozen
+class FlowDrafts:
+    """The draft workflows made for one alert's customized destinations, or why none were made."""
+
+    ports: tuple[FlowPort, ...]
+    workflow_ids: tuple[UUID, ...] = ()
+    # Set when nothing was created. One alert moves as a unit, so one refused destination refuses all.
+    refusal: str | None = None
 
 
 @frozen

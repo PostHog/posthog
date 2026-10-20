@@ -10,13 +10,15 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import FlowPort, FlowPortProblem, NamedAlert
-from products.alerts.backend.facade.destinations import flow_ports
+from products.alerts.backend.facade.contracts import FlowDrafts, FlowPort, FlowPortProblem, NamedAlert
+from products.alerts.backend.facade.destinations import create_flow_drafts, flow_ports
 from products.alerts.backend.logic.flow_port import PlaceholderLog, rewrite_template
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 from products.alerts_platform.backend.facade.testing import create_configuration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.workflows.backend.models import HogFlow
 
 ALERT_ID = "01936a2e-0000-7000-8000-0000000000aa"
 TRANSITIONS = {
@@ -36,14 +38,35 @@ WEBHOOK_INPUTS: dict[str, Any] = {
 }
 
 
-class TestFlowPorts(APIBaseTest):
+def _webhook_template(*, signing_secret_is_secret: bool) -> dict[str, Any]:
+    return {
+        "id": "template-webhook",
+        "name": "HTTP Webhook",
+        "description": "",
+        "type": "destination",
+        "status": "stable",
+        "free": True,
+        "category": [],
+        "icon_url": "",
+        "code_language": "hog",
+        "code": "return inputs.url",
+        "inputs_schema": [
+            *({"key": key, "type": "string", "label": key} for key in ("url", "method", "body")),
+            {"key": "signing_secret", "type": "string", "label": "Secret", "secret": signing_secret_is_secret},
+        ],
+    }
+
+
+class _FlowPortCase(APIBaseTest):
+    source_kind = "logs"
+
     def setUp(self) -> None:
         super().setUp()
         with team_scope(self.team.id):
             self.configuration = create_configuration(
                 team=self.team,
                 name="API errors",
-                source_kind="logs",
+                source_kind=self.source_kind,
                 check_interval_minutes=5,
                 legacy_configuration_id=ALERT_ID,
             )
@@ -115,6 +138,21 @@ class TestFlowPorts(APIBaseTest):
             )
         )
 
+    def _customized_webhook(self, masking: dict[str, Any] | None = None) -> HogFunction:
+        function = self._function(secret=SIGNING_SECRET, masking=masking)
+        self._edit(function, inputs={**(function.inputs or {}), "method": {"value": "PUT"}})
+        return function
+
+    def _create(self) -> FlowDrafts:
+        return create_flow_drafts(
+            team_id=self.team.id,
+            alert=NamedAlert(alert_id=ALERT_ID, name="API errors"),
+            allowed_event_ids=EVENT_IDS,
+            transition_by_event_id=TRANSITIONS,
+        )
+
+
+class TestFlowPorts(_FlowPortCase):
     def test_a_customized_webhook_becomes_one_draft_flow_with_a_step_per_transition(self) -> None:
         firing = self._function(secret=SIGNING_SECRET)
         for event in ("$logs_alert_resolved", "$logs_alert_errored", "$logs_alert_auto_disabled"):
@@ -243,6 +281,61 @@ class TestFlowPorts(APIBaseTest):
 
         assert port.flow is None
         assert [issue.problem for issue in port.issues] == [FlowPortProblem.NO_PLATFORM_CONFIGURATION]
+
+
+class TestCreateFlowDrafts(_FlowPortCase):
+    def test_a_draft_keeps_its_secret_encrypted_and_its_masking_compiled(self) -> None:
+        sync_template_to_db(_webhook_template(signing_secret_is_secret=True))
+        function = self._customized_webhook(
+            masking={"ttl": 3600, "hash": "{event.properties.alert_id}", "threshold": None}
+        )
+
+        drafts = self._create()
+
+        assert drafts.refusal is None
+        (workflow_id,) = drafts.workflow_ids
+        flow = HogFlow.objects.get(team_id=self.team.id, id=workflow_id)
+        assert (flow.status, flow.origin_product) == ("draft", "alerts")
+        (step,) = [action for action in flow.actions if action["type"] == "function"]
+        assert "signing_secret" not in step["config"]["inputs"]
+        assert flow.encrypted_inputs == {step["id"]: {"signing_secret": {"value": SIGNING_SECRET}}}
+        assert flow.trigger_masking is not None and flow.trigger_masking["bytecode"]
+        assert HogFunction.objects.get(id=function.id).enabled
+
+    @parameterized.expand(
+        [
+            ("a_destination_is_stopped", "stopped", "cannot become a workflow"),
+            ("the_alert_already_has_workflows", "rerun", "already has workflows"),
+            ("the_template_would_store_the_secret_in_plain_text", "plain_secret", "does not keep secret"),
+        ]
+    )
+    def test_nothing_is_created_when_a_draft_is_refused(self, _name: str, case: str, reason: str) -> None:
+        sync_template_to_db(_webhook_template(signing_secret_is_secret=case != "plain_secret"))
+        self._customized_webhook()
+        if case == "stopped":
+            self._function("$logs_alert_incident_opened", secret=SIGNING_SECRET)
+        if case == "rerun":
+            self._create()
+        workflows_before = HogFlow.objects.filter(team_id=self.team.id).count()
+
+        drafts = self._create()
+
+        assert reason in (drafts.refusal or "")
+        assert drafts.workflow_ids == ()
+        assert HogFlow.objects.filter(team_id=self.team.id).count() == workflows_before
+
+
+class TestCreateFlowDraftsOnAnInsightAlert(_FlowPortCase):
+    source_kind = "insight"
+
+    def test_the_trigger_check_refuses_the_alert(self) -> None:
+        sync_template_to_db(_webhook_template(signing_secret_is_secret=True))
+        self._customized_webhook()
+
+        drafts = self._create()
+
+        assert "Insight alerts" in (drafts.refusal or "")
+        assert not HogFlow.objects.filter(team_id=self.team.id).exists()
 
 
 class TestRewriteTemplate(SimpleTestCase):

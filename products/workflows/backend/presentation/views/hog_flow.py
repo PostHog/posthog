@@ -287,7 +287,6 @@ from products.workflows.backend.facade.validation import (
     realtime_cohort_cant_finish_error,
 )
 from products.workflows.backend.facade.workflows import (
-    BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
     COHORT_TRIGGER_TRANSITIONS,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -296,6 +295,7 @@ from products.workflows.backend.facade.workflows import (
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
+    billable_action_types,
     get_team_workflow_edit_state,
     get_workflow,
     get_workflow_edit_state,
@@ -3481,11 +3481,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     )
 
         # Compute and store unique billable action types for efficient quota checking
-        # Only track billable actions defined in BILLABLE_ACTION_TYPES
-        billable_action_types = sorted(
-            {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
-        )
-        data["billable_action_types"] = billable_action_types
+        data["billable_action_types"] = billable_action_types(actions)
 
         # Web-builder drafts stay lenient; programmatic (MCP/API) callers get full validation even on
         # drafts — same posture as HogFlowActionSerializer, so a conversion filter that can't compile

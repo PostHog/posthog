@@ -597,6 +597,10 @@ class WorkflowNotFound(Exception):
     pass
 
 
+class AlertWorkflowRefused(Exception):
+    """Why a draft workflow for an alert destination was not created."""
+
+
 class WorkflowArchived(Exception):
     """An archived workflow cannot be enabled or disabled."""
 

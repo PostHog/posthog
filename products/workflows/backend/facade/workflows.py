@@ -9,6 +9,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
+    billable_action_types,
 )
 from products.workflows.backend.services.hog_flow_reads import (
     BROADCAST_STATUSES,
@@ -25,6 +26,7 @@ from products.workflows.backend.services.hog_flow_reads import (
 
 __all__ = [
     "BILLABLE_ACTION_TYPES",
+    "billable_action_types",
     "COHORT_TRIGGER_TRANSITIONS",
     "PERSON_DEPENDENT_ACTION_TYPES",
     "ROW_SCOPED_TRIGGER_TYPES",

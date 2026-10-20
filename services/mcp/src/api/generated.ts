@@ -55633,6 +55633,7 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `alerts` - Alerts
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -55641,6 +55642,7 @@ export namespace Schemas {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
       TransactionalEmails: 'transactional_emails',
+      Alerts: 'alerts',
     } as const;
 
     export interface HogFlowMasking {
@@ -55959,7 +55961,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `alerts` - Alerts */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -56102,7 +56105,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `alerts` - Alerts */
       readonly origin_product: HogFlowOriginProductEnum;
     }
 
@@ -56564,7 +56568,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `alerts` - Alerts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -83132,7 +83137,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `alerts` - Alerts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -102795,7 +102801,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `alerts` - Alerts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       /** User who created the workflow. */
       readonly created_by: UserBasic | null;
@@ -128029,6 +128036,7 @@ export namespace Schemas {
 
 
     export const HogFlowsListOriginProduct = {
+      Alerts: 'alerts',
       Broadcasts: 'broadcasts',
       Loops: 'loops',
       TransactionalEmails: 'transactional_emails',

@@ -46,6 +46,7 @@ from .contracts import (
     DestinationBucket,
     DestinationEligibility,
     DestinationHoldBack,
+    FlowDrafts,
     FlowPort,
     NamedAlert,
 )
@@ -334,6 +335,22 @@ def flow_ports(
     return flow_port.flow_ports(
         team_id=team_id,
         alerts=alerts,
+        allowed_event_ids=allowed_event_ids,
+        transition_by_event_id=transition_by_event_id,
+    )
+
+
+def create_flow_drafts(
+    *,
+    team_id: int,
+    alert: NamedAlert,
+    allowed_event_ids: Collection[str],
+    transition_by_event_id: Mapping[str, AlertEventKind],
+) -> FlowDrafts:
+    """A draft workflow for each customized destination of one alert, or why none was made. HogFunctions stay as they are."""
+    return flow_port.create_flow_drafts(
+        team_id=team_id,
+        alert=alert,
         allowed_event_ids=allowed_event_ids,
         transition_by_event_id=transition_by_event_id,
     )

@@ -79,6 +79,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
+    ALERTS = "alerts", "Alerts"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
