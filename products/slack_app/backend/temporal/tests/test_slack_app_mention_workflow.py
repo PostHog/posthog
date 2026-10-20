@@ -13,8 +13,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal import derive_mention_workflow_id, slack_app_mention
-from products.slack_app.backend.temporal.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeRepoCascadeOutcome,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -75,6 +75,13 @@ class _Recorder:
         self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
+        # ts -> mapping lookup result; missing means the forward result.
+        self.has_task_results: dict[str, bool] = {}
+        # ts per project route and thread fetch call, in execution order.
+        self.project_route_calls: list[str | None] = []
+        self.thread_fetches: list[str] = []
+        # When set, the model override, project route and thread fetch fakes wait on it.
+        self.new_thread_barrier: asyncio.Barrier | None = None
         # ts -> thread snapshot; missing means a one-message thread. An empty list is what
         # a deleted trigger message reads as.
         self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
@@ -91,6 +98,8 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
+        # True makes discovery report that the team is out of AI credits.
+        self.discover_usage_limited = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -136,11 +145,22 @@ def _fake_activities(rec: _Recorder) -> list:
             return True
         return False
 
+    async def wait_for_new_thread_steps() -> None:
+        if rec.new_thread_barrier is not None:
+            await asyncio.wait_for(rec.new_thread_barrier.wait(), timeout=10)
+
+    @activity.defn(name="posthog_code_thread_has_task_activity")
+    async def has_task(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> bool:
+        ts = inputs.event["ts"]
+        return rec.has_task_results.get(ts, rec.forward_results.get(ts, False))
+
     @activity.defn(name="collect_posthog_code_thread_messages_activity")
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
     ) -> list[SlackThreadMessage]:
         ts = inputs.event["ts"]
+        rec.thread_fetches.append(ts)
+        await wait_for_new_thread_steps()
         return rec.thread_messages.get(ts, [SlackThreadMessage(user="U1", text=inputs.event["text"])])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
@@ -173,7 +193,9 @@ def _fake_activities(rec: _Recorder) -> list:
         thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
-        return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
+        return SlackRepoSelectionOutcome(
+            status="failed", repository=None, reason="agent crashed", usage_limited=rec.discover_usage_limited
+        )
 
     @activity.defn(name="post_posthog_code_repo_picker_activity")
     async def post_picker(
@@ -204,10 +226,13 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="classify_slack_app_model_override_activity")
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
+        await wait_for_new_thread_steps()
         return rec.model_overrides.get(input.event_text)
 
     @activity.defn(name="classify_slack_app_project_route_activity")
     async def classify_project_route(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+        rec.project_route_calls.append(input.thread_ts)
+        await wait_for_new_thread_steps()
         return rec.project_routes.get(input.event_text)
 
     @activity.defn(name="classify_slack_app_model_router_activity")
@@ -262,6 +287,7 @@ def _fake_activities(rec: _Recorder) -> list:
         quota,
         classify_followup,
         request_confirmation,
+        has_task,
         forward,
         collect,
         cascade,
@@ -326,7 +352,7 @@ class _Harness:
         self._worker_cm = Worker(
             self.env.client,
             task_queue=self.task_queue,
-            workflows=[SlackAppMentionWorkflow, PostHogCodeSlackMentionWorkflow],
+            workflows=[SlackAppMentionWorkflow, SlackAppMentionProcessingWorkflow],
             activities=_fake_activities(self.rec),
             workflow_runner=UnsandboxedWorkflowRunner(),
         )
@@ -431,6 +457,34 @@ async def test_model_override_reaches_a_followup_without_creating_a_task():
     assert rec.forwarded_with_override == {"1.1": override}
     assert rec.created == []
     assert rec.router_inputs == []
+    assert rec.project_route_calls == []
+    assert rec.thread_fetches == []
+
+
+@pytest.mark.asyncio
+async def test_new_thread_steps_run_at_the_same_time():
+    rec = _Recorder()
+    rec.new_thread_barrier = asyncio.Barrier(3)
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", "org/auto-repo")]
+    assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
+async def test_mention_whose_task_mapping_disappears_before_the_forward_still_creates_a_task():
+    rec = _Recorder()
+    rec.has_task_results["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.forwarded == []
+    assert rec.created == [("1.1", "org/auto-repo")]
 
 
 @pytest.mark.asyncio
@@ -545,6 +599,21 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
 
 
 @pytest.mark.asyncio
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+    rec.discover_usage_limited = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert not rec.picker_posted.is_set()
+    assert rec.created == []
+    assert rec.internal_errors == []
+
+
+@pytest.mark.asyncio
 async def test_hung_child_times_out_and_queue_continues(monkeypatch):
     # A child that never finishes used to stall the conversation forever: the queue
     # awaits it serially, so every later message in the thread sat behind it with no
@@ -566,7 +635,8 @@ async def test_hung_child_times_out_and_queue_continues(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
+@pytest.mark.parametrize("carried_key_prefix", ["slack-app-mention-processing-", "posthog-code-mention-"])
+async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen(carried_key_prefix: str):
     rec = _Recorder()
     pending = _message("1.1", event_id="Ev-pending")
     already_seen = _message("1.2", event_id="Ev-seen")
@@ -581,7 +651,10 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
             SlackAppMentionWorkflow.run,
             SlackAppMentionWorkflowInputs(
                 pending_messages=[pending],
-                processed_event_keys=[derive_mention_workflow_id(already_seen)],
+                processed_event_keys=[
+                    carried_key_prefix
+                    + derive_mention_workflow_id(already_seen).removeprefix("slack-app-mention-processing-")
+                ],
             ),
             id=f"wf-{uuid.uuid4()}",
             task_queue=h.task_queue,

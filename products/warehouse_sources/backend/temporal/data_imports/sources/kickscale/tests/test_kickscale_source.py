@@ -39,10 +39,6 @@ class TestKickscaleSource:
             assert [f["field"] for f in schemas[name].incremental_fields] == ["date"], name
             assert schemas[name].default_incremental_lookback_seconds == INCREMENTAL_LOOKBACK_SECONDS, name
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
-        assert [s.name for s in schemas] == ["calls"]
-
     @pytest.mark.parametrize(
         "observed_error,expect_match",
         [

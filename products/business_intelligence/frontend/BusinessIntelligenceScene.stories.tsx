@@ -1,12 +1,16 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartSettings, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, AccessControlResourceType, AccessControlLevel } from '~/types'
+
+import { expect } from 'storybook/test'
 
 import { buildBIQuery, getBIResultDimensions, getBIResultMeasureColumns } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -41,10 +45,12 @@ function WorksheetStage({
     config,
     width = 1200,
     sqlPreview = false,
+    chartSettings,
 }: {
     config: BIConfig
     width?: number
     sqlPreview?: boolean
+    chartSettings?: ChartSettings
 }): JSX.Element {
     useEffect(() => {
         const logic = biSceneLogic({ tabId })
@@ -53,6 +59,7 @@ function WorksheetStage({
             ...buildBIQuery(config)!.node,
             kind: NodeKind.BIVisualizationNode,
             config,
+            chartSettings: { ...buildBIQuery(config)!.node.chartSettings, ...chartSettings },
         }
         logic.actions.restoreWorksheet(node)
         logic.actions.recordWorksheet(true)
@@ -60,7 +67,7 @@ function WorksheetStage({
             logic.actions.setSqlPreviewOpen(true)
         }
         return unmount
-    }, [config, sqlPreview])
+    }, [config, sqlPreview, chartSettings])
     return (
         <div className="h-[850px] max-w-full" style={{ width }}>
             <BusinessIntelligenceScene tabId={tabId} />
@@ -70,6 +77,17 @@ function WorksheetStage({
 
 const meta: Meta = {
     title: 'Products/Business intelligence/Worksheet exploration',
+    play: async () => {
+        await waitFor(() => {
+            const { dataNodeKey } = biSceneLogic({ tabId }).values
+            const logic = dataNodeLogic.findMounted({ key: dataNodeKey })
+            expect(logic?.values.responseLoading).toBe(false)
+            expect(logic?.values.response).toBeTruthy()
+        })
+        const { dataNodeKey } = biSceneLogic({ tabId }).values
+        // Mocked responses still measure real browser time, which varies between snapshots.
+        dataNodeLogic.findMounted({ key: dataNodeKey })!.actions.setElapsedTime(180)
+    },
     beforeEach: () => {
         const context = window.POSTHOG_APP_CONTEXT!
         const previous = context.resource_access_control
@@ -95,9 +113,30 @@ const meta: Meta = {
                 '/api/projects/:team_id/external_data_sources/direct_connection_options/': [],
             },
             post: {
+                '/api/projects/:team_id/query/HogQLMetadata/': {
+                    isValid: true,
+                    errors: [],
+                    warnings: [],
+                    notices: [],
+                    output_columns: [{ name: 'value', type: 'Float64' }],
+                },
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const { query } = (await request.json()) as {
                         query: { kind: string; query?: string; limit?: number }
+                    }
+                    if (query.kind === NodeKind.HogQLMetadata) {
+                        return [
+                            200,
+                            {
+                                isValid: true,
+                                errors: [],
+                                warnings: [],
+                                notices: [],
+                                output_columns: [
+                                    { name: 'value', type: query.query?.includes('revenue') ? 'Float64' : 'String' },
+                                ],
+                            },
+                        ]
                     }
                     if (query.kind === NodeKind.DatabaseSchemaQuery) {
                         const fields = [
@@ -181,14 +220,23 @@ const meta: Meta = {
                     const daily = dimensions.some(({ field }) => field.dateBucket === 'day')
                     const columns = [...dimensions.map(({ column }) => column), ...measures.map(({ column }) => column)]
                     const limit = Number(query.query?.match(/LIMIT (\d+)\s*$/)?.[1] ?? 1000)
-                    const results = Array.from({ length: Math.min(daily ? 1500 : 4, limit) }, (_, index) => [
-                        ...dimensions.map(({ field }) =>
-                            field.dateBucket === 'day'
-                                ? new Date(Date.UTC(2022, 0, index + 1)).toISOString()
-                                : ['east', 'west', 'north', 'south'][index % 4]
-                        ),
-                        ...measures.map((_, measure) => 20 + ((index * 7 + measure * 13) % 90)),
-                    ])
+                    const results = Array.from(
+                        { length: Math.min(current.panes ? 16 : daily ? 1500 : 4, limit) },
+                        (_, index) => [
+                            ...dimensions.map(({ field }) =>
+                                field.dateBucket === 'year'
+                                    ? `${2024 + Math.floor(index / 8)}-01-01T00:00:00Z`
+                                    : field.datePart === 'quarter'
+                                      ? Math.floor((index % 8) / 2) + 1
+                                      : field.dateBucket === 'day'
+                                        ? new Date(Date.UTC(2022, 0, index + 1)).toISOString()
+                                        : current.panes
+                                          ? ['east', 'west'][index % 2]
+                                          : ['east', 'west', 'north', 'south'][index % 4]
+                            ),
+                            ...measures.map((_, measure) => 20 + ((index * 7 + measure * 13) % 90)),
+                        ]
+                    )
                     return [
                         200,
                         {
@@ -196,7 +244,7 @@ const meta: Meta = {
                             types: [
                                 ...dimensions.map(({ column, field }) => [
                                     column,
-                                    field.type === 'datetime' ? 'DateTime' : 'String',
+                                    field.datePart ? 'Int64' : field.type === 'datetime' ? 'DateTime' : 'String',
                                 ]),
                                 ...measures.map(({ column }) => [column, 'Float64']),
                             ],
@@ -233,3 +281,21 @@ const scatterConfig: BIConfig = {
     colorBy: 'region',
 }
 export const ScatterSelection: StoryObj = { render: () => <WorksheetStage config={scatterConfig} /> }
+
+const year = { ...field('Order date', 'datetime'), id: 'order-year', dateBucket: 'year' as const }
+const quarter = { ...field('Order date', 'datetime'), id: 'order-quarter', datePart: 'quarter' as const }
+const paneConfig: BIConfig = {
+    ...config,
+    rows: [year],
+    columns: [quarter, region],
+    filters: [],
+    colorBy: region.id,
+    panes: { fields: [year.id] },
+}
+const paneSettings: ChartSettings = { goalLines: [{ label: 'Pane average', value: 0, calculation: 'mean' }] }
+export const NestedPanes: StoryObj = {
+    render: () => <WorksheetStage config={paneConfig} chartSettings={paneSettings} />,
+}
+export const NestedPanesNarrow: StoryObj = {
+    render: () => <WorksheetStage config={paneConfig} chartSettings={paneSettings} width={520} />,
+}

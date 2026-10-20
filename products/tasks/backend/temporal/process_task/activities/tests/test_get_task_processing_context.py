@@ -265,8 +265,11 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("subscription,is_trial", [(False, False), (True, False), (False, True)])
-    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial):
+    @pytest.mark.parametrize(
+        "subscription,is_trial,resume",
+        [(False, False, False), (True, False, False), (False, True, False), (False, False, True)],
+    )
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial, resume):
         owner = User.objects.create_user(
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
@@ -277,6 +280,8 @@ class TestGetTaskProcessingContextActivity:
             test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
             test_task.save(update_fields=["origin_product", "origin_key"])
         task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
+        if resume:
+            task_run.prepare_for_cloud_resume()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         with (
@@ -301,6 +306,10 @@ class TestGetTaskProcessingContextActivity:
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
         assert result.run_id == str(task_run.id)
+        assert result.startup_requested_at == (
+            task_run.queued_at.isoformat() if resume else task_run.state["startup_requested_at"]
+        )
+        assert result.stream_generation is not None
         assert result.team_id == test_task.team_id
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"

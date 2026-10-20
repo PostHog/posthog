@@ -78,10 +78,10 @@ def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]],
             "name": saved_query.get("name") or link.saved_metric.name,
         }
         # Links default to primary when untyped; an unrecognized type belongs to neither section.
-        metric_type = (link.metadata or {}).get("type", "primary")
-        if metric_type == "secondary":
+        role = (link.metadata or {}).get("type", "primary")
+        if role == "secondary":
             secondary.append(metric_dict)
-        elif metric_type == "primary":
+        elif role == "primary":
             primary.append(metric_dict)
 
     _sort_by_ordered_uuids(primary, experiment.primary_metrics_ordered_uuids)

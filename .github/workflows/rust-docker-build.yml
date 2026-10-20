@@ -201,6 +201,9 @@ jobs:
                     - release: personhog-identity
                       digest_key: personhog-identity
                       values_key: image
+                    - release: personhog-publisher
+                      digest_key: personhog-publisher
+                      values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader
                       values_key: image
@@ -215,6 +218,9 @@ jobs:
                       values_key: image
                     - release: personhog-test-harness
                       digest_key: personhog-test-harness
+                      values_key: image
+                    - release: personhog-parity-monitor
+                      digest_key: personhog-parity-monitor
                       values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner

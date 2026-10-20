@@ -1271,6 +1271,7 @@ class TestTaskRun(TestCase):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_prepare_for_cloud_resume_clears_stale_sandbox_routing(self, _publish):
+        requested_at = django_timezone.now() - timedelta(days=1)
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -1285,10 +1286,16 @@ class TestTaskRun(TestCase):
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
                 "failure_error_type": "poll_timeout",
+                "startup_requested_at": requested_at.isoformat(),
             },
         )
 
         run.prepare_for_cloud_resume()
+        run.refresh_from_db()
+
+        self.assertEqual(run.state["startup_requested_at"], requested_at.isoformat())
+        assert run.queued_at is not None
+        self.assertEqual(run.analytics_properties()["startup_requested_at"], run.queued_at.isoformat())
 
         self.assertNotIn("failure_error_type", run.state)
         self.assertNotIn("sandbox_id", run.state)

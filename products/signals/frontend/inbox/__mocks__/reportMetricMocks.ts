@@ -83,6 +83,11 @@ const conversionQuery: InsightVizNode<TrendsQuery> = {
 }
 
 const liveMetricResults: Record<string, { aggregatedValue: number; data: number[]; label: string; days?: string[] }> = {
+    checkout_failed: {
+        aggregatedValue: 280,
+        data: [22, 26, 21, 24, 28, 23, 25, 21, 24, 22, 20, 6, 4, 3],
+        label: 'Checkout errors',
+    },
     $autocapture: {
         aggregatedValue: 1248,
         data: [88, 96, 104, 99, 121, 118, 132, 132, 184, 211, 196, 249, 238, 263],
@@ -203,11 +208,29 @@ export async function reportMetricQueryHandler({ request }: { request: Request }
         query?: {
             series?: Array<{ custom_name?: string; event?: string; math?: string; name?: string }>
             trendsFilter?: { formula?: string }
+            dateRange?: { date_from?: string; date_to?: string }
         }
     }
     const series = body.query?.series?.[0]
     const resultKey = body.query?.trendsFilter?.formula ? 'conversion' : series?.event
     const result = liveMetricResults[resultKey ?? ''] ?? liveMetricResults.$autocapture
+
+    let resultDays = result.days ?? dates
+    let resultData = result.data
+    const range = body.query?.dateRange
+    if (range?.date_from && range.date_to && !range.date_from.startsWith('-')) {
+        const from = new Date(range.date_from)
+        const to = new Date(range.date_to)
+        const observed = new Map(resultDays.map((day, index) => [day, result.data[index]]))
+        resultDays = []
+        resultData = []
+        for (const bucket = new Date(from); bucket <= to; bucket.setUTCDate(bucket.getUTCDate() + 1)) {
+            bucket.setUTCHours(0, 0, 0, 0)
+            const day = bucket.toISOString().slice(0, 10)
+            resultDays.push(day)
+            resultData.push(observed.get(day) ?? 0)
+        }
+    }
 
     return [
         200,
@@ -225,9 +248,9 @@ export async function reportMetricQueryHandler({ request }: { request: Request }
                     },
                     label: result.label,
                     count: result.data.at(-1) ?? 0,
-                    data: result.data,
-                    days: result.days ?? dates,
-                    labels: result.days ?? dates,
+                    data: resultData,
+                    days: resultDays,
+                    labels: resultDays,
                     aggregated_value: result.aggregatedValue,
                 },
             ],

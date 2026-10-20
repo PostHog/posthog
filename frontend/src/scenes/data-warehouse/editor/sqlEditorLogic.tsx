@@ -49,6 +49,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
+import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -706,6 +707,7 @@ export interface sqlEditorLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
+                  deferCreatedToast?: boolean
                   folder_id?: string | null
                   types: string[][]
               })
@@ -713,6 +715,7 @@ export interface sqlEditorLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: Partial<DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
@@ -735,8 +738,10 @@ export interface sqlEditorLogicActions {
     materializeDataWarehouseSavedQuery: (
         viewId: string,
         syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
-        incremental?: DataWarehouseSavedQueryIncremental | null | undefined
+        incremental?: DataWarehouseSavedQueryIncremental | null | undefined,
+        createdViewName?: string | undefined
     ) => {
+        createdViewName: string | undefined
         incremental: DataWarehouseSavedQueryIncremental | null | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
@@ -2690,6 +2695,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                         ...(incremental ? { incremental } : {}),
+                        ...(materializeAfterSave ? { deferCreatedToast: true } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
@@ -2699,7 +2705,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     )
 
                     if (materializeAfterSave && savedQuery) {
-                        await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
+                        await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(
+                            savedQuery.id,
+                            undefined,
+                            undefined,
+                            savedQuery.name
+                        )
                     }
                     if (fromDraft) {
                         actions.deleteDraft(fromDraft, savedQuery?.name)
@@ -2884,7 +2895,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     router.actions.push(urls.dashboard(dashboardId, insight.short_id))
                 } else {
                     lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
-                    router.actions.push(urls.insightView(insight.short_id))
+                    router.actions.push(withBackLink(urls.insightView(insight.short_id)))
                 }
             },
             saveAsEndpoint: async () => {
@@ -3205,7 +3216,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.info(
                         `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
                     )
-                    router.actions.push(urls.insightView(savedInsight.short_id))
+                    router.actions.push(withBackLink(urls.insightView(savedInsight.short_id)))
                 }
             },
             discardChanges: async (_, breakpoint) => {
@@ -3358,7 +3369,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         if (!values.isEmbeddedMode) {
                             router.actions.replace(
                                 values.editorUrl,
-                                undefined,
+                                backLinkParams(router.values.searchParams),
                                 getTabHash({ ...values, activeTab: nextTab })
                             )
                         }
@@ -4126,7 +4137,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
                     tabAdded = true
-                    router.actions.replace(values.editorUrl, undefined, getTabHash(values))
+                    router.actions.replace(
+                        values.editorUrl,
+                        backLinkParams(router.values.searchParams),
+                        getTabHash(values)
+                    )
                 } else if (
                     insightShortIdFromUrl &&
                     (searchParams.open_insight ||
@@ -4155,7 +4170,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             biEditorStateFromUrl ?? undefined
                         )
                         tabAdded = true
-                        router.actions.replace(values.editorUrl, undefined, getTabHash(values))
+                        router.actions.replace(
+                            values.editorUrl,
+                            backLinkParams(router.values.searchParams),
+                            getTabHash(values)
+                        )
                         return
                     }
 
@@ -4250,7 +4269,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     }
                     tabAdded = true
-                    router.actions.replace(values.editorUrl, undefined, getTabHash(values))
+                    router.actions.replace(
+                        values.editorUrl,
+                        backLinkParams(router.values.searchParams),
+                        getTabHash(values)
+                    )
                 } else if (searchParams.edit_metric) {
                     // edit_metric binds the "Update metric" button to overwrite a named metric.
                     // Both edit_metric and open_query are URL-controlled, so we never bind the

@@ -1,9 +1,10 @@
+from functools import cached_property
 from typing import cast
 
 from posthog.constants import INTERVAL
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.filters.mixins.common import DateMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import include_dict
 
 
 class IntervalMixin(DateMixin):  # Interval doesn't make sense without a date range

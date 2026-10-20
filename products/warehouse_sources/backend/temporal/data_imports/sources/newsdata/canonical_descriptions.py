@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-# The latest, archive, and crypto endpoints all return the same news-article shape.
+# The latest, archive, crypto, and market endpoints all return the same news-article shape.
 _ARTICLE_COLUMNS = {
     "article_id": "Unique identifier for the news article.",
     "title": "The article's headline.",
@@ -41,6 +41,7 @@ _ARTICLE_COLUMNS = {
 _LATEST_DOCS = "https://newsdata.io/documentation/#latest-news"
 _ARCHIVE_DOCS = "https://newsdata.io/documentation/#news-archive"
 _CRYPTO_DOCS = "https://newsdata.io/documentation/#crypto-news"
+_MARKET_DOCS = "https://newsdata.io/documentation"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "latest": {
@@ -60,6 +61,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_ARTICLE_COLUMNS,
             "coin": "Cryptocurrency coins the article relates to (e.g. btc, eth).",
         },
+    },
+    "market": {
+        "description": "Stock-market and financial news articles filterable by publish date and stock ticker.",
+        "docs_url": _MARKET_DOCS,
+        "columns": _ARTICLE_COLUMNS,
     },
     "sources": {
         "description": "Catalog of news sources available through NewsData.io.",

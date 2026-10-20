@@ -6441,6 +6441,48 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Feature flag variant 'invalid_option' does not exist", error_data["detail"])
         self.assertIn("Available variants: option_1, option_2", error_data["detail"])
 
+    @parameterized.expand(
+        [
+            ("stale_variant_without_flag", False, {}, None),
+            ("explicit_unlink", True, {"linked_flag_id": None}, None),
+            ("partial_update_keeps_linked_flag", True, {}, "alpha"),
+        ]
+    )
+    def test_update_survey_with_linked_flag_variant_and_no_flag_in_payload(
+        self, _name: str, instance_has_flag: bool, extra_payload: dict, expected_variant: str | None
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-variant-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [{"key": "alpha", "rollout_percentage": 50}, {"key": "beta", "rollout_percentage": 50}]
+                },
+            },
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stale Variant Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+            linked_flag=flag if instance_has_flag else None,
+            conditions={"linkedFlagVariant": "alpha", "url": "https://example.com"},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"conditions": {"linkedFlagVariant": "alpha", "url": "https://example.com"}, **extra_payload},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        conditions = response.json()["conditions"]
+        self.assertEqual(conditions.get("linkedFlagVariant"), expected_variant)
+        self.assertEqual(conditions["url"], "https://example.com")
+
 
 class TestSurveyQuestionLabels(APIBaseTest):
     """`surveys/question_labels/` is the slim taxonomy endpoint the frontend uses to
@@ -7956,6 +7998,24 @@ class TestSurveyListTypeFilter(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertIsNone(data["next"])
         self.assertEqual([survey["id"] for survey in data["results"]], [str(own_survey.id)])
+
+    def test_filter_by_linked_flag_id(self):
+        experiment_flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user)
+        other_flag = FeatureFlag.objects.create(team=self.team, key="other-flag", created_by=self.user)
+        linked_survey = Survey.objects.create(
+            team=self.team, name="experiment survey", type="popover", questions=[], linked_flag=experiment_flag
+        )
+        Survey.objects.create(
+            team=self.team, name="other flag survey", type="popover", questions=[], linked_flag=other_flag
+        )
+        Survey.objects.create(team=self.team, name="unlinked survey", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?linked_flag_id={experiment_flag.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual([survey["id"] for survey in data["results"]], [str(linked_survey.id)])
 
     @parameterized.expand(
         [

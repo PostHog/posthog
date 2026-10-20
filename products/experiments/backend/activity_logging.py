@@ -5,6 +5,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 
 # Kept in sync with DERIVED_RUNNING_TIME_KEYS in
@@ -77,4 +78,47 @@ def handle_experiment_change(
         scope=scope,
         activity=activity,
         detail=Detail(changes=changes, name=after_update.name),
+    )
+
+
+# Precomputation is managed by PostHog (the auto-enrollment job and staff tooling) and has no
+# control in the settings UI, so its changes stay out of the customer's audit trail.
+PRECOMPUTATION_FIELDS = frozenset({"experiment_precomputation_enabled", "precomputation_enabled_set_by"})
+
+
+@mutable_receiver(model_activity_signal, sender=TeamExperimentsConfig)
+def handle_team_experiments_config_change(
+    sender: type[TeamExperimentsConfig],
+    scope: AuditableScope,
+    before_update: TeamExperimentsConfig | None,
+    after_update: TeamExperimentsConfig,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
+    if activity == "deleted":
+        return
+
+    # The row is created with defaults the first time anything reads the config, which is no
+    # decision a person made. The Django admin can also create it with non-default values in
+    # one save, so a new row is compared against the defaults instead of being skipped.
+    previous = before_update if before_update is not None else TeamExperimentsConfig(team=after_update.team)
+    changes = [
+        change
+        for change in changes_between("Team", previous=previous, current=after_update)
+        if change.field not in PRECOMPUTATION_FIELDS
+    ]
+
+    # Logged under the Team scope, with the team as the item, so the change sits next to the
+    # other project settings in the activity log and the team describer renders it.
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.team_id,
+        scope="Team",
+        activity="updated",
+        detail=Detail(changes=changes, name=after_update.team.name),
     )

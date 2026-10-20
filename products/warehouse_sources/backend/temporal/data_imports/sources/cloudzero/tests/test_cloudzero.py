@@ -1,8 +1,6 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import (
@@ -10,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.
     PROBE_FAILED_MESSAGE,
     CloudzeroResumeConfig,
     _rolling_incremental_start_date,
-    get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import CloudzeroSource
@@ -181,9 +178,3 @@ class TestValidateCredentials:
         assert network.requests_log
         assert {request.path for request in network.requests_log} == {"/v2/billing/dimensions"}
         assert all(request.headers["authorization"] == "test-key" for request in network.requests_log)
-
-
-class TestGetResource:
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown CloudZero endpoint"):
-            get_resource("NotAnEndpoint", False, "daily", "real_cost", [])

@@ -1153,18 +1153,25 @@ class TestTrinoShadowRun:
         assert {call.args[1] for call in node_count.call_args_list} == {expected_engine}
 
     @pytest.mark.parametrize(
-        "error",
+        "error,expected_outcome",
         [
+            pytest.param(None, "started", id="started"),
             pytest.param(
                 WorkflowAlreadyStartedError("execute-dag-trino-dag:3600", "data-modeling-execute-dag"),
+                "skipped_still_running",
                 id="previous_shadow_still_running",
             ),
-            pytest.param(RuntimeError("task queue is gone"), id="start_failed"),
+            pytest.param(RuntimeError("task queue is gone"), "error", id="start_failed"),
         ],
     )
-    async def test_a_shadow_that_cannot_start_does_not_fail_the_clickhouse_run(self, error: Exception) -> None:
-        outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
+    async def test_a_shadow_start_is_counted_by_outcome_and_never_fails_the_clickhouse_run(
+        self, error: Exception | None, expected_outcome: str
+    ) -> None:
+        # A shadow that hangs until its timeout emits no DAG metric, so the skip count is what alerts on it.
+        with patch("posthog.temporal.data_modeling.workflows.execute_dag.get_trino_shadow_start_metric") as start:
+            outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
 
+        assert [call.args[0] for call in start.call_args_list] == [expected_outcome]
         assert outcome.result.successful_nodes == 2
         assert outcome.result.failed_nodes == 0
 

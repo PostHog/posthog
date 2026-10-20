@@ -63,12 +63,33 @@ REQUEST_TIMEOUT_SECONDS = 60
 # Shown when the refresh-token exchange is rejected. The raw Zoho `error` code (e.g. `invalid_code`)
 # is kept on the exception for logs but never surfaced to users, who can't act on it.
 REFRESH_TOKEN_REJECTED_MESSAGE = (
-    "Zoho CRM rejected your refresh token. Generate a new one for your self client and reconnect."
+    "Zoho CRM rejected your refresh token. Exchange a new code from your self client's Generate Code tab "
+    "for a refresh token, then reconnect."
 )
+# Zoho also answers `invalid_client` for a client registered in another data center.
+CLIENT_REJECTED_MESSAGE = (
+    "Zoho CRM doesn't recognize this client in the data center you picked. Check the client ID and secret, "
+    "and pick the data center your Zoho account uses."
+)
+CLIENT_SECRET_REJECTED_MESSAGE = (
+    "Zoho CRM rejected your client secret. Copy it again from your self client, then reconnect."
+)
+# `invalid_client_secret` comes first because error patterns match as substrings.
+TOKEN_ERROR_MESSAGES = {
+    "invalid_client_secret": CLIENT_SECRET_REJECTED_MESSAGE,
+    "invalid_client": CLIENT_REJECTED_MESSAGE,
+}
+TOKEN_REFRESH_FAILED_PREFIX = "Zoho CRM token refresh failed"
 
 
 class ZohoCRMAuthError(Exception):
-    pass
+    def __init__(self, error_code: Optional[str]) -> None:
+        super().__init__(f"{TOKEN_REFRESH_FAILED_PREFIX}: {error_code or 'no access token returned'}")
+        self.error_code = error_code
+
+    @property
+    def user_message(self) -> str:
+        return TOKEN_ERROR_MESSAGES.get(self.error_code or "", REFRESH_TOKEN_REJECTED_MESSAGE)
 
 
 @dataclasses.dataclass
@@ -169,7 +190,7 @@ class ZohoCRMClient:
         access_token = body.get("access_token")
         if not access_token:
             # Zoho answers a revoked or malformed refresh token with HTTP 200 and an `error` key.
-            raise ZohoCRMAuthError(f"Zoho CRM token refresh failed: {body.get('error') or 'no access token returned'}")
+            raise ZohoCRMAuthError(body.get("error"))
 
         api_domain = body.get("api_domain")
         if api_domain:
@@ -373,8 +394,8 @@ def validate_credentials(
 
     try:
         client.get(f"/crm/{api_version}/settings/modules")
-    except ZohoCRMAuthError:
-        return False, REFRESH_TOKEN_REJECTED_MESSAGE
+    except ZohoCRMAuthError as e:
+        return False, e.user_message
     except Exception:
         return False, None
     return True, None

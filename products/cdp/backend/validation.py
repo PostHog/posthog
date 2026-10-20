@@ -621,6 +621,7 @@ class _TemplatingChoiceField(serializers.ChoiceField):
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
+    # nosemgrep: choices-need-a-class -- existing input-type list; this change only adds one value to it
     type = serializers.ChoiceField(
         choices=[
             "string",
@@ -645,6 +646,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_mcp_installations",
             "signals_scout",
             "task_skills",
+            "replay_vision_scan",
         ]
     )
     key = serializers.CharField()
@@ -836,6 +838,13 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "replay_vision_scan":
+            if not isinstance(value, dict) or not isinstance(value.get("type"), str):
+                raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
+            # The setup is never templated. Compiled code or a Liquid template from the client could name a different
+            # scanner than the value the access checks read, so only the literal value reaches the engine.
+            for key in ("bytecode", "transpiled", "templating"):
+                attrs.pop(key, None)
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})
@@ -974,6 +983,39 @@ class InputsItemSerializer(serializers.Serializer):
         return attrs
 
 
+def exposes_secret_dictionary_keys(schema: dict, schemas: list) -> bool:
+    """Only a `secret_<key>` dictionary paired with a plain `<key>` dictionary holds locked rows the editor lists by key."""
+    key = schema.get("key")
+    if schema.get("type") != "dictionary" or not isinstance(key, str) or not key.startswith("secret_"):
+        return False
+    plain_key = key.removeprefix("secret_")
+    return any(
+        isinstance(s, dict) and s.get("key") == plain_key and s.get("type") == "dictionary" and not s.get("secret")
+        for s in schemas
+    )
+
+
+def masked_dictionary_secret(stored: Any) -> dict:
+    """Mask a secret dictionary input entry by entry, so the editor can still list its keys."""
+    entries = stored.get("value") if isinstance(stored, dict) else None
+    if isinstance(entries, dict):
+        return {"secret": True, "value": dict.fromkeys(entries, MASKED_SECRET_VALUE)}
+    return {"secret": True}
+
+
+def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, list[str]]:
+    """Put each stored secret back where the editor sent the mask for an entry it did not retype."""
+    entries = value.get("value") if isinstance(value, dict) else None
+    if not isinstance(entries, dict) or MASKED_SECRET_VALUE not in entries.values():
+        return value, []
+    stored_entries = stored.get("value") if isinstance(stored, dict) else None
+    stored_entries = stored_entries if isinstance(stored_entries, dict) else {}
+    missing = [k for k, v in entries.items() if v == MASKED_SECRET_VALUE and k not in stored_entries]
+    restored = {k: stored_entries.get(k) if v == MASKED_SECRET_VALUE else v for k, v in entries.items()}
+    stored_metadata = {k: v for k, v in stored.items() if k != "value"} if isinstance(stored, dict) else {}
+    return {**stored_metadata, **value, "value": restored}, missing
+
+
 class InputsSerializer(serializers.DictField):
     """
     Provides the same typing as the DictField but with custom validation to only include the inputs that are in the schema
@@ -1011,6 +1053,12 @@ class InputsSerializer(serializers.DictField):
                     and bool(value.get("secret"))
                     and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
                 )
+                if not is_masked and schema.get("type") == "dictionary":
+                    value, missing = restore_masked_dictionary_entries(value, (existing_secret_inputs or {}).get(key))
+                    if missing:
+                        errors[key] = f"No value is saved for {', '.join(missing)}. Enter the value again."
+                        continue
+
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:

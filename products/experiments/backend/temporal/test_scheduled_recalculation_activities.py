@@ -30,6 +30,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_activities im
 )
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     SKIP_ACTIVE_RUN,
+    SKIP_EXPOSURE_BACKOFF,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
     SKIP_NO_METRICS,
@@ -180,6 +181,49 @@ class TestScheduledRecalculationActivities(BaseTest):
         ):
             assert _check_exposures(self.experiment.id, 2) is False
         assert capture.call_args.kwargs["reason"] == SKIP_EXPOSURE_QUERY_FAILED
+
+    @parameterized.expand(
+        [
+            ("three_insufficient", [0, 12, 49], 3),
+            ("two_insufficient", [0, 0], None),
+            ("reset_at_threshold", [0, 0, 50, 0], None),
+            ("failed_query_keeps_the_count", [0, 0, RuntimeError("clickhouse is sad"), 0], 3),
+            ("failed_query_adds_nothing", [0, 0, RuntimeError("clickhouse is sad")], None),
+        ]
+    )
+    def test_consecutive_insufficient_checks_back_off_the_experiment(
+        self, _name: str, outcomes: list[int | Exception], backed_off_count: int | None
+    ):
+        for outcome in outcomes:
+            with (
+                patch(f"{MODULE}.count_total_exposures", side_effect=[outcome]),
+                patch(f"{MODULE}.posthoganalytics.capture"),
+            ):
+                _check_exposures(self.experiment.id, 12)
+        with patch(f"{MODULE}.posthoganalytics.capture") as capture:
+            discovery = _discover()
+        if backed_off_count is None:
+            assert [c.experiment_id for c in discovery.candidates] == [self.experiment.id]
+            capture.assert_not_called()
+            return
+        assert discovery.candidates == []
+        properties = capture.call_args.kwargs["properties"]
+        assert capture.call_args.kwargs["event"] == SKIPPED_EVENT
+        assert properties["reason"] == SKIP_EXPOSURE_BACKOFF
+        assert properties["consecutive_insufficient_checks"] == backed_off_count
+        assert properties["days_since_last_check"] == 0
+
+    @parameterized.expand([("enough", 120, True), ("insufficient", 12, False)])
+    def test_exposure_gate_ignores_a_redis_failure(self, _name: str, total: int, expected: bool):
+        with (
+            patch(f"{MODULE}.count_total_exposures", return_value=total),
+            patch(f"{MODULE}.capture_skip"),
+            patch(
+                "products.experiments.backend.temporal.scheduled_recalculation_logic.get_client",
+                side_effect=ConnectionError("redis down"),
+            ),
+        ):
+            assert _check_exposures(self.experiment.id, 12) is expected
 
     def test_start_creates_a_row_and_dispatches_the_workflow(self):
         with patch(f"{RECALCULATION}.start_metrics_recalculation_workflow") as dispatch:

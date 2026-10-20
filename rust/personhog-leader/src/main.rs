@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::kafka_producer::create_kafka_producer;
+use common_kafka::kafka_producer::{create_kafka_producer, spawn_bounded_flush_on_shutdown};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
@@ -295,8 +295,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     // Runs at phase 1, after the coordination drain, so the drain's last
-    // records are in the queue it flushes.
-    personhog_leader::kafka::spawn_bounded_flush_on_shutdown(
+    // records are in the queue it flushes. The changelog path awaits each
+    // record's delivery before acking, so a timed-out flush drops only
+    // records nobody acked.
+    spawn_bounded_flush_on_shutdown(
         kafka_producer.clone(),
         kafka_handle,
         Duration::from_secs(10),

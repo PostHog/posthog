@@ -144,7 +144,10 @@ If your account is a brand (advertiser) account, use the impact.com source inste
         ):
             return True, None
 
-        return False, "Invalid Impact.com Account SID or Auth Token"
+        return False, (
+            "Your impact.com Account SID or Auth token isn't valid for a partner account. "
+            "Check both values, or use the impact.com source for a brand account."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ImpactPartnerResumeConfig]:
         return ResumableSourceManager[ImpactPartnerResumeConfig](inputs, ImpactPartnerResumeConfig)

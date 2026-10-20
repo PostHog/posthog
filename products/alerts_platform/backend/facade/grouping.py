@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    Grouping,
     GroupOutcome,
     InstanceCheckState,
     PlatformAlertCheckInput,
@@ -41,16 +42,33 @@ MAX_GROUPING_KEY_LENGTH: Final = 255
 _HASHED_PREFIX: Final = "sha256:"
 
 
-def bounded_grouping_key(key: str) -> str:
-    """A key that fits the column. Stable across checks, so a group keeps its row."""
-    if len(key) <= MAX_GROUPING_KEY_LENGTH:
-        return key
-    return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode()).hexdigest()}"
-
-
 def is_hashed_grouping_key(key: str) -> bool:
     """Whether `bounded_grouping_key` hashed this key, so the value it came from is gone."""
     return key.startswith(_HASHED_PREFIX)
+
+
+def _storable(key: str) -> bool:
+    # A PostgreSQL text column rejects NUL, and UTF-8 cannot encode a lone surrogate. Either one
+    # aborts the transaction that records the whole batch.
+    if "\x00" in key:
+        return False
+    try:
+        key.encode()
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def bounded_grouping_key(key: str) -> str:
+    """A key the column can store. Stable across checks, so a group keeps its row.
+
+    A key stays as it is only when it fits, PostgreSQL can store it, and it cannot read as a hash.
+    Every other key is hashed. A literal key in the hash namespace is hashed too, because otherwise
+    it would share a row with the long key whose digest it spells.
+    """
+    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and _storable(key):
+        return key
+    return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode('utf-8', 'surrogatepass')).hexdigest()}"
 
 
 # A label value can come from ingested data, such as a service name, so its size is the sender's
@@ -105,6 +123,11 @@ def delivery_parts(outcome: PlatformAlertOutcome, incident_grouping_keys: Collec
     )
     if outcome.failure is not None and outcome.failure.kind != AlertEventKind.CHECK:
         transitions += 1
+    return parts_for(transitions)
+
+
+def parts_for(transitions: int) -> int:
+    """How many delivery activities this many transitions need."""
     return max(1, math.ceil(transitions / MAX_TRANSITIONS_PER_DELIVERY))
 
 
@@ -137,7 +160,7 @@ class GroupDecision:
     evicted: frozenset[str] = frozenset()
 
     def as_outcome(
-        self, *, configuration_id: UUID, evaluation_key: str, query_duration_ms: int | None
+        self, *, configuration_id: UUID, evaluation_key: str, grouping: Grouping, query_duration_ms: int | None
     ) -> PlatformAlertOutcome:
         """The outcome of a grouped check that ran. A query that ran reset the failure count."""
         return PlatformAlertOutcome(
@@ -145,6 +168,7 @@ class GroupDecision:
             evaluation_key=evaluation_key,
             consecutive_failures=0,
             groups=tuple(verdict.group for verdict in self.verdicts),
+            grouping=grouping,
             query_duration_ms=query_duration_ms,
             overflowed=self.overflowed,
             evicted=tuple(sorted(self.evicted)),
@@ -157,7 +181,7 @@ def muted_value(outcome: Outcome) -> str:
     return "" if muted == NotificationAction.NONE else muted.value
 
 
-def _not_breaching(grouping_key: str) -> GroupObservation:
+def not_breaching(grouping_key: str) -> GroupObservation:
     return GroupObservation(grouping_key=grouping_key, current_breached=False)
 
 
@@ -177,7 +201,7 @@ def decide_groups(
     policy: AlertPolicy,
     now: datetime,
     muted: bool = False,
-    absent: Callable[[str], GroupObservation | None] = _not_breaching,
+    absent: Callable[[str], GroupObservation | None] = not_breaching,
 ) -> GroupDecision:
     """Each observed group run through the machine against its own instance.
 

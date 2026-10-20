@@ -1,9 +1,5 @@
-from datetime import timedelta
-
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
-
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -11,7 +7,6 @@ from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertState
 
 from products.alerts.backend.models import AlertConfiguration
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
@@ -24,6 +19,7 @@ from products.pulse.backend.models import (
     ResourceType,
 )
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
+from products.subscriptions.backend.facade.testing import create_subscription
 
 _EVIDENCE = EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")
 
@@ -209,14 +205,7 @@ class TestPersistBriefOutput(BaseTest):
             alert = AlertConfiguration.objects.create(
                 team=self.team, insight=insight, name="a", state=AlertState.ERRORED, enabled=True
             )
-            subscription = Subscription.objects.create(
-                team=self.team,
-                title="s",
-                target_type="email",
-                target_value="x@y.com",
-                frequency="weekly",
-                start_date=timezone.now() - timedelta(days=1),
-            )
+            subscription_id = create_subscription(team_id=self.team.id, title="s")
         item = SourceItem(
             source="resource_health",
             kind=SourceItemKind.HEALTH,
@@ -224,7 +213,7 @@ class TestPersistBriefOutput(BaseTest):
             description="d",
             evidence=[
                 EvidenceRef(type=EvidenceType.ALERT, ref=str(alert.id), label="a", url=""),
-                EvidenceRef(type=EvidenceType.SUBSCRIPTION, ref=str(subscription.id), label="s", url=""),
+                EvidenceRef(type=EvidenceType.SUBSCRIPTION, ref=str(subscription_id), label="s", url=""),
             ],
             fingerprint_hint="alert:x",
         )
@@ -245,4 +234,4 @@ class TestPersistBriefOutput(BaseTest):
         persist_brief_output(brief=self._brief(), out=out, items=[item])
         links = {link.resource_type: link for link in self._links()}
         assert links[ResourceType.ALERT].alert_id == alert.id
-        assert links[ResourceType.SUBSCRIPTION].subscription_id == subscription.id
+        assert links[ResourceType.SUBSCRIPTION].subscription_id == subscription_id

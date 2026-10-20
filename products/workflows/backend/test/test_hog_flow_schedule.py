@@ -11,6 +11,10 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -20,10 +24,8 @@ from products.workflows.backend.presentation.views.hog_flow import (
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
-BATCH_TRIGGER = {
-    "type": "batch",
-    "filters": {"properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}]},
-}
+BATCH_AUDIENCE = [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}]
+BATCH_TRIGGER = {"type": "batch", "filters": {"properties": BATCH_AUDIENCE}}
 
 SCHEDULE_DATA = {
     "rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO",
@@ -55,6 +57,36 @@ class TestHogFlowScheduleAPI(APIBaseTest):
 
     def _schedule_detail_url(self, workflow_id, schedule_id):
         return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/schedules/{schedule_id}/"
+
+    @parameterized.expand([("can_view_recordings", "viewer", status.HTTP_201_CREATED), ("cannot", "none", 403)])
+    def test_scheduling_a_replay_vision_step_needs_the_callers_recording_access(
+        self, _name, recording_access, expected
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        workflow = HogFlow.objects.create(
+            team=self.team,
+            name="Scheduled scan",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[
+                {
+                    "id": "vision",
+                    "name": "vision",
+                    "type": "function",
+                    "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+                }
+            ],
+        )
+
+        response = self.client.post(
+            self._schedules_url(workflow.id), {**SCHEDULE_DATA, "variables": {"session": "s1"}}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
 
     def test_create_schedule(self):
         workflow = self._create_batch_workflow()
@@ -171,6 +203,46 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["schedules"] == []
+
+    @parameterized.expand(
+        [
+            ("moving the start", {"starts_at": "2030-01-02T09:00:00Z"}, "changed"),
+            ("changing the repeat rule", {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=TU"}, "changed"),
+            ("changing only the variables", {"variables": {"key": "value"}}, None),
+        ]
+    )
+    def test_update_schedule_logs_changes_to_the_send_times(self, _name, payload, expected_action):
+        workflow = self._create_batch_workflow()
+        schedule_id = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()["id"]
+        logged_before = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).count()
+
+        response = self.client.patch(self._schedule_detail_url(workflow["id"], schedule_id), payload)
+
+        assert response.status_code == status.HTTP_200_OK
+        entries = list(ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).order_by("created_at"))
+        new_changes = [(entry.detail or {})["changes"][0] for entry in entries[logged_before:]]
+        if expected_action is None:
+            assert new_changes == []
+        else:
+            assert [(change["field"], change["action"]) for change in new_changes] == [("schedule", expected_action)]
+            assert new_changes[0]["before"]["starts_at"] == "2030-01-01T09:00:00+00:00"
+            assert new_changes[0]["after"] == {
+                "rrule": payload.get("rrule", SCHEDULE_DATA["rrule"]),
+                "starts_at": payload.get("starts_at", SCHEDULE_DATA["starts_at"]).replace("Z", "+00:00"),
+                "timezone": "UTC",
+            }
+
+    def test_creating_and_deleting_a_schedule_logs_both(self):
+        workflow = self._create_batch_workflow()
+        schedule_id = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()["id"]
+        self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
+
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"], activity="updated")
+        changes = [(entry.detail or {})["changes"][0] for entry in entries.order_by("created_at")]
+        assert [(change["field"], change["action"]) for change in changes] == [
+            ("schedule", "created"),
+            ("schedule", "deleted"),
+        ]
 
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()
@@ -596,6 +668,37 @@ class TestHogFlowRun(APIBaseTest):
             variables={"greeting": "Hello", "name": "Overridden"},
         )
 
+    def _run_replay_vision_workflow(self, mock_invocation, recording_access):
+        self._mock_success(mock_invocation)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        workflow = self._create_workflow()
+        workflow.actions = [
+            {
+                "id": "vision",
+                "name": "vision",
+                "type": "function",
+                "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+            }
+        ]
+        workflow.save()
+        return self.client.post(self._run_url(workflow.id), {"variables": {"session": "s1"}}, format="json")
+
+    def test_run_with_a_replay_vision_step_runs_for_a_caller_who_can_view_recordings(self, mock_invocation):
+        response = self._run_replay_vision_workflow(mock_invocation, "viewer")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_invocation.assert_called_once()
+
+    def test_run_with_a_replay_vision_step_is_refused_without_the_callers_recording_access(self, mock_invocation):
+        response = self._run_replay_vision_workflow(mock_invocation, "none")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_invocation.assert_not_called()
+
     def test_run_rejects_non_schedule_trigger(self, mock_invocation):
         workflow = self._create_workflow(trigger_type="batch")
 
@@ -732,3 +835,114 @@ class TestHogFlowRun(APIBaseTest):
 
         assert retried.status_code == status.HTTP_200_OK
         assert mock_invocation.call_count == 2
+
+
+def _email_step(category_type=None, to=None):
+    config = {
+        "template_id": "template-email",
+        "inputs": {"email": {"value": {"to": {"email": to}, "html": "<p>Hi</p>"}}},
+    }
+    if category_type:
+        config.update(message_category_id="category-1", message_category_type=category_type)
+    return {"id": "email", "name": "email", "type": "function_email", "config": config}
+
+
+class TestSendCalendarAPI(APIBaseTest):
+    RANGE_START = datetime(2030, 3, 1, tzinfo=UTC)
+    RANGE_END = datetime(2030, 4, 12, tzinfo=UTC)
+
+    def _flow(self, name, *, trigger=BATCH_TRIGGER, email=None, flow_status="active", origin_product=None):
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name=name,
+            status=flow_status,
+            origin_product=origin_product,
+            trigger=trigger,
+            actions=[email] if email else [],
+        )
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=hog_flow,
+            rrule="FREQ=WEEKLY;BYDAY=MO",
+            starts_at=self.RANGE_START,
+            timezone="UTC",
+            status="active",
+        )
+        return hog_flow
+
+    def _run(self, hog_flow, created_at):
+        # bulk_create skips the signal that dispatches the run to the plugin server.
+        [job] = HogFlowBatchJob.objects.bulk_create(
+            [HogFlowBatchJob(team=self.team, hog_flow=hog_flow, status="completed")]
+        )
+        HogFlowBatchJob.objects.filter(id=job.id).update(created_at=created_at)
+        return str(job.id)
+
+    def _get(self, start=None, end=None):
+        return self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/send_calendar/",
+            {"start": (start or self.RANGE_START).isoformat(), "end": (end or self.RANGE_END).isoformat()},
+        )
+
+    @parameterized.expand(
+        [
+            ("marketing_broadcast", {"email": _email_step("marketing"), "origin_product": "broadcasts"}, True),
+            ("uncategorized_email", {"email": _email_step()}, True),
+            ("schedule_trigger", {"trigger": {"type": "schedule"}, "email": _email_step()}, True),
+            ("transactional_category", {"email": _email_step("transactional")}, False),
+            (
+                "transactional_email_product",
+                {"trigger": {"type": "batch"}, "email": _email_step(), "origin_product": "transactional_emails"},
+                False,
+            ),
+            ("no_email_step", {}, False),
+            ("draft", {"email": _email_step(), "flow_status": "draft"}, False),
+            ("event_trigger", {"trigger": {"type": "event"}, "email": _email_step()}, False),
+        ]
+    )
+    def test_lists_only_active_scheduled_email_flows_that_are_not_transactional(self, _name, flow_kwargs, listed):
+        hog_flow = self._flow("Flow", **flow_kwargs)
+
+        response = self._get()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["id"] for row in response.json()] == ([str(hog_flow.id)] if listed else [])
+
+    def test_returns_card_fields_and_only_the_runs_inside_the_range(self):
+        hog_flow = self._flow("October update", email=_email_step("marketing", to="team@example.com"))
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=hog_flow,
+            rrule="FREQ=DAILY;COUNT=1",
+            starts_at=self.RANGE_START,
+            timezone="UTC",
+            status="completed",
+        )
+        self._run(hog_flow, self.RANGE_START - timedelta(seconds=1))
+        inside = self._run(hog_flow, self.RANGE_START)
+
+        [row] = self._get().json()
+
+        assert row["name"] == "October update"
+        assert row["trigger_type"] == "batch"
+        assert row["audience_properties"] == BATCH_AUDIENCE
+        assert row["message_category_id"] == "category-1"
+        assert row["user_access_level"] == "editor"
+        assert "actions" not in row
+        assert [schedule["status"] for schedule in row["schedules"]] == ["active"]
+        assert [job["id"] for job in row["batch_jobs"]] == [inside]
+
+    def test_a_flow_with_only_a_past_run_inside_the_range_is_listed(self):
+        hog_flow = self._flow("Sent broadcast", email=_email_step("marketing"))
+        HogFlowSchedule.objects.filter(hog_flow=hog_flow).update(status="completed")
+        self._run(hog_flow, self.RANGE_START + timedelta(days=2))
+
+        assert [row["id"] for row in self._get().json()] == [str(hog_flow.id)]
+        assert self._get(end=self.RANGE_START + timedelta(days=1)).json() == []
+
+    @parameterized.expand([("end_before_start", -1), ("range_too_long", 93)])
+    def test_rejects_an_unusable_range(self, _name, days):
+        response = self._get(end=self.RANGE_START + timedelta(days=days))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "end"

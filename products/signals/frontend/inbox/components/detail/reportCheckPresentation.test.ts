@@ -9,6 +9,7 @@ import {
     checkExpiredEntry,
     checkScheduledEntry,
     latestCheckExplanations,
+    monitoringPeriodLabel,
     reportChecksMeta,
     splitReportCheckRows,
 } from './reportCheckPresentation'
@@ -49,6 +50,16 @@ function rowFor(
 }
 
 describe('reportCheckPresentation', () => {
+    it.each([
+        [0, '0 minutes'],
+        [1, '1 minute'],
+        [1441, '1 day 1 minute'],
+        [1501, '1 day 1 hour 1 minute'],
+        [20160, '14 days'],
+    ])('preserves the full Monitoring period of %s minutes', (minutes, label) => {
+        expect(monitoringPeriodLabel(Number(minutes))).toBe(label)
+    })
+
     describe('buildReportCheckRows', () => {
         // The section exists so a reader can tell a scheduled check from a waiting one from a check
         // that never ran. A wrong mapping here puts the wrong verdict word on the row.

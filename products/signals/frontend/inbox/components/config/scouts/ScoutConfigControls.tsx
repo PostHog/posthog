@@ -40,6 +40,7 @@ import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
+import { ScoutToolsSection } from './ScoutToolsSection'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
 
 interface ScoutConfigControlsProps {
@@ -385,6 +386,7 @@ export function ScoutConfigForm({
                 updating={updating}
                 onUnsavedChange={setSchemaUnsaved}
             />
+            <ScoutToolsSection config={config} onUpdate={onUpdate} updating={updating} surface={surface} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}

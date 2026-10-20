@@ -6,6 +6,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { draftsLogic } from 'scenes/data-warehouse/editor/draftsLogic'
@@ -3416,10 +3417,54 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('materialize on save', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it.each([
-            { name: 'materializes the created view when materializeAfterSave is true', materialize: true },
-            { name: 'does not materialize when materializeAfterSave is false', materialize: false },
-        ])('$name', async ({ materialize }) => {
+            {
+                name: 'materializes the created view when materializeAfterSave is true',
+                materialize: true,
+                materializeResponse: [200, {}],
+                toasts: [
+                    {
+                        type: 'success',
+                        message: 'Materialized view successfully created and materialized',
+                        button: 'Go to view',
+                    },
+                ],
+            },
+            {
+                name: 'does not materialize when materializeAfterSave is false',
+                materialize: false,
+                materializeResponse: [200, {}],
+                toasts: [{ type: 'success', message: 'Materialized view successfully created', button: 'Go to view' }],
+            },
+            {
+                name: 'warns that the created view is not materialized when the materialization fails',
+                materialize: true,
+                materializeResponse: [400, { detail: 'Pick 1 week instead.' }],
+                toasts: [
+                    {
+                        type: 'warning',
+                        message: 'Materialized view was created but not materialized. Pick 1 week instead.',
+                        button: 'Go to view',
+                    },
+                ],
+            },
+        ])('$name', async ({ materialize, materializeResponse, toasts }) => {
+            const shownToasts: { type: string; message: unknown; button: string | undefined }[] = []
+            const recordToast =
+                (type: string) =>
+                (message: unknown, options?: { button?: { label: string } }): string => {
+                    shownToasts.push({ type, message, button: options?.button?.label })
+                    return 'x'
+                }
+            jest.spyOn(lemonToast, 'success').mockImplementation(recordToast('success'))
+            jest.spyOn(lemonToast, 'warning').mockImplementation(recordToast('warning'))
+            jest.spyOn(lemonToast, 'error').mockImplementation(recordToast('error'))
+            materializeEndpointMock.mockImplementation(() => materializeResponse)
+
             const viewsLogic = dataWarehouseViewsLogic()
             viewsLogic.mount()
 
@@ -3456,6 +3501,7 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
+            expect(shownToasts).toEqual(toasts)
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()

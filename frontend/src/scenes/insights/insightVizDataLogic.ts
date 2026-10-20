@@ -30,6 +30,8 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import {
     FLAG_CALLS_SERIES_NAME,
+    dataWarehouseSeriesNodes,
+    everyWarehouseSeriesReadsFlagCalls,
     flagCallsBreakdownFromEventBreakdown,
     readsFlagCalls,
     withFlagCallsAggregationTarget,
@@ -240,8 +242,8 @@ export interface insightVizDataLogicValues {
     formulas: string[] | null | undefined
     funnelPathsFilter: FunnelPathsFilter | null | undefined
     funnelsFilter: FunnelsFilter | null | undefined
+    globalFiltersUnsupported: boolean
     goalLines: GoalLine[] | null | undefined
-    hasDataWarehouseEntity: boolean
     hasDataWarehouseSeries: boolean
     hasDetailedResultsTable: boolean
     hasFormula: boolean
@@ -1240,7 +1242,7 @@ export interface insightVizDataLogicMeta {
         hasDataWarehouseSeries: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
         ) => boolean
-        hasDataWarehouseEntity: (
+        globalFiltersUnsupported: (
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
@@ -2415,9 +2417,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | undefined
             ): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
         ],
-        hasDataWarehouseEntity: [
+        globalFiltersUnsupported: [
             (s) => [s.querySource],
-            (querySource: InsightQueryNode | null): boolean => !!querySource && readsDataWarehouseTable(querySource),
+            (querySource: InsightQueryNode | null): boolean =>
+                !!querySource && !everyWarehouseSeriesReadsFlagCalls(querySource),
         ],
         hasOnlyDataWarehouseSeries: [
             (s) => [s.series],
@@ -3017,17 +3020,6 @@ export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | n
     return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
 }
 
-function readsDataWarehouseTable(query: InsightQueryNode): boolean {
-    const retentionEntities = isRetentionQuery(query)
-        ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
-        : []
-    return (
-        !!(query as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series?.some(
-            isAnyDataWarehouseNode
-        ) || retentionEntities.some((entity) => entity?.type === 'data_warehouse')
-    )
-}
-
 // The only breakdown types the trends backend resolves against a data warehouse series.
 const DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES = new Set<string>(['data_warehouse', 'hogql'])
 
@@ -3144,22 +3136,20 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // We do not support properties, filtering test accounts, and sampling for DWH nodes
-    // Disable them if there are any. Check the query after the update, so a later edit cannot turn them on again.
+    // DWH series do not support sampling. They support properties and test account filtering only when every DWH
+    // series reads flag calls. Check the query after the update, so a later edit cannot turn them on again.
     const nextQuery = { ...currentState, ...mergedUpdate } as InsightQueryNode
-    const hasDataWarehouseSeries = readsDataWarehouseTable(nextQuery)
-    const hasFiltersOrTestAccounts = !!nextQuery.filterTestAccounts || parseProperties(nextQuery.properties).length > 0
-    if (hasDataWarehouseSeries && (hasFiltersOrTestAccounts || (nextQuery as TrendsQuery).samplingFactor != null)) {
-        if (hasFiltersOrTestAccounts) {
-            lemonToast.info(
-                readsFlagCalls(nextQuery)
-                    ? `${FLAG_CALLS_SERIES_NAME} doesn't support filter groups or test account filtering, so they're turned off.`
-                    : 'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
-            )
-        }
-
+    if (
+        !everyWarehouseSeriesReadsFlagCalls(nextQuery) &&
+        (!!nextQuery.filterTestAccounts || parseProperties(nextQuery.properties).length > 0)
+    ) {
+        lemonToast.info(
+            'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
+        )
         ;(mergedUpdate as TrendsQuery).properties = undefined
         ;(mergedUpdate as TrendsQuery).filterTestAccounts = false
+    }
+    if (dataWarehouseSeriesNodes(nextQuery).length > 0 && (nextQuery as TrendsQuery).samplingFactor != null) {
         ;(mergedUpdate as TrendsQuery).samplingFactor = undefined
     }
 

@@ -141,7 +141,6 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -215,47 +214,6 @@ class UserManager(BaseUserManager):
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
-
-
-# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
-# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
-# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
-# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
-def default_ui_configuration_for_new_users() -> dict[str, Any]:
-    return {
-        "version": 1,
-        "sidebar": {
-            "items": {
-                "files": {"visible": False},
-                "starred": {"visible": False},
-            },
-        },
-    }
-
-
-def preserve_starred_products_setup(
-    user: Optional["User"], configuration: Optional[dict[str, Any]]
-) -> Optional[dict[str, Any]]:
-    """Carry the completed starred products setup into a new configuration that omits it.
-
-    Writers send the whole configuration, so a client that does not know this key (an API call,
-    the MCP tool, an older frontend) would otherwise drop it and show the setup again.
-    Sending the key explicitly, even as false, still wins.
-    """
-    stored = user.ui_configuration if user else None
-    if not isinstance(stored, dict):
-        return configuration
-    stored_sidebar = stored.get("sidebar")
-    if not (isinstance(stored_sidebar, dict) and stored_sidebar.get("starred_products_setup_completed")):
-        return configuration
-    if configuration is None:
-        return {"version": stored.get("version", 1), "sidebar": {"starred_products_setup_completed": True}}
-    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
-    if not isinstance(configuration, dict) or not isinstance(sidebar, dict | None):
-        return configuration
-    if sidebar is not None and "starred_products_setup_completed" in sidebar:
-        return configuration
-    return {**configuration, "sidebar": {**(sidebar or {}), "starred_products_setup_completed": True}}
 
 
 class ThemeMode(models.TextChoices):
@@ -333,13 +291,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
-    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
-    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
     ui_configuration = models.JSONField(
         null=True,
         blank=True,
-        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
-        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
+        help_text="Per-user UI customization, such as SQL editor settings, shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -560,11 +516,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         # After role assignment, so role-granted project access is included. Covers joins
         # that don't go through an invite (e.g. domain/SSO auto-join).
-        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
-            add_default_products_for_accessible_teams,
+        from posthog.models.file_system.starred_products import (  # noqa: PLC0415 - avoids a circular import
+            star_default_products_for_accessible_teams,
         )
 
-        add_default_products_for_accessible_teams(self, organization)
+        star_default_products_for_accessible_teams(self, organization)
 
         return membership
 

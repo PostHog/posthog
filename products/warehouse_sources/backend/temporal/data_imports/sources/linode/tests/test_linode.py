@@ -2,6 +2,8 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import time_machine
+
 import requests
 from parameterized import parameterized
 
@@ -9,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -137,6 +140,24 @@ class TestPagination:
         assert result.saved_states == [LinodeResumeConfig(next_page=2), LinodeResumeConfig(next_page=3)]
         assert result.committed_states == [LinodeResumeConfig(next_page=2), LinodeResumeConfig(next_page=3)]
 
+    def test_lke_node_pools_fan_out_per_cluster_and_carry_the_cluster_id(self) -> None:
+        result = _driver().run(
+            "lke_node_pools",
+            [
+                _page([{"id": 7, "label": "prod"}, {"id": 8, "label": "staging"}]),
+                _page([{"id": 70, "count": 3}]),
+                _page([{"id": 80, "count": 1}, {"id": 81, "count": 2}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v4/lke/clusters", "/v4/lke/clusters/7/pools", "/v4/lke/clusters/8/pools"]
+        assert [(row["cluster_id"], row["id"], row["count"]) for row in result.rows] == [
+            (7, 70, 3),
+            (8, 80, 1),
+            (8, 81, 2),
+        ]
+
     def test_invoice_items_fan_out_per_invoice_and_carry_invoice_fields(self) -> None:
         result = _driver().run(
             "invoice_items",
@@ -161,6 +182,26 @@ class TestPagination:
         assert result.response is not None
         assert result.response.partition_keys == ["invoice_date"]
 
+    def test_volume_quota_usage_fans_out_per_quota_and_skips_quotas_without_usage(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/volumes/quotas":
+                return _page([{"quota_id": "vol-capacity-us-east"}, {"quota_id": "vol-attachments-us-east"}])
+            if request.path == "/v4/volumes/quotas/vol-attachments-us-east/usage":
+                return ScriptedResponse(status=404, json={"errors": [{"reason": "Not found"}]})
+            return ScriptedResponse(json={"quota_limit": 51200, "usage": 12800})
+
+        result = _driver().run("volume_quota_usage", respond)
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v4/volumes/quotas",
+            "/v4/volumes/quotas/vol-capacity-us-east/usage",
+            "/v4/volumes/quotas/vol-attachments-us-east/usage",
+        ]
+        assert result.requests[0].param("page_size") == "500"
+        assert result.requests[1].param("page_size") is None
+        assert result.rows == [{"quota_id": "vol-capacity-us-east", "quota_limit": 51200, "usage": 12800}]
+
     def test_account_transfer_yields_the_bare_object_as_one_row(self) -> None:
         transfer = {"quota": 4000, "used": 120, "billable": 0, "region_transfers": []}
         result = _driver().run("account_transfer", [ScriptedResponse(json=transfer)])
@@ -169,6 +210,101 @@ class TestPagination:
         assert result.rows == [transfer]
         assert result.requests[0].param("page_size") is None
         assert len(result.requests) == 1
+
+
+_TRANSFER = {"bytes_in": 10, "bytes_out": 20, "bytes_total": 30}
+
+
+def _monthly_transfer_vendor(missing_linode_id: int | None = None, missing_status: int = 404):
+    linodes = [
+        {"id": 1, "created": "2019-06-01T08:00:00"},
+        {"id": 2, "created": "2026-02-10T12:30:00"},
+        {"id": 3, "created": "2018-01-01T00:00:00"},
+    ]
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v4/linode/instances":
+            return _page(linodes)
+        linode_id = int(request.path.split("/")[4])
+        if linode_id == missing_linode_id:
+            return ScriptedResponse(status=missing_status, json={"errors": [{"reason": "Not found"}]})
+        return ScriptedResponse(json=_TRANSFER)
+
+    return respond
+
+
+class TestMonthlyTransfer:
+    @parameterized.expand(
+        [
+            (
+                # A full refresh reads the lookback window and ignores a stale watermark.
+                "full_refresh_reads_the_lookback_window",
+                {"should_use_incremental_field": False, "db_incremental_field_last_value": datetime(2026, 2, 1)},
+                [(2025, month) for month in range(4, 13)] + [(2026, 1)],
+            ),
+            (
+                "first_incremental_sync_reads_the_lookback_window",
+                {"incremental_field": "month_start", "db_incremental_field_last_value": None},
+                [(2025, month) for month in range(4, 13)] + [(2026, 1)],
+            ),
+            (
+                "incremental_sync_starts_at_the_watermark_month",
+                {
+                    "incremental_field": "month_start",
+                    "db_incremental_field_last_value": datetime(2026, 2, 1, tzinfo=UTC),
+                },
+                [],
+            ),
+            (
+                "string_watermark_mid_month",
+                {"incremental_field": "month_start", "db_incremental_field_last_value": "2026-01-20T00:00:00"},
+                [(2026, 1)],
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 3, 15, 9, 0, tzinfo=UTC), tick=False)
+    def test_walks_months_oldest_first_across_all_linodes(
+        self, _name: str, inputs: dict[str, Any], months_before_february: list[tuple[int, int]]
+    ) -> None:
+        # Linode 2 exists from February 2026, so it gets no request for earlier months.
+        expected = [(linode_id, year, month) for year, month in months_before_february for linode_id in (1, 3)]
+        expected += [(linode_id, 2026, month) for month in (2, 3) for linode_id in (1, 2, 3)]
+
+        result = _driver().run("linode_monthly_transfer", _monthly_transfer_vendor(), **inputs)
+
+        assert result.raised is None
+        assert [(row["linode_id"], row["year"], row["month"]) for row in result.rows] == expected
+        assert result.paths[1:] == [
+            f"/v4/linode/instances/{linode_id}/transfer/{year}/{month}" for linode_id, year, month in expected
+        ]
+        assert [row["month_start"] for row in result.rows] == [
+            datetime(year, month, 1, tzinfo=UTC) for _id, year, month in expected
+        ]
+        assert result.rows[0]["bytes_total"] == 30
+
+    @time_machine.travel(datetime(2026, 3, 15, tzinfo=UTC), tick=False)
+    def test_skips_a_linode_deleted_after_the_listing(self) -> None:
+        result = _driver().run(
+            "linode_monthly_transfer",
+            _monthly_transfer_vendor(missing_linode_id=3),
+            incremental_field="month_start",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [row["linode_id"] for row in result.rows] == [1, 2]
+
+    @time_machine.travel(datetime(2026, 3, 15, tzinfo=UTC), tick=False)
+    def test_other_client_errors_fail_the_sync(self) -> None:
+        result = _driver().run(
+            "linode_monthly_transfer",
+            _monthly_transfer_vendor(missing_linode_id=1, missing_status=403),
+            incremental_field="month_start",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "403" in str(result.raised)
 
 
 class TestRetries:

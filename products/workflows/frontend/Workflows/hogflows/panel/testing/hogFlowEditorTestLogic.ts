@@ -337,6 +337,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -470,6 +473,9 @@ export interface hogFlowEditorTestLogicMeta {
             triggerAction:
                 | ({
                       config:
+                          | {
+                                type: 'api'
+                            }
                           | {
                                 type: 'schedule'
                             }
@@ -609,6 +615,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -742,6 +751,9 @@ export interface hogFlowEditorTestLogicMeta {
             triggerAction:
                 | ({
                       config:
+                          | {
+                                type: 'api'
+                            }
                           | {
                                 type: 'schedule'
                             }

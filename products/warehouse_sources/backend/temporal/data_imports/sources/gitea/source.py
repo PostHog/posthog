@@ -169,6 +169,7 @@ If automatic creation failed, your token needs admin access to the repository â€
             "404 Client Error": "Repository not found. Please verify the instance URL, repository name, and token access.",
             "Invalid Gitea instance URL": "The Gitea instance URL is invalid. Please enter the instance's canonical https URL.",
             "Gitea Actions runs are unavailable": "Gitea Actions runs are unavailable for this repository. Upgrade the instance to Gitea 1.25 or later and enable Actions on the repository, or turn off the workflow_runs table.",
+            "Gitea Actions jobs are unavailable": "Gitea Actions jobs are unavailable for this repository. Upgrade the instance to Gitea 1.25 or later and enable Actions on the repository, or turn off the workflow_jobs table.",
         }
 
     def get_schemas(

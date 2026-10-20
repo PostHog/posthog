@@ -13,15 +13,15 @@ dependencies (modules that the entrypoint imports, directly or transitively).
 This is useful for determining which files need to trigger a rebuild of a worker.
 
 Usage:
-    python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions
+    python bin/find_python_dependencies.py products.subscriptions.backend.temporal
     # Output: {"dependencies": ["posthog/utils.py", ...]}
 
     # Check if any changed files affect a worker
-    python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes "posthog/utils.py posthog/unrelated_file.py"
+    python bin/find_python_dependencies.py products.subscriptions.backend.temporal --check-changes "posthog/utils.py posthog/unrelated_file.py"
     # Output: {"affected": true, "matching_files": ["posthog/utils.py"]}
 
     # Read a NUL-delimited changed-file list
-    python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes-file /tmp/changed-files
+    python bin/find_python_dependencies.py products.subscriptions.backend.temporal --check-changes-file /tmp/changed-files
 """
 
 import os
@@ -106,7 +106,7 @@ def main():
     )
     parser.add_argument(
         "entrypoint",
-        help="Module path to analyze (e.g., products.exports.backend.temporal.subscriptions)",
+        help="Module path to analyze (e.g., products.subscriptions.backend.temporal)",
     )
     changed_files_group = parser.add_mutually_exclusive_group()
     changed_files_group.add_argument(
@@ -126,7 +126,7 @@ def main():
     # Validate entrypoint format
     if "/" in args.entrypoint or args.entrypoint.endswith(".py"):
         sys.stderr.write(
-            f"Error: Entrypoint should be a module path (e.g., 'products.exports.backend.temporal.subscriptions'), "
+            f"Error: Entrypoint should be a module path (e.g., 'products.subscriptions.backend.temporal'), "
             f"not a file path ('{args.entrypoint}')\n"
         )
         sys.exit(1)
