@@ -73,7 +73,7 @@ async fn async_main(config: Config) -> Result<()> {
     log_startup(&config);
 
     config.validate_startup()?;
-    let ownership = config.partition_ownership()?;
+    let claim = config.split_claim()?;
 
     let lineage = config
         .checkpoint_enabled
@@ -321,7 +321,7 @@ async fn async_main(config: Config) -> Result<()> {
         )
         .context("checking the checkpoint directory")?;
     }
-    let admitted = AdmittedSplit::admit(ownership, groups.clone()).await;
+    let admitted = AdmittedSplit::admit(claim, groups.clone()).await;
     let (store, restore) = open_store(&config, &admitted, lineage, groups.clone())
         .await
         .context("opening RocksDB state store")?;
@@ -574,12 +574,12 @@ async fn async_main(config: Config) -> Result<()> {
     // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
     // The loop waits for boot: a capture before the events rewind would record the broker's old
     // offsets of a pending restore.
-    if let (Some(lineage), Some(checkpoint_handle)) = (lineage, checkpoint_handle) {
+    if let Some(checkpoint_handle) = checkpoint_handle {
         let sweeper = Arc::new(CheckpointSweeper::new(
             store_for_checkpoint,
             dispatcher.clone(),
             groups,
-            lineage,
+            claimed.clone(),
             config.durability_config(),
             upload_cadence(
                 config.checkpoint_interval_ms,
@@ -765,6 +765,7 @@ fn log_startup(config: &Config) {
         merge_apply_consumer_group = %config.kafka_merge_apply_consumer_group,
         pod_identity = config.pod_identity().unwrap_or("<none>"),
         pod_count = config.cohort_pod_count,
+        reshard_from_pod_count = ?config.cohort_reshard_from_pod_count,
         recv_batch_size = config.recv_batch_size,
         partition_channel_buffer = config.partition_channel_buffer,
         store_path = %config.store_path,

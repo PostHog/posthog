@@ -543,7 +543,6 @@ RAISES: dict[str, str] = {
     "NoaaCdo": "500 connection",
     "OPUSWatch": "connection",
     "OneHundredMs": "500 connection",
-    "Openalex": "connection",
     "Orb": "500 connection",
     "Paymongo": "500 connection",
     "Paystack": "connection",
@@ -609,15 +608,10 @@ RAISES: dict[str, str] = {
 
 # Sources whose probe returns no message for these answers. Each entry is a defect to fix: the person
 # sees a generic message that does not say what is wrong.
-NO_MESSAGE: dict[str, str] = {
-    "Confluence": "connection",
-    "Xmatters": "500 connection",
-}
+NO_MESSAGE: dict[str, str] = {}
 
 # Sources whose message or raised error contains a secret from the config. Each entry is a defect to fix.
-LEAKS_SECRET: set[str] = {
-    "Openalex",
-}
+LEAKS_SECRET: set[str] = set()
 
 
 @frozen
