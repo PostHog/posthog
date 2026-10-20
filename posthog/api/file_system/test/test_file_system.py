@@ -31,6 +31,7 @@ from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -1125,6 +1126,48 @@ class TestFileSystemAPI(APIBaseTest):
         paths = [item["path"] for item in resp.json()["results"]]
         # Pure case-insensitive alphabetical order, regardless of type
         self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
+
+    @parameterized.expand([("type=dashboard",), ("type__startswith=dashboard",)])
+    def test_typed_list_orders_by_own_views_with_unviewed_last(self, type_filter: str) -> None:
+        files = [
+            FileSystem.objects.create(team=self.team, path=f"Dashboard {index}", type="dashboard", ref=str(index))
+            for index in range(3)
+        ]
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="0", viewed_at="2026-09-01T00:00:00Z"
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="1", viewed_at="2026-09-02T00:00:00Z"
+        )
+        other_user = User.objects.create_and_join(self.organization, "viewer@example.com", "password")
+        FileSystemViewLog.objects.create(
+            team=self.team, user=other_user, type="dashboard", ref="2", viewed_at="2026-09-03T00:00:00Z"
+        )
+        files.append(FileSystem.objects.create(team=self.team, path="Dashboard copy", type="dashboard", ref="0"))
+        files.extend(
+            FileSystem.objects.create(
+                team=self.team, path=f"Dashboard unseen {index}", type="dashboard", ref=f"unseen-{index}"
+            )
+            for index in range(2)
+        )
+        FileSystem.objects.create(team=self.team, path="Excluded", type="dashboard", ref="excluded")
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="excluded", viewed_at="2026-09-04T00:00:00Z"
+        )
+        base = f"/api/projects/{self.team.id}/file_system/?{type_filter}&search=name:Dashboard&order_by="
+        for ordering, expected in [("-last_viewed_at", [1, 3, 0, 5, 4, 2]), ("last_viewed_at", [3, 0, 1, 5, 4, 2])]:
+            next_url = f"{base}{ordering}&limit=2"
+            results = []
+            while next_url:
+                response = self.client.get(next_url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+                data = response.json()
+                self.assertEqual(data["count"], 6)
+                results.extend(data["results"])
+                next_url = data["next"]
+            self.assertEqual([row["id"] for row in results], [str(files[index].id) for index in expected])
+            self.assertTrue(all(row["last_viewed_at"] is None for row in results[-3:]))
+            self.assertTrue(all(row["last_viewed_at"] for row in results[:-3]))
 
     def test_list_order_by_created_at(self):
         # Create items in chronological order
