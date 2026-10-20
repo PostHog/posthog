@@ -119,14 +119,19 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
+        actor = "nullIf(pr.author, '')"
         branch_join = f"""
             LEFT JOIN (
-                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+                SELECT
+                    number,
+                    any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch,
+                    any(user) AS author
                 FROM {pull_requests_table}
                 GROUP BY number
             ) AS pr ON {pr_number} = pr.number"""
     else:
         head_branch = "NULL"
+        actor = "NULL"
         branch_join = ""
     # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
@@ -136,6 +141,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {pr_number} AS pr_number,
             coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
             a.repo AS repo,
+            {actor} AS actor,
             coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
             a.run_id AS native_run_id,
             a.workflow_id AS native_workflow_run_id,
@@ -181,7 +187,7 @@ def _runs(attempts: str) -> str:
             ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
-            NULL AS actor,
+            any(actor) AS actor,
             {OPTIONAL_WORKFLOW_RUNS_COLUMNS["workflow_id"]} AS workflow_id,
             {OPTIONAL_WORKFLOW_RUNS_COLUMNS["event"]} AS event,
             'depot_ci' AS ci_engine,
@@ -280,15 +286,16 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
             ) = 'success'
             AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
     """
-    # The runs builder parses JSON columns on every row, so the raw columns narrow its input first.
-    successful_relays = f"id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})"
+    # Depot's PR is the run's association (see ASSOCIATION_PR_NUMBER). The raw columns come first, so
+    # the JSON parse runs only on successful relays.
     return f"""
-        SELECT r.id
-        FROM ({workflow_runs.build_query(f"({_github_runs(runs_table, successful_relays)})")}) AS r
-        WHERE (r.head_sha, r.pr_number) IN (
-            SELECT head_sha, pr_number FROM {handoffs}
-            WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
-        )
+        SELECT id
+        FROM {runs_table}
+        WHERE id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})
+            AND (head_sha, {workflow_runs.ASSOCIATION_PR_NUMBER}) IN (
+                SELECT head_sha, pr_number FROM {handoffs}
+                WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
+            )
     """
 
 

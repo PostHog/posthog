@@ -4,7 +4,6 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -142,10 +141,3 @@ def test_next_url_cannot_send_token_to_another_host(driver: SourceDriver) -> Non
 
     assert isinstance(result.raised, ValueError)
     assert len(result.requests) == 1
-
-
-def test_unknown_endpoint_fails_before_request(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

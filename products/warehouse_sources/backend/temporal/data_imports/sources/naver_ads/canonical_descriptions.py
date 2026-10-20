@@ -1,0 +1,112 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_DOCS_URL = "https://naver.github.io/searchad-apidoc/"
+
+_STAT_COLUMNS = {
+    "id": "Id of the entity the metrics belong to.",
+    "date": "Day the metrics cover, in Korea Standard Time.",
+    "impCnt": "Impression count.",
+    "clkCnt": "Click count.",
+    "salesAmt": "Total cost, in KRW including VAT.",
+    "ctr": "Click-through rate, in percent.",
+    "cpc": "Average cost per click.",
+    "avgRnk": "Average impression rank.",
+    "ccnt": "Conversion count.",
+    "crto": "Conversion rate, in percent.",
+    "convAmt": "Revenue from conversions.",
+    "ror": "Return on ad spend, in percent.",
+    "cpConv": "Cost per conversion.",
+    "viewCnt": "View count.",
+    "purchaseCcnt": "Count of completed purchase conversions.",
+    "purchaseConvAmt": "Revenue from completed purchase conversions.",
+    "purchaseRor": "Return on ad spend for completed purchase conversions, in percent.",
+}
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "campaigns": {
+        "description": "Search ad campaigns in the account.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "nccCampaignId": "Unique campaign id.",
+            "customerId": "Ad account id.",
+            "name": "Campaign name.",
+            "campaignTp": "Campaign type, for example WEB_SITE or SHOPPING.",
+            "dailyBudget": "Daily budget in KRW.",
+            "useDailyBudget": "Whether the daily budget applies.",
+            "deliveryMethod": "Budget delivery method.",
+            "status": "Delivery status.",
+            "statusReason": "Reason for the delivery status.",
+            "userLock": "Whether the advertiser paused the campaign.",
+            "periodStartDt": "Start of the campaign period.",
+            "periodEndDt": "End of the campaign period.",
+            "regTm": "Time the campaign was created.",
+            "editTm": "Time the campaign was last edited.",
+        },
+    },
+    "adgroups": {
+        "description": "Ad groups, each belonging to one campaign.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "nccAdgroupId": "Unique ad group id.",
+            "nccCampaignId": "Id of the campaign the ad group belongs to.",
+            "name": "Ad group name.",
+            "adgroupType": "Ad group type.",
+            "bidAmt": "Default bid in KRW.",
+            "dailyBudget": "Daily budget in KRW.",
+            "status": "Delivery status.",
+            "statusReason": "Reason for the delivery status.",
+            "userLock": "Whether the advertiser paused the ad group.",
+            "regTm": "Time the ad group was created.",
+            "editTm": "Time the ad group was last edited.",
+        },
+    },
+    "ads": {
+        "description": "Ads, each belonging to one ad group.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "nccAdId": "Unique ad id.",
+            "nccAdgroupId": "Id of the ad group the ad belongs to.",
+            "type": "Ad type.",
+            "ad": "Ad content as returned by the API.",
+            "inspectStatus": "Review status of the ad.",
+            "status": "Delivery status.",
+            "userLock": "Whether the advertiser paused the ad.",
+            "regTm": "Time the ad was created.",
+            "editTm": "Time the ad was last edited.",
+        },
+    },
+    "keywords": {
+        "description": "Keywords, each belonging to one ad group.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "nccKeywordId": "Unique keyword id.",
+            "nccAdgroupId": "Id of the ad group the keyword belongs to.",
+            "nccCampaignId": "Id of the campaign the keyword belongs to.",
+            "keyword": "Keyword text.",
+            "bidAmt": "Bid in KRW.",
+            "useGroupBidAmt": "Whether the keyword uses the ad group's default bid.",
+            "inspectStatus": "Review status of the keyword.",
+            "status": "Delivery status.",
+            "userLock": "Whether the advertiser paused the keyword.",
+            "regTm": "Time the keyword was created.",
+            "editTm": "Time the keyword was last edited.",
+        },
+    },
+    "campaign_stats": {
+        "description": "Daily performance metrics per campaign.",
+        "docs_url": _DOCS_URL,
+        "columns": _STAT_COLUMNS,
+    },
+    "adgroup_stats": {
+        "description": "Daily performance metrics per ad group.",
+        "docs_url": _DOCS_URL,
+        "columns": _STAT_COLUMNS,
+    },
+    "keyword_stats": {
+        "description": "Daily performance metrics per keyword.",
+        "docs_url": _DOCS_URL,
+        "columns": _STAT_COLUMNS,
+    },
+}

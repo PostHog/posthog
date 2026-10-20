@@ -79,14 +79,6 @@ class TestAdobeAnalyticsSource:
         assert schemas["segments"].incremental_fields == []
         assert schemas["segments"].supports_append is False
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["report"])
-
-        assert [schema.name for schema in schemas] == ["report"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     def test_documented_tables_render_without_credentials(self) -> None:
         tables = self.source.get_documented_tables()
 

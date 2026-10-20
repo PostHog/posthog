@@ -58,6 +58,7 @@ export interface BaseManagedMigration {
             current_offset: number
         }>
         trial?: TrialProgress
+        events_emitted?: number
     }
 }
 

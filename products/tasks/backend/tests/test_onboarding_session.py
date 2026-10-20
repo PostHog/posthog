@@ -145,9 +145,12 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertIn("info channel-instructions-retrieve", kwargs["description"])
             self.assertIn("call channel-instructions-retrieve", kwargs["description"])
             self.assertIn("info channel-instructions-update", kwargs["description"])
-            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
+            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write", "inbox:write"})
             self.assertFalse(
-                any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
+                any(
+                    scope.endswith(":write") and scope not in {"task:write", "inbox:write"}
+                    for scope in kwargs["posthog_mcp_scopes"]
+                )
             )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 

@@ -4,9 +4,12 @@ import { useEffect } from 'react'
 
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Spinner, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -209,7 +212,9 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
                 />
             )}
             <LegacyOAuthReconnectBanner />
-            {hasSyncedMarketingSources && <MarketingAnalyticsSourceStatusBanner />}
+            {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && hasSyncedMarketingSources && (
+                <MarketingAnalyticsSourceStatusBanner />
+            )}
             <h2
                 className={
                     hasSyncedMarketingSources || hasSearchConsole ? 'mt-6 mb-0' : 'max-w-3xl w-full mx-auto mt-6 mb-0'
@@ -262,8 +267,14 @@ const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
 
 const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasSources, hasNoConfiguredSources, loading, isAdPerformance, includeConversionGoals } =
-        useValues(marketingAnalyticsLogic)
+    const {
+        hasSources,
+        hasNoConfiguredSources,
+        loading,
+        sourcesInitialLoading,
+        isAdPerformance,
+        includeConversionGoals,
+    } = useValues(marketingAnalyticsLogic)
     const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
@@ -326,7 +337,9 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
         )
     }
 
-    if (loading) {
+    // Only the first load gets the skeleton: a background refresh (window focus, sync polling)
+    // also sets `loading`, and swapping the tiles for the skeleton would remount and refetch them.
+    if (sourcesInitialLoading) {
         return (
             <>
                 {feedbackBanner}
@@ -669,6 +682,7 @@ export function MarketingAnalyticsScene(): JSX.Element {
         !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
     useEffect(() => (setupEnabled ? setupPlanLogic.mount() : undefined), [setupEnabled])
     const { activeTab } = useValues(marketingAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <BindLogic logic={marketingAnalyticsLogic} props={{}}>
@@ -683,36 +697,77 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             type: sceneConfigurations[Scene.MarketingAnalytics]?.iconType || 'marketing_analytics',
                         }}
                         actions={
-                            <>
-                                {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && (
+                            todayRailNav ? (
+                                <>
+                                    {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && (
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
+                                        >
+                                            <IconComment />
+                                            Send feedback
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="outline"
+                                        render={
+                                            <LinkPrimitive
+                                                to="https://posthog.com/docs/web-analytics/marketing-analytics"
+                                                target="_blank"
+                                            />
+                                        }
+                                        data-attr="marketing-analytics-docs-button"
+                                    >
+                                        Documentation
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        render={
+                                            <LinkPrimitive
+                                                to={urls.settings(
+                                                    'environment-marketing-analytics',
+                                                    'marketing-settings'
+                                                )}
+                                            />
+                                        }
+                                        data-attr="marketing-analytics-settings-button"
+                                    >
+                                        <IconGear />
+                                        Settings
+                                    </Button>
+                                </>
+                            ) : (
+                                <>
+                                    {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconComment />}
+                                            onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
+                                        >
+                                            Send feedback
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton
+                                        to="https://posthog.com/docs/web-analytics/marketing-analytics"
+                                        type="secondary"
+                                        targetBlank
+                                        size="small"
+                                        data-attr="marketing-analytics-docs-button"
+                                    >
+                                        Documentation
+                                    </LemonButton>
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        icon={<IconComment />}
-                                        onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
+                                        icon={<IconGear />}
+                                        to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
+                                        data-attr="marketing-analytics-settings-button"
                                     >
-                                        Send feedback
+                                        Settings
                                     </LemonButton>
-                                )}
-                                <LemonButton
-                                    to="https://posthog.com/docs/web-analytics/marketing-analytics"
-                                    type="secondary"
-                                    targetBlank
-                                    size="small"
-                                    data-attr="marketing-analytics-docs-button"
-                                >
-                                    Documentation
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconGear />}
-                                    to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
-                                    data-attr="marketing-analytics-settings-button"
-                                >
-                                    Settings
-                                </LemonButton>
-                            </>
+                                </>
+                            )
                         }
                     />
                     <MarketingAnalyticsAIToolWrapper>
