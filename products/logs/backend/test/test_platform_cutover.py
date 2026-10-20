@@ -8,18 +8,19 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 
-from products.alerts.backend.facade.contracts import DestinationBucket
+from products.alerts.backend.facade.contracts import HogFunctionPathReason
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
-from products.logs.backend.cutover_gate import CutoverRefused, GateRefusal, TeamGate
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.delivery_path_report import team_delivery_paths
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
-from products.logs.backend.platform_cutover import CutoverSkip, cut_over_team
+from products.logs.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
@@ -112,6 +113,16 @@ class TestPlatformCutover(APIBaseTest):
         alert.refresh_from_db()
         assert alert.owner == "source"
 
+    def test_an_alert_in_an_environment_stays_with_logs(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        alert = self._alert(team=environment)
+
+        (result,) = cut_over_team(environment.id, now=NOW)
+
+        assert result.skipped == CutoverSkip.ENVIRONMENT
+        alert.refresh_from_db()
+        assert alert.owner == "source"
+
     def test_a_refused_cutover_leaves_the_firing_platform_copy_as_it_was(self) -> None:
         alert = self._alert()
         upsert_configuration(platform_upsert_of(alert))
@@ -135,6 +146,67 @@ class TestPlatformCutover(APIBaseTest):
         (result,) = cut_over_team(self.team.id, now=NOW + timedelta(minutes=1))
 
         assert result.skipped == CutoverSkip.ALREADY_MOVED
+
+    def _moved(self, **overrides: Any) -> LogsAlertConfiguration:
+        alert = self._alert(**overrides)
+        cut_over_team(self.team.id, now=NOW)
+        alert.refresh_from_db()
+        return alert
+
+    def test_rolling_back_after_the_shadow_carries_the_platform_state_back(self) -> None:
+        alert = self._moved(state=State.BROKEN, consecutive_failures=5)
+        later = NOW + timedelta(days=8)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(platform_testing.copy_of(alert.id).id, later + timedelta(minutes=2))
+
+        (result,) = roll_back_team(self.team.id, now=later)
+
+        assert result.skipped is None
+        alert.refresh_from_db()
+        assert (alert.owner, alert.owner_changed_at, alert.state, alert.consecutive_failures, alert.next_check_at) == (
+            "source",
+            later,
+            State.BROKEN,
+            5,
+            later + timedelta(minutes=2),
+        )
+        assert list(alert.events.values_list("kind", "state_before", "state_after")) == [
+            (LogsAlertEvent.Kind.HANDBACK, State.BROKEN, State.BROKEN)
+        ]
+        with team_scope(self.team.id):
+            assert platform_testing.copy_of(alert.id).owner == "source"
+
+    def test_rolling_back_keeps_an_active_logs_snooze(self) -> None:
+        alert = self._moved()
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            state=State.SNOOZED, snooze_until=NOW + timedelta(days=30)
+        )
+        later = NOW + timedelta(days=8)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(platform_testing.copy_of(alert.id).id, later + timedelta(minutes=2))
+
+        (result,) = roll_back_team(self.team.id, now=later)
+
+        assert result.skipped is None
+        alert.refresh_from_db()
+        assert (alert.owner, alert.state) == ("source", State.SNOOZED)
+
+    @parameterized.expand(
+        [
+            ("never_moved", False, NOW + timedelta(days=8), RollbackSkip.NOT_MOVED),
+            ("logs_check_due_during_shadow", True, NOW + timedelta(minutes=10), RollbackSkip.LOGS_CHECK_DUE),
+        ]
+    )
+    def test_an_alert_that_cannot_move_back_now_stays(
+        self, _name: str, moved: bool, at: datetime, reason: RollbackSkip
+    ) -> None:
+        alert = self._moved() if moved else self._alert()
+
+        (result,) = roll_back_team(self.team.id, now=at)
+
+        assert result.skipped == reason
+        alert.refresh_from_db()
+        assert alert.owner == ("platform" if moved else "source")
 
     def _destination(
         self, alert_id: UUID | None, template_id: str, inputs: dict[str, Any], edit: dict[str, Any] | None = None
@@ -181,7 +253,7 @@ class TestPlatformCutover(APIBaseTest):
                 WEBHOOK_INPUTS,
                 {"inputs": {**WEBHOOK_INPUTS, "body": {"value": {"text": "relay"}}}},
                 True,
-                (DestinationBucket.PORTABLE, GateRefusal.NOT_READY),
+                HogFunctionPathReason.CUSTOMIZED,
             ),
             (
                 "edited_code",
@@ -189,7 +261,7 @@ class TestPlatformCutover(APIBaseTest):
                 WEBHOOK_INPUTS,
                 {"hog": "fetch('https://relay.example.com')"},
                 True,
-                (DestinationBucket.CODE, GateRefusal.NOT_READY),
+                HogFunctionPathReason.CUSTOMIZED,
             ),
             (
                 "stock_webhook_without_legacy_body",
@@ -197,7 +269,7 @@ class TestPlatformCutover(APIBaseTest):
                 WEBHOOK_INPUTS,
                 {},
                 False,
-                (DestinationBucket.STOCK, GateRefusal.NEW_WEBHOOK_BODY),
+                HogFunctionPathReason.NEW_WEBHOOK_BODY,
             ),
             (
                 "stock_webhook_with_unreadable_flag",
@@ -205,7 +277,7 @@ class TestPlatformCutover(APIBaseTest):
                 WEBHOOK_INPUTS,
                 {},
                 None,
-                (DestinationBucket.STOCK, GateRefusal.WEBHOOK_BODY_UNKNOWN),
+                HogFunctionPathReason.WEBHOOK_BODY_UNKNOWN,
             ),
             (
                 "header_native_delivery_drops",
@@ -213,7 +285,7 @@ class TestPlatformCutover(APIBaseTest):
                 WEBHOOK_INPUTS,
                 {"inputs": {**WEBHOOK_INPUTS, "headers": {"value": {"Host": "internal.example.com"}}}},
                 True,
-                (DestinationBucket.STATIC_HEADERS, GateRefusal.NOT_READY),
+                HogFunctionPathReason.CUSTOMIZED,
             ),
             (
                 "secret_header",
@@ -221,55 +293,49 @@ class TestPlatformCutover(APIBaseTest):
                 WEBHOOK_INPUTS,
                 {"encrypted_inputs": {"secret_headers": {"value": {"Authorization": "Bearer not-a-real-token"}}}},
                 True,
-                (DestinationBucket.STATIC_HEADERS, GateRefusal.NOT_READY),
+                HogFunctionPathReason.CUSTOMIZED,
             ),
         ]
     )
-    def test_a_destination_native_delivery_cannot_send_yet_keeps_the_whole_team(
+    def test_a_destination_native_delivery_cannot_send_moves_on_the_hog_function_path(
         self,
         _name: str,
         template_id: str,
         inputs: dict[str, Any],
         edit: dict[str, Any],
         keeps_legacy_body: bool | None,
-        refused: tuple[DestinationBucket, GateRefusal],
+        reason: HogFunctionPathReason,
     ) -> None:
         held = self._alert()
         quiet = self._alert(name="Warnings")
         self._destination(held.id, template_id, inputs, edit)
 
-        with patch(LEGACY_BODY_FLAG, return_value=keeps_legacy_body), self.assertRaises(CutoverRefused) as raised:
-            cut_over_team(self.team.id, now=NOW)
+        with patch(LEGACY_BODY_FLAG, return_value=keeps_legacy_body):
+            paths = team_delivery_paths(self.team.id)
+            results = cut_over_team(self.team.id, now=NOW)
 
-        assert [(refusal.alert_id, refusal.bucket, refusal.reason) for refusal in raised.exception.refusals] == [
-            (held.id, *refused)
+        assert [(alert.alert_id, alert.choice.path, alert.choice.reason) for alert in paths.alerts] == [
+            (held.id, DeliveryPath.HOG_FUNCTION, reason),
+            (quiet.id, DeliveryPath.NATIVE, None),
         ]
+        assert [result.skipped for result in results] == [None, None]
         assert set(
             LogsAlertConfiguration.objects.filter(id__in=[held.id, quiet.id]).values_list("owner", flat=True)
-        ) == {"source"}
-
-    def test_a_destination_edited_after_the_gate_keeps_its_alert(self) -> None:
-        alert = self._alert()
-        self._destination(alert.id, "template-webhook", WEBHOOK_INPUTS, {"hog": "fetch('https://relay.example.com')"})
-
-        with patch.object(TeamGate, "refusals", return_value=()), patch(LEGACY_BODY_FLAG, return_value=True):
-            (result,) = cut_over_team(self.team.id, now=NOW)
-
-        assert result.skipped == CutoverSkip.DESTINATION_CHANGED
-        alert.refresh_from_db()
-        assert alert.owner == "source"
+        ) == {"platform"}
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
-    def test_an_unbound_destination_keeps_the_whole_team(self, _name: str, enabled: bool) -> None:
-        self._alert()
+    def test_an_unbound_destination_puts_every_alert_on_the_hog_function_path(self, _name: str, enabled: bool) -> None:
+        alert = self._alert()
         function = self._destination(None, "template-slack", SLACK_INPUTS, {"enabled": enabled})
 
-        with self.assertRaises(CutoverRefused) as raised:
-            cut_over_team(self.team.id, now=NOW)
+        paths = team_delivery_paths(self.team.id)
+        (result,) = cut_over_team(self.team.id, now=NOW)
 
-        assert [(refusal.hog_function_id, refusal.reason) for refusal in raised.exception.refusals] == [
-            (function.id, GateRefusal.UNBOUND)
+        assert paths.unbound_functions == (function.id,)
+        assert [(a.alert_id, a.choice.path, a.choice.reason) for a in paths.alerts] == [
+            (alert.id, DeliveryPath.HOG_FUNCTION, HogFunctionPathReason.UNBOUND)
         ]
+        assert result.skipped is None
 
     @parameterized.expand(
         [
@@ -284,8 +350,10 @@ class TestPlatformCutover(APIBaseTest):
         self._destination(alert.id, template_id, inputs, edit)
 
         with patch(LEGACY_BODY_FLAG, return_value=True):
+            paths = team_delivery_paths(self.team.id)
             (result,) = cut_over_team(self.team.id, now=NOW)
 
+        assert [(a.choice.path, a.choice.reason) for a in paths.alerts] == [(DeliveryPath.NATIVE, None)]
         assert result.skipped is None
         alert.refresh_from_db()
         assert alert.owner == "platform"

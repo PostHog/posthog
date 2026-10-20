@@ -82,6 +82,8 @@ In production, the `update` path is triggered automatically when a `ready` repor
 
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
+Monitoring metric definitions are offered only with `signals-report-monitoring` enabled. The shared writer validates the reference period, scaling policy, and baseline period. Disabled research contexts omit stored Monitoring definitions. When metrics are enabled, the research, presentation, and verification prompts prefer supported metric checks and evidence-backed shorter windows. Read [Monitoring metric definitions](../../../../docs/internal/signals-pr-lifecycle.md#monitoring-metric-definitions) when changing this contract; execution and final outcomes ship separately.
+
 Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
 Presentation receives the current follow-up checks as untrusted evidence. When verification proposes metric checks, it can return a separate `checks_summary` with Expected impact prose aligned with those goals and baselines, preserving other sections and chart markers. The transition applies that summary only if the matching check reconciliation succeeds. Omitted waits inherit the referenced check’s wait before generating the verification note. Invalid optional check specs leave the presentation summary and existing checks intact.
 

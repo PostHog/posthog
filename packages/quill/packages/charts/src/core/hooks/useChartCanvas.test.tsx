@@ -51,6 +51,27 @@ describe('useChartCanvas', () => {
         resizeObserverSpy.mockRestore()
     })
 
+    it('keeps the last frame until the repaint resizes the backing store', () => {
+        const drawStatic = jest.fn()
+        const canvas = renderChart(drawStatic)
+        const frames: FrameRequestCallback[] = []
+        const rafSpy = jest.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb))
+        drawStatic.mockClear()
+
+        try {
+            reportWrapperSize(640, 300)
+            expect(canvas.width).toBe(mockRect.width)
+            expect(drawStatic).not.toHaveBeenCalled()
+
+            act(() => frames.forEach((frame) => frame(0)))
+            expect(canvas.width).toBe(640)
+            expect(canvas.height).toBe(300)
+            expect(drawStatic).toHaveBeenCalled()
+        } finally {
+            rafSpy.mockRestore()
+        }
+    })
+
     it('keeps the painted canvas when the wrapper collapses to zero size and comes back', () => {
         const drawStatic = jest.fn()
         const canvas = renderChart(drawStatic)

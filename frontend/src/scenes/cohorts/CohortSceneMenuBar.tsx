@@ -7,6 +7,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import {
@@ -48,6 +49,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const { cohort, cohortLoading } = useValues(logic)
     const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!cohort) {
         return null
@@ -90,15 +92,18 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                 <IconSend />
                                 Build a custom workflow
                             </SceneMenuBarItem>
-                            <SceneMenuBarAddToNotebook
-                                dataAttrKey={RESOURCE_TYPE}
-                                notebookSelectButtonProps={{
-                                    resource: {
-                                        type: NotebookNodeType.Cohort,
-                                        attrs: { id: cohortIdNumber },
-                                    },
-                                }}
-                            />
+                            {/* Adding to notebooks is deprecated under the rail redesign. */}
+                            {!todayRailNav && (
+                                <SceneMenuBarAddToNotebook
+                                    dataAttrKey={RESOURCE_TYPE}
+                                    notebookSelectButtonProps={{
+                                        resource: {
+                                            type: NotebookNodeType.Cohort,
+                                            attrs: { id: cohortIdNumber },
+                                        },
+                                    }}
+                                />
+                            )}
                         </SceneMenuBarSubMenu>
                         <SceneMenuBarSeparator />
                     </>

@@ -41,12 +41,7 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import (
-    GatewayCaller,
-    PolicyContext,
-    is_policy_state_allowed,
-    is_read_only_connector_tool,
-)
+from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from products.mcp_store.backend.tools import (
     ToolCallError,
@@ -78,9 +73,8 @@ def resolve_member_tool_states(
     unregistered installations fall back to the cached per-tool approval state.
     Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
     call them even if the cached approval state was previously `approved` —
-    if the tool is gone upstream, it's gone. Anything not in the map is
-    treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools).
+    if the tool is gone upstream, it's gone. Callers resolve missing names
+    through `resolve_member_unlisted_tool_state` before execution.
 
     With `block_locked_approvals`, a `needs_approval` state that an org rule
     locks surfaces as `"do_not_use"`. Use it for callers that approve calls
@@ -113,31 +107,24 @@ def resolve_member_tool_states(
 def resolve_member_unlisted_tool_state(
     installation_id: str,
     team_id: int,
-    gateway_server_id: uuid.UUID,
+    gateway_server_id: uuid.UUID | None,
     user_id: int,
     tool_name: str,
 ) -> str:
-    """Return the effective state of a tool the installation has no row for.
-
-    The installation re-lists its tools once, so a tool the upstream server
-    added later resolves with its real annotations. Without a row the
-    annotations are unknown, so the tool resolves as if it were destructive.
-    The result is never looser than `needs_approval`, the default for
-    unknown tools."""
+    """Re-list an unknown tool and refuse it unless the server advertises it."""
     installation = MCPServerInstallation.objects.filter(id=installation_id, team_id=team_id).first()
     tool = _registered_tool(installation, tool_name) if installation is not None else None
+    if tool is None or tool.removed_at is not None:
+        return "do_not_use"
+    if gateway_server_id is None:
+        return "do_not_use" if tool.approval_state == "do_not_use" else "needs_approval"
     context = PolicyContext(
         team_id=team_id,
         caller=GatewayCaller(kind="member", user_id=user_id),
         gateway_server_id=gateway_server_id,
         legacy_rows={},
     )
-    if tool is not None and tool.removed_at is None:
-        state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
-    else:
-        as_listed = _member_tool_state(context, tool_name, None, block_locked_approvals=True)
-        as_destructive = _member_tool_state(context, tool_name, {"destructiveHint": True}, block_locked_approvals=True)
-        state = as_destructive if is_policy_state_allowed(as_destructive, as_listed) else as_listed
+    state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
     return state if state == "do_not_use" else "needs_approval"
 
 

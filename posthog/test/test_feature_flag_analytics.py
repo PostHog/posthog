@@ -1105,6 +1105,19 @@ class TestEnrichedAnalytics(BaseTest):
         flag.refresh_from_db()
         self.assertEqual(flag.has_enriched_analytics, True)
 
+    @parameterized.expand([("empty_row", ()), ("non_sequence_row", 1), ("missing_team", (999999, "test_flag"))])
+    def test_bad_row_does_not_stop_later_rows(self, _name: str, bad_row: object) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="test_flag", created_by=self.user)
+
+        with patch(
+            "products.feature_flags.backend.flag_analytics.sync_execute",
+            return_value=[bad_row, (self.team.id, "test_flag")],
+        ):
+            find_flags_with_enriched_analytics(datetime.datetime(2021, 1, 1), datetime.datetime(2021, 1, 2))
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.has_enriched_analytics, True)
+
 
 class TestFindFlagsWithEnrichedAnalyticsTask(SimpleTestCase):
     @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")

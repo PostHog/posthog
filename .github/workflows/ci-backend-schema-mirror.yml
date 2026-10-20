@@ -1,0 +1,139 @@
+name: Backend schema mirror
+
+# Backend CI runs on Depot CI, which keeps its artifacts and its cache apart from GitHub
+# Actions. Its master run dumps the migrated Postgres schema. This workflow copies the newest
+# dump into a GitHub artifact, for `hogli db:download-schema` and the ClickHouse multinode
+# smoke, and into GitHub Actions cache, for jobs on GitHub-hosted runners and for fork pull
+# requests, which cannot read Depot Cache. A cron rather than a hook on the push: Depot cannot
+# dispatch a GitHub workflow without a token that writes to Actions, and a runner that waits
+# for the dump idles for the length of the migration replay.
+
+on:
+    schedule:
+        - cron: '*/10 * * * *'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    actions: read # the artifact and cache listings that say whether a dump is already mirrored
+
+jobs:
+    mirror:
+        name: Mirror the newest master schema dump
+        # Master only: a dispatch from another branch would save caches no master run can read.
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts/depot_backend_runs.py
+                  sparse-checkout-cone-mode: false
+
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Find the newest Depot master run with a dump
+              id: source
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # A failed listing must fail the tick; only an empty one is "nothing to mirror".
+                  python3 .github/scripts/depot_backend_runs.py find --trigger push --status finished --status failed \
+                      --prefix migrated-schema --max-age-days 2 > "$RUNNER_TEMP/source"
+                  read -r run_id sha < "$RUNNER_TEMP/source" || true
+                  if [ -z "${run_id:-}" ]; then
+                      echo "::warning::No Depot master run with a schema dump in the last two days"
+                      exit 0
+                  fi
+                  # Depot push run ids carry a `ps_` prefix.
+                  if ! [[ "$run_id" =~ ^(ps_)?[a-z0-9]{1,32}$ && "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "::error::Unexpected run id or sha from the Depot listing"
+                      exit 1
+                  fi
+                  # A marker artifact, uploaded last, records a dump that reached every destination.
+                  # A cache key cannot serve as the record: the repo's LRU pool evicts it within minutes.
+                  # Only a same-repo master run can have written the marker; any run can upload an artifact of that name.
+                  mirrored=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=migrated-schema-mirrored-$sha&per_page=20" \
+                      --jq '[.artifacts[] | select(.workflow_run.head_branch == "master" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | length')
+                  if [ "$mirrored" != "0" ]; then
+                      echo "Dump of $sha is already mirrored"
+                      exit 0
+                  fi
+                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+                  echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+            - name: Download the dump from Depot
+              id: dump
+              if: steps.source.outputs.run_id != ''
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  RUN_ID: ${{ steps.source.outputs.run_id }}
+              run: |
+                  python3 .github/scripts/depot_backend_runs.py download "$RUN_ID" --pattern migrated-schema --dir .
+                  # actions/cache keys an entry by its path too, so save the file where every consumer restores it.
+                  mv migrated-schema/schema.sql.gz schema.sql.gz
+                  gunzip -t schema.sql.gz
+                  key=$(cat migrated-schema/schema-cache-key)
+                  if [ -n "$key" ] && ! [[ "$key" =~ ^posthog-schema-mig-[A-Za-z0-9._-]+$ ]]; then
+                      echo "::error::Unexpected migration-set cache key in the dump"
+                      exit 1
+                  fi
+                  echo "migration_key=$key" >> "$GITHUB_OUTPUT"
+
+            - name: Upload migrated schema artifact
+              if: steps.source.outputs.run_id != ''
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: migrated-schema
+                  path: schema.sql.gz
+                  # Consumers only ever take the newest artifact, so a longer window just
+                  # adds pages to the artifacts listing that db:download-schema walks.
+                  retention-days: 7
+
+            - name: Save schema to GitHub cache (master key)
+              if: steps.source.outputs.run_id != ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ steps.source.outputs.sha }}
+
+            - name: Save schema to GitHub cache (migration-set key)
+              if: steps.source.outputs.run_id != '' && steps.dump.outputs.migration_key != ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.dump.outputs.migration_key }}
+
+            - name: Record the mirrored dump
+              id: record
+              if: steps.source.outputs.run_id != ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  SHA: ${{ steps.source.outputs.sha }}
+                  MIGRATION_KEY: ${{ steps.dump.outputs.migration_key }}
+              run: |
+                  # actions/cache/save only warns when a save fails, so a dump is recorded only once
+                  # both entries exist. An unrecorded dump is retried on the next tick.
+                  for key in "posthog-schema-master-$SHA" ${MIGRATION_KEY:+"$MIGRATION_KEY"}; do
+                      saved=$(gh api "repos/$GITHUB_REPOSITORY/actions/caches?key=$key&ref=refs/heads/master" \
+                          --jq "[.actions_caches[] | select(.key == \"$key\")] | length")
+                      if [ "$saved" = "0" ]; then
+                          echo "::warning::Cache entry $key is missing, so the next tick retries this dump"
+                          exit 0
+                      fi
+                  done
+                  echo "$SHA" > mirrored
+                  echo "recorded=true" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: steps.record.outputs.recorded == 'true'
+              with:
+                  name: migrated-schema-mirrored-${{ steps.source.outputs.sha }}
+                  path: mirrored
+                  retention-days: 7

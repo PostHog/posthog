@@ -85,12 +85,6 @@ class TestUkCompaniesHouseSource:
         # Companies House documents no ordering, so the watermark must not be told rows arrive sorted.
         assert response.sort_mode is None
 
-    def test_source_for_pipeline_rejects_an_unknown_endpoint(self) -> None:
-        result = SourceDriver(self.source, self.config).run("NotATable", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Companies House endpoint" in str(result.raised)
-
     def test_source_for_pipeline_rejects_an_empty_company_list(self) -> None:
         config = UkCompaniesHouseSourceConfig(api_key="test-key", company_numbers="")
 

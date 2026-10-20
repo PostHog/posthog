@@ -79,8 +79,8 @@ The grant secret exists only in process memory; these paths never read `Duckgres
 The standalone `resolve_managed_warehouse_trino_connection(...)` helper returns a short-lived snapshot; callers executing queries must use the context manager to get refresh behavior.
 
 The connection uses HTTPS with certificate verification and a 60-second HTTP timeout.
-Its session bypasses environment proxies only for control-plane-issued targets with a single hostname label under `dw.us.postwh.com` or `dw.dev.postwh.com`, on port 443.
-Customer-configured external sources retain the separate fixed-host allowlist (`trino.dw.us.postwh.com` and `trino.dw.dev.postwh.com`).
+Its session bypasses environment proxies only for control-plane-issued targets with a single hostname label under `dw.us.postwh.com`, `dw.eu.postwh.com`, or `dw.dev.postwh.com`, on port 443.
+Customer-configured external sources retain the separate fixed-host allowlist (`trino.dw.us.postwh.com`, `trino.dw.eu.postwh.com`, and `trino.dw.dev.postwh.com`).
 The session checks and renews the same grant before sending POST, polling GET, or cancellation DELETE requests when less than two minutes remain.
 Mint and renewal calls have a ten-second timeout.
 Credential renewal is serialized so polling and cancellation share one renewal decision.
@@ -196,21 +196,28 @@ Source metadata describes what HogQL means. Target mappings describe where the c
 
 ## Managed warehouse groups
 
-`duckling_groups_backfill_job` exports a full ClickHouse groups snapshot for each enabled team to Parquet and registers the files in DuckLake.
+`duckling_groups_backfill_job` exports ClickHouse groups to Parquet and registers the files in DuckLake, using full or daily mode like persons.
 The full-backfill sensor rotates through at most 25 teams per tick, schedules at most three runs, and retries failures with exponential backoff from 10 to 320 minutes.
-The partition key is the team ID; rerun that partition in Dagster to refresh the snapshot.
-There is no daily groups top-up sensor.
-The sensor defaults to stopped for controlled rollout. Validate a manual team snapshot before starting automatic discovery; see the [groups rollout steps](../../posthog/dags/README_DUCKLINGS.md#groups-backfill).
-Starting the sensor discovers all eligible teams, including existing memberships. A stored running sensor state must be stopped explicitly in Dagster.
+Full exports use a numeric team partition. Daily exports use `team_id_YYYY-MM-DD` and filter `_timestamp` to that UTC day.
+`duckling_groups_daily_backfill_sensor` schedules yesterday's team/date partition for teams with a successful full export.
+The date also appears in the run key and `groups_backfill/refresh_date` tag. Each daily partition tracks its own success and retries; previews do not count.
+The daily sensor checks every 10 minutes with the same scan limits, request cap, active-run checks, and failure backoff as discovery.
+Both sensors default to stopped for controlled rollout. Validate a manual team snapshot before starting automatic discovery; see the [groups rollout steps](../../posthog/dags/README_DUCKLINGS.md#groups-backfill).
+Starting the full-backfill sensor discovers all eligible teams, including existing memberships; the daily sensor only refreshes teams with a successful snapshot. Stored running sensor states must be stopped explicitly in Dagster.
 
 The table name is `posthog.groups_<schema_name>`, derived from the control-plane team membership, including teams with grandfathered events or persons table names.
 Legacy teams without a membership use `posthog.groups` for manual runs.
-The export keeps the latest row per `(team_id, group_type_index, group_key)` using `_timestamp` and `_offset`.
-The export sorts rows by group type and key for Parquet encoding and pruning.
-A successful registration replaces the team's snapshot in one transaction, including clearing old rows when the source is empty.
-A generation reserved before export is committed with the rows in the table's `posthog_groups_backfill:` comment. Older exports are rejected after a newer snapshot commits, and a new epoch fences exports from before a table reset.
+The export reads `groups FINAL` without an explicit sort; deduplication follows the ClickHouse table engine.
+Like persons, full runs delete the team's existing rows; daily runs delete only that team's rows within the selected UTC `_timestamp` day.
+Both modes delete before exporting and repeat that scoped delete immediately before registering the run's files.
+Connection retries replay that delete-and-register unit to avoid duplicate rows when a registration commits without an acknowledgement.
+An empty export clears the affected partition. A failed export or registration can leave an empty or partial partition until a retry succeeds.
+Daily exports preserve other days' rows and can retain older group versions; HogQL groups queries select the latest version.
+A daily import does not remove old versions when a group disappears from the source. Rerun the full team partition to replace all state.
+Registration uses autocommit and does not use generation markers or table comments.
+Avoid overlapping manual runs for the same team because an older export can replace newer data.
+Setting `cleanup_existing_partition_data: false` appends files instead and disables replay deduplication, matching persons.
 The legacy shared `groups` table cannot be dropped with `delete_tables`.
-Failed exports leave the previous snapshot in place.
 Dry runs and S3-only exports are tagged as previews and do not mark the warehouse groups snapshot complete or hide prior snapshot history. Active runs are checked separately.
 Backfill lifecycle and metrics are recorded with dataset `groups`; the warehouse status UI continues to report events, persons, and sources.
 
@@ -248,7 +255,7 @@ Compilation uses current source bindings, saved-query dependencies, filters, and
 Saved translation results remain diagnostic records and are not prerequisites or execution inputs for shadow jobs.
 Compilation failures fail the modeling job, without connecting to Trino or falling back to DuckDB.
 
-Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized model-path label or saved-query UUID.
+Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized saved-query UUID.
 The compiler and materializer share this naming policy, so each compiled query can read upstream model outputs directly.
 The legacy Duckgres path retains `shadow_<team_id>_models` and normalized saved-query names.
 The shadow is a separate DAG run, so ClickHouse materialization and publication never wait for Trino.

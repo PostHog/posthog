@@ -9,6 +9,7 @@ import temporalio
 from pydantic import BaseModel, Field, model_validator
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -258,7 +259,7 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
         signal_id = await database_sync_to_async(report_triggering_signal)(
-            team_id=input.team_id, report_id=input.report_id
+            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
     except Exception:
         logger.exception(

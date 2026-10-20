@@ -72,6 +72,7 @@ from products.feature_flags.backend.api.feature_flag import (
     _flag_write_source,
     parse_created_by_ids,
 )
+from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import TURN_ON_MODES, turn_flag_on
 from products.feature_flags.backend.blast_radius_flag_deps import MAX_DEPENDENCY_DEPTH
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
@@ -2271,7 +2272,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    def test_remote_config_with_project_secret_api_key(self):
+    @parameterized.expand(
+        [
+            ("legacy_verifiers_on", True),
+            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
+            ("legacy_verifiers_off", False),
+        ]
+    )
+    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
         FeatureFlag.objects.create(
             team=self.team,
@@ -2290,10 +2298,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
         self.client.logout()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
+        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
@@ -5063,22 +5072,136 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
 
-    def test_creating_feature_flag_with_non_existant_cohort(self):
-        cohort_request = self._create_flag_with_properties(
-            "cohort-flag",
-            [{"key": "id", "type": "cohort", "value": 5151}],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
+    def _unusable_cohort_id(self, cohort_state: str) -> int | str:
+        if cohort_state == "missing":
+            return (Cohort.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1
+        if cohort_state == "malformed":
+            return "not-an-id"
+        if cohort_state == "boolean":
+            # A live cohort with id 1 is what a boolean value would wrongly resolve to.
+            Cohort.objects.update_or_create(pk=1, defaults={"team": self.team, "name": "First cohort"})
+            return True
+        return Cohort.objects.create(
+            team=self.team,
+            name=None if cohort_state == "deleted_unnamed" else "Retired cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}],
+                }
+            },
+            deleted=True,
+        ).id
 
+    @staticmethod
+    def _cohort_condition_filters(cohort_id: int | str) -> dict[str, Any]:
+        return {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}]}
+
+    @staticmethod
+    def _unusable_cohort_detail(cohort_state: str, cohort_id: int | str) -> str:
+        if cohort_state in ("missing", "malformed", "boolean"):
+            return f"Cohort with id {cohort_id} does not exist"
+        label = (
+            f"Cohort with id {cohort_id}"
+            if cohort_state == "deleted_unnamed"
+            else f"Cohort 'Retired cohort' (ID {cohort_id})"
+        )
+        return f"{label} has been deleted. Restore the cohort, choose another cohort, or remove this condition."
+
+    @parameterized.expand(
+        [
+            ("missing_post", "missing", "post"),
+            ("deleted_post", "deleted", "post"),
+            ("deleted_patch", "deleted", "patch"),
+            ("deleted_unnamed_post", "deleted_unnamed", "post"),
+        ]
+    )
+    def test_writing_filters_with_missing_or_deleted_cohort_is_rejected(
+        self, _name: str, cohort_state: str, method: str
+    ) -> None:
+        cohort_id = self._unusable_cohort_id(cohort_state)
+        filters = self._cohort_condition_filters(cohort_id)
+        url = f"/api/projects/{self.team.id}/feature_flags/"
+        if method == "patch":
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="cohort-flag", filters=filters)
+            response = self.client.patch(f"{url}{flag.id}/", {"filters": filters}, format="json")
+        else:
+            response = self.client.post(url, {"key": "cohort-flag", "filters": filters}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "cohort_does_not_exist",
-                "detail": "Cohort with id 5151 does not exist",
+                "detail": self._unusable_cohort_detail(cohort_state, cohort_id),
                 "attr": "filters",
             }.items(),
-            cohort_request.json().items(),
+            response.json().items(),
         )
+
+    @parameterized.expand(
+        [(mode, mode, "deleted") for mode in (*TURN_ON_MODES, "restore_disabled", "unarchive")]
+        + [
+            ("patch_missing_cohort", "patch", "missing"),
+            ("patch_malformed_cohort", "patch", "malformed"),
+            ("patch_boolean_cohort", "patch", "boolean"),
+        ]
+    )
+    def test_enabling_restoring_or_unarchiving_checks_stored_cohorts(
+        self, _name: str, mode: str, cohort_state: str
+    ) -> None:
+        cohort_id = self._unusable_cohort_id(cohort_state)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="cohort-flag",
+            filters=self._cohort_condition_filters(cohort_id),
+            active=mode == "restore",
+            deleted=mode in ("restore", "restore_disabled"),
+            archived=mode == "unarchive",
+            version=7,
+        )
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+
+        if mode == "restore_disabled":
+            response = self.client.patch(url, {"deleted": False}, format="json")
+        elif mode == "unarchive":
+            response = self.client.post(f"{url}unarchive/", {}, format="json")
+        else:
+            response = turn_flag_on(self.client, url, mode)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertLessEqual(
+            {
+                "code": "cohort_does_not_exist",
+                "detail": self._unusable_cohort_detail(cohort_state, cohort_id),
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+        flag.refresh_from_db()
+        self.assertEqual(flag.version, 7)
+
+    @parameterized.expand([("disable",), ("archive",), ("delete",), ("delete_archived",), ("rename_archived",)])
+    def test_restrictive_writes_succeed_with_stored_deleted_cohort(self, action: str) -> None:
+        archived = action.endswith("_archived")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="cohort-flag",
+            filters=self._cohort_condition_filters(self._unusable_cohort_id("deleted")),
+            active=not archived,
+            archived=archived,
+        )
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+        if action.startswith("delete"):
+            response = self.client.patch(url, {"deleted": True}, format="json")
+        elif action == "rename_archived":
+            response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        else:
+            response = self.client.post(f"{url}{action}/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_validation_payloads(self):
         self._create_flag_with_properties(
@@ -8561,11 +8684,18 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
     def test_structural_tier_also_rejects_only_the_enforced_rule(self) -> None:
         # The structural tier decides separately from the cross-field one, so it needs its own
         # case. Both violations are on variant keys, which the serde guard only type-checks, so
-        # they reach the structural tier instead of being rejected before it.
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
+        # they reach the structural tier instead of being rejected before it. Every write rejects
+        # a new empty key, so the stored flag holds the blank key that the write keeps.
+        flag = self._create_flag_via_orm(
+            "mixed-structural-violations",
             {
-                "key": "mixed-structural-violations",
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+            },
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": 100}],
                     "multivariate": {
@@ -8586,22 +8716,22 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
-        # An empty variant key is structurally invalid but still deserializes as a Rust String,
-        # so log-only mode records it without widening the cache-poisoning surface.
+        # A variant key over 400 characters is structurally invalid but still deserializes as a
+        # Rust String, so log-only mode records it without widening the cache-poisoning surface.
         new_rule_only = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "key": "bypassed-flag",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "x" * 401, "rollout_percentage": 100}]},
                 },
             },
             format="json",
         )
         self.assertEqual(new_rule_only.status_code, status.HTTP_201_CREATED, new_rule_only.json())
         flag = FeatureFlag.objects.get(id=new_rule_only.json()["id"])
-        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "")
+        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "x" * 401)
 
         # But the pre-enforcement type/bounds checks stay active: cache-poisoning input is
         # rejected exactly as before enforcement shipped, switch or no switch.
@@ -8859,11 +8989,22 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flush_persons_and_events()
         cohort = self._create_static_cohort()
 
-        mock_batch_evaluate.side_effect = [
-            self._page([str(persons[0].uuid)], next_cursor=100),
-            self._page([str(persons[1].uuid)], next_cursor=200),
-            self._page([str(persons[2].uuid)], next_cursor=None),
-        ]
+        pages = iter(
+            [
+                self._page([str(persons[0].uuid)], next_cursor=100),
+                self._page([str(persons[1].uuid)], next_cursor=200),
+                self._page([str(persons[2].uuid)], next_cursor=None),
+            ]
+        )
+        open_history_rows_during_run = []
+
+        def evaluate_page(*args, **kwargs):
+            open_history_rows_during_run.append(
+                CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=True).count()
+            )
+            return next(pages)
+
+        mock_batch_evaluate.side_effect = evaluate_page
 
         get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk, batchsize=2)
 
@@ -8886,6 +9027,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(history.error)
         self.assertEqual(history.count, 3)
         self.assertIsNotNone(history.finished_at)
+        # The stuck-cohort sweep measures a live run from this open row.
+        self.assertEqual(open_history_rows_during_run, [1, 1, 1])
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_history_write_failure_does_not_fail_a_populated_cohort(self, mock_batch_evaluate):
@@ -8896,7 +9039,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         mock_batch_evaluate.return_value = self._page([str(person.uuid)])
 
-        with patch.object(CohortCalculationHistory.objects, "create", side_effect=IntegrityError("no row for you")):
+        with patch.object(CohortCalculationHistory, "save", side_effect=IntegrityError("no row for you")):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
@@ -9243,7 +9386,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
 
         with self.capture_select_queries() as queries:
-            assert team.persons_seen_so_far == 3
+            assert team.count_persons_seen_so_far() == 3
 
         assert queries
         for query in queries:
@@ -15279,7 +15422,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
                 "key": "metrics-bypassed",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "x" * 401, "rollout_percentage": 100}]},
                 },
             },
             format="json",
@@ -15419,7 +15562,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         # The dashboard has to see that, or a bare zero reads as "nothing left to fix".
         not_evaluated_before = self._violation_count("cross_field", "not_evaluated", "create")
 
-        # A blank variant key fails the structural tier but not the serde guard, which rejects
+        # An overlong variant key fails the structural tier but not the serde guard, which rejects
         # regardless of the switch. A guard-rejected shape would never reach this branch.
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -15427,7 +15570,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
                 "key": "metrics-not-evaluated",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "x" * 401, "rollout_percentage": 100}]},
                 },
             },
             format="json",
