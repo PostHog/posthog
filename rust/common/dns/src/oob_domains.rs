@@ -4,6 +4,10 @@
 //! an ordinary public IP, so the lookup alone confirms the path to whoever runs the collaborator.
 //! The guards log a match. Nothing is refused yet.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
 use tracing::info;
 
 /// Mirror of posthog/security/crosslang/oob_domains.json. Edit that file first, then this list.
@@ -41,11 +45,71 @@ pub fn matched_oob_domain(host: &str) -> Option<&'static str> {
         .find(|domain| is_same_or_subdomain(&canonical, domain))
 }
 
+/// Whether this deployment is PostHog Cloud. The python and node guards read the same variable.
+///
+/// Read per call rather than cached, because it is only reached once a host already matched, which
+/// is rare, and a cached value could not be varied by a test.
+fn is_cloud() -> bool {
+    std::env::var("CLOUD_DEPLOYMENT")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+}
+
+/// One line per host and guard in this window. A resolver sees a host once per connection, so an
+/// undeduped count tracks traffic rather than probing.
+const DEDUPE_WINDOW: Duration = Duration::from_secs(15 * 60);
+const DEDUPE_MAX_ENTRIES: usize = 10_000;
+
+type SeenMap = HashMap<(&'static str, String), Instant>;
+static SEEN: OnceLock<Mutex<SeenMap>> = OnceLock::new();
+
+fn seen_map() -> std::sync::MutexGuard<'static, SeenMap> {
+    match SEEN.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        Ok(seen) => seen,
+        // A poisoned lock must not cost us the detection, and must not panic a guard either.
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Forget every recorded sighting, so one test cannot suppress the next one's log line.
+#[cfg(feature = "test-util")]
+pub fn reset_dedupe() {
+    seen_map().clear();
+}
+
+fn first_sight_in_window(guard: &'static str, host: &str, now: Instant) -> bool {
+    let mut seen = seen_map();
+    let key = (guard, host.to_owned());
+    if let Some(at) = seen.get(&key) {
+        if now.duration_since(*at) < DEDUPE_WINDOW {
+            return false;
+        }
+    }
+    if seen.len() >= DEDUPE_MAX_ENTRIES {
+        // Cheaper than an LRU, and the window makes a stale entry harmless.
+        seen.retain(|_, at| now.duration_since(*at) < DEDUPE_WINDOW);
+        if seen.len() >= DEDUPE_MAX_ENTRIES {
+            seen.clear();
+        }
+    }
+    seen.insert(key, now);
+    true
+}
+
 /// Log that a guard holds a listed host. Detection only: the caller still proceeds.
 pub fn note_oob_domain(host: &str, guard: &'static str) {
-    if let Some(domain) = matched_oob_domain(host) {
-        info!(host, domain, guard, "security.oob_domain_seen");
+    // Match first: almost every host misses, and the miss costs a few string comparisons, which
+    // keeps the environment read and the lock off the common path.
+    let Some(domain) = matched_oob_domain(host) else {
+        return;
+    };
+    if !is_cloud() {
+        return;
     }
+    if !first_sight_in_window(guard, host, Instant::now()) {
+        return;
+    }
+    info!(host, domain, guard, "security.oob_domain_seen");
 }
 
 /// Whether the host is the domain itself, or sits under it on a label boundary. A plain suffix
