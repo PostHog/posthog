@@ -15,13 +15,17 @@ import type {
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
+    LogsAlertDestinationSendApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
+    LogsAlertsDestinationsSendsListParams,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
+    LogsContextRequestApi,
+    LogsContextResponseApi,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
@@ -291,6 +295,41 @@ export const logsAlertsDestinationsDeleteCreate = async (
     })
 }
 
+export const getLogsAlertsDestinationsSendsListUrl = (
+    projectId: string,
+    id: string,
+    params: LogsAlertsDestinationsSendsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/${id}/destinations/sends/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/${id}/destinations/sends/`
+}
+
+/**
+ * The last messages sent to one destination of this alert in the past 7 days, newest first, on both delivery paths, with whether each one succeeded.
+ */
+export const logsAlertsDestinationsSendsList = async (
+    projectId: string,
+    id: string,
+    params: LogsAlertsDestinationsSendsListParams,
+    options?: RequestInit
+): Promise<LogsAlertDestinationSendApi[]> => {
+    return apiMutator<LogsAlertDestinationSendApi[]>(getLogsAlertsDestinationsSendsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params?: LogsAlertsEventsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -426,6 +465,23 @@ export const logsAttributesRetrieve = async (
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/context/`
+}
+
+export const logsContextCreate = async (
+    projectId: string,
+    logsContextRequestApi: LogsContextRequestApi,
+    options?: RequestInit
+): Promise<LogsContextResponseApi> => {
+    return apiMutator<LogsContextResponseApi>(getLogsContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsContextRequestApi),
     })
 }
 
