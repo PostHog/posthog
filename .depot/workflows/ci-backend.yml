@@ -30,10 +30,6 @@
 #   after those steps, as in canonical.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
-# - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
-#   in that job's log. Nothing reads its outputs, so the job and its action pin are
-#   depot-exempt. Its fail-open step and its `no-ci` draft guard belong to that job, so
-#   they need no depot bump either.
 # - Artifact uploads, run-scoped sharding plans, and the failing-test rollup
 #   require side effects, including duration writes. Depot stores these separately
 #   from GitHub Actions.
@@ -244,6 +240,28 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: python3 .github/scripts/cancel_superseded_depot_runs.py
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            (github.event.pull_request.draft != true ||
+            !contains(github.event.pull_request.labels.*.name, 'no-ci'))
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:

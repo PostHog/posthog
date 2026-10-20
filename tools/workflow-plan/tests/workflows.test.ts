@@ -167,19 +167,16 @@ const EXPECTATIONS: Expectation[] = [
     // job, which points at the Depot gate, so every other job stands down on a pull request.
     ...(
         [
-            ['draft PR', pullRequest({ draft: true }), ['dynamic-ci-filter']],
-            ['ready PR', pullRequest(), ['dynamic-ci-filter']],
-            ['merge queue', mergeQueue(), []],
-            ['fork PR', pullRequest({ fork: true }), []],
-            ['draft PR labeled no-ci', pullRequest({ draft: true, labels: ['no-ci'] }), []],
+            ['draft PR', pullRequest({ draft: true })],
+            ['ready PR', pullRequest()],
+            ['merge queue', mergeQueue()],
+            ['fork PR', pullRequest({ fork: true })],
+            ['draft PR labeled no-ci', pullRequest({ draft: true, labels: ['no-ci'] })],
         ] as const
-    ).map(([name, github, alsoRuns]) =>
+    ).map(([name, github]) =>
         backend(
             { name, github },
-            {
-                runs: ['django_tests', ...alsoRuns],
-                skipped: allJobsExcept('ci-backend.yml', ['django_tests', ...alsoRuns]),
-            }
+            { runs: ['django_tests'], skipped: allJobsExcept('ci-backend.yml', ['django_tests']) }
         )
     ),
     // The master push runs on Depot CI: the per-commit checks and the schema dump, no matrices.
@@ -196,6 +193,7 @@ const EXPECTATIONS: Expectation[] = [
             ],
             skipped: [
                 'cancel-superseded-runs',
+                'dynamic-ci-filter',
                 'detect-snapshot-mode',
                 'turbo-discover',
                 'prime-schema-cache',
@@ -218,6 +216,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR', github: pullRequest({ draft: true }) },
         {
             runs: [
+                'dynamic-ci-filter',
                 'changes',
                 'turbo-discover',
                 'django',
@@ -244,6 +243,7 @@ const EXPECTATIONS: Expectation[] = [
         {
             runs: [
                 'cancel-superseded-runs',
+                'dynamic-ci-filter',
                 'turbo-tests',
                 'django',
                 'backend-coverage-report',
@@ -262,7 +262,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
-            skipped: ['backend-coverage-report'],
+            skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
         }
     ),
     // A product change that reaches no legacy code skips the Django suite, but the events_json
@@ -310,7 +310,15 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['cancel-superseded-runs', 'django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations'],
+            skipped: [
+                'dynamic-ci-filter',
+                'changes',
+                'django',
+                'turbo-tests',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+            ],
         }
     ),
     // Depot CI never runs a fork's code. Only the gate runs, and it fails closed.
