@@ -759,6 +759,42 @@ class TestPrConcurrencyCheck:
         issues = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
         assert bool(issues) is flagged
 
+    def test_shared_push_group_flagged_when_a_called_workflow_publishes(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "_build-images.yml",
+            """
+            name: Build images
+            on: workflow_call
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: depot/build-push-action@v1
+            """,
+        )
+        _write(
+            tmp_path,
+            "publish.yml",
+            """
+            name: Publish
+            on: [push]
+            concurrency:
+              group: ${{ github.workflow }}-${{ github.ref }}
+            jobs:
+              affected:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: git diff ${{ github.event.before }}
+              build:
+                uses: ./.github/workflows/_build-images.yml
+            """,
+        )
+        [issue] = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
+        assert issue.workflow == "publish.yml"
+
 
 # ---------------------------------------------------------------------------
 # PrEventFanoutCheck

@@ -37,6 +37,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
 
@@ -45,7 +47,8 @@ PER_SHA_PUSH_ARM = re.compile(r"event_name\s*==\s*['\"]push['\"]\s*&&\s*github\.
 MASTER_CANCEL_MARKER = "hogli-lint: allow-master-cancel"
 SHARED_PUSH_GROUP_MARKER = "hogli-lint: allow-shared-push-group"
 PUSH_DIFF_SELECTORS = ("paths-filter", "github.event.before")
-PUBLISHERS = ("commit_state_update", "build-push-action", "_rust-build-images.yml")
+PUBLISHERS = ("commit_state_update", "build-push-action")
+LOCAL_REUSABLE_PREFIX = "./.github/workflows/"
 
 
 class PrConcurrencyCheck(WorkflowCheck):
@@ -174,9 +177,19 @@ def _drops_pending_push_builds(wf: Workflow, group_expr: str) -> bool:
     source = str(wf.raw)
     if not any(selector in source for selector in PUSH_DIFF_SELECTORS):
         return False
-    if not any(publisher in source for publisher in PUBLISHERS):
+    if not any(publisher in source for publisher in PUBLISHERS) and not _calls_local_publisher(wf):
         return False
     return not _has_marker(wf.path, SHARED_PUSH_GROUP_MARKER)
+
+
+def _calls_local_publisher(wf: Workflow) -> bool:
+    for job in wf.jobs:
+        if not job.uses or not job.uses.startswith(LOCAL_REUSABLE_PREFIX):
+            continue
+        called = wf.path.parent / job.uses.removeprefix(LOCAL_REUSABLE_PREFIX)
+        if called.is_file() and any(publisher in str(yaml.safe_load(called.read_text())) for publisher in PUBLISHERS):
+            return True
+    return False
 
 
 def _keys_pushes_per_sha(group_expr: str) -> bool:
