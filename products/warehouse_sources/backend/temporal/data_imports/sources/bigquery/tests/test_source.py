@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
+    BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
     BigQueryAuthResolutionError,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
@@ -698,6 +699,24 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Volatile project/dataset/identifier must not be required for the match.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets/my_dataset/"
+        "tables?prettyPrint=false: VPC Service Controls: Request is prohibited by organization's "
+        "policy. vpcServiceControlsUniqueIdentifier: abc123.",
+        "403 VPC Service Controls: Request is prohibited by organization's policy. "
+        "vpcServiceControlsUniqueIdentifier: xyz789.",
+    ],
+)
+def test_non_retryable_errors_match_vpc_service_controls_denial(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "VPC Service Controls denial should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
 def _run_delete_all_temp_destination_tables(side_effect, logger):
     bq = mock.MagicMock()
     bq.list_tables.side_effect = side_effect
@@ -947,6 +966,15 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
         (
             Forbidden("403 Access Denied: Table my-project:my_dataset.t"),
             BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
+            False,
+        ),
+        (
+            Forbidden(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets/"
+                "my_dataset/tables?prettyPrint=false: VPC Service Controls: Request is prohibited "
+                "by organization's policy. vpcServiceControlsUniqueIdentifier: abc123."
+            ),
+            BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
             False,
         ),
         (RuntimeError("something unexpected"), BIGQUERY_VALIDATION_GENERIC_ERROR, True),

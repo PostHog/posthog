@@ -217,5 +217,5 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
