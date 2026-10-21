@@ -1345,6 +1345,34 @@ export interface TraceApi {
     nodeIdsByAlias: TraceApiNodeIdsByAlias
 }
 
+export type TraceEvaluationResultOutcomeEnumApi =
+    (typeof TraceEvaluationResultOutcomeEnumApi)[keyof typeof TraceEvaluationResultOutcomeEnumApi]
+
+export const TraceEvaluationResultOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Inconclusive: 'inconclusive',
+    Unrated: 'unrated',
+} as const
+
+export interface TraceEvaluationResultApi {
+    id: string
+    evaluationId: string | null
+    evaluationName: string
+    /** The tree node the result grades: the generation's event uuid, or the trace id for a trace-level result. */
+    targetNodeId: string
+    outcome: TraceEvaluationResultOutcomeEnumApi
+    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
+    label: string
+    reasoning: string | null
+    timestamp: string
+    isBackfill: boolean
+}
+
+export interface TraceEvaluationResultsApi {
+    results: TraceEvaluationResultApi[]
+}
+
 export interface TraceNodeMetadataApi {
     provider: string | null
     temperature: number | null
