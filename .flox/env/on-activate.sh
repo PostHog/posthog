@@ -86,7 +86,7 @@ wait_bg_step() {
 
   # A non-interactive shell starts background jobs with SIGINT ignored, so
   # Ctrl+C would otherwise leave the step running after activation exits.
-  trap 'kill "$pid" 2>/dev/null' INT
+  trap 'kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true; echo; exit 130' INT
 
   if [[ ! -t 1 ]]; then
     echo -ne "  ... ${label}"
