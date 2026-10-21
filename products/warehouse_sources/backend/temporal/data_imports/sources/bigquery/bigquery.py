@@ -271,8 +271,8 @@ BIGQUERY_IMPERSONATION_PERMISSION_ERROR = (
 # failure still reaches error tracking.
 BIGQUERY_POSTHOG_CREDENTIALS_ERROR = (
     "PostHog could not get its own Google Cloud credentials, so it could not connect to your "
-    "service account. This is a problem on PostHog's side and the sync will retry. You don't need "
-    "to change your service account."
+    "service account. This is a problem on PostHog's side, and you don't need to change your service "
+    "account. Syncs retry automatically. If you are setting up the source, try again in a few minutes."
 )
 
 # Stable prefix of the ownership failure raised when the service account description does not name
