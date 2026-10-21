@@ -547,7 +547,7 @@ class TestShadowSchedulerTick:
             old_leader_in_batch = asyncio.Event()
             release_old_leader = asyncio.Event()
 
-            async def evaluate_due(conn, due, now_epoch):
+            async def evaluate_due(conn, due, now_epoch, **kwargs):
                 current_task = asyncio.current_task()
                 assert current_task is not None
                 task_name = current_task.get_name()
@@ -555,7 +555,7 @@ class TestShadowSchedulerTick:
                 if task_name == "old" and not old_leader_in_batch.is_set():
                     old_leader_in_batch.set()
                     await release_old_leader.wait()
-                result = await real_evaluate_due(conn, due, now_epoch)
+                result = await real_evaluate_due(conn, due, now_epoch, **kwargs)
                 evaluations.append((task_name, "end"))
                 return result
 
@@ -669,9 +669,6 @@ class TestShadowSchedulerTick:
         self, team, monkeypatch, kill_switch, flag, expected_decision, expected_flag_calls
     ):
         schema_ids, db_url = self._setup_due_schemas(team, 3)
-        monkeypatch.setattr(
-            scheduler_runner.JobsTable, "try_acquire_sentinel_slot", AsyncMock(side_effect=[True, False])
-        )
         fired_total = MagicMock()
         would_fire_total = MagicMock()
         monkeypatch.setattr(scheduler_runner, "FIRED_TOTAL", fired_total)
@@ -708,13 +705,8 @@ class TestShadowSchedulerTick:
             pytest.param(0.0, 2, id="asked_again_once_expired"),
         ],
     )
-    def test_firing_teams_are_evaluated_outside_the_tick_transaction(
-        self, team, monkeypatch, refresh_seconds, expected_flag_calls
-    ):
+    def test_firing_teams_are_evaluated_outside_the_tick_transaction(self, team, refresh_seconds, expected_flag_calls):
         schema_ids, db_url = self._setup_due_schemas(team, 2)
-        monkeypatch.setattr(
-            scheduler_runner.JobsTable, "try_acquire_sentinel_slot", AsyncMock(side_effect=[True, False, True, False])
-        )
 
         def flag_without_claimed_rows(*args, **kwargs):
             # The tick transaction locks the claimed state rows. NOWAIT raises when a row is locked.
@@ -731,6 +723,7 @@ class TestShadowSchedulerTick:
             patch("posthoganalytics.feature_enabled", flag_mock),
         ):
             async_to_sync(scheduler._tick)(lambda: None)
+            self._set_tick_slot(db_url, "expires_at = now() - interval '1 second'")
             async_to_sync(scheduler._tick)(lambda: None)
 
         with psycopg.Connection.connect(db_url) as conn:
