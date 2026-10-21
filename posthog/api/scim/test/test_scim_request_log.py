@@ -8,17 +8,17 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.scim.auth import generate_scim_token
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.scim_request_log import SCIMRequestLog
+from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
-from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
-from ee.models.scim_request_log import SCIMRequestLog
-from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
 
 class TestSCIMRequestLogCapture(APILicensedTest):
@@ -167,7 +167,7 @@ class TestSCIMRequestLogCleanup(TestCase):
     def test_cleanup_batches_deletes(self):
         for _ in range(5):
             self._create_log(200)
-        with patch("ee.tasks.scim_request_log_cleanup.CLEANUP_BATCH_SIZE", 2):
+        with patch("posthog.tasks.scim_request_log_cleanup.CLEANUP_BATCH_SIZE", 2):
             cleanup_old_scim_request_logs()
         assert SCIMRequestLog.objects.filter(identity_provider_config=self.config).count() == 0
 

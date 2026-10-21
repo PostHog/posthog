@@ -1,15 +1,15 @@
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.scim.auth import generate_scim_token
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
 
-from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 
 class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
