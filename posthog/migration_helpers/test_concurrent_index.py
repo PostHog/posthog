@@ -21,6 +21,7 @@ from posthog.migration_helpers import (
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
 )
+from posthog.migration_helpers.concurrent_index import RunningIndexBuild, RunningIndexBuildError
 
 
 @pytest.fixture
@@ -366,6 +367,40 @@ def test_safe_add_index_concurrently_recovers_from_invalid_leftover(temp_model, 
     captured = capsys.readouterr()
     assert "invalid state by a prior interrupted build" in captured.out
     assert idx_name in captured.out
+
+
+def _invalid_index(table: str) -> tuple[str, int]:
+    idx_name = f"{table}_col_idx"
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{table}" (col)')
+        cursor.execute("UPDATE pg_index SET indisvalid = false WHERE indexrelid = %s::regclass", [idx_name])
+        cursor.execute("SELECT %s::regclass::oid", [idx_name])
+        return idx_name, cursor.fetchone()[0]
+
+
+def _index_oid(index_name: str) -> int | None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT oid FROM pg_class WHERE relname = %s", [index_name])
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+
+RUNNING = RunningIndexBuild(pid=4242, phase="building index", blocks_done=10, blocks_total=100)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_safe_add_index_concurrently_fails_without_dropping_while_a_build_is_running(temp_model):
+    table, state = temp_model
+    idx_name, oid_before = _invalid_index(table)
+
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+    with (
+        patch("posthog.migration_helpers.concurrent_index._running_build", return_value=RUNNING),
+        pytest.raises(RunningIndexBuildError, match="pid 4242"),
+    ):
+        _apply_forwards(op, state)
+
+    assert _index_oid(idx_name) == oid_before
 
 
 @pytest.mark.django_db(transaction=True)

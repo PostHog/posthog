@@ -72,13 +72,57 @@ from posthog.dataclasses import frozen
 logger = structlog.get_logger(__name__)
 
 
+class RunningIndexBuildError(RuntimeError):
+    pass
+
+
+@frozen
+class RunningIndexBuild:
+    pid: int
+    phase: str
+    blocks_done: int
+    blocks_total: int
+
+
 def _disable_timeouts(schema_editor) -> None:
     schema_editor.execute("SET lock_timeout = 0")
     schema_editor.execute("SET statement_timeout = 0")
 
 
+def _running_build(schema_editor, index_name: str) -> RunningIndexBuild | None:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT p.pid, p.phase, p.blocks_done, p.blocks_total
+            FROM pg_stat_progress_create_index p
+            JOIN pg_class c ON c.oid = p.index_relid
+            WHERE c.relname = %s
+            """,
+            [index_name],
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return RunningIndexBuild(pid=row[0], phase=row[1], blocks_done=row[2], blocks_total=row[3])
+
+
+def _fail_if_build_is_running(schema_editor, index_name: str) -> None:
+    build = _running_build(schema_editor, index_name)
+    if build is not None:
+        raise RunningIndexBuildError(
+            f"Index {index_name!r} is still being built by backend pid {build.pid} ({build.phase}, "
+            f"{build.blocks_done}/{build.blocks_total} blocks). The index was not dropped. bin/migrate retries "
+            f"and finds it valid once the build ends; to stop it instead, run pg_cancel_backend({build.pid})."
+        )
+
+
 def _index_validity(schema_editor, index_name: str) -> str | None:
-    """None if no index of this name exists, else "valid" or "invalid" (indisvalid)."""
+    """None if no index of this name exists, else "valid" or "invalid" (indisvalid).
+
+    A build whose client died keeps running on the server with indisvalid = false.
+    Fail instead of reporting it, so a retry does not drop an index that is about to become valid.
+    """
+    _fail_if_build_is_running(schema_editor, index_name)
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
             """
