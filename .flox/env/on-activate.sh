@@ -84,6 +84,10 @@ wait_bg_step() {
   local start_time="$3"
   local tmpfile="$4"
 
+  # A non-interactive shell starts background jobs with SIGINT ignored, so
+  # Ctrl+C would otherwise leave the step running after activation exits.
+  trap 'kill "$pid" 2>/dev/null' INT
+
   if [[ ! -t 1 ]]; then
     echo -ne "  ... ${label}"
   else
@@ -130,6 +134,7 @@ wait_bg_step() {
 
   local exit_code=0
   wait "$pid" 2>/dev/null || exit_code=$?
+  trap - INT
   local elapsed=$(( $(date +%s) - start_time ))
 
   # Final status line
