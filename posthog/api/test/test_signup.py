@@ -1625,21 +1625,53 @@ class TestSignupAPI(APIBaseTest):
         )
         mock_email_verifier.assert_called_once_with(user)
 
+    @parameterized.expand(
+        [
+            ("plain_signup", "plain", True),
+            ("social_signup", "social", True),
+            ("invite_signup", "invite", True),
+            ("delegated_invite_signup", "delegated_invite", False),
+        ]
+    )
     @patch("posthoganalytics.capture")
-    def test_api_sign_up_reports_the_pending_oauth_connection(self, mock_capture):
+    def test_api_sign_up_reports_the_pending_oauth_connection(
+        self, _name: str, signup_path: str, expect_onboarding_skip: bool, mock_capture
+    ):
+        email = "oauth-signup@posthog.com"
         self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
             client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
         ).to_cookie_value()
 
-        response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "Jane",
-                "email": "oauth-signup@posthog.com",
-                "password": VALID_TEST_PASSWORD,
-                "role_at_organization": "product",
-            },
-        )
+        invite_organization: Optional[Organization] = None
+        if signup_path == "plain":
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "Jane",
+                    "email": email,
+                    "password": VALID_TEST_PASSWORD,
+                    "role_at_organization": "product",
+                },
+            )
+        elif signup_path == "social":
+            session = self.client.session
+            session["backend"] = "google-oauth2"
+            session["email"] = email
+            session.save()
+            response = self.client.post(
+                "/api/social_signup/", {"first_name": "Jane", "organization_name": "Jane's Org"}
+            )
+        else:
+            invite_organization = Organization.objects.create(name="Invited Org")
+            Team.objects.create(organization=invite_organization)
+            invite = OrganizationInvite.objects.create(
+                target_email=email,
+                organization=invite_organization,
+                is_setup_delegation=signup_path == "delegated_invite",
+            )
+            response = self.client.post(
+                f"/api/signup/{invite.id}/", {"first_name": "Jane", "password": VALID_TEST_PASSWORD}
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
@@ -1647,6 +1679,17 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(properties["signup_oauth_client_name"], "Claude")
         self.assertEqual(properties["signup_oauth_client_id"], "https://claude.example.com/.well-known/oauth-client")
         self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
+
+        user = User.objects.get(email=email)
+        if expect_onboarding_skip:
+            self.assertIsNotNone(user.onboarding_skipped_at)
+            self.assertEqual(user.onboarding_skipped_reason, "connector")
+            expected_organization = invite_organization or user.organization
+            assert expected_organization is not None
+            self.assertEqual(user.onboarding_skipped_organization_id, expected_organization.id)
+        else:
+            self.assertIsNone(user.onboarding_skipped_at)
+            self.assertIsNone(user.onboarding_skipped_reason)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
