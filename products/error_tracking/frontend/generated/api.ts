@@ -122,6 +122,12 @@ import type {
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleReorderRequestApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
+    SentryConnectionRequestApi,
+    SentryMigrationApplyRequestApi,
+    SentryMigrationApplyResponseApi,
+    SentryMigrationPreviewResponseApi,
+    SentryProjectListResponseApi,
+    SentryProjectRequestApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
 
@@ -1596,6 +1602,66 @@ export const errorTrackingReleasesHashRetrieve = async (
     return apiMutator<void>(getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getErrorTrackingSentryMigrationApplyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migration/apply/`
+}
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationApplyCreate = async (
+    projectId: string,
+    sentryMigrationApplyRequestApi: SentryMigrationApplyRequestApi,
+    options?: RequestInit
+): Promise<SentryMigrationApplyResponseApi> => {
+    return apiMutator<SentryMigrationApplyResponseApi>(getErrorTrackingSentryMigrationApplyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentryMigrationApplyRequestApi),
+    })
+}
+
+export const getErrorTrackingSentryMigrationPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migration/preview/`
+}
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationPreviewCreate = async (
+    projectId: string,
+    sentryProjectRequestApi: SentryProjectRequestApi,
+    options?: RequestInit
+): Promise<SentryMigrationPreviewResponseApi> => {
+    return apiMutator<SentryMigrationPreviewResponseApi>(getErrorTrackingSentryMigrationPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentryProjectRequestApi),
+    })
+}
+
+export const getErrorTrackingSentryMigrationProjectsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/sentry_migration/projects/`
+}
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationProjectsCreate = async (
+    projectId: string,
+    sentryConnectionRequestApi: SentryConnectionRequestApi,
+    options?: RequestInit
+): Promise<SentryProjectListResponseApi> => {
+    return apiMutator<SentryProjectListResponseApi>(getErrorTrackingSentryMigrationProjectsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentryConnectionRequestApi),
     })
 }
 

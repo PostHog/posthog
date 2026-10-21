@@ -109206,6 +109206,191 @@ export namespace Schemas {
       replayed: boolean;
     }
 
+    export interface SentryConnectionRequest {
+      /**
+         * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+         * @maxLength 1024
+         */
+      auth_token: string;
+      /**
+         * Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+         * @maxLength 2048
+         */
+      base_url?: string;
+    }
+
+    export interface SentryMigrationApplyRequest {
+      /**
+         * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+         * @maxLength 1024
+         */
+      auth_token: string;
+      /**
+         * Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+         * @maxLength 2048
+         */
+      base_url?: string;
+      /**
+         * Slug of the Sentry organization.
+         * @maxLength 255
+         */
+      organization_slug: string;
+      /**
+         * Slug of the Sentry project to import from.
+         * @maxLength 255
+         */
+      project_slug: string;
+      /**
+         * Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.
+         * @maxLength 2048
+         * @nullable
+         */
+      region_url?: string | null;
+      /**
+         * IDs of the preview items to import.
+         * @maxItems 1000
+         * @items.maxLength 255
+         */
+      item_ids: string[];
+    }
+
+    export interface SentryMigrationApplyResponse {
+      /** Number of suppression rules the import created. */
+      suppression_rules_created: number;
+      /** True when the import set the project rate limit. */
+      rate_limit_updated: boolean;
+    }
+
+    /**
+     * * `rate_limit` - Rate limit
+     * * `error_message` - Error message filter
+     * * `release` - Release filter
+     * * `inbound_filter` - Inbound filter
+     */
+    export type SentryMigrationCategoryEnum = typeof SentryMigrationCategoryEnum[keyof typeof SentryMigrationCategoryEnum];
+
+
+    export const SentryMigrationCategoryEnum = {
+      RateLimit: 'rate_limit',
+      ErrorMessage: 'error_message',
+      Release: 'release',
+      InboundFilter: 'inbound_filter',
+    } as const;
+
+    /**
+     * * `good` - Good
+     * * `partial` - Partial
+     * * `unsupported` - Unsupported
+     */
+    export type SentryMigrationFitEnum = typeof SentryMigrationFitEnum[keyof typeof SentryMigrationFitEnum];
+
+
+    export const SentryMigrationFitEnum = {
+      Good: 'good',
+      Partial: 'partial',
+      Unsupported: 'unsupported',
+    } as const;
+
+    export interface SentryMigrationRateLimit {
+      /** Maximum number of exception events per bucket for the project. */
+      value: number;
+      /** Bucket window of the rate limit, in minutes. */
+      bucket_size_minutes: number;
+    }
+
+    export interface SentryMigrationItem {
+      /** Stable ID of the item. Send it in `item_ids` to import the item. */
+      id: string;
+      /** Kind of Sentry setting the item comes from.
+       *
+       * * `rate_limit` - Rate limit
+       * * `error_message` - Error message filter
+       * * `release` - Release filter
+       * * `inbound_filter` - Inbound filter */
+      category: SentryMigrationCategoryEnum;
+      /** Name of the setting in Sentry. */
+      sentry_setting: string;
+      /** Value of the setting in Sentry, such as the filter pattern. */
+      sentry_value: string;
+      /** How closely PostHog reproduces the setting. `good` matches the same events, `partial` is an approximation explained in `note`, and `unsupported` can't be imported.
+       *
+       * * `good` - Good
+       * * `partial` - Partial
+       * * `unsupported` - Unsupported */
+      fit: SentryMigrationFitEnum;
+      /**
+         * Explains how the PostHog version differs from Sentry.
+         * @nullable
+         */
+      note: string | null;
+      /** Filters of the suppression rule that the import creates. Null when the item isn't a suppression rule. */
+      suppression_rule_filters: PropertyGroupFilterValue | null;
+      /** Project rate limit that the import sets. Null when the item isn't a rate limit. */
+      rate_limit: SentryMigrationRateLimit | null;
+      /** True when the project already has a suppression rule with the same filters, or the same rate limit. */
+      already_in_posthog: boolean;
+    }
+
+    export interface SentryMigrationPreviewResponse {
+      /** Sentry settings and the PostHog settings they become. */
+      items: SentryMigrationItem[];
+    }
+
+    export interface SentryProject {
+      /** Slug of the Sentry organization. */
+      organization_slug: string;
+      /** Display name of the Sentry organization. */
+      organization_name: string;
+      /** Slug of the Sentry project. */
+      project_slug: string;
+      /** Display name of the Sentry project. */
+      project_name: string;
+      /**
+         * Sentry platform of the project, such as `javascript`.
+         * @nullable
+         */
+      platform: string | null;
+      /**
+         * Region URL of the organization. Send it back with the preview and apply actions.
+         * @nullable
+         */
+      region_url: string | null;
+    }
+
+    export interface SentryProjectListResponse {
+      /** Sentry projects the token can read. */
+      projects: SentryProject[];
+    }
+
+    export interface SentryProjectRequest {
+      /**
+         * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+         * @maxLength 1024
+         */
+      auth_token: string;
+      /**
+         * Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+         * @maxLength 2048
+         */
+      base_url?: string;
+      /**
+         * Slug of the Sentry organization.
+         * @maxLength 255
+         */
+      organization_slug: string;
+      /**
+         * Slug of the Sentry project to import from.
+         * @maxLength 255
+         */
+      project_slug: string;
+      /**
+         * Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.
+         * @maxLength 2048
+         * @nullable
+         */
+      region_url?: string | null;
+    }
+
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
       gateway_server_id: string;

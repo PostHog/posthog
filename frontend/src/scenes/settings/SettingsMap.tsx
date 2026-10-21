@@ -6,6 +6,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { SentryMigration } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/sentry_migration/SentryMigration'
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -978,6 +979,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/error-tracking/releases',
                 component: <Releases />,
                 keywords: ['version', 'deploy', 'release', 'regression'],
+            },
+            {
+                id: 'error-tracking-sentry-migration',
+                title: 'Import from Sentry',
+                description:
+                    'Bring the inbound filters and rate limits of a Sentry project into PostHog. Review how each setting translates before you import it.',
+                component: <SentryMigration />,
+                flag: 'ERROR_TRACKING_SENTRY_MIGRATION',
+                keywords: ['sentry', 'migrate', 'migration', 'import', 'inbound filter', 'rate limit'],
             },
         ],
     },

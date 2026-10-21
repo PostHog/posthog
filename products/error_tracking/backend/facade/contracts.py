@@ -473,3 +473,73 @@ class ErrorTrackingIssueSummary:
     generated_at: datetime
     # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
     checked_at: datetime
+
+
+class SentryMigrationCategory(LabeledStrEnum):
+    RATE_LIMIT = "rate_limit", "Rate limit"
+    ERROR_MESSAGE = "error_message", "Error message filter"
+    RELEASE = "release", "Release filter"
+    INBOUND_FILTER = "inbound_filter", "Inbound filter"
+
+
+class SentryMigrationFit(LabeledStrEnum):
+    GOOD = "good", "Good"
+    PARTIAL = "partial", "Partial"
+    UNSUPPORTED = "unsupported", "Unsupported"
+
+
+@dataclass(frozen=True)
+class SentryConnection:
+    """Credentials for one Sentry API. The token is used for the request and never stored."""
+
+    auth_token: str = field(repr=False)
+    base_url: str
+
+
+@dataclass(frozen=True)
+class SentryProjectRef:
+    organization_slug: str
+    project_slug: str
+    # Sentry hosts each organization in a region, for example https://de.sentry.io.
+    region_url: str | None
+
+
+@dataclass(frozen=True)
+class SentryProject:
+    organization_slug: str
+    organization_name: str
+    project_slug: str
+    project_name: str
+    platform: str | None
+    region_url: str | None
+
+
+@dataclass(frozen=True)
+class SentryMigrationRateLimit:
+    value: int
+    bucket_size_minutes: int
+
+
+@dataclass(frozen=True)
+class SentryMigrationItem:
+    """One Sentry setting and the PostHog configuration it becomes."""
+
+    id: str
+    category: SentryMigrationCategory
+    sentry_setting: str
+    sentry_value: str
+    fit: SentryMigrationFit
+    note: str | None
+    suppression_rule_filters: dict | None
+    rate_limit: SentryMigrationRateLimit | None
+    already_in_posthog: bool
+
+    @property
+    def importable(self) -> bool:
+        return self.fit != SentryMigrationFit.UNSUPPORTED
+
+
+@dataclass(frozen=True)
+class SentryMigrationResult:
+    suppression_rules_created: int
+    rate_limit_updated: bool
