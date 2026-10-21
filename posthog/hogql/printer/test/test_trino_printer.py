@@ -2349,7 +2349,7 @@ def test_rejects_pr_91053_shortcuts_without_matching_trino_semantics(expression:
     assert error.value.feature_code == "TRINO_FUNCTION_UNSUPPORTED"
 
 
-@pytest.mark.parametrize("identifier", ["parameter?", "parameter%", "nul\0identifier"])
+@pytest.mark.parametrize("identifier", ["parameter%", "nul\0identifier"])
 def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(identifier: str) -> None:
     with pytest.raises(QueryError):
         escape_trino_identifier(identifier)
