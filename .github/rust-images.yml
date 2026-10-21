@@ -80,6 +80,7 @@
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  features: hotpath-prometheus
 
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile

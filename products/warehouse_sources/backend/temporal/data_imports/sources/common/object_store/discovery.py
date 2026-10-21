@@ -1,5 +1,4 @@
 import re
-import fnmatch
 import posixpath
 import dataclasses
 from collections.abc import Iterable, Mapping
@@ -23,6 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
     ObjectStore,
     StoredObject,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import (
+    ClickHouseGlob,
+    compile_clickhouse_glob,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     MAX_TABLE_OBJECTS,
@@ -55,13 +58,15 @@ _HIVE_PARTITION_FOLDER = re.compile(r"[^.=][^=]*=.*")
 class TableDefinition:
     name: str
     kind: TableKind
-    # Relative to the store root. For a `file` scope it is the file itself.
+    # Relative to the store root. For a `file` scope it is the file itself. For an `all` scope it is the
+    # folder or file the source lists, or "" for the whole store root.
     path: str
     scope: FileScope | None
     # "delta" for a Delta table. For files: the format the files are read with, or "infer" when one
     # combined table mixes formats and each file is read by its extension.
     file_format: FileFormatChoice
     csv: CsvOptions
+    # A ClickHouse glob over paths relative to the store root, from the source's files URL.
     pattern: str | None
     # The source's configured format at discovery, replayed at sync so the same files group together.
     source_format: FileFormatChoice
@@ -190,6 +195,26 @@ def _is_under(path: str, roots: frozenset[str]) -> bool:
     return any("/".join(segments[:depth]) in roots for depth in range(1, len(segments) + 1))
 
 
+def _roots_with_matching_file(objects: Iterable[StoredObject], roots: frozenset[str], glob: ClickHouseGlob) -> set[str]:
+    """The roots that hold at least one file the glob matches, found in one pass over the listing."""
+    matched: set[str] = set()
+    if not roots:
+        return matched
+    for stored in objects:
+        if not glob.matches(stored.path):
+            continue
+        if "" in roots:
+            matched.add("")
+        segments = stored.path.split("/")[:-1]
+        for depth in range(1, len(segments) + 1):
+            folder = "/".join(segments[:depth])
+            if folder in roots:
+                matched.add(folder)
+        if matched == roots:
+            break
+    return matched
+
+
 def _table_folder(path: str) -> str | None:
     """The folder a file's table is named after, or None for a file directly under the root.
 
@@ -215,6 +240,8 @@ def group_tables(
     objects: Iterable[StoredObject],
     options: DiscoveryOptions,
     root_name: str,
+    pattern: str | None = None,
+    listing_prefix: str = "",
     logger: FilteringBoundLogger | None = None,
     max_tables: int | None = MAX_TABLES,
 ) -> list[TableDefinition]:
@@ -224,6 +251,7 @@ def group_tables(
     - Other files group by their folder, with hive partition folders folded into the table above.
     - A file directly under the root is a table of its own.
     - `combined_table_name` puts every file into one table.
+    - `pattern` keeps only the data files it matches, and only the Delta tables it matches a file of.
 
     The same listing and options always give the same tables, which is what lets a sync find its
     table again from `schema_metadata`.
@@ -231,7 +259,7 @@ def group_tables(
     ordered = sorted(objects, key=lambda stored: stored.path)
     delta_roots = frozenset(_delta_roots(ordered))
     choice = options.file_format
-    pattern = options.file_pattern or None
+    glob = compile_clickhouse_glob(pattern) if pattern else None
     combined_name = (options.combined_table_name or "").strip() or None
 
     def definition(
@@ -256,7 +284,8 @@ def group_tables(
 
     candidates: list[TableDefinition] = []
     if choice in ("infer", "delta"):
-        for root in sorted(delta_roots):
+        offered_roots = sorted(delta_roots if glob is None else _roots_with_matching_file(ordered, delta_roots, glob))
+        for root in offered_roots:
             candidates.append(definition(root.replace("/", "_") or root_name, "delta", root, None, "delta", []))
 
     if choice != "delta":
@@ -265,7 +294,7 @@ def group_tables(
             segments = stored.path.split("/")
             if not segments[-1] or _is_hidden(stored.path) or _is_under(stored.path, delta_roots):
                 continue
-            if pattern is not None and not fnmatch.fnmatchcase(stored.path, pattern):
+            if glob is not None and not glob.matches(stored.path):
                 continue
             file_format = _table_format(stored.path, choice)
             if file_format is not None:
@@ -276,7 +305,9 @@ def group_tables(
                 formats = {file_format for _, file_format in data_files}
                 combined_format = formats.pop() if len(formats) == 1 else "infer"
                 candidates.append(
-                    definition(combined_name, "files", "", "all", combined_format, [f for f, _ in data_files])
+                    definition(
+                        combined_name, "files", listing_prefix, "all", combined_format, [f for f, _ in data_files]
+                    )
                 )
         else:
             folders: dict[tuple[str, FileFormatChoice], list[StoredObject]] = {}
@@ -329,20 +360,26 @@ def resolve_table_files(
     """
     if table.kind != "files":
         return table
-    listing_prefix = "" if table.scope == "all" else table.path
-    objects = store.list_objects(listing_prefix, max_objects + 1)
+    objects = store.list_objects(table.path, max_objects + 1)
     if len(objects) > max_objects:
         raise ObjectStorageError(
-            f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{listing_prefix or '/'}'. Point the source at a "
-            "narrower folder, or set a file pattern that matches fewer files."
+            f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{table.path or '/'}'. Point the URL at a "
+            "narrower folder, or use a pattern that matches fewer files."
         )
     options = DiscoveryOptions(
         file_format=table.source_format,
-        file_pattern=table.pattern,
         allow_double_quotes=table.csv.allow_double_quotes,
         combined_table_name=table.name if table.scope == "all" else None,
     )
-    for candidate in group_tables(objects, options, root_name=table.name, logger=logger, max_tables=None):
+    for candidate in group_tables(
+        objects,
+        options,
+        root_name=table.name,
+        pattern=table.pattern,
+        listing_prefix=table.path if table.scope == "all" else "",
+        logger=logger,
+        max_tables=None,
+    ):
         # A combined table keeps its identity when a new file changes which formats it mixes.
         if candidate.same_location(table) or (table.scope == "all" and candidate.scope == "all"):
             return dataclasses.replace(candidate, name=table.name)
