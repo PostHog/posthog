@@ -755,9 +755,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 return
             }
 
+            const flag = values.featureFlags.results.find((f) => f.id === id)
             openFeatureFlagDisableDialog({
                 source: 'feature-flags-list',
-                filters: values.featureFlags.results.find((flag) => flag.id === id)?.filters,
+                filters: flag?.filters,
+                archived: flag?.archived,
                 onDisable: () => applyUpdate({ active: false }),
                 onDisableAndArchive: () =>
                     actions.updateFeatureFlagArchived({ id, archived: true, via: 'disable-confirmation' }),
