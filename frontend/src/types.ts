@@ -45,7 +45,6 @@ import type {
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
-    SharingConfigurationApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -390,7 +389,7 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -2474,7 +2473,14 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
-    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
+    usage_summary?: Record<
+        string,
+        {
+            usage?: number | null
+            limit?: number | null
+            todays_usage?: number | null
+        }
+    >
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -5679,6 +5685,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-adsense',
     'google-analytics',
     'google-calendar',
     'google-search-console',
@@ -5825,7 +5832,6 @@ export interface SharePasswordType {
 }
 
 export interface SharingConfigurationType {
-    has_relevant_access_controls?: SharingConfigurationApi['has_relevant_access_controls']
     enabled: boolean
     access_token: string
     created_at: string
@@ -6195,7 +6201,6 @@ export enum ActivityScope {
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
-    PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
@@ -6626,9 +6631,6 @@ export interface ExternalDataSourceSyncSchema {
     /** True when the resource has no API list endpoint and can only be populated via webhooks
      *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
     webhook_only?: boolean
-    /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
-     *  wizard defaults it to `full_refresh` even though incremental or append is available. */
-    prefers_full_refresh?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -6689,7 +6691,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * Primary-key + active incremental columns are always retained even if not listed.
      */
     enabled_columns?: string[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available_columns?: {
+        name: string
+        data_type?: string
+        is_nullable?: boolean
+    }[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**
@@ -7834,7 +7840,11 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null; runtime?: TaskRuntimeEnumApi } | null
+    task?: {
+        id: string
+        latest_run: string | null
+        runtime?: TaskRuntimeEnumApi
+    } | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -7912,7 +7922,10 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
+    treeItemsProducts?: (FileSystemImport & {
+        intents: ProductKey[]
+        category: ProductItemCategory
+    })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
     /**

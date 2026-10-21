@@ -168,6 +168,7 @@ export interface RoleLookupResponseApi {
  * * `github` - Github
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
+ * * `google-adsense` - Google Adsense
  * * `google-analytics` - Google Analytics
  * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
@@ -222,6 +223,7 @@ export const IntegrationKindEnumApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAdsense: 'google-adsense',
     GoogleAnalytics: 'google-analytics',
     GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
@@ -612,6 +614,7 @@ export interface IntegrationAccessRequestApi {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-adsense` - Google Adsense
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
@@ -778,6 +781,7 @@ export type IntegrationsListParams = {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-adsense` - Google Adsense
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
@@ -843,6 +847,7 @@ export const IntegrationsListKind = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAdsense: 'google-adsense',
     GoogleAnalytics: 'google-analytics',
     GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
