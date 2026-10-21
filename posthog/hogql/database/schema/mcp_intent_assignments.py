@@ -1,4 +1,4 @@
-from posthog.hogql.ast import SelectQuery
+from posthog.hogql.ast import Constant, LazyTableType, SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
@@ -87,7 +87,15 @@ class MCPIntentAssignmentsTable(LazyTable):
     fields: dict[str, FieldOrTable] = MCP_INTENT_ASSIGNMENTS_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: HogQLContext, node: SelectQuery):
-        return select_latest_assignments(table_to_add.fields_accessed)
+        # Deferred because restricted_properties imports this module.
+        from posthog.hogql.restricted_properties import mirrored_column_is_restricted  # noqa: PLC0415
+
+        select = select_latest_assignments(table_to_add.fields_accessed)
+        # A restricted intent_hash reads as NULL, so the dedupe would merge every intent into one row. Return no rows
+        # instead of one misleading row.
+        if mirrored_column_is_restricted(LazyTableType(table=self), "intent_hash", context):
+            select.where = Constant(value=False)
+        return select
 
     def to_printed_clickhouse(self, context: HogQLContext):
         return MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE
