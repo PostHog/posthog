@@ -715,7 +715,8 @@ export const maxLogic = kea<maxLogicType>([
                 taskTitle: string | null
             ): Breadcrumb[] => {
                 const isStreaming = activeStreamingThreads > 0
-                const hasConversationBreadcrumb = !conversationHistoryVisible && (conversationId || taskTitle)
+                const historyVisible = conversationHistoryVisible && !taskTitle
+                const hasConversationBreadcrumb = !historyVisible && (conversationId || taskTitle)
                 return [
                     {
                         key: Scene.Max,
@@ -723,7 +724,7 @@ export const maxLogic = kea<maxLogicType>([
                         path: urls.ai(),
                         iconType: 'chat',
                     },
-                    ...(conversationHistoryVisible || searchParams.from === 'history'
+                    ...(historyVisible || searchParams.from === 'history'
                         ? [
                               {
                                   key: Scene.Max,
