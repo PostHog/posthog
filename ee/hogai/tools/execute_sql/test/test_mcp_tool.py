@@ -120,6 +120,13 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("validation failed", str(ctx.exception).lower())
         self.assertEqual(ctx.exception.error_code, expected_code)
 
+    async def test_unreadable_result_type_names_its_class(self) -> None:
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT argMinState(event, timestamp) FROM events"))
+
+        self.assertEqual(ctx.exception.error_type, "internal")
+        self.assertEqual(ctx.exception.error_code, "unhandled_unknown_type_error")
+
     @parameterized.expand(
         [
             ("trailing_tokens", "SELECT 1 FROM events LIMIT 1 blah", "blah"),

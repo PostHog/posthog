@@ -48,6 +48,7 @@ EXTENSION_FORMATS: dict[str, FileFormat] = {
 }
 
 _FILE_FORMAT_CHOICES: frozenset[str] = frozenset(get_args(FileFormatChoice))
+_HIVE_PARTITION_FOLDER = re.compile(r"[^.=][^=]*=.*")
 
 
 @frozen
@@ -154,9 +155,19 @@ def _table_format(path: str, choice: FileFormatChoice) -> FileFormatChoice | Non
     return choice
 
 
-def _is_hidden(segments: Iterable[str]) -> bool:
+def _is_hidden_name(segment: str) -> bool:
     # `_SUCCESS`, `_committed_*`, `.crc` and `_temporary/` are Spark and Hadoop bookkeeping, not data.
-    return any(segment.startswith(("_", ".")) for segment in segments)
+    return segment.startswith(("_", "."))
+
+
+def _is_hidden_directory(segment: str) -> bool:
+    # A hive partition folder such as `_ph_partition_key=2026-w36` holds data, even when its key starts with `_`.
+    return _is_hidden_name(segment) and _HIVE_PARTITION_FOLDER.fullmatch(segment) is None
+
+
+def _is_hidden(path: str) -> bool:
+    *directories, file_name = path.split("/")
+    return _is_hidden_name(file_name) or any(_is_hidden_directory(directory) for directory in directories)
 
 
 def _delta_roots(objects: Iterable[StoredObject]) -> list[str]:
@@ -165,7 +176,7 @@ def _delta_roots(objects: Iterable[StoredObject]) -> list[str]:
         segments = stored.path.split("/")
         if DELTA_LOG_DIRECTORY in segments[:-1]:
             root_segments = segments[: segments.index(DELTA_LOG_DIRECTORY)]
-            if not _is_hidden(root_segments):
+            if not any(_is_hidden_directory(segment) for segment in root_segments):
                 roots.add("/".join(root_segments))
     return sorted(roots)
 
@@ -252,7 +263,7 @@ def group_tables(
         data_files: list[tuple[StoredObject, FileFormatChoice]] = []
         for stored in ordered:
             segments = stored.path.split("/")
-            if not segments[-1] or _is_hidden(segments) or _is_under(stored.path, delta_roots):
+            if not segments[-1] or _is_hidden(stored.path) or _is_under(stored.path, delta_roots):
                 continue
             if pattern is not None and not fnmatch.fnmatchcase(stored.path, pattern):
                 continue

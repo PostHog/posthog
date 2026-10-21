@@ -1888,6 +1888,20 @@ class InsightDataChecksSerializer(serializers.Serializer):
     )
 
 
+def chart_display_filter(value: str) -> Q:
+    displays = [display for display in value.split(",") if display]
+    unknown = set(displays) - {display.value for display in schema.ChartDisplayType}
+    if not displays or unknown:
+        raise ValidationError({"display": f"Unknown chart types: {', '.join(sorted(unknown)) or value!r}."})
+    trends_display = Q(query__source__trendsFilter__display__in=displays)
+    if schema.ChartDisplayType.ACTIONS_LINE_GRAPH in displays:
+        trends_display |= Q(query__source__trendsFilter__display__isnull=True)
+    return (
+        Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE, query__source__kind=schema.NodeKind.TRENDS_QUERY)
+        & trends_display
+    ) | Q(query__kind=schema.NodeKind.DATA_VISUALIZATION_NODE, query__display__in=displays)
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -1962,6 +1976,15 @@ Background calculation can be tracked using the `query_status` response field.""
                 name="exclude_bi",
                 type=OpenApiTypes.BOOL,
                 description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="display",
+                type=OpenApiTypes.STR,
+                description=(
+                    "Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL "
+                    "insights shown as one of them. A trends insight with no chart type set counts as "
+                    "`ActionsLineGraph`."
+                ),
             ),
             OpenApiParameter(
                 name="order",
@@ -2377,6 +2400,8 @@ class InsightViewSet(
                     )
                 else:
                     queryset = queryset.filter(legacy_filter)
+            elif key == "display":
+                queryset = queryset.filter(chart_display_filter(request.GET["display"]))
             elif key == "search":
                 term = request.GET["search"]
                 if len(term) > MAX_SEARCH_LENGTH:

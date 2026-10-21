@@ -103,8 +103,10 @@ def make_sync_retryable_with_exponential_backoff(
     return inner
 
 
-def _log_slow_thread_call(call: Callable[[], T], name: str, submit_time: float) -> Callable[[], T]:
-    """Wrap a thread-pool call so a slow thread wait or execution logs an `asyncify_slow` warning."""
+def _log_slow_thread_call(
+    call: Callable[[], T], name: str, submit_time: float, *, log_slow_execution: bool
+) -> Callable[[], T]:
+    """Wrap a thread-pool call so a slow thread wait, or a slow execution when asked, logs an `asyncify_slow` warning."""
 
     def instrumented() -> T:
         start_time = time.monotonic()
@@ -114,7 +116,10 @@ def _log_slow_thread_call(call: Callable[[], T], name: str, submit_time: float) 
             now = time.monotonic()
             thread_wait = start_time - submit_time
             execution_time = now - start_time
-            if activity.in_activity() and max(thread_wait, execution_time) >= ASYNCIFY_SLOW_THRESHOLD_SECONDS:
+            slow = thread_wait >= ASYNCIFY_SLOW_THRESHOLD_SECONDS or (
+                log_slow_execution and execution_time >= ASYNCIFY_SLOW_THRESHOLD_SECONDS
+            )
+            if activity.in_activity() and slow:
                 # The structlog chain has no ExtraAdder, so stdlib `extra=` fields never reach the log.
                 activity.logger.warning(
                     f"asyncify_slow function={name} "
@@ -132,12 +137,17 @@ def on_asyncify_pool(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
     without an executor runs on the event loop's default pool instead, which CPython caps at the node's
     CPU count + 4, so slots above that cap wait for a thread. The pool is read on each call, so a
     module-level ``@on_asyncify_pool`` still picks up the pool the worker configures at startup.
+
+    It logs ``asyncify_slow`` only for a slow thread wait. These steps are often long LLM or ClickHouse
+    calls, so a slow execution is normal and would log on almost every call.
     """
 
     @wraps(fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         name = getattr(fn, "__name__", type(fn).__name__)
-        instrumented = _log_slow_thread_call(partial(fn, *args, **kwargs), name, time.monotonic())
+        instrumented = _log_slow_thread_call(
+            partial(fn, *args, **kwargs), name, time.monotonic(), log_slow_execution=False
+        )
         return await database_sync_to_async_pool(instrumented, executor=get_asyncify_executor())()
 
     return wrapper
@@ -163,7 +173,9 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 
     @wraps(fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        instrumented = _log_slow_thread_call(partial(fn, *args, **kwargs), fn.__name__, time.monotonic())
+        instrumented = _log_slow_thread_call(
+            partial(fn, *args, **kwargs), fn.__name__, time.monotonic(), log_slow_execution=True
+        )
 
         run_on_thread = sync_to_async(thread_sensitive=False, executor=get_asyncify_executor())(
             close_db_connections(instrumented)

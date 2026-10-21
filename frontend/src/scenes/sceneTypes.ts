@@ -130,6 +130,7 @@ export enum Scene {
     OAuthAuthorize = 'OAuthAuthorize',
     Onboarding = 'Onboarding',
     OnboardingCoupon = 'OnboardingCoupon',
+    OnboardingWelcome = 'OnboardingWelcome',
     OrganizationCreateFirst = 'OrganizationCreate',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',

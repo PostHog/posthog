@@ -129,6 +129,28 @@ describe('MessageAssetsService', () => {
             expect(row!.recipient).toBe('recipient@example.com')
             expect(row!.subject).toBe('Welcome aboard')
         })
+
+        it('keeps a placeholder instead of the body when the template is marked sensitive', () => {
+            const invocation = invocationWithAction('flow-1')
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+            invocation.hogFunction.inputs = { email: { value: { subject: 'Your code is {{ variables.code }}' } } }
+
+            const row = service.buildRowForEmail(
+                invocation,
+                emailParams({
+                    subject: 'Your code is 482913',
+                    html: '<a href="https://example.com/reset?token=s3cret">Reset</a>',
+                })
+            )
+
+            expect(row).toMatchObject({
+                recipient: 'recipient@example.com',
+                subject: 'Your code is {{ variables.code }}',
+                status: 'sent',
+            })
+            expect(row!.html).toContain('Email body not stored')
+            expect(row!.html).not.toContain('s3cret')
+        })
     })
 
     describe('buildRowForPush', () => {

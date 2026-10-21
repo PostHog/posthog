@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -14,7 +16,7 @@ import type { SignalReportCheckApi } from 'products/signals/frontend/generated/a
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { EnrichedReviewer, SignalReport } from '../types'
+import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
@@ -29,6 +31,50 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    it('orders report runs newest first across purposes using their first association', async () => {
+        const runs = [
+            { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T01:00:00Z' },
+            { taskId: 'research', type: 'research', startedAt: '2026-01-01T02:00:00Z' },
+            { taskId: 'implementation-new', type: 'implementation', startedAt: '2026-01-01T03:00:00Z' },
+            { taskId: 'scout', type: 'scout', startedAt: '2026-01-01T04:00:00Z' },
+            { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T05:00:00Z' },
+        ]
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                    results: runs.map(({ taskId, type, startedAt }, index) => ({
+                        id: `task-run-${index}`,
+                        type: 'task_run',
+                        content: { task_id: taskId, product: 'signals', type },
+                        created_at: startedAt,
+                    })),
+                },
+                '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                '/api/projects/:team_id/tasks/:id/': (req) => [
+                    200,
+                    { id: req.params.id, latest_run: { status: TaskRunStatus.COMPLETED } },
+                ],
+            },
+        })
+        initKeaTests()
+        const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+        logic.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.reportTasks?.map((entry) => entry.task.id)).toEqual([
+                'scout',
+                'implementation-new',
+                'research',
+                'implementation-old',
+            ])
+        } finally {
+            logic.unmount()
+        }
+    })
+
     describe('priority editing', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
 
@@ -222,6 +268,89 @@ describe('inboxReportDetailLogic', () => {
 
         afterEach(() => {
             logic.unmount()
+        })
+
+        it('finishes slow pagination across polls and retains project-scoped activity, task runs, and reviewers', async () => {
+            const observation = {
+                id: 'observation-1',
+                type: 'check_observation',
+                content: {},
+                created_at: '2026-10-01T00:00:00Z',
+            }
+            const taskRun = {
+                id: 'task-run-1',
+                type: 'task_run',
+                content: { task_id: 'task-1', product: 'signals', type: 'implementation' },
+                created_at: '2026-01-01T00:00:00Z',
+            }
+            const note = {
+                id: 'note-1',
+                type: 'note',
+                content: { note: 'Earlier activity' },
+                created_at: '2026-01-01T00:00:00Z',
+            }
+            let finishPage: () => void = () => {}
+            const pendingPage = new Promise<void>((resolve) => {
+                finishPage = resolve
+            })
+            const requests: string[] = []
+            const fetchPage = jest.fn(async ({ request }: { request: Request }) => {
+                const url = new URL(request.url)
+                requests.push(url.pathname)
+                if (url.searchParams.has('offset')) {
+                    await pendingPage
+                    return { results: [artefact, taskRun, note], next: null }
+                }
+                return {
+                    results: [observation],
+                    next: `/api/projects/${MOCK_DEFAULT_PROJECT.id}/signals/reports/report-1/artefacts/?limit=1000&offset=1000`,
+                }
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': fetchPage,
+                    '/api/projects/:team_id/tasks/:id/': {
+                        id: 'task-1',
+                        latest_run: { status: TaskRunStatus.COMPLETED },
+                    },
+                },
+            })
+            logic.unmount()
+            jest.useFakeTimers()
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: 99, project_id: MOCK_DEFAULT_PROJECT.id })
+            logic = inboxReportDetailLogic({
+                reportId: REPORT.id,
+                report: { ...REPORT, status: SignalReportStatus.IN_PROGRESS },
+            })
+            logic.mount()
+            try {
+                await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(2))
+                await jest.advanceTimersByTimeAsync(10000)
+                expect(fetchPage).toHaveBeenCalledTimes(2)
+                expect(logic.values.reportArtefactsLoading).toBe(true)
+                expect(requests).toEqual([
+                    `/api/projects/${MOCK_DEFAULT_PROJECT.id}/signals/reports/${REPORT.id}/artefacts/`,
+                    `/api/projects/${MOCK_DEFAULT_PROJECT.id}/signals/reports/${REPORT.id}/artefacts/`,
+                ])
+                finishPage()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.reportArtefacts?.map((row) => row.id)).toEqual([
+                    'observation-1',
+                    'reviewers-1',
+                    'task-run-1',
+                    'note-1',
+                ])
+                expect(logic.values.reportReviewers).toEqual([reviewer])
+                expect(logic.values.reportTasks?.map((entry) => entry.task.id)).toEqual(['task-1'])
+                expect(logic.values.reportArtefactsLoading).toBe(false)
+                await jest.advanceTimersByTimeAsync(5000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(fetchPage).toHaveBeenCalledTimes(4)
+            } finally {
+                finishPage()
+                logic.unmount()
+                jest.useRealTimers()
+            }
         })
 
         it('keeps a removed reviewer hidden until the refreshed list arrives', async () => {
