@@ -3,9 +3,8 @@ import { Button, Item, ItemContent, ItemSeparator, ItemTitle, Text } from '@post
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
-
 import { TodayProductPreview } from './todayPreviewCards'
+import { TodayProductIcon } from './TodayProductIcon'
 
 export function TodayProductHoverCard({
     preview,
@@ -23,7 +22,7 @@ export function TodayProductHoverCard({
                             className="flex size-4 shrink-0 items-center justify-center group/colorful-product-icons colorful-product-icons-true [&_svg]:size-4"
                             aria-hidden
                         >
-                            <NavProductIcon item={preview.product} />
+                            <TodayProductIcon item={preview.product} />
                         </span>
                         <span className="min-w-0 flex-1 font-semibold">{preview.label}</span>
                     </ItemTitle>
