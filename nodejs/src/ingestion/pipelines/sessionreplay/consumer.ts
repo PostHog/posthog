@@ -40,7 +40,7 @@ import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionReplayLagReporter } from './session-replay-lag-reporter'
 import { SessionReplayPipelineFactory, SessionReplayPipelineRunner } from './session-replay-pipeline-runner'
-import { recordPersistedSessionUsage } from './session-usage-step'
+import { billPersistedSessions } from './session-usage-step'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { BlockCompression } from './sessions/block-compression'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
@@ -374,8 +374,7 @@ export class SessionRecordingIngester {
             const persistedSessions = await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.currentBatch.flush()
             )
-            recordPersistedSessionUsage(this.usageBatch, persistedSessions)
-            await this.usageBatch.flush().catch((error) => {
+            await billPersistedSessions(this.usageBatch, this.sessionTracker, persistedSessions).catch((error) => {
                 logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
             })
             // The flush committed the batch's offsets, so its data is now durably ingested — report lag.

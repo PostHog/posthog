@@ -1,5 +1,13 @@
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import {
+    SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS,
+    SESSION_TRACKER_REDIS_TTL_SECONDS,
+} from '~/ingestion/pipelines/sessionreplay/constants'
+import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
+
+const MOBILE_METER = 'mobile_replay_recordings'
 
 /**
  * The meter this session bills under. Every session bills exactly one, so no `snapshot_source`
@@ -14,7 +22,7 @@ import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared
  * The meter reads the snapshot source stored with the replay metadata.
  */
 function billableMeter(snapshotSource: string | null): string {
-    return snapshotSource === 'mobile' ? 'mobile_replay_recordings' : 'session_replay_recordings'
+    return snapshotSource === 'mobile' ? MOBILE_METER : 'session_replay_recordings'
 }
 
 export function recordPersistedSessionUsage(usageBatch: UsageRecordBatch, sessions: SessionBlockMetadata[]): void {
@@ -28,4 +36,45 @@ export function recordPersistedSessionUsage(usageBatch: UsageRecordBatch, sessio
             session.captureTimestampMs
         )
     }
+}
+
+/**
+ * Bills each saved session once. A session sends data in many batches, and every flush that saves it
+ * reaches here, so the session tracker records which sessions already billed. A session bills on the
+ * first flush that saves it and finds it unbilled. The bill counts only once the record reaches the
+ * usage service, so a failed send bills on the session's next saved batch.
+ */
+export async function billPersistedSessions(
+    usageBatch: UsageRecordBatch,
+    sessionTracker: SessionTracker,
+    sessions: SessionBlockMetadata[]
+): Promise<void> {
+    const billable = new SessionSet()
+    for (const session of sessions) {
+        if (usageBatch.accepts(session.teamId)) {
+            billable.add(session.teamId, session.sessionId)
+        }
+    }
+    if (billable.size === 0) {
+        return
+    }
+
+    const unbilled = await sessionTracker.findUnbilled(billable)
+    recordPersistedSessionUsage(
+        usageBatch,
+        sessions.filter((session) => unbilled.has(session.teamId, session.sessionId))
+    )
+    const received = await usageBatch.flush()
+    await sessionTracker.markBilled(
+        received
+            .filter((record) => unbilled.has(record.teamId, record.recordId))
+            .map((record) => ({
+                teamId: record.teamId,
+                sessionId: record.recordId,
+                ttlSeconds:
+                    record.usageKey === MOBILE_METER
+                        ? SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS
+                        : SESSION_TRACKER_REDIS_TTL_SECONDS,
+            }))
+    )
 }

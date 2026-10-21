@@ -9,6 +9,18 @@ import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
+// Any value means seen. The value also records whether the session billed. Code that billed a
+// session when it first saw it wrote '1', so those sessions count as billed.
+const SEEN = 'seen'
+const BILLED = 'billed'
+const BILLED_AT_FIRST_SIGHT = '1'
+
+export interface BilledSession {
+    teamId: number
+    sessionId: string
+    ttlSeconds: number
+}
+
 /**
  * Tracks which sessions have been seen before, so a session's first sighting can be treated as new
  * (rate-limited, key-generated) and later sightings as existing.
@@ -45,6 +57,8 @@ export class SessionTracker {
 
     private readonly localCache: LRUCache<string, true>
 
+    private readonly billedCache: LRUCache<string, true>
+
     /**
      * @param keyNamespace - Optional Redis key namespace. Omit (the default) for the main lane — this
      *   keeps the key prefix exactly `@posthog/replay/session-seen` so existing sessions aren't seen as
@@ -60,6 +74,10 @@ export class SessionTracker {
     ) {
         this.keyPrefix = keyNamespace ? `@posthog/replay/${keyNamespace}/session-seen` : '@posthog/replay/session-seen'
         this.localCache = new LRUCache({
+            max: localCacheMaxSize,
+            ttl: localCacheTtlMs,
+        })
+        this.billedCache = new LRUCache({
             max: localCacheMaxSize,
             ttl: localCacheTtlMs,
         })
@@ -150,11 +168,92 @@ export class SessionTracker {
                 const key = this.generateKey(teamId, sessionId)
                 this.localCache.set(key, true)
                 SessionBatchMetrics.incrementNewSessionsDetected()
-                pipeline.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS)
+                pipeline.set(key, SEEN, 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS)
             }
             await pipeline.exec()
         } catch (error) {
             logger.error('session_tracker_mark_seen_redis_error', { error: String(error) })
+            SessionBatchMetrics.incrementSessionTrackerRedisErrors()
+        } finally {
+            if (client) {
+                await this.redisPool.release(client)
+            }
+            SessionBatchMetrics.observeSessionTrackerRedisLatency((performance.now() - startTime) / 1000)
+        }
+    }
+
+    /**
+     * Which of the given sessions did not bill yet. The local cache answers its hits without Redis,
+     * and one MGET checks the other sessions. A session without a key counts as unbilled, because a
+     * mark that failed to persist must not stop the bill.
+     *
+     * Fails closed: on a Redis error this logs and returns no sessions, so this flush bills nothing.
+     * The sessions stay unbilled, and the next flush that saves them bills them.
+     */
+    public async findUnbilled(sessions: SessionSet): Promise<SessionSet> {
+        const unbilled = new SessionSet()
+        const misses: { teamId: number; sessionId: string }[] = []
+        for (const { teamId, sessionId } of sessions) {
+            if (!this.billedCache.has(this.generateKey(teamId, sessionId))) {
+                misses.push({ teamId, sessionId })
+            }
+        }
+
+        if (misses.length === 0) {
+            return unbilled
+        }
+
+        const startTime = performance.now()
+        let client
+        try {
+            client = await this.redisPool.acquire()
+            const values = await client.mget(misses.map(({ teamId, sessionId }) => this.generateKey(teamId, sessionId)))
+            for (let i = 0; i < misses.length; i++) {
+                const { teamId, sessionId } = misses[i]
+                if (values[i] === BILLED || values[i] === BILLED_AT_FIRST_SIGHT) {
+                    this.billedCache.set(this.generateKey(teamId, sessionId), true)
+                } else {
+                    unbilled.add(teamId, sessionId)
+                }
+            }
+            return unbilled
+        } catch (error) {
+            logger.error('session_tracker_find_unbilled_redis_error', { error: String(error) })
+            SessionBatchMetrics.incrementSessionTrackerRedisErrors()
+            return new SessionSet()
+        } finally {
+            if (client) {
+                await this.redisPool.release(client)
+            }
+            SessionBatchMetrics.observeSessionTrackerRedisLatency((performance.now() - startTime) / 1000)
+        }
+    }
+
+    /**
+     * Mark the given sessions as billed, in a single Redis pipeline. Call this only after the
+     * sessions' usage records reached the usage service.
+     *
+     * Fails open, like {@link markSeen}: the local cache still records the bill for this consumer. A
+     * lost mark can only bill the session again on another consumer.
+     */
+    public async markBilled(sessions: BilledSession[]): Promise<void> {
+        if (sessions.length === 0) {
+            return
+        }
+
+        const startTime = performance.now()
+        let client
+        try {
+            client = await this.redisPool.acquire()
+            const pipeline = client.pipeline()
+            for (const { teamId, sessionId, ttlSeconds } of sessions) {
+                const key = this.generateKey(teamId, sessionId)
+                this.billedCache.set(key, true)
+                pipeline.set(key, BILLED, 'EX', ttlSeconds)
+            }
+            await pipeline.exec()
+        } catch (error) {
+            logger.error('session_tracker_mark_billed_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionTrackerRedisErrors()
         } finally {
             if (client) {

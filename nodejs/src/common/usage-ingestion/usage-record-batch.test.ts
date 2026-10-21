@@ -80,7 +80,7 @@ describe('UsageRecordBatch', () => {
      * Queues one record, starts the send, then queues a second while the first is in flight.
      * Both acknowledgements are the test's to resolve, so neither case depends on timing.
      */
-    async function sendWithALateAcknowledgement(send: (b: UsageRecordBatch) => Promise<void>): Promise<void> {
+    async function sendWithALateAcknowledgement(send: (b: UsageRecordBatch) => Promise<unknown>): Promise<void> {
         const b = batch()
         let acknowledgeFirst!: (info: object) => void
         let acknowledgeSecond!: (info: object) => void
@@ -131,6 +131,6 @@ describe('UsageRecordBatch', () => {
     ])('flushes without waiting on acknowledgements for %s', async (_name, b) => {
         b.addAfterAcknowledgements([new Promise(() => {})], 1, 'events', 'uuid-1')
 
-        await expect(b.flush()).resolves.toBeUndefined()
+        await expect(b.flush()).resolves.toEqual([])
     })
 })

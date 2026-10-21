@@ -127,11 +127,19 @@ describe('SessionRecordingIngester', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         }
 
+        const sessionTrackerRedis = {
+            mget: (keys: string[]) => Promise.resolve(keys.map(() => null)),
+            pipeline: () => ({ set: jest.fn().mockReturnThis(), exec: () => Promise.resolve([]) }),
+        }
+
         ingester = new SessionRecordingIngester(
             config,
             {} as jest.Mocked<PostgresRouter>,
             {} as unknown as ConstructorParameters<typeof SessionRecordingIngester>[2],
-            {} as unknown as RedisPool,
+            {
+                acquire: () => Promise.resolve(sessionTrackerRedis),
+                release: () => Promise.resolve(),
+            } as unknown as RedisPool,
             {} as unknown as RedisPool,
             {
                 fileStorage: new BlackholeSessionBatchFileStorage(),
@@ -307,7 +315,9 @@ describe('SessionRecordingIngester', () => {
             },
             collaborators
         )
-        const ingest = jest.spyOn(UsageIngestionClient.prototype, 'ingest').mockResolvedValue(undefined)
+        const ingest = jest
+            .spyOn(UsageIngestionClient.prototype, 'ingest')
+            .mockImplementation((records) => Promise.resolve(records))
         recordOneSession()
 
         await ingester.handleEachBatch([kafkaMessage(0, 42)])

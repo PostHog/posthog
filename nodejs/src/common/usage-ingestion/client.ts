@@ -98,18 +98,24 @@ export class UsageIngestionClient {
         this.maxBatchSize = config.maxBatchSize ?? 500
     }
 
-    async ingest(records: UsageRecordInput[]): Promise<void> {
+    /**
+     * Returns the records that reached the service, including the ones it rejected. A rejected
+     * record fails the same way on every retry, so only a record in a failed chunk is worth
+     * sending again.
+     */
+    async ingest(records: UsageRecordInput[]): Promise<UsageRecordInput[]> {
         if (records.length === 0) {
-            return
+            return []
         }
         const chunks: UsageRecordInput[][] = []
         for (let i = 0; i < records.length; i += this.maxBatchSize) {
             chunks.push(records.slice(i, i + this.maxBatchSize))
         }
-        await Promise.all(chunks.map((chunk) => this.ingestChunk(chunk)))
+        const received = await Promise.all(chunks.map((chunk) => this.ingestChunk(chunk)))
+        return chunks.filter((_, i) => received[i]).flat()
     }
 
-    private async ingestChunk(chunk: UsageRecordInput[], attempt = 0): Promise<void> {
+    private async ingestChunk(chunk: UsageRecordInput[], attempt = 0): Promise<boolean> {
         const request = create(IngestBillingUsageRequestSchema, {
             records: chunk.map((record) =>
                 create(BillingUsageRecordSchema, {
@@ -155,14 +161,14 @@ export class UsageIngestionClient {
                     teams: rejectedTeams(chunk, rejected),
                 })
             }
+            return true
         } catch (error) {
             const code = error instanceof ConnectError ? error.code : Code.Unknown
             if (attempt + 1 < MAX_ATTEMPTS && RETRYABLE_CODES.has(code)) {
                 usageRetriesCounter.inc({ producer_id: this.producerId, error_code: Code[code] ?? 'unknown' })
                 // Backoff so a burst of connection churn does not eat every attempt at once.
                 await delay(RETRY_BACKOFF_MS * 2 ** attempt)
-                await this.ingestChunk(chunk, attempt + 1)
-                return
+                return this.ingestChunk(chunk, attempt + 1)
             }
             for (const record of chunk) {
                 usageRecordsFailedCounter.inc({
@@ -176,6 +182,7 @@ export class UsageIngestionClient {
                 records: chunk.length,
                 error: String(error),
             })
+            return false
         }
     }
 }
