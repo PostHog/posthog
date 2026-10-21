@@ -13,6 +13,7 @@ import {
     realtimeCohortSendBlockedReason,
 } from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { manageDisabledReason } from './broadcastLifecycle'
+import { BroadcastPreviousSendBanner } from './BroadcastPreviousSendBanner'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { BroadcastWizardStepper } from './BroadcastWizardStepper'
@@ -30,7 +31,7 @@ export function BroadcastWizard(): JSX.Element {
     const realtimeCohort = blastRadius?.realtime_cohort
     const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast, openInWorkflowEditor } =
         useActions(broadcastWizardLogic)
-    const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
+    const { broadcastId, broadcast, sourceRecord } = useValues(broadcastWizardLogic)
     useBroadcastAgentPanel()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -110,6 +111,8 @@ export function BroadcastWizard(): JSX.Element {
                         />
                     </div>
                 </div>
+
+                {sourceRecord && <BroadcastPreviousSendBanner sourceRecord={sourceRecord} />}
 
                 <div>
                     {currentStep === 'recipients' && <BroadcastRecipientsStep />}

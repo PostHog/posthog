@@ -155,7 +155,7 @@ class HogFlow(UUIDTModel):
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
     # The record another product's "message these people" entry point started this flow from, as
-    # "<kind>:<id>". A later send from the same record skips the people this one already emailed.
+    # "<kind>:<id>". A later broadcast from the same record warns that this one already went out.
     source_record = models.CharField(max_length=255, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

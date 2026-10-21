@@ -1374,12 +1374,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // A realtime cohort has to be the only condition, so picking one replaces the others.
             const mixed = blastRadius?.realtime_cohort_with_other_conditions
             const onlyCohort = mixed ? keepOnlyRealtimeCohort(values.audienceProperties, mixed.id) : null
-            // Dropping an excluded cohort would email the people it leaves out. The audience keeps both conditions
-            // instead, and the server refuses to save it until the author removes one.
-            const hasExclusion = values.audienceProperties.some(
-                (filter) => filter.type === PropertyFilterType.Cohort && filter.operator === PropertyOperator.NotIn
-            )
-            if (onlyCohort && !hasExclusion) {
+            if (onlyCohort) {
                 actions.setAudienceProperties(onlyCohort)
             }
         },

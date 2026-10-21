@@ -8,7 +8,6 @@ export function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureTyp
     return {
         source,
         sourceRecord: `early_access:${earlyAccessFeature.id}`,
-        sourceRecordName: earlyAccessFeature.name,
         properties: [
             {
                 key: `$feature_enrollment/${flagKey}`,

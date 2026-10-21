@@ -19,7 +19,7 @@ export interface BroadcastPrefill {
     name?: string
     /** The product surface the person came from, reported on the launch event. */
     source?: string
-    /** The record the email is about, as "<kind>:<id>". Saved on the broadcast so a later send can skip its recipients. */
+    /** The record the email is about, as "<kind>:<id>". Saved on the broadcast so a later one can warn it was already sent. */
     sourceRecord?: string
     email?: MessageDraft
     draftSource?: EmailDraftRequestApi

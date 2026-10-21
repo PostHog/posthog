@@ -360,6 +360,7 @@ const workflowsList = (): ToolBase<
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
                     search: params.search,
+                    source_record: params.source_record,
                     status: params.status,
                     trigger: params.trigger,
                     type: params.type,

@@ -159,45 +159,6 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.name).toEqual('Fix shipped')
     })
 
-    const realtimeCohort: AnyPropertyFilter = {
-        key: 'id',
-        type: PropertyFilterType.Cohort,
-        value: 42,
-        operator: PropertyOperator.In,
-    }
-    const excludedCohort: AnyPropertyFilter = {
-        key: 'id',
-        type: PropertyFilterType.Cohort,
-        value: 77,
-        operator: PropertyOperator.NotIn,
-    }
-    it.each<{ beside: string; other: AnyPropertyFilter; expected: AnyPropertyFilter[] }>([
-        { beside: 'a person condition', other: LOCAL_AUDIENCE[0], expected: [realtimeCohort] },
-        { beside: 'an excluded cohort', other: excludedCohort, expected: [realtimeCohort, excludedCohort] },
-    ])('keeps only the realtime cohort beside $beside unless that drops an exclusion', async ({ other, expected }) => {
-        useMocks({
-            post: {
-                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
-                    200,
-                    { affected: 5, total: 10, realtime_cohort_with_other_conditions: { id: 42, name: 'Upgraded' } },
-                ],
-            },
-        })
-        logic.unmount()
-        router.actions.push(urlForNewBroadcastWithAudience({ properties: [realtimeCohort, other] }))
-        logic = broadcastWizardLogic({ id: 'new' })
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions([
-            'prefillFromLink',
-            (action: { type: string; payload?: { blastRadius?: BlastRadiusApi | null } }): boolean =>
-                action.type === logic.actionTypes.loadBlastRadiusSuccess &&
-                !!action.payload?.blastRadius?.realtime_cohort_with_other_conditions,
-        ])
-
-        expect(logic.values.audienceProperties).toEqual(expected)
-    })
-
     it.each([
         {
             link: 'a draft email and one verified sender',
