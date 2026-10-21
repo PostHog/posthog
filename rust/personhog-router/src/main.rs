@@ -267,7 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             epoch = loaded.epoch,
             "loaded changelog config"
         );
-        let changelog = LiveChangelog::new(loaded);
+        let changelog = LiveChangelog::new(loaded).holding_floor();
 
         // Build the routing table and leader backend, sharing the same
         // partition-to-pod mapping so both see consistent state.
