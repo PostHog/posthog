@@ -974,7 +974,7 @@ export function AgentsRoster(): JSX.Element {
                         <AgentRosterGroupHeader group={group} />
                         {group.id === 'external' && (
                             <div className="flex flex-wrap items-center gap-1">
-                                {visibleSourceRecommendations.length > 0 && (
+                                {group.agents.length === 0 && visibleSourceRecommendations.length > 0 && (
                                     <LemonButton
                                         type="tertiary"
                                         size="xsmall"
@@ -999,8 +999,18 @@ export function AgentsRoster(): JSX.Element {
                     {group.agents.length > 0 && (
                         <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
-                    {group.id === 'external' && visibleSourceRecommendations.length > 0 && (
-                        <h4 className="m-0 text-sm font-semibold">Recommended for you</h4>
+                    {group.id === 'external' && group.agents.length > 0 && visibleSourceRecommendations.length > 0 && (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="m-0 text-sm font-semibold">Recommended for you</h4>
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={hideSourceRecommendations}
+                                data-attr="signal-source-recommendations-hide"
+                            >
+                                Hide recommendations
+                            </LemonButton>
+                        </div>
                     )}
                     {group.id === 'external' && <SourceRecommendations />}
                 </div>
