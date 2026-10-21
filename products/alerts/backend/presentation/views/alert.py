@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -72,6 +72,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -125,6 +126,9 @@ from products.alerts_platform.backend.presentation.views.schedule_restriction im
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 
 def _validate_interval_entitlement(
     *,
@@ -145,10 +149,17 @@ def _reject_deleted_insight(insight: Insight) -> None:
         raise ValidationError({"insight": ["This insight was deleted. Pick another insight."]})
 
 
+def _alert_user(context: dict[str, Any]) -> User:
+    if "request" in context:
+        return context["request"].user
+    return context["user"]
+
+
 def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) -> None:
     # Team scoping alone doesn't gate per-object insight access controls, so require viewer access
     # explicitly — alert write/simulate access must not expose a restricted insight's results.
-    if not context["view"].user_access_control.check_access_level_for_object(insight, "viewer"):
+    access_control = context["view"].user_access_control if "view" in context else context["user_access_control"]
+    if not access_control.check_access_level_for_object(insight, "viewer"):
         raise ValidationError("Viewer access to this insight is required.")
 
 
@@ -176,7 +187,7 @@ def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
     # flag-on org and create an alert in a team where the flag is disabled. get_organization is
     # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
     # invariant can't silently degrade to an unscoped check.
-    user = context["request"].user
+    user = _alert_user(context)
     org = context["get_organization"]()
     return bool(
         posthoganalytics.feature_enabled(
@@ -248,7 +259,7 @@ def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -
     """
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
-    user = context["request"].user
+    user = _alert_user(context)
     try:
         error = llm_detector_access_error(distinct_id=str(user.distinct_id), organization=context["get_organization"]())
     except LLMDetectorUnavailableError as unavailable_error:
@@ -348,7 +359,7 @@ def _admit_llm_alert_write(
                 team_id=context["team_id"],
                 organization=context["get_organization"](),
                 # An existing alert keeps its creator, and that is who its checks run as.
-                principal=instance.created_by if instance is not None else context["request"].user,
+                principal=instance.created_by if instance is not None else _alert_user(context),
                 detector_config=detector_config,
                 enabled=enabled,
                 calculation_interval=calculation_interval,
@@ -415,7 +426,7 @@ def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insigh
     # product-scope gate on the query endpoints.
     if insight.alertable_query_kind != NodeKind.METRICS_QUERY:
         return
-    if _token_lacks_metrics_scope(context["request"]):
+    if "request" in context and _token_lacks_metrics_scope(context["request"]):
         raise PermissionDenied("API key missing required scope 'metrics:read'")
 
 
@@ -629,6 +640,21 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
+    @classmethod
+    def create_for_user(cls, *, team: "Team", user: User, data: dict[str, Any]) -> AlertConfiguration:
+        serializer = cls(
+            data=data,
+            context={
+                "team_id": team.id,
+                "get_team": lambda: team,
+                "get_organization": lambda: team.organization,
+                "user": user,
+                "user_access_control": UserAccessControl(user=user, team=team),
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer.save()
+
     evaluation_delay_intervals = serializers.IntegerField(
         min_value=0,
         max_value=100,
@@ -846,7 +872,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         threshold_instance = Threshold.objects.create(
             **threshold_data,
             team_id=self.context["team_id"],
-            created_by=self.context["request"].user,
+            created_by=_alert_user(self.context),
             insight_id=validated_data["insight"].id,
         )
         return threshold_instance
@@ -854,7 +880,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     @transaction.atomic
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
-        validated_data["created_by"] = self.context["request"].user
+        validated_data["created_by"] = _alert_user(self.context)
         team = self.context["get_team"]()
         if DetectorType.LLM.value in _detector_types(validated_data.get("detector_config")):
             insight = validated_data["insight"]
@@ -868,7 +894,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             team=team,
             key=LimitKey.MAX_ALERTS_PER_TEAM,
             current_count=current_count,
-            user=self.context["request"].user,
+            user=_alert_user(self.context),
         )
         subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
@@ -892,12 +918,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
-                user=user, alert_configuration=instance, created_by=self.context["request"].user
+                user=user, alert_configuration=instance, created_by=_alert_user(self.context)
             )
 
         instance.report_created(
-            self.context["request"].user,
-            analytics_props=get_request_analytics_properties(self.context["request"]),
+            _alert_user(self.context),
+            analytics_props=get_request_analytics_properties(self.context["request"])
+            if "request" in self.context
+            else None,
         )
         return instance
 
@@ -966,7 +994,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             for user in subscribed_users:
                 # nosemgrep: idor-lookup-without-team (user team membership validated by viewset)
                 AlertSubscription.objects.get_or_create(
-                    user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
+                    user=user, alert_configuration=instance, defaults={"created_by": _alert_user(self.context)}
                 )
 
         evaluation_changed = conditions_or_threshold_changed or any(
@@ -1020,8 +1048,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             instance.save(update_fields=["next_check_at"])
 
         instance.report_updated(
-            self.context["request"].user,
-            analytics_props=get_request_analytics_properties(self.context["request"]),
+            _alert_user(self.context),
+            analytics_props=get_request_analytics_properties(self.context["request"])
+            if "request" in self.context
+            else None,
         )
         return instance
 
@@ -1120,7 +1150,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 config = {**config, "check_ongoing_interval": True}
                 attrs["config"] = config
 
-        request_user = self.context["request"].user
+        request_user = _alert_user(self.context)
         creating_user = request_user if isinstance(request_user, User) else None
         try:
             validate_evaluation_delay(query, config, evaluation_delay)
@@ -1190,7 +1220,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        if self.context["request"].method == "POST":
+        if self.instance is None:
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
                 raise ValidationError({"alert": [msg]})
 
@@ -1203,7 +1233,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             existing=self.instance,
         ):
             posthoganalytics.capture(
-                distinct_id=str(self.context["request"].user.distinct_id),
+                distinct_id=str(_alert_user(self.context).distinct_id),
                 event="real time alert limit reached",
                 properties={
                     "team_id": self.context["team_id"],
