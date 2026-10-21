@@ -17586,6 +17586,11 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BetterstackIncidentSignalExtra {
+      url: string | null;
+      started_at: string | null;
+    }
+
     export interface BiasRisk {
       /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
       multiple_variant_percentage: number;
@@ -53616,6 +53621,14 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantIncidentSignalExtra {
+      severity: string | null;
+      priority: string | null;
+      current_milestone: string | null;
+      incident_url: string | null;
+      created_at: string | null;
+    }
+
     export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
 
 
@@ -54828,6 +54841,12 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmIncidentSignalExtra {
+      status: string | null;
+      severity_label: string | null;
+      created_time: string | null;
     }
 
     /**
@@ -60852,6 +60871,42 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `pagerduty` - PagerDuty
+     * * `opsgenie` - Opsgenie
+     * * `incident_io` - incident.io
+     * * `firehydrant` - FireHydrant
+     * * `squadcast` - Squadcast
+     * * `servicenow` - ServiceNow
+     * * `solarwinds_service_desk` - SolarWinds Service Desk
+     * * `grafana_irm` - Grafana IRM
+     * * `xmatters` - xMatters
+     * * `betterstack` - Better Stack
+     * * `newrelic` - New Relic
+     * * `trigger_dev` - Trigger.dev
+     * * `checkly` - Checkly
+     * * `roark` - Roark
+     * * `monte_carlo` - Monte Carlo
+     * * `bigeye` - Bigeye
+     * * `aws_security_hub` - AWS Security Hub
+     * * `aws_guardduty` - AWS GuardDuty
+     * * `aws_inspector` - AWS Inspector
+     * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+     * * `clickup` - ClickUp
+     * * `wrike` - Wrike
+     * * `trello` - Trello
+     * * `bugherd` - BugHerd
+     * * `dynamics365` - Dynamics 365
+     * * `zoho_crm` - Zoho CRM
+     * * `planhat` - Planhat
+     * * `trustpilot` - Trustpilot
+     * * `okendo` - Okendo
+     * * `sleekplan` - Sleekplan
+     * * `bettermode` - Bettermode
+     * * `discourse` - Discourse
+     * * `mintlify` - Mintlify
+     * * `langsmith` - LangSmith
+     * * `sprig` - Sprig
+     * * `gainsight_px` - Gainsight PX
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -60908,6 +60963,42 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
     } as const;
 
     /**
@@ -60931,6 +61022,7 @@ export namespace Schemas {
      * * `ci_broken_default_branch` - CI broken default branch
      * * `ci_duration_regression` - CI duration regression
      * * `search_opportunity` - Search opportunity
+     * * `incident` - Incident
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -60956,6 +61048,7 @@ export namespace Schemas {
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
+      Incident: 'incident',
     } as const;
 
     export interface InboxOnboardingSource {
@@ -61011,7 +61104,43 @@ export namespace Schemas {
        * * `intercom` - Intercom
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
-       * * `google_search_console` - Google Search Console */
+       * * `google_search_console` - Google Search Console
+       * * `pagerduty` - PagerDuty
+       * * `opsgenie` - Opsgenie
+       * * `incident_io` - incident.io
+       * * `firehydrant` - FireHydrant
+       * * `squadcast` - Squadcast
+       * * `servicenow` - ServiceNow
+       * * `solarwinds_service_desk` - SolarWinds Service Desk
+       * * `grafana_irm` - Grafana IRM
+       * * `xmatters` - xMatters
+       * * `betterstack` - Better Stack
+       * * `newrelic` - New Relic
+       * * `trigger_dev` - Trigger.dev
+       * * `checkly` - Checkly
+       * * `roark` - Roark
+       * * `monte_carlo` - Monte Carlo
+       * * `bigeye` - Bigeye
+       * * `aws_security_hub` - AWS Security Hub
+       * * `aws_guardduty` - AWS GuardDuty
+       * * `aws_inspector` - AWS Inspector
+       * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+       * * `clickup` - ClickUp
+       * * `wrike` - Wrike
+       * * `trello` - Trello
+       * * `bugherd` - BugHerd
+       * * `dynamics365` - Dynamics 365
+       * * `zoho_crm` - Zoho CRM
+       * * `planhat` - Planhat
+       * * `trustpilot` - Trustpilot
+       * * `okendo` - Okendo
+       * * `sleekplan` - Sleekplan
+       * * `bettermode` - Bettermode
+       * * `discourse` - Discourse
+       * * `mintlify` - Mintlify
+       * * `langsmith` - LangSmith
+       * * `sprig` - Sprig
+       * * `gainsight_px` - Gainsight PX */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -61034,7 +61163,8 @@ export namespace Schemas {
        * * `ci_flaky_check` - CI flaky check
        * * `ci_broken_default_branch` - CI broken default branch
        * * `ci_duration_regression` - CI duration regression
-       * * `search_opportunity` - Search opportunity */
+       * * `search_opportunity` - Search opportunity
+       * * `incident` - Incident */
       source_type: SignalSourceConfigSourceTypeEnum;
       /** Whether this source should be enabled at activation. */
       enabled: boolean;
@@ -61242,6 +61372,14 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoIncidentSignalExtra {
+      severity_name: string | null;
+      status_name: string | null;
+      mode: string | null;
+      permalink: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -71154,6 +71292,14 @@ export namespace Schemas {
       iteration_budget?: number;
     }
 
+    export interface OpsgenieAlertSignalExtra {
+      status: string | null;
+      priority: string | null;
+      tags: unknown[];
+      source: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `latest` - latest
      * * `earliest` - earliest
@@ -72033,6 +72179,13 @@ export namespace Schemas {
       kind: PRTimelineSegmentKindEnum;
       /** Average seconds per merged pull request attributed to this cause. */
       seconds_per_merged_pr: number;
+    }
+
+    export interface PagerdutyIncidentSignalExtra {
+      status: string | null;
+      urgency: string | null;
+      html_url: string | null;
+      created_at: string | null;
     }
 
     export interface PaginatedAEOPromptList {
@@ -97970,6 +98123,42 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `pagerduty` - pagerduty
+     * * `opsgenie` - opsgenie
+     * * `incident_io` - incident_io
+     * * `firehydrant` - firehydrant
+     * * `squadcast` - squadcast
+     * * `servicenow` - servicenow
+     * * `solarwinds_service_desk` - solarwinds_service_desk
+     * * `grafana_irm` - grafana_irm
+     * * `xmatters` - xmatters
+     * * `betterstack` - betterstack
+     * * `newrelic` - newrelic
+     * * `trigger_dev` - trigger_dev
+     * * `checkly` - checkly
+     * * `roark` - roark
+     * * `monte_carlo` - monte_carlo
+     * * `bigeye` - bigeye
+     * * `aws_security_hub` - aws_security_hub
+     * * `aws_guardduty` - aws_guardduty
+     * * `aws_inspector` - aws_inspector
+     * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+     * * `clickup` - clickup
+     * * `wrike` - wrike
+     * * `trello` - trello
+     * * `bugherd` - bugherd
+     * * `dynamics365` - dynamics365
+     * * `zoho_crm` - zoho_crm
+     * * `planhat` - planhat
+     * * `trustpilot` - trustpilot
+     * * `okendo` - okendo
+     * * `sleekplan` - sleekplan
+     * * `bettermode` - bettermode
+     * * `discourse` - discourse
+     * * `mintlify` - mintlify
+     * * `langsmith` - langsmith
+     * * `sprig` - sprig
+     * * `gainsight_px` - gainsight_px
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -98026,6 +98215,42 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
     } as const;
 
     /**
@@ -98052,6 +98277,7 @@ export namespace Schemas {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `incident` - incident
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -98080,6 +98306,7 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
       CheckFailed: 'check_failed',
+      Incident: 'incident',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -98203,7 +98430,39 @@ export namespace Schemas {
       created_date: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
+    export interface SquadcastIncidentSignalExtra {
+      status: string | null;
+      priority: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ServicenowIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      urgency: string | null;
+      impact: string | null;
+      category: string | null;
+      sys_created_on: string | null;
+    }
+
+    export interface SolarwindsServiceDeskIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      category_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface XmattersIncidentSignalExtra {
+      incident_identifier: string | null;
+      severity: string | null;
+      status: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -98271,7 +98530,43 @@ export namespace Schemas {
        * * `intercom` - intercom
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
-       * * `google_search_console` - google_search_console */
+       * * `google_search_console` - google_search_console
+       * * `pagerduty` - pagerduty
+       * * `opsgenie` - opsgenie
+       * * `incident_io` - incident_io
+       * * `firehydrant` - firehydrant
+       * * `squadcast` - squadcast
+       * * `servicenow` - servicenow
+       * * `solarwinds_service_desk` - solarwinds_service_desk
+       * * `grafana_irm` - grafana_irm
+       * * `xmatters` - xmatters
+       * * `betterstack` - betterstack
+       * * `newrelic` - newrelic
+       * * `trigger_dev` - trigger_dev
+       * * `checkly` - checkly
+       * * `roark` - roark
+       * * `monte_carlo` - monte_carlo
+       * * `bigeye` - bigeye
+       * * `aws_security_hub` - aws_security_hub
+       * * `aws_guardduty` - aws_guardduty
+       * * `aws_inspector` - aws_inspector
+       * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+       * * `clickup` - clickup
+       * * `wrike` - wrike
+       * * `trello` - trello
+       * * `bugherd` - bugherd
+       * * `dynamics365` - dynamics365
+       * * `zoho_crm` - zoho_crm
+       * * `planhat` - planhat
+       * * `trustpilot` - trustpilot
+       * * `okendo` - okendo
+       * * `sleekplan` - sleekplan
+       * * `bettermode` - bettermode
+       * * `discourse` - discourse
+       * * `mintlify` - mintlify
+       * * `langsmith` - langsmith
+       * * `sprig` - sprig
+       * * `gainsight_px` - gainsight_px */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -98297,7 +98592,8 @@ export namespace Schemas {
        * * `ci_broken_default_branch` - ci_broken_default_branch
        * * `ci_duration_regression` - ci_duration_regression
        * * `search_opportunity` - search_opportunity
-       * * `check_failed` - check_failed */
+       * * `check_failed` - check_failed
+       * * `incident` - incident */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -102444,6 +102740,8 @@ export namespace Schemas {
       tools: ScoutToolCatalogueEntry[];
       /** Tool selections expanded and validated on save. */
       tool_presets: ScoutToolPreset[];
+      /** Tools every scout run holds. Show these as always available, excluding them from saved selections. */
+      readonly run_context_tools: readonly string[];
       /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
       presets: ScoutScopePreset[];
       /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
