@@ -9357,7 +9357,7 @@ Today (4): `curated_photos`, `featured_collections`, `my_collections`, `popular_
 
 Diffed against: <https://www.pexels.com/api/documentation/>
 
-- [ ] `GET /v1/collections/{id} (collection media)` — the only way to resolve which photos/videos belong to the collections we already sync - without it featured_collections and my_collections are unjoinable ID rows (high)
+- [x] `GET /v1/collections/{id} (collection media)` — the only way to resolve which photos/videos belong to the collections we already sync - without it featured_collections and my_collections are unjoinable ID rows (high)
 
 Note: Pexels' whole documented surface is 9 endpoints: /v1/search, /v1/curated, /v1/photos/{id}, /videos/search, /videos/popular, /videos/videos/{id}, /v1/collections/featured, /v1/collections, /v1/collections/{id}. The source already implements search_photos and search_videos, but they are gated on a configured search query so they never appear in get_schemas - that is not a gap. www.pexels.com blocks curl with a Cloudflare 403; the page was read via the fetch tool instead.
 
