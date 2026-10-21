@@ -325,7 +325,7 @@ class GoogleAdSenseSource(ResumableSource[GoogleAdSenseSourceConfig, GoogleAdSen
                 "account with access to the AdSense account, as owner or as an invited Standard/Admin user."
             ),
             featureFlag="dwh-google-adsense",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/google-adsense",
             fields=cast(
                 list[FieldType],
