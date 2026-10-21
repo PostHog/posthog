@@ -324,6 +324,13 @@ class TestRewriteTemplate(SimpleTestCase):
                 ["event.properties.a"],
             ),
             (
+                "a_tag_after_an_unclosed_one_is_still_code",
+                "{{ boom {% if person %}x{% endif %}",
+                "liquid",
+                "{{ boom {% if person %}x{% endif %}",
+                ["person"],
+            ),
+            (
                 "a_string_in_a_liquid_tag_is_text",
                 "{{ 'event.properties.a' }} {{ event.properties.b }}",
                 "liquid",
