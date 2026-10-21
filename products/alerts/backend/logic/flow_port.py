@@ -171,7 +171,9 @@ def _liquid_tags(text: str) -> list[_Span]:
         start, opener = min(found)
         stop = text.find(_LIQUID_CLOSERS[opener], start + 2)
         if stop == -1:
-            return tags
+            # No later opener of this kind can close either, but the other kind still can.
+            next_open[opener] = -1
+            continue
         tags.append(_Span(start=start, stop=stop + 2))
         index = stop + 2
 
