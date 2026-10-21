@@ -5,8 +5,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.facade.api import get_evaluation_pass_filters
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.models.experiment import Experiment
@@ -120,11 +123,9 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         prompt_filter = next(p for p in properties if p.get("key") == "$ai_prompt_name")
         self.assertEqual(prompt_filter["value"], self.prompt_name)
         if template_name == "eval_pass_rate":
-            for source in (metric["numerator"], metric["denominator"]):
-                self.assertIn(
-                    "JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')",
-                    [prop["key"] for prop in source["properties"]],
-                )
+            pass_filters = get_evaluation_pass_filters(self.team.id)
+            self.assertIn(pass_filters.passed, [prop["key"] for prop in metric["numerator"]["properties"]])
+            self.assertIn(pass_filters.graded, [prop["key"] for prop in metric["denominator"]["properties"]])
 
     def test_multiple_templates_creates_one_metric_each(self) -> None:
         # Pick all available templates so we exercise both mean and ratio shapes.
@@ -198,15 +199,45 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         response = self._post(prompt_name="does-not-exist", versions=[1, 2])
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_403_without_llm_analytics_resource_access(self) -> None:
+    @parameterized.expand(
+        [
+            ("no llm analytics access", "llm_analytics", ["cost"], status.HTTP_403_FORBIDDEN),
+            ("no evaluation access, eval pass rate", "evaluation", ["eval_pass_rate"], status.HTTP_403_FORBIDDEN),
+            ("no evaluation access, cost only", "evaluation", ["cost"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_resource_access(self, _name: str, denied_resource: str, templates: list[str], expected: int) -> None:
         features = self.organization.available_product_features or []
         features.append({"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL})
         self.organization.available_product_features = features
         self.organization.save()
-        AccessControl.objects.create(team=self.team, resource="llm_analytics", access_level="none")
+        AccessControl.objects.create(team=self.team, resource=denied_resource, access_level="none")
 
-        response = self._post()
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self._post(templates=templates)
+        self.assertEqual(response.status_code, expected, response.content)
+
+    @parameterized.expand(
+        [
+            ("without evaluation scope", ["experiment:write", "llm_prompt:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "with evaluation scope",
+                ["experiment:write", "llm_prompt:read", "evaluation:read"],
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    def test_eval_pass_rate_needs_evaluation_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, label="prompt", secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/create_from_prompt/",
+            {"prompt_name": self.prompt_name, "versions": [1, 2], "templates": ["eval_pass_rate"]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, expected, response.content)
 
     def test_400_when_template_unknown(self) -> None:
         response = self._post(templates=["bogus"])

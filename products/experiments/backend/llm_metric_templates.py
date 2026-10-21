@@ -11,6 +11,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from products.ai_observability.backend.facade.api import get_evaluation_pass_filters
+
 LLMMetric = ExperimentMeanMetric | ExperimentRatioMetric
 
 
@@ -22,7 +24,7 @@ def _prompt_filter(prompt_name: str) -> EventPropertyFilter:
     )
 
 
-def build_cost_metric(prompt_name: str) -> ExperimentMeanMetric:
+def build_cost_metric(prompt_name: str, team_id: int) -> ExperimentMeanMetric:
     return ExperimentMeanMetric(
         name="Cost",
         goal=ExperimentMetricGoal.DECREASE,
@@ -35,7 +37,7 @@ def build_cost_metric(prompt_name: str) -> ExperimentMeanMetric:
     )
 
 
-def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
+def build_latency_metric(prompt_name: str, team_id: int) -> ExperimentMeanMetric:
     return ExperimentMeanMetric(
         name="Latency",
         goal=ExperimentMetricGoal.DECREASE,
@@ -48,40 +50,23 @@ def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
     )
 
 
-def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
-    # Use explicit JSON extraction rather than `properties.X = true`. The latter goes through
-    # HogQL property type inference, which casts the property to Float64 if any event in the
-    # table has stored this key as a number — silently dropping JSON-boolean events. The
-    # JSONExtract* functions bypass the inference and read the JSON value directly.
-    # The applicable guard excludes N/A evaluations (applicable=false) but keeps events
-    # where the property isn't set at all (JSONExtractRaw returns '' for missing keys).
-    applicable_filter = HogQLPropertyFilter(key="JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'")
-    boolean_filter = HogQLPropertyFilter(
-        key="JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')"
-    )
+def build_eval_pass_rate_metric(prompt_name: str, team_id: int) -> ExperimentRatioMetric:
+    # Graded by each evaluation's output config, the same rules the evaluation UI and reports apply.
+    filters = get_evaluation_pass_filters(team_id)
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
             event="$ai_evaluation",
-            properties=[
-                _prompt_filter(prompt_name),
-                HogQLPropertyFilter(key="JSONExtractBool(properties, '$ai_evaluation_result')"),
-                applicable_filter,
-                boolean_filter,
-            ],
+            properties=[_prompt_filter(prompt_name), HogQLPropertyFilter(key=filters.passed)],
         ),
         denominator=EventsNode(
             event="$ai_evaluation",
-            properties=[
-                _prompt_filter(prompt_name),
-                applicable_filter,
-                boolean_filter,
-            ],
+            properties=[_prompt_filter(prompt_name), HogQLPropertyFilter(key=filters.graded)],
         ),
     )
 
 
-_TEMPLATES: dict[str, Callable[[str], LLMMetric]] = {
+_TEMPLATES: dict[str, Callable[[str, int], LLMMetric]] = {
     "cost": build_cost_metric,
     "latency": build_latency_metric,
     "eval_pass_rate": build_eval_pass_rate_metric,
@@ -105,10 +90,10 @@ _TEMPLATE_METADATA: dict[str, dict[str, str]] = {
 TEMPLATE_NAMES = tuple(_TEMPLATES)
 
 
-def build_template(name: str, prompt_name: str) -> LLMMetric:
+def build_template(name: str, prompt_name: str, team_id: int) -> LLMMetric:
     if name not in _TEMPLATES:
         raise ValueError(f"Unknown LLM metric template: {name!r}. Known: {sorted(_TEMPLATES)}")
-    return _TEMPLATES[name](prompt_name)
+    return _TEMPLATES[name](prompt_name, team_id)
 
 
 def list_templates() -> list[dict[str, str]]:

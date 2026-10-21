@@ -1257,6 +1257,14 @@ class EnterpriseExperimentsViewSet(
         prompt_name: str = data["prompt_name"]
         versions: list[int] = data["versions"]
         templates: list[str] = data["templates"]
+        # The eval pass rate metric embeds the team's evaluation pass rules, so it needs evaluation read access.
+        if "eval_pass_rate" in templates:
+            scopes = get_authenticator_scopes(request.successful_authenticator)
+            token_can_read = scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["evaluation:read"])
+            if not token_can_read or not self.user_access_control.check_access_level_for_resource(
+                "evaluation", required_level="viewer"
+            ):
+                raise PermissionDenied("Adding an eval pass rate metric requires access to evaluations.")
         versions_label = ", ".join(f"v{v}" for v in versions)
         templates_label = ", ".join(templates)
         name = data.get("name") or f"{prompt_name}: {versions_label} ({templates_label})"
@@ -1264,7 +1272,7 @@ class EnterpriseExperimentsViewSet(
 
         metrics: list[dict[str, Any]] = []
         for template in templates:
-            metric_dict = build_template(template, prompt_name).model_dump(exclude_none=True)
+            metric_dict = build_template(template, prompt_name, self.team.id).model_dump(exclude_none=True)
             metric_dict.setdefault("kind", "ExperimentMetric")
             metrics.append(metric_dict)
 
