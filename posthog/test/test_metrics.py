@@ -94,10 +94,14 @@ class TestPushedMetricsRegistry:
     def test_body_that_raises_propagates_and_pushes_nothing(self, settings: Settings) -> None:
         settings.PROM_PUSHGATEWAY_ADDRESS = "http://pushgateway.example.com:9091"
 
-        with patch("posthog.metrics.push_to_gateway") as push:
+        with (
+            patch("posthog.metrics.push_to_gateway") as put,
+            patch("posthog.metrics.pushadd_to_gateway") as post,
+        ):
             with pytest.raises(ValueError, match="boom"):
                 with pushed_metrics_registry("partial_job") as registry:
                     Gauge("partial_metric", "Set before the body raises", registry=registry).set(1)
                     raise ValueError("boom")
 
-        push.assert_not_called()
+        put.assert_not_called()
+        post.assert_not_called()
