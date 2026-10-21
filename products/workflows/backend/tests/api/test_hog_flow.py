@@ -1292,6 +1292,14 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "can be at most 365d" in response.json()["detail"]
 
+    def test_hog_flow_web_draft_rejects_an_over_cap_max_delay_before_the_date_is_picked(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_until": {"offset": "-1d"}, "max_delay_duration": "400d"}, status="draft"),
+        )
+        assert response.status_code == 400, response.json()
+        assert "max_delay_duration can be at most 365d" in response.json()["detail"]
+
     def _make_conditional_branch_flow(self, config: dict) -> dict:
         flow = self._make_delay_flow({"delay_duration": "5m"})
         flow["actions"][1] = {

@@ -2133,6 +2133,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         # Client bytecode is dropped on every path, strict or not, as the executor runs whatever it finds.
         stored = {k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")}
         data["config"]["delay_until"] = stored
+        # Checked before the half-configured draft return, because a stored value is exempt from this check later.
+        _reject_over_cap_duration(data, "max_delay_duration", self.context)
 
         expression = delay_until.get("expression")
         if not isinstance(expression, str) or not expression.strip():
@@ -2156,7 +2158,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         max_delay_duration = config.get("max_delay_duration")
         if strict and max_delay_duration is not None and not is_duration(max_delay_duration):
             raise serializers.ValidationError({"config": duration_error("max_delay_duration")})
-        _reject_over_cap_duration(data, "max_delay_duration", self.context)
 
         use_person_timezone = delay_until.get("use_person_timezone")
         if strict and use_person_timezone is not None and not isinstance(use_person_timezone, bool):
