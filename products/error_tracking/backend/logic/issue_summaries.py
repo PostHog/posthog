@@ -97,6 +97,7 @@ ISSUE_SUMMARY_AI_PRODUCT = "error_tracking"
 PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 
 UNKNOWN = "unknown"
+IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
 
 
@@ -324,7 +325,11 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
         before=now,
         latest=True,
     )
-    stack_trace = render_stacktrace(event_properties, ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS) if event_properties else ""
+    stack_trace = (
+        render_stacktrace(mark_in_app_frames(event_properties), ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS)
+        if event_properties
+        else ""
+    )
     if not stack_trace:
         return IssueSummaryOutcome.NO_EXCEPTION
 
@@ -378,6 +383,35 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
             occurrences=int(occurrences) if occurrences is not None else 0,
         ),
     )
+
+
+def mark_in_app_frames(event_properties: dict[str, object]) -> dict[str, object]:
+    """Return a copy whose in-app frames render with an `[in-app]` prefix on the function name.
+
+    The shared renderer leaves `in_app` out, and embeddings and severity inference depend on its output.
+    """
+    exception_list = event_properties.get("$exception_list")
+    if not isinstance(exception_list, list):
+        return event_properties
+    marked: list[object] = []
+    for exception in exception_list:
+        stacktrace = as_record(exception.get("stacktrace")) if isinstance(exception, dict) else None
+        frames = stacktrace.get("frames") if stacktrace else None
+        if not isinstance(exception, dict) or stacktrace is None or not isinstance(frames, list):
+            marked.append(exception)
+            continue
+        marked_frames = [_mark_in_app_frame(frame) for frame in frames]
+        marked.append({**exception, "stacktrace": {**stacktrace, "frames": marked_frames}})
+    return {**event_properties, "$exception_list": marked}
+
+
+def _mark_in_app_frame(frame: object) -> object:
+    if not isinstance(frame, dict) or frame.get("in_app") is not True:
+        return frame
+    name = frame.get("resolved_name")
+    if not isinstance(name, str):
+        name = frame.get("mangled_name")
+    return {**frame, "resolved_name": f"{IN_APP_FRAME_MARKER} {name if isinstance(name, str) else ''}".rstrip()}
 
 
 def _text(value: object) -> str:

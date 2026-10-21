@@ -11,7 +11,7 @@ from products.error_tracking.backend.facade.contracts import IssueSummaryCategor
 from products.ml_inference.backend.facade.contracts import DecisionQuestion
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
-ISSUE_SUMMARY_PROMPT_VERSION = "v1"
+ISSUE_SUMMARY_PROMPT_VERSION = "v2"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.
@@ -32,7 +32,7 @@ Level: {level}
 SDK: {lib}
 URL path: {url_path}
 
-Stack trace (in-app frames marked):
+Stack trace (in-app frames start with [in-app]):
 {stack_trace}
 
 Facts:

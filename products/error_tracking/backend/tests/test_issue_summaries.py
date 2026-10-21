@@ -342,7 +342,10 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
                             "mechanism": {"handled": False},
                             "stacktrace": {
                                 "type": "resolved",
-                                "frames": [{"resolved_name": "addToCart", "source": "cart.ts", "line": 42}],
+                                "frames": [
+                                    {"resolved_name": "dispatch", "source": "react-dom.js", "in_app": False},
+                                    {"resolved_name": "addToCart", "source": "cart.ts", "line": 42, "in_app": True},
+                                ],
                             },
                         }
                     ],
@@ -354,7 +357,7 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
 
         assert isinstance(inputs, IssueSummaryInputs)
         assert "Exception: TypeError: Cannot read properties of undefined" in inputs.prompt
-        assert "addToCart in cart.ts line 42" in inputs.prompt
+        assert "\ndispatch in react-dom.js\n[in-app] addToCart in cart.ts line 42" in inputs.prompt
         assert "Handled: no" in inputs.prompt
         assert "URL path: app.example.com/checkout\n" in inputs.prompt
         assert "first release: 1.0.0" in inputs.prompt
