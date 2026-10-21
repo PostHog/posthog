@@ -7,7 +7,7 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -270,20 +270,23 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
 def workflow_trigger_refusal(
     *,
     team_id: int,
-    configuration_ids: Collection[UUID],
+    filters: Mapping[str, object],
     user_access_control: UserAccessControl | None,
     token_scopes: list[str] | None,
+    allow_no_alerts: bool = False,
 ) -> str | None:
-    """Why the caller may not subscribe a workflow to these alerts' `$alert_transition` events, or None.
+    """Why the caller may not subscribe a workflow with these `$alert_transition` trigger filters, or None.
 
-    Pass None for `user_access_control` when no person is behind the call, and for `token_scopes`
-    on session auth, which carries no scopes.
+    Reads the alerts the filters name and checks the caller's access to each one's source. Pass
+    `allow_no_alerts` for a draft that does not run yet. Pass None for `user_access_control` when
+    no person is behind the call, and for `token_scopes` on session auth, which carries no scopes.
     """
     return source_access.workflow_trigger_refusal(
         team_id=team_id,
-        configuration_ids=configuration_ids,
+        filters=filters,
         user_access_control=user_access_control,
         token_scopes=token_scopes,
+        allow_no_alerts=allow_no_alerts,
     )
 
 
