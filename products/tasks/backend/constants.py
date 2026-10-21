@@ -27,9 +27,6 @@ def is_html_artifact(name: str, content_type: str) -> bool:
     return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
 
 
-WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
-WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
-WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG = "tasks-workflow-dispatch-restart"
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether
 # the MCP serves product skills through `learn` and whether a sandbox launches without bundled skills.
 MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
