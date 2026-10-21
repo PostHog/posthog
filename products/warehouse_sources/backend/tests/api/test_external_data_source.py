@@ -6066,6 +6066,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -6145,6 +6146,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -9344,6 +9346,7 @@ class TestExternalDataSource(APIBaseTest):
             "region": "us-east-1",
             "access_key_id": "AKIAEXAMPLE",
             "secret_access_key": "secret",
+            "file_format": {"selection": "infer", "csv_allow_double_quotes": "true"},
         }
         with patch(
             "products.warehouse_sources.backend.presentation.views.external_data_source.helpers.feature_enabled_or_false",

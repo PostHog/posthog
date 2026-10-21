@@ -479,6 +479,10 @@ def split_ranges_by_ttl(
     return result
 
 
+# ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. The pool refused the INSERT before it ran, so
+# nothing was written and a later attempt can pick the build up where it left off.
+TOO_MANY_SIMULTANEOUS_QUERIES_CODE = 202
+
 # ClickHouse error codes that should NOT be retried.
 # These are errors where retrying will never help - the query itself is broken,
 # or the user needs to change something about their request.
@@ -495,7 +499,7 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     159,  # TIMEOUT_EXCEEDED
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
-    202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    TOO_MANY_SIMULTANEOUS_QUERIES_CODE,
     # The rows/bytes-to-read cap is deterministic for a given window: the data
     # won't shrink between attempts, so an immediate retry re-scans the same
     # terabytes only to fail the same way. Fail fast so the caller can fall
@@ -550,6 +554,16 @@ def is_memory_limit_error(error: Exception) -> bool:
     current: BaseException | None = error
     while current is not None:
         if isinstance(current, ServerException) and current.code == MEMORY_LIMIT_EXCEEDED_CODE:
+            return True
+        current = current.__cause__
+    return False
+
+
+def is_capacity_rejected_error(error: Exception) -> bool:
+    """True if the error (or any wrapped cause) is a ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ServerException) and current.code == TOO_MANY_SIMULTANEOUS_QUERIES_CODE:
             return True
         current = current.__cause__
     return False
@@ -617,6 +631,9 @@ class LazyComputationResult:
     # True if any insert failed with ClickHouse MEMORY_LIMIT_EXCEEDED. Lets callers react
     # to an OOM (e.g. cap a high-cardinality team's future inserts) without parsing errors.
     memory_exceeded: bool = False
+    # True if any insert was refused with ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. Nothing was
+    # written, so a caller can retry later instead of reading the uncached range directly.
+    capacity_rejected: bool = False
     # True when the returned job_ids include recently-expired jobs served under the
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
@@ -1135,6 +1152,7 @@ class LazyComputationExecutor:
         errors: list[str] = []
         failures = 0
         memory_exceeded = False
+        capacity_rejected = False
         start_time = time.monotonic()
         interval = self.poll_interval_seconds
         subscribed_ids: set[uuid.UUID] = set()
@@ -1189,7 +1207,11 @@ class LazyComputationExecutor:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("timeout", result)
                     return result
@@ -1247,7 +1269,11 @@ class LazyComputationExecutor:
                 # report the miss so the caller serves live and warms in background.
                 if not self.run_inserts and (build_ranges or pending_jobs):
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("check_miss", result)
                     return result
@@ -1265,7 +1291,11 @@ class LazyComputationExecutor:
                         if time.monotonic() - start_time >= self.wait_timeout_seconds:
                             errors.append("Timeout waiting for computation jobs")
                             result = LazyComputationResult(
-                                ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                ready=False,
+                                job_ids=[],
+                                errors=errors,
+                                memory_exceeded=memory_exceeded,
+                                capacity_rejected=capacity_rejected,
                             )
                             _log_execution("timeout", result)
                             return result
@@ -1357,6 +1387,7 @@ class LazyComputationExecutor:
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
+                            capacity_rejected = capacity_rejected or is_capacity_rejected_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
                             new_job.save()
@@ -1382,7 +1413,11 @@ class LazyComputationExecutor:
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 result = LazyComputationResult(
-                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                    ready=False,
+                                    job_ids=[],
+                                    errors=errors,
+                                    memory_exceeded=memory_exceeded,
+                                    capacity_rejected=capacity_rejected,
                                 )
                                 _log_execution("non_retryable_error", result)
                                 return result
@@ -1390,7 +1425,11 @@ class LazyComputationExecutor:
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
                                 result = LazyComputationResult(
-                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                    ready=False,
+                                    job_ids=[],
+                                    errors=errors,
+                                    memory_exceeded=memory_exceeded,
+                                    capacity_rejected=capacity_rejected,
                                 )
                                 _log_execution("max_retries_exceeded", result)
                                 return result
@@ -1399,7 +1438,11 @@ class LazyComputationExecutor:
                 if build_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("max_retries_exceeded", result)
                     return result
