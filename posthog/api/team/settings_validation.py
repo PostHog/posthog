@@ -17,6 +17,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.schema_discriminators import property_filter_discriminator
 from posthog.types import AnyPropertyFilter
 
 from products.cohorts.backend.models import Cohort
@@ -105,7 +106,7 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
 
     filters = cast(list[dict[str, object]], value)
     for property_filter in filters:
-        if property_filter.get("type") == "cohort":
+        if property_filter_discriminator(property_filter) == "cohort":
             property_filter["value"] = CohortPropertyFilter.model_validate(property_filter).value
     return filters
 
@@ -259,7 +260,9 @@ def validate_team_attrs(
                 )
 
     if "test_account_filters" in attrs:
-        cohort_ids = {prop["value"] for prop in attrs["test_account_filters"] if prop.get("type") == "cohort"}
+        cohort_ids = {
+            prop["value"] for prop in attrs["test_account_filters"] if property_filter_discriminator(prop) == "cohort"
+        }
         if cohort_ids:
             project_id = _test_account_filters_project_id(view, instance)
             valid_ids = (

@@ -8,7 +8,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import requests
@@ -85,6 +85,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
+from posthog.schema_discriminators import property_filter_discriminator
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
@@ -1751,13 +1752,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
                 # Check if cohort is used in test_account_filters
                 teams_with_cohort = Team.objects.filter(
+                    Q(test_account_filters__contains=[{"value": cohort.id}])
+                    | Q(test_account_filters__contains=[{"value": str(cohort.id)}]),
                     project_id=cohort.team.project_id,
-                    test_account_filters__contains=[{"type": "cohort"}],
                 )
                 teams_using_cohort = []
                 for team in teams_with_cohort:
                     for filter_item in team.test_account_filters:
-                        if filter_item.get("type") == "cohort" and str(filter_item.get("value")) == str(cohort.id):
+                        if property_filter_discriminator(filter_item) == "cohort" and str(
+                            filter_item.get("value")
+                        ) == str(cohort.id):
                             teams_using_cohort.append(team)
                             break
 

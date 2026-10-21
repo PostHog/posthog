@@ -5850,10 +5850,12 @@ email@example.org,
         cohort = Cohort.objects.get(id=cohort_id)
         self.assertTrue(cohort.deleted)
 
-    @parameterized.expand([False, True])
+    @parameterized.expand([(False, False), (True, False), (False, True), (True, True)])
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_cannot_delete_cohort_used_in_test_account_filters(self, string_id, patch_calculate_cohort, patch_capture):
+    def test_cannot_delete_cohort_used_in_test_account_filters(
+        self, string_id, keyless, patch_calculate_cohort, patch_capture
+    ):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
@@ -5861,8 +5863,9 @@ email@example.org,
         cohort_id = response.json()["id"]
 
         # Add cohort to test_account_filters
+        value = str(cohort_id) if string_id else cohort_id
         self.team.test_account_filters = [
-            {"key": "id", "value": str(cohort_id) if string_id else cohort_id, "type": "cohort"}
+            {"value": value} if keyless else {"key": "id", "value": value, "type": "cohort"}
         ]
         self.team.save()
 

@@ -18,6 +18,7 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.schema_discriminators import property_filter_discriminator
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models import Cohort
@@ -129,7 +130,7 @@ class InvalidTestAccountFiltersError(Exception):
 def _test_account_filter_expr(team: Team) -> ast.Expr:
     filters = team.test_account_filters if isinstance(team.test_account_filters, list) else []
     try:
-        cohort_ids = {int(prop["value"]) for prop in filters if prop.get("type") == "cohort"}
+        cohort_ids = {int(prop["value"]) for prop in filters if property_filter_discriminator(prop) == "cohort"}
     except (KeyError, TypeError, ValueError) as error:
         raise InvalidTestAccountFiltersError(team.id, filters) from error
     if cohort_ids and cohort_ids != set(

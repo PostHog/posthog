@@ -161,11 +161,22 @@ class TestRecomputeTask(BaseTest):
         self.assertNotIn("retry_after", progress.state)
         self.assertTrue(tasks.is_due(progress))
 
-    @parameterized.expand([("deleted_cohort", None), ("non_numeric_value", "internal"), ("null_value", None)])
+    @parameterized.expand(
+        [
+            ("deleted_cohort", None),
+            ("keyless_deleted_cohort", None),
+            ("non_numeric_value", "internal"),
+            ("null_value", None),
+        ]
+    )
     def test_stale_cohort_also_backs_off_conversions(self, case: str, malformed_value: object) -> None:
         cohort = Cohort.objects.create(team=self.team, name="Internal users", deleted=True)
-        value = cohort.id if case == "deleted_cohort" else malformed_value
-        self.team.test_account_filters = [{"key": "id", "type": "cohort", "operator": "not_in", "value": value}]
+        value = cohort.id if case.endswith("deleted_cohort") else malformed_value
+        self.team.test_account_filters = [
+            {"value": value}
+            if case.startswith("keyless")
+            else {"key": "id", "type": "cohort", "operator": "not_in", "value": value}
+        ]
         self.team.save(update_fields=["test_account_filters"])
         Action.objects.create(team=self.team, name="Signup", steps_json=[{"event": "signup"}])
         with patch.object(evaluators, "achievement_query_scope", return_value=nullcontext()):

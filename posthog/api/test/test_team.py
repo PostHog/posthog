@@ -3694,8 +3694,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.test_account_filters, original_test_account_filters)
 
-    @parameterized.expand(["deleted", "missing", "other_project", "same_project", "string_id", "sibling"])
-    def test_test_account_cohort_must_exist_in_project(self, case: str) -> None:
+    @parameterized.expand(
+        [
+            ("deleted", False),
+            ("missing", False),
+            ("other_project", False),
+            ("same_project", False),
+            ("string_id", False),
+            ("sibling", False),
+            ("deleted", True),
+            ("other_project", True),
+            ("same_project", True),
+        ]
+    )
+    def test_test_account_cohort_must_exist_in_project(self, case: str, keyless: bool) -> None:
         cohort_team = self.team
         if case in ("other_project", "sibling"):
             cohort_team = Team.objects.create(
@@ -3704,13 +3716,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             )
         cohort = Cohort.objects.create(team=cohort_team, name="Internal users", deleted=case == "deleted")
         cohort_id = cohort.id + 1000000 if case == "missing" else cohort.id
+        value = str(cohort_id) if case == "string_id" else cohort_id
         filters = [
-            {
-                "key": "id",
-                "type": "cohort",
-                "operator": "not_in",
-                "value": str(cohort_id) if case == "string_id" else cohort_id,
-            }
+            {"value": value} if keyless else {"key": "id", "type": "cohort", "operator": "not_in", "value": value}
         ]
         original_filters = self.team.test_account_filters
         response = self.client.patch(f"/api/projects/{self.team.id}/", {"test_account_filters": filters})
