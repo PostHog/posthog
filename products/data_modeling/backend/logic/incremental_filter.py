@@ -51,6 +51,13 @@ def apply_incremental_filter(node: SelectLike, *, incremental_key: str, since: A
     return _wrap_with_guard(filtered, incremental_key=incremental_key, since=since)
 
 
+def parse_model_query(sql: str) -> SelectLike:
+    """Parse a saved query's SQL as every reader outside an incremental run sees it: the window
+    start bound to NULL. Only SQL that names the placeholder pays for the binding clone."""
+    node = parse_select(sql)
+    return bind_window_start(node, None) if WINDOW_START_PLACEHOLDER in sql else node
+
+
 def bind_window_start(node: SelectLike, since: Any) -> SelectLike:
     """Bind ``{incremental_window_start}`` to ``since``, which is None outside an incremental run.
 
