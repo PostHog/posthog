@@ -3,7 +3,7 @@ import math
 import time
 import uuid
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
@@ -18,7 +18,21 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
-from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_decision_call
+from posthog.hogql.functions.forecast import ForecastCall, is_forecast_call
+from posthog.hogql.functions.prompt_jev import (
+    PromptJevCall,
+    PromptJevFinder,
+    is_decision_call,
+    is_enrichment_call,
+    parse_enrichment_call,
+)
+from posthog.hogql.transforms.forecast import (
+    BUDGET_MESSAGE,
+    QUERY_TOKENS,
+    evaluate_forecast,
+    forecast_tokens,
+    validate_forecast_access,
+)
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -139,6 +153,7 @@ class PromptJevRunner:
         self.distinct_id = distinct_id
         self.cache: dict[_DecisionKey, object] = {}
         self.input_bytes = 0
+        self.forecast_tokens = 0
         self.deadline = time.monotonic() + 60
         self.clients: dict[str, GatewaySystemOneClient] = {}
 
@@ -205,9 +220,15 @@ class PromptJevRunner:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def check_budget(self, columns: list[tuple[PromptJevCall, list[object]]]) -> dict[_DecisionKey, None]:
+    def check_budget(
+        self, columns: list[tuple[PromptJevCall | ForecastCall, list[object]]]
+    ) -> dict[_DecisionKey, None]:
         missing: dict[_DecisionKey, None] = {}
+        tokens = 0
         for spec, values in columns:
+            if isinstance(spec, ForecastCall):
+                tokens += forecast_tokens(spec, values)
+                continue
             question_key = json.dumps(spec.question.to_json(), sort_keys=True)
             for value in values:
                 if value is None:
@@ -222,9 +243,16 @@ class PromptJevRunner:
         input_bytes = self.input_bytes + sum(len(key.text.encode()) for key in missing)
         if len(self.cache) + len(missing) > settings.HOGQL_JEV_MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
             raise QueryError("jev exceeds the query budget. Select fewer or shorter inputs.")
+        # Every forecast column in every SELECT of the query shares one budget.
+        if self.forecast_tokens + tokens > QUERY_TOKENS:
+            raise QueryError(BUDGET_MESSAGE)
         return missing
 
-    def evaluate(self, spec: PromptJevCall, values: list[object]) -> list[object]:
+    def evaluate(self, spec: PromptJevCall | ForecastCall, values: list[object]) -> list[object]:
+        if isinstance(spec, ForecastCall):
+            self.check_budget([(spec, values)])
+            self.forecast_tokens += forecast_tokens(spec, values)
+            return evaluate_forecast(spec, values, self.deadline)
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
         missing = [key.text for key in self.check_budget([(spec, values)])]
         self.input_bytes += sum(len(text.encode()) for text in missing)
@@ -414,15 +442,15 @@ class PromptJevPlanner(CloningVisitor):
                 or query.limit_with_ties
             ):
                 raise QueryError("Apply grouping, sorting, and DISTINCT in a query outside the jev SELECT.")
-            specs: dict[int, PromptJevCall] = {}
+            specs: dict[int, PromptJevCall | ForecastCall] = {}
             aliases: set[str] = set()
             for i, column in enumerate(query.select):
                 if (
                     isinstance(column, ast.Alias)
                     and isinstance(column.expr, ast.Call)
-                    and is_decision_call(column.expr.name)
+                    and is_enrichment_call(column.expr.name)
                 ):
-                    specs[i] = PromptJevCall.parse(column.expr)
+                    specs[i] = parse_enrichment_call(column.expr)
                     aliases.add(column.alias)
                 elif isinstance(column, ast.Field) and "*" in column.chain:
                     raise QueryError("List columns explicitly in a jev SELECT instead of using '*'.")
@@ -430,7 +458,10 @@ class PromptJevPlanner(CloningVisitor):
                 raise QueryError("Use jev as a named SELECT column, then read it from an outer query.")
             source = clone_expr(query)
             for i, spec in specs.items():
-                source.select[i] = ast.Alias(alias=cast(ast.Alias, query.select[i]).alias, expr=clone_expr(spec.input))
+                source_input = spec.source_input if isinstance(spec, ForecastCall) else spec.input
+                source.select[i] = ast.Alias(
+                    alias=cast(ast.Alias, query.select[i]).alias, expr=clone_expr(source_input)
+                )
             if PromptJevFinder.contains(source):
                 raise QueryError("Use jev only in SELECT columns. Filter its results in an outer query.")
             _AliasReferences(aliases).visit(source)
@@ -483,16 +514,19 @@ class PromptJevPlanner(CloningVisitor):
 
     def visit_call(self, node: ast.Call) -> ast.Call:
         # Binding validates every call, including ones whose SELECT has no rows.
-        if is_decision_call(node.name):
-            PromptJevCall.parse(node)
+        if is_enrichment_call(node.name):
+            parse_enrichment_call(node)
         return cast(ast.Call, super().visit_call(node))
 
 
-def validate_prompt_jev_access(team: "Team") -> None:
+def validate_prompt_jev_access(team: "Team", functions: Iterable[str] = ("jev",)) -> None:
     if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         raise QueryError("jev requires the native ClickHouse connection. Ask your administrator to configure it.")
-    if _is_over_ai_credit_budget(team):
+    # Only jev calls the AI gateway. forecast runs on local CPU, so it spends no AI credits.
+    if any(is_decision_call(name) for name in functions) and _is_over_ai_credit_budget(team):
         raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
+    if any(is_forecast_call(name) for name in functions):
+        validate_forecast_access(team)
 
 
 def _is_over_ai_credit_budget(team: "Team") -> bool:

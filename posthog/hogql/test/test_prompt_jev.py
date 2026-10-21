@@ -1,21 +1,27 @@
 import re
 import json
+import math
 import time
 import asyncio
+import threading
+from collections.abc import Callable
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 import httpx
+import numpy as np
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.forecast import ForecastCall
 from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.transforms.forecast import Forecaster
 from posthog.hogql.transforms.prompt_jev import PromptJevBudget, PromptJevRunner
 
 from posthog.clickhouse.client import sync_execute
@@ -177,6 +183,92 @@ class TestPromptJev(SimpleTestCase):
             runner.evaluate(PromptJevCall.parse(node), ["refund"])
         post.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("scalar_input", [123], 2, "array of numbers"),
+            ("long_histories", [[1.0] * 8192] * 64, 2, "query budget"),
+            ("long_horizon", [[1.0, 2.0]] * 1000, 1024, "query budget"),
+            ("float32_overflow", [[1e100, 2e100]], 2, "between -3.4e38 and 3.4e38"),
+        ]
+    )
+    def test_forecast_rejects_before_inference(
+        self, _name: str, values: list[object], horizon: int, message: str
+    ) -> None:
+        node = parse_expr(f"forecast(v, {horizon})")
+        assert isinstance(node, ast.Call)
+        with (
+            patch("posthog.hogql.transforms.forecast._model") as model,
+            self.assertRaisesRegex(QueryError, message),
+        ):
+            PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
+        model.return_value.forecast.assert_not_called()
+
+    def test_forecast_budget_is_shared_across_columns_and_stages(self) -> None:
+        node = parse_expr("forecast(v, 2)")
+        assert isinstance(node, ast.Call)
+        spec = ForecastCall.parse(node)
+        values: list[object] = [[1.0] * 8192] * 40
+        runner = PromptJevRunner(team_id=1, distinct_id=None)
+        with self.assertRaisesRegex(QueryError, "query budget"):
+            runner.check_budget([(spec, values), (spec, values)])
+        # Each short row is padded to the long row in its batch, and the budget must count that padding.
+        padded: list[object] = [[1.0, 2.0]] * 8 + [[1.0] * 3584]
+        with self.assertRaisesRegex(QueryError, "query budget"):
+            runner.check_budget([(spec, padded)] * 20)
+        with patch("posthog.hogql.transforms.forecast._model") as model:
+            model.return_value.forecast.side_effect = lambda c, h, d: np.zeros((c.shape[0], h, 21))
+            runner.evaluate(spec, values)
+            runs = model.return_value.forecast.call_count
+            with self.assertRaisesRegex(QueryError, "query budget"):
+                runner.evaluate(spec, values)
+        self.assertEqual(model.return_value.forecast.call_count, runs)
+
+    def test_forecast_batches_keep_each_row_with_its_own_result(self) -> None:
+        node = parse_expr("forecast(v, 64)")
+        assert isinstance(node, ast.Call)
+        run_tokens: list[int] = []
+
+        def last_value(context: np.ndarray, horizon: int, deadline: float) -> np.ndarray:
+            run_tokens.append(2 * context.shape[0] * (math.ceil(context.shape[1] / 32) + math.ceil(horizon / 32)))
+            return np.repeat(context[:, -1:, None], 21, axis=2).repeat(horizon, axis=1)
+
+        values: list[object] = [[0.0] * (100 * (i % 7 + 1)) + [float(i)] for i in range(300)] + [None, [5.0]]
+        with patch("posthog.hogql.transforms.forecast._model") as model:
+            model.return_value.forecast.side_effect = last_value
+            results = PromptJevRunner(team_id=1, distinct_id=None).evaluate(ForecastCall.parse(node), values)
+        self.assertEqual(results, [([float(i)] * 64,) * 3 for i in range(300)] + [([], [], [])] * 2)
+        self.assertGreater(len(run_tokens), 1)
+        self.assertLessEqual(max(run_tokens), 2048)
+
+    @parameterized.expand([("expired_before_the_run", -1), ("expires_during_the_run", 60)])
+    def test_forecast_stops_at_the_deadline(self, _name: str, seconds_left: int) -> None:
+        session = MagicMock()
+
+        def run(_names: None, feed: dict, options: object) -> list[np.ndarray]:
+            if getattr(options, "terminate", False):
+                raise RuntimeError("Exiting due to terminate flag being set to true.")
+            rows, width = feed["context"].shape
+            return [np.zeros((rows, 32, 21), np.float32), np.zeros(rows, np.float32), np.ones(rows, np.float32)]
+
+        class FiringTimer:
+            def __init__(self, _interval: float, function: Callable[..., object], args: tuple) -> None:
+                self.fire = lambda: function(*args)
+
+            def start(self) -> None:
+                self.fire()
+
+            def cancel(self) -> None:
+                pass
+
+        session.run.side_effect = run
+        timer = FiringTimer if seconds_left > 0 else threading.Timer
+        with (
+            patch("posthog.hogql.transforms.forecast.threading.Timer", timer),
+            self.assertRaisesRegex(QueryError, "time limit"),
+        ):
+            Forecaster(session).forecast(np.ones((1, 40)), 1, time.monotonic() + seconds_left)
+        self.assertEqual(session.run.call_count, 1 if seconds_left > 0 else 0)
+
 
 @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
 class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
@@ -213,6 +305,35 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         execute.assert_not_called()
         post.assert_not_called()
         limited.assert_called_once_with(self.team.api_token)
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_forecast_needs_its_flag_and_no_ai_credits(self, _name: str, flag: bool) -> None:
+        model = MagicMock()
+        model.forecast.return_value = np.broadcast_to(np.arange(21.0) / 2, (1, 2, 21))
+        with (
+            patch("posthog.hogql.transforms.forecast.feature_enabled_or_false", return_value=flag),
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True),
+            patch("posthog.hogql.transforms.forecast._model", return_value=model),
+        ):
+            if not flag:
+                with self.assertRaisesRegex(QueryError, "not available"):
+                    execute_hogql_query("SELECT forecast([1, 2, 3], 2) AS f", self.team, user=self.user)
+                model.forecast.assert_not_called()
+                return
+            response = execute_hogql_query("SELECT forecast([1, 2, 3], 2) AS f", self.team, user=self.user)
+        self.assertEqual(response.results, [(([1.0, 1.0], [5.0, 5.0], [9.0, 9.0]),)])
+
+    def test_forecast_fetches_only_the_context_it_uses(self) -> None:
+        model = MagicMock()
+        model.forecast.side_effect = lambda c, h, d: np.zeros((c.shape[0], h, 21))
+        with (
+            patch("posthog.hogql.transforms.forecast.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.transforms.forecast._model", return_value=model),
+            patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as execute,
+        ):
+            execute_hogql_query("SELECT forecast(range(100000), 1) AS f", self.team, user=self.user)
+        self.assertIn("arraySlice(range(100000), -8192)", execute.call_args_list[0].args[0])
+        self.assertEqual(model.forecast.call_args.args[0].shape, (1, 8192))
 
     def test_credit_lookup_failure_does_not_block_the_query(self) -> None:
         with (
