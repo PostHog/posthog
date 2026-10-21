@@ -33289,7 +33289,8 @@ class ErrorTrackingIssueEventsQuery(BaseModel):
     source: EventsQuery = Field(
         ...,
         description=(
-            "The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor."
+            "The issue's exceptions list. It must order by `timestamp DESC`, the"
+            " default, so that pages continue from a cursor."
         ),
     )
     tags: QueryLogTags | None = None

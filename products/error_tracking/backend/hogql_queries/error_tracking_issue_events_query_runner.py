@@ -20,7 +20,8 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
 
 
 def _datetime_literal(value: datetime) -> str:
-    return f"toDateTime({escape_hogql_string(value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S'))}, 'UTC')"
+    # Microseconds matter: a page cursor can fall between two exceptions in the same second.
+    return f"toDateTime64({escape_hogql_string(value.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S.%f'))}, 6, 'UTC')"
 
 
 def recording_condition(issue_id: str, source: EventsQuery, team: Team) -> str:
@@ -65,17 +66,14 @@ class ErrorTrackingIssueEventsQueryRunner(
     query: ErrorTrackingIssueEventsQuery
     cached_response: CachedErrorTrackingIssueEventsQueryResponse
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
-
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self._events_runner().to_query()
 
     def _events_runner(self) -> EventsQueryRunner:
+        issue_id = validate_uuid_param(self.query.issueId, "issueId")
         source = self.query.source.model_copy(deep=True)
         if self.query.onlyWithRecording:
-            source.where = [*(source.where or []), recording_condition(self.query.issueId, source, self.team)]
+            source.where = [*(source.where or []), recording_condition(issue_id, source, self.team)]
         return EventsQueryRunner(
             query=source,
             team=self.team,
@@ -93,6 +91,7 @@ class ErrorTrackingIssueEventsQueryRunner(
             types=response.types or [],
             hasMore=response.hasMore,
             nextCursor=response.nextCursor,
+            hogql=response.hogql,
             timings=self.timings.to_list(),
-            modifiers=self.modifiers,
+            modifiers=response.modifiers or self.modifiers,
         )

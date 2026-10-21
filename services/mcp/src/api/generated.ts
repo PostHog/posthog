@@ -41495,7 +41495,7 @@ export namespace Schemas {
       /** Keep only the exceptions whose session has a recording the player can open. */
       onlyWithRecording?: boolean | null;
       response?: ErrorTrackingIssueEventsQueryResponse | null;
-      /** The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor. */
+      /** The issue's exceptions list. It must order by `timestamp DESC`, the default, so that pages continue from a cursor. */
       source: EventsQuery;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
