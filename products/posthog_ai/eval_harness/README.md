@@ -128,7 +128,8 @@ git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
 
 The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
 It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
-Each run gets a capped `phe_` token minted with a key on the master demo team, so spend is per run and never reaches a real wallet.
+The harness adds test credits to the master demo team in this separate ledger. Scoped tokens require a positive balance and cannot use an overspend allowance.
+Each run gets a capped `phe_` token minted with a key on that team, so spend is per run and never reaches a real wallet.
 
 ### Interactive view
 
