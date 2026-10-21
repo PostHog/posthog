@@ -107,8 +107,7 @@ NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
-# The seeds an experiment and its baseline are both fit with for the paired comparison. The first
-# is the seed of `NETWORK_CONFIG`, so seed 0's baseline arm is the baseline's own train-only fit.
+# The seeds an experiment and its baseline are both fit with for the paired comparison.
 EXPERIMENT_SEEDS = (0, 1, 2)
 
 NN_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "group_name": "inbox_ranking_nn"}
@@ -201,7 +200,7 @@ def _missing_state_columns(family: ModelFamily, table: ExampleTable) -> list[str
 
 
 @frozen
-class ExperimentInputs:
+class _ExperimentInputs:
     extras: Extras
     # The baseline family's report input for every examples row, graded against the experiment's.
     baseline_reports: np.ndarray
@@ -216,13 +215,10 @@ def _experiment_inputs(
     family: ModelFamily,
     table: ExampleTable,
     day: DayInputs,
-) -> ExperimentInputs | None:
+) -> _ExperimentInputs | None:
     """The side inputs an experiment reads beside the report vectors, and its baseline's report
     input, or None when either cannot be built and the experiment keeps the partition as it stands."""
-    baseline = next((candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline), None)
-    if baseline is None:
-        context.log.warning(f"{family.name} names baseline {family.baseline}, which is not registered; skipped")
-        return None
+    baseline = next(candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline)
     missing_columns = _missing_state_columns(baseline, table)
     if missing_columns:
         context.log.warning(
@@ -241,7 +237,9 @@ def _experiment_inputs(
             "as it stands"
         )
         return None
-    return ExperimentInputs(extras=extras, baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set))
+    return _ExperimentInputs(
+        extras=extras, baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set)
+    )
 
 
 def train_candidate(
@@ -275,7 +273,7 @@ def train_candidate(
             return {"skipped": dagster.MetadataValue.bool(True)}
         extras, baseline_reports = experiment.extras, experiment.baseline_reports
     inputs = network_inputs(examples.table, extras, day.labels, day.embeddings, family.feature_set)
-    del day, extras
+    del day
     check_recipe(
         client,
         bucket,
@@ -301,7 +299,6 @@ def train_candidate(
             experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
-        del baseline_inputs, baseline_reports
     for head in trained.heads:
         context.log.info(f"{family.name} {head.metrics.head}: {head.metrics.as_dict()}")
     for name in trained.skipped:
