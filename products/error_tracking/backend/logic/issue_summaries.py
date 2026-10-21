@@ -56,12 +56,14 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_CATEGORY_MODEL,
     ISSUE_SUMMARY_FACTS_DATE_FROM,
     ISSUE_SUMMARY_FLAG,
+    ISSUE_SUMMARY_HOLD_SECONDS,
     ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS,
     ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS,
     ISSUE_SUMMARY_LOCK_TTL_SECONDS,
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
     ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL,
     ISSUE_SUMMARY_MODEL,
+    ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
 )
 from products.error_tracking.backend.logic.issue_summary_prompt import (
@@ -99,6 +101,7 @@ PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 UNKNOWN = "unknown"
 IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
+LOCK_HELD_FOR_GENERATION = "1"
 
 
 class IssueSummaryOutcome(StrEnum):
@@ -220,8 +223,8 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     stored = get_issue_summary(team_id, issue_id)
     if (blocked := generation_blocked(team_id, stored)) is not None:
         return IssueSummaryResult(outcome=blocked, summary=stored)
-    if not _claim_generation(team_id, issue_id):
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.IN_PROGRESS, summary=stored)
+    if (held := _claim_generation(team_id, issue_id)) is not None:
+        return IssueSummaryResult(outcome=held, summary=stored)
 
     # Another worker can finish between the first read and the claim.
     stored = get_issue_summary(team_id, issue_id)
@@ -231,6 +234,8 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     team = Team.objects.get(id=team_id)
     inputs = build_issue_summary_inputs(team, issue_id)
     if isinstance(inputs, IssueSummaryOutcome):
+        if inputs == IssueSummaryOutcome.NO_EXCEPTION:
+            _hold_generation(team_id, issue_id, inputs)
         return IssueSummaryResult(outcome=inputs, summary=stored)
     if stored is not None and stored.input_hash == inputs.input_hash:
         stored.checked_at = timezone.now()
@@ -241,6 +246,7 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     decision = consume(budget_key, ISSUE_SUMMARY_BUDGET)
     match decision:
         case BucketDecision(allowed=False):
+            _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
         case BucketUnavailable(error=error):
             # Fail open: the per-issue lock and the regenerate interval still bound the spend.
@@ -283,20 +289,34 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     return IssueSummaryResult(outcome=IssueSummaryOutcome.GENERATED, summary=summary)
 
 
-def _claim_generation(team_id: int, issue_id: UUID | str) -> bool:
+def _lock_key(team_id: int, issue_id: UUID | str) -> str:
+    return f"{ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{team_id}:{issue_id}"
+
+
+def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
+    """None when this worker now holds the issue, else the outcome that holds it."""
     try:
-        return bool(
-            get_client().set(
-                f"{ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{team_id}:{issue_id}",
-                "1",
-                nx=True,
-                ex=ISSUE_SUMMARY_LOCK_TTL_SECONDS,
-            )
-        )
+        client = get_client()
+        key = _lock_key(team_id, issue_id)
+        if client.set(key, LOCK_HELD_FOR_GENERATION, nx=True, ex=ISSUE_SUMMARY_LOCK_TTL_SECONDS):
+            return None
+        held = client.get(key)
     except RedisError:
         # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
-        return True
+        return None
+    value = held.decode() if isinstance(held, bytes) else held
+    if value in (IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED):
+        return IssueSummaryOutcome(value)
+    return IssueSummaryOutcome.IN_PROGRESS
+
+
+def _hold_generation(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
+    """Keep the issue claimed past the lock TTL, so reads return `outcome` without running the queries again."""
+    try:
+        get_client().set(_lock_key(team_id, issue_id), outcome.value, ex=ISSUE_SUMMARY_HOLD_SECONDS)
+    except RedisError:
+        logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
 
 
 def compute_input_hash(*, fingerprints: list[str], latest_release: str | None, occurrences: int) -> str:
@@ -318,13 +338,13 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
     first_seen: datetime | None = getattr(issue, "first_seen", None)
 
     now = timezone.now()
-    event_properties = _exception_event_properties(
-        team,
-        issue_id,
-        after=now - timedelta(days=ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS),
-        before=now,
-        latest=True,
-    )
+    event_properties: dict[str, object] = {}
+    for lookback_days in (ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS, ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS):
+        event_properties = _exception_event_properties(
+            team, issue_id, after=now - timedelta(days=lookback_days), before=now, latest=True
+        )
+        if event_properties:
+            break
     stack_trace = (
         render_stacktrace(mark_in_app_frames(event_properties), ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS)
         if event_properties

@@ -114,7 +114,7 @@ class TestIssueSummaryGeneration(BaseTest):
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=MagicMock()))
         self.enterContext(patch.object(issue_summaries, "build_openai_client", return_value=self.client_mock))
-        self.enterContext(
+        self.build_inputs = self.enterContext(
             patch.object(issue_summaries, "build_issue_summary_inputs", side_effect=lambda *_: self.inputs)
         )
         self.enterContext(patch.object(issue_summaries.ml_inference, "decide_when_available", self.decide))
@@ -227,6 +227,31 @@ class TestIssueSummaryGeneration(BaseTest):
         assert result.summary is not None
         assert result.summary.input_hash == "hash-1"
 
+    @parameterized.expand(
+        [
+            (
+                "no_exception",
+                lambda test: test.build_inputs.configure_mock(
+                    side_effect=None, return_value=IssueSummaryOutcome.NO_EXCEPTION
+                ),
+                IssueSummaryOutcome.NO_EXCEPTION,
+            ),
+            ("rate_limited", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
+        ]
+    )
+    def test_outcome_holds_the_issue_past_the_lock(
+        self, _name: str, arrange: Any, expected: IssueSummaryOutcome
+    ) -> None:
+        arrange(self)
+        with time_machine.travel(NOW, tick=False):
+            get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        with time_machine.travel(NOW + timedelta(minutes=10), tick=False):
+            result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert result.outcome == expected
+        assert self.build_inputs.call_count == 1
+
     def test_concurrent_first_read_does_not_generate_again(self) -> None:
         concurrent_outcomes: list[IssueSummaryOutcome] = []
 
@@ -323,7 +348,7 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
         fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp-1")
         ErrorTrackingIssueFingerprintV2.objects.filter(id=fingerprint.id).update(first_seen=NOW - timedelta(days=3))
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
-        for days_ago, version in [(3, "1.0.0"), (1, "1.2.0")]:
+        for days_ago, version in [(3, "1.0.0"), (2, "1.2.0")]:
             _create_event(
                 distinct_id="user-1",
                 event="$exception",

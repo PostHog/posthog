@@ -25,7 +25,12 @@ ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL = timedelta(hours=24)
 
 # Holds one generation per issue at a time. It is never released, so it also spaces out retries after a failure.
 ISSUE_SUMMARY_LOCK_TTL_SECONDS = 300
+# An issue with no recent exception event, or a team out of budget, is not tried again for this long.
+# Each try runs the ClickHouse queries before it can find either outcome.
+ISSUE_SUMMARY_HOLD_SECONDS = 3600
 
 # The facts cover the same range the issue tool defaults to.
 ISSUE_SUMMARY_FACTS_DATE_FROM = "-7d"
 ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS = 30
+# Most issues that someone opens fired recently, so the first lookup reads one day and the full lookback runs on a miss.
+ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS = 1
