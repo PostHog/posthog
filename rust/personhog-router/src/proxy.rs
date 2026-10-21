@@ -83,6 +83,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "UpdateGroupTypeMapping",
     "UpdatePersonProperties",
     "UpsertHashKeyOverrides",
+    "WriteDistinctIds",
 ];
 
 /// Identity-server RPCs, forwarded verbatim; sorted for binary search.

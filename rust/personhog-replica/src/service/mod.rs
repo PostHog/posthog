@@ -24,8 +24,11 @@ use personhog_proto::personhog::types::v1::{
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
     DeleteTombstonedPersonsResponse, DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
-    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
-    GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    DistinctIdWriteAction as ProtoDistinctIdWriteAction,
+    DistinctIdWriteOutcome as ProtoDistinctIdWriteOutcome,
+    DistinctIdWriteResult as ProtoDistinctIdWriteResult, EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest, GetDistinctIdRowsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -53,7 +56,8 @@ use personhog_proto::personhog::types::v1::{
     SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
     UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
-    VersionFloorOutcome as ProtoVersionFloorOutcome,
+    VersionFloorOutcome as ProtoVersionFloorOutcome, WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -1617,17 +1621,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_distinct_id_rows"))?;
 
         Ok(Response::new(GetDistinctIdRowsResponse {
-            rows: rows
-                .into_iter()
-                .map(|row| ProtoDistinctIdRow {
-                    distinct_id: row.distinct_id,
-                    person_id: row.person_id,
-                    person_uuid: row.person_uuid.map(|u| u.to_string()),
-                    version: row.version,
-                    is_deleted: row.is_deleted,
-                    person_is_deleted: row.person_is_deleted,
-                })
-                .collect(),
+            rows: rows.into_iter().map(distinct_id_row_to_proto).collect(),
         }))
     }
 
@@ -1770,6 +1764,62 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .collect(),
         }))
     }
+
+    async fn write_distinct_ids(
+        &self,
+        request: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        let req = request.into_inner();
+        check_floor_batch(
+            req.writes
+                .iter()
+                .map(|w| (w.distinct_id.as_str(), w.min_version)),
+        )?;
+        let writes: Vec<storage::types::DistinctIdWrite> = req
+            .writes
+            .iter()
+            .map(|w| {
+                let action = match ProtoDistinctIdWriteAction::try_from(w.action) {
+                    Ok(ProtoDistinctIdWriteAction::Insert) => {
+                        storage::types::DistinctIdWriteAction::Insert
+                    }
+                    Ok(ProtoDistinctIdWriteAction::Raise) => {
+                        storage::types::DistinctIdWriteAction::Raise
+                    }
+                    _ => {
+                        return Err(Status::invalid_argument(format!(
+                            "Unknown action {} for {}",
+                            w.action, w.distinct_id
+                        )))
+                    }
+                };
+                Ok(storage::types::DistinctIdWrite {
+                    distinct_id: w.distinct_id.clone(),
+                    action,
+                    person_uuid: parse_uuid(&w.person_uuid)?,
+                    min_version: w.min_version,
+                    expected_version: w.expected_version,
+                })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let results = self
+            .storage
+            .write_distinct_ids(req.team_id, &writes)
+            .await
+            .map_err(|e| log_and_convert_error(e, "write_distinct_ids"))?;
+
+        Ok(Response::new(WriteDistinctIdsResponse {
+            results: results
+                .into_iter()
+                .map(|r| ProtoDistinctIdWriteResult {
+                    distinct_id: r.distinct_id,
+                    outcome: write_outcome_to_proto(r.outcome) as i32,
+                    row: r.row.map(distinct_id_row_to_proto),
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1880,6 +1930,17 @@ fn reject_duplicate_uuids(uuids: impl Iterator<Item = Uuid>) -> Result<(), Statu
     Ok(())
 }
 
+fn distinct_id_row_to_proto(row: storage::types::DistinctIdRow) -> ProtoDistinctIdRow {
+    ProtoDistinctIdRow {
+        distinct_id: row.distinct_id,
+        person_id: row.person_id,
+        person_uuid: row.person_uuid.map(|u| u.to_string()),
+        version: row.version,
+        is_deleted: row.is_deleted,
+        person_is_deleted: row.person_is_deleted,
+    }
+}
+
 fn raise_outcome_to_proto(outcome: storage::types::RaiseOutcome) -> ProtoRaiseOutcome {
     match outcome {
         storage::types::RaiseOutcome::Raised => ProtoRaiseOutcome::Raised,
@@ -1895,5 +1956,20 @@ fn restore_outcome_to_proto(outcome: storage::types::RestoreOutcome) -> ProtoRes
         storage::types::RestoreOutcome::ExistsLive => ProtoRestoreOutcome::ExistsLive,
         storage::types::RestoreOutcome::ExistsTombstoned => ProtoRestoreOutcome::ExistsTombstoned,
         storage::types::RestoreOutcome::NoDistinctId => ProtoRestoreOutcome::NoDistinctId,
+    }
+}
+
+fn write_outcome_to_proto(
+    outcome: storage::types::DistinctIdWriteOutcome,
+) -> ProtoDistinctIdWriteOutcome {
+    match outcome {
+        storage::types::DistinctIdWriteOutcome::Applied => ProtoDistinctIdWriteOutcome::Applied,
+        storage::types::DistinctIdWriteOutcome::Unchanged => ProtoDistinctIdWriteOutcome::Unchanged,
+        storage::types::DistinctIdWriteOutcome::PreconditionFailed => {
+            ProtoDistinctIdWriteOutcome::PreconditionFailed
+        }
+        storage::types::DistinctIdWriteOutcome::PersonNotLive => {
+            ProtoDistinctIdWriteOutcome::PersonNotLive
+        }
     }
 }
