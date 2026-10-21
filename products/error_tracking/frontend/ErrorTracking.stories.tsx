@@ -958,6 +958,7 @@ export const ListPageWithIngestionWarning: Story = {
     ],
     render: () => <IngestionWarningStory />,
 }
+
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
