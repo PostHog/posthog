@@ -93,6 +93,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    RelevantCommit,
     ReviewerEdit,
     ReviewerProposal,
     ReviewerState,
@@ -5054,16 +5055,19 @@ def append_suggested_reviewers(
             effective_reason = resolved.reason if resolved.explicit_reason else bounded_reviewer_reason(prior_reason)
             if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
-            safe_commits = (
-                [
-                    {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
-                    if isinstance(commit, dict)
-                    else commit
-                    for commit in prior_commits
-                ]
-                if isinstance(prior_commits, list)
-                else []
-            )
+            safe_commits = []
+            for commit in prior_commits if isinstance(prior_commits, list) else []:
+                if not isinstance(commit, dict):
+                    continue
+                try:
+                    safe_commits.append(
+                        RelevantCommit.model_validate(
+                            {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                        ).model_dump()
+                    )
+                except PydanticValidationError:
+                    continue
+            prior_source_skill = prior.get("source_skill") if prior else None
             new_content.append(
                 {
                     "github_login": resolved.github_login,
@@ -5071,7 +5075,7 @@ def append_suggested_reviewers(
                     "github_name": effective_name if isinstance(effective_name, str) else None,
                     "relevant_commits": safe_commits,
                     "reason": effective_reason or None,
-                    "source_skill": prior.get("source_skill") if prior else None,
+                    "source_skill": prior_source_skill if isinstance(prior_source_skill, str) else None,
                     "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
                 }
             )
