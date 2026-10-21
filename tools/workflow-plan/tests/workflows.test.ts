@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
+import { evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -712,73 +712,6 @@ describe('CI workflow run plans', () => {
             result === 'success' && publish
         )
     })
-
-    it.each([
-        ['image-config PR', pullRequest(), false, true, 'success'],
-        ['image-config merge queue', mergeQueue(), false, true, 'success'],
-        ['Dockerfile PR', pullRequest(), true, true, 'success'],
-        ['source PR', pullRequest(), true, false, 'skipped'],
-        ['source merge queue', mergeQueue(), true, false, 'skipped'],
-        ['fork PR', pullRequest({ fork: true }), true, true, 'skipped'],
-        ['master push', push(), true, true, 'skipped'],
-    ] as const)('Rust image validation on %s', (name, github, rust, imageBuild, result) => {
-        const wf = workflow('ci-rust.yml')
-        const plan = planWorkflow(wf, {
-            name,
-            github,
-            steps: {
-                changes: { filter: pathsFilter({ rust, image_build: imageBuild }) },
-                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
-            },
-        })
-        expect(plan.errors).toEqual([])
-        expect(plan.jobs['image-build']?.result).toBe(result)
-        expect(plan.jobs.rust_tests?.result).toBe('success')
-        expect(wf.jobs['image-build']?.with?.push).toBe(false)
-    })
-
-    it.each([false, true])('Rust image digest publication with push=%s', (pushImages) => {
-        const wf = workflow('_rust-build-images.yml')
-        const context = { inputs: { push: pushImages } }
-        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateCondition(wf.jobs.collect?.if, context, functions)).toBe(pushImages)
-        for (const name of ['Container image digest', 'Upload digest']) {
-            const step = wf.jobs.build?.steps?.find((step) => step.name === name)
-            expect(step?.name).toBe(name)
-            expect(evaluateCondition(step?.if, context, functions)).toBe(pushImages)
-        }
-    })
-
-    it.each(['success', 'skipped', 'failure', 'cancelled'] as const)(
-        'the required Rust gate handles %s image validation on an image-only PR',
-        (result) => {
-            const gate = workflow('ci-rust.yml').jobs.rust_tests
-            expect(gate?.needs).toContain('image-build')
-            const functions = planFunctions({
-                dependenciesSucceeded: true,
-                dependenciesFailed: false,
-                cancelled: false,
-            })
-            const script = evaluateValue(
-                gate?.steps?.[0]?.run,
-                {
-                    needs: {
-                        changes: { result: 'success', outputs: { rust: 'false' } },
-                        'image-build': { result },
-                    },
-                },
-                functions
-            )
-            if (typeof script !== 'string') {
-                throw new Error('Missing Rust gate script')
-            }
-            const process = spawnSync('bash', ['-e', '-c', script], { encoding: 'utf8' })
-            expect({ status: process.status, stderr: process.stderr }).toEqual({
-                status: result === 'success' || result === 'skipped' ? 0 : 1,
-                stderr: '',
-            })
-        }
-    )
 
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)

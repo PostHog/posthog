@@ -47,7 +47,6 @@ export interface RawStep {
 
 export interface RawJob {
     name?: string
-    with?: Record<string, unknown>
     if?: unknown
     needs?: string | string[]
     uses?: string
