@@ -287,6 +287,8 @@ The offline `signals/eval_pr_owner_selection` suite compares both policies on id
 constructing assignment, notification, task-start, or PR-creation clients. Its invented regression snapshots and
 controlled-output replay check policy rules, not real assignment accuracy. Recipient-reviewed labels and a live-model
 comparison of suitability, unresolved results, failures, latency, and cost remain prerequisites to a production trial.
+When `POSTHOG_OFFLINE_EVAL_API_KEY` is configured, the suite publishes comparison results to PostHog through its `evals/offline_config.py` catalog.
+Braintrust uploads remain disabled.
 
 ### Identity and organization changes
 

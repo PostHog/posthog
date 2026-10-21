@@ -19,7 +19,9 @@ from products.signals.backend.pr_owner_selection import (
     validate_owner_decision,
 )
 from products.signals.backend.pr_owning_team import OwningTeam
+from products.signals.evals.offline_config import offline_suite
 
+NO_SEND_LOGS = True
 SUITE_KIND = SuiteKind.ONE_SHOT
 CASES = json.loads((Path(__file__).parent / "fixtures/pr_owner_selection.json").read_text())
 
@@ -85,6 +87,7 @@ async def eval_pr_owner_selection(ctx: EvalContext) -> None:
         return await compare_owner_policies(saved, team_id=task_ctx.demo_data.master_team_id)
 
     await OneShotPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="signals-pr-owner-selection",
         cases=[
             BaseEvalCase(
@@ -95,7 +98,12 @@ async def eval_pr_owner_selection(ctx: EvalContext) -> None:
             for case in CASES
         ],
         scorers=[AcceptableOwner("baseline"), AcceptableOwner("proposed")],
+        offline_suite=offline_suite(
+            "signals/eval_pr_owner_selection::eval_pr_owner_selection",
+            metrics=["baseline_acceptable_owner", "proposed_acceptable_owner"],
+            suite_kind=SUITE_KIND,
+        ),
         task=task,
         ctx=ctx,
-        send_to_posthog=False,
+        send_to_posthog=True,
     )
