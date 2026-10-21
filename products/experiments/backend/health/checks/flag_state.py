@@ -150,8 +150,8 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
                 severity=ExperimentHealthFindingSeverity.INFO,
                 title="The feature flag is active before launch",
                 detail=(
-                    "The linked feature flag already serves multiple variants, but the experiment hasn't launched. "
-                    "The results count exposures from launch on, so a user who gets a variant now enters the "
+                    "The linked feature flag is already active with multiple variants, but the experiment hasn't "
+                    "launched. The results count exposures from launch on, so a user who gets a variant now enters the "
                     "results only when exposed again after launch. This is expected while you test the variants. "
                     "If users outside your team get them, launch the experiment or disable the flag."
                 ),
