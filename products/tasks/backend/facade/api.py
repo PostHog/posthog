@@ -1107,6 +1107,14 @@ def trial_research_has_started(*, team_id: int, report_pass_key: str) -> bool:
     ).exists()
 
 
+def has_active_task_runs(*, team_id: int, run_ids: list[UUID]) -> bool:
+    return TaskRun.objects.filter(
+        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+        id__in=run_ids,
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+    ).exists()
+
+
 def iter_trial_task_runs(*, team_id: int, grant_id: str) -> Iterator[contracts.TaskRunDTO]:
     runs = TaskRun.objects.filter(
         Q(team_id=team_id) | Q(team__parent_team_id=team_id),

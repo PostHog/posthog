@@ -61,6 +61,32 @@ class TestGatewayUsage(BaseTest):
     def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunCost:
         return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
 
+    @parameterized.expand([("expired", 0), ("two_seconds_left", 2)])
+    @patch("aiohttp.ClientSession._request")
+    def test_parent_deadline_bounds_lookups_without_discarding_pending_ids(
+        self, _name: str, remaining_seconds: int, get: Mock
+    ) -> None:
+        run = self._run()
+        self._report(run, ["first", "next"])
+        with patch("products.tasks.backend.logic.services.gateway_usage.time") as clock:
+            clock.monotonic.return_value = 100
+
+            async def lookup(*_args: object, **_kwargs: object) -> MagicMock:
+                clock.monotonic.return_value = 103
+                return self._response("first", "0", status=404)
+
+            get.side_effect = lookup
+            process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, deadline=100 + remaining_seconds)
+        run.refresh_from_db()
+        assert run.state["token_cost"] == {}
+        if remaining_seconds:
+            assert get.call_count == 1
+            assert get.call_args.kwargs["timeout"].total == remaining_seconds
+            assert run.state["unprocessed_request_ids"] == ["next", "first"]
+        else:
+            get.assert_not_called()
+            assert run.state["unprocessed_request_ids"] == ["first", "next"]
+
     @patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example.com:8080"})
     @patch("aiohttp.ClientSession._request", autospec=True)
     def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
