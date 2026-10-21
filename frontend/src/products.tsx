@@ -3514,7 +3514,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             {
                 name: 'Data quality',
                 href: urls.models('data-quality'),
-                flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                 searchKeywords: ['tests', 'checks', 'freshness'],
             },
         ],
