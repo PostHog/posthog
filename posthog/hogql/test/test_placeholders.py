@@ -80,11 +80,17 @@ class TestParser(SimpleTestCase):
             str(context.exception),
         )
 
-    @parameterized.expand([("no_placeholders", {}), ("other_placeholders", {"foo": ast.Constant(value=1)})])
+    @parameterized.expand(
+        [
+            ("no_placeholders", "{variables.start_date}", None),
+            ("other_placeholders", "{variables.start_date}", {"foo": ast.Constant(value=1)}),
+            ("expression", "{variables.start_date ? 1 : 2}", {}),
+        ]
+    )
     def test_replace_placeholders_without_variables_raises_query_error(
-        self, _name: str, placeholders: dict[str, ast.Expr]
+        self, _name: str, expression: str, placeholders: dict[str, ast.Expr] | None
     ) -> None:
-        expr = parse_expr("{variables.start_date}")
+        expr = parse_expr(expression)
         with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, placeholders)
         self.assertEqual("Variable start_date is missing from query", str(context.exception))
