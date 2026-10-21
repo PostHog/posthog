@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -61,6 +62,90 @@ const SAMPLE_INTENTS = [
         harness: 'Claude Code',
     },
 ]
+
+const INTENT_PROFILE = {
+    results: [
+        {
+            topic_id: 'topic-insights',
+            label: 'Build and tune SQL insights',
+            summary: 'Agents write and refine SQL for charts and tables.',
+            calls: 2890,
+            sessions: 2100,
+            share_pct: 59.1,
+            previous_share_pct: 52.4,
+            trend_pp: 6.7,
+            outlier_calls: 40,
+            top_tools: ['warehouse/execute-sql', 'query-trends'],
+            sparkline: [380, 410, 395, 430, 420, 440, 415],
+        },
+        {
+            topic_id: 'topic-debug',
+            label: 'Debug tool errors by client',
+            summary: 'Agents look for failing calls and their harness.',
+            calls: 1200,
+            sessions: 900,
+            share_pct: 24.5,
+            previous_share_pct: 31.0,
+            trend_pp: -6.5,
+            outlier_calls: 12,
+            top_tools: ['warehouse/execute-sql'],
+            sparkline: [200, 180, 170, 160, 165, 170, 155],
+        },
+        {
+            topic_id: 'topic-vitals',
+            label: 'Check web vitals samples',
+            summary: 'Agents corroborate web vitals with sample counts.',
+            calls: 800,
+            sessions: 650,
+            share_pct: 16.4,
+            previous_share_pct: null,
+            trend_pp: null,
+            outlier_calls: 5,
+            top_tools: ['warehouse/execute-sql', 'query-web-vitals'],
+            sparkline: [0, 0, 90, 150, 180, 190, 190],
+        },
+    ],
+    focus: { score: 0.41, band: 'mixed' },
+    drift: {
+        new: [
+            {
+                topic_id: 'topic-vitals',
+                label: 'Check web vitals samples',
+                calls: 800,
+                share_pct: 16.4,
+                previous_share_pct: null,
+            },
+        ],
+        growing: [],
+        shrinking: [
+            {
+                topic_id: 'topic-debug',
+                label: 'Debug tool errors by client',
+                calls: 1200,
+                share_pct: 24.5,
+                previous_share_pct: 31.0,
+            },
+        ],
+        gone: [],
+    },
+    outliers: [
+        {
+            intent_hash: 'o1',
+            intent_text: 'Export the full person table as CSV for finance.',
+            calls: 6,
+            distance: 0.62,
+            tool: 'warehouse/execute-sql',
+        },
+        {
+            intent_hash: 'o2',
+            intent_text: 'List every ClickHouse system table.',
+            calls: 2,
+            distance: 0.58,
+            tool: 'warehouse/execute-sql',
+        },
+    ],
+    coverage: { calls_with_intent: 4890, calls_assigned: 4610, assigned_pct: 94.3 },
+}
 
 const NEIGHBORS_BEFORE = [
     { neighbor_tool: 'read-data-schema', co_occurrences: 2840 },
@@ -155,6 +240,8 @@ const meta: Meta = {
                             return [200, { results: DAILY_STATS }]
                         case 'MCPToolSampleIntentsQuery':
                             return [200, { results: SAMPLE_INTENTS }]
+                        case 'MCPToolIntentProfileQuery':
+                            return [200, INTENT_PROFILE]
                         case 'MCPToolNeighborsQuery':
                             return [
                                 200,
@@ -191,4 +278,11 @@ type Story = StoryObj<{}>
 
 export const ToolDetail: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium', 'wide'] } },
+}
+
+export const ToolDetailWithIntentTopics: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS],
+        testOptions: { viewportWidths: ['medium', 'wide'] },
+    },
 }

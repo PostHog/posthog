@@ -784,6 +784,76 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPIntentTopicsQuery') {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        topic_id: 't1',
+                                        label: 'Build and tune SQL insights',
+                                        summary: '',
+                                        calls: 5200,
+                                        sessions: 3100,
+                                        share_pct: 38.2,
+                                        previous_share_pct: 33.0,
+                                        trend_pp: 5.2,
+                                        outlier_calls: 60,
+                                        top_tools: ['warehouse/execute-sql', 'query-trends'],
+                                    },
+                                    {
+                                        topic_id: 't2',
+                                        label: 'Investigate error spikes',
+                                        summary: '',
+                                        calls: 2900,
+                                        sessions: 1800,
+                                        share_pct: 21.3,
+                                        previous_share_pct: 24.1,
+                                        trend_pp: -2.8,
+                                        outlier_calls: 20,
+                                        top_tools: ['query-error-tracking-issues-list'],
+                                    },
+                                    {
+                                        topic_id: 't3',
+                                        label: 'Review session replays',
+                                        summary: '',
+                                        calls: 2100,
+                                        sessions: 1500,
+                                        share_pct: 15.4,
+                                        previous_share_pct: 15.5,
+                                        trend_pp: -0.1,
+                                        outlier_calls: 9,
+                                        top_tools: ['query-session-recordings-list'],
+                                    },
+                                    {
+                                        topic_id: 't4',
+                                        label: 'Manage feature flags',
+                                        summary: '',
+                                        calls: 1700,
+                                        sessions: 1200,
+                                        share_pct: 12.5,
+                                        previous_share_pct: null,
+                                        trend_pp: null,
+                                        outlier_calls: 4,
+                                        top_tools: ['feature-flag-get-all'],
+                                    },
+                                    {
+                                        topic_id: 't5',
+                                        label: 'Create dashboards',
+                                        summary: '',
+                                        calls: 900,
+                                        sessions: 700,
+                                        share_pct: 6.6,
+                                        previous_share_pct: 8.9,
+                                        trend_pp: -2.3,
+                                        outlier_calls: 3,
+                                        top_tools: ['dashboard-create'],
+                                    },
+                                ],
+                                coverage: { calls_with_intent: 13600, calls_assigned: 12800, assigned_pct: 94.1 },
+                            },
+                        ]
+                    }
                     if (body?.query?.kind === 'MCPModelBreakdownQuery') {
                         return [
                             200,
@@ -1031,6 +1101,14 @@ export const ToolQuality: Story = {
         // snapshot stays deterministic. The surrounding layout/text — what
         // catches theme regressions — is still captured.
         testOptions: { skipCanvasDraw: true },
+    },
+}
+
+export const IntentTopicsCard: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsDashboard(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS],
+        testOptions: { viewportWidths: ['medium', 'wide'] },
     },
 }
 
