@@ -174,7 +174,7 @@ describe('shared-image publication', () => {
       options.budgets.registryMs = 1
       options.helper = path.resolve(__dirname, '../../../scripts/ordered-image-release.sh')
       put('shims/aws', '#!/usr/bin/env bash\nfor ((i=0; i<5000; i++)); do :; done\nprintf "%s\\n" "$EXPECTED_DIGEST"\n')
-      put('shims/timeout', '#!/usr/bin/env bash\n[[ "$2" = "${READBACK_TIMEOUT_SECONDS}s" ]] || exit 64\nshift 2\nexec "$@"\n')
+      put('shims/timeout', '#!/usr/bin/env bash\n[[ "$1" = --foreground && "$2" = --kill-after=5s && "$3" = "${READBACK_TIMEOUT_SECONDS}s" ]] || exit 64\nshift 3\nexec "$@"\n')
       for (const name of ['aws', 'timeout']) chmodSync(path.join(repo, 'shims', name), 0o755)
       external.mockImplementation(async (exe, args, config) => {
         if (exe === 'helper' && args[1] === 'read' && config.env?.ECR_REPO === 'workers/worker') {

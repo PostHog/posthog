@@ -62,7 +62,7 @@ validate_timeout() {
 readback() {
     local readback_status=0 readback_seconds="${READBACK_TIMEOUT_SECONDS:-40}"
     validate_timeout "$readback_seconds" || return 1
-    resolved_digest="$(timeout --kill-after=5s "${readback_seconds}s" aws ecr batch-get-image \
+    resolved_digest="$(timeout --foreground --kill-after=5s "${readback_seconds}s" aws ecr batch-get-image \
         --registry-id "${ECR_REGISTRY%%.*}" \
         --repository-name "$ECR_REPO" \
         --image-ids imageTag="$ORDERED_ALIAS" \
@@ -126,7 +126,7 @@ publish_alias() {
     local copy_seconds="${COPY_TIMEOUT_SECONDS:-40}" readback_seconds="${READBACK_TIMEOUT_SECONDS:-40}"
     validate_timeout "$copy_seconds" || return 1
     validate_timeout "$readback_seconds" || return 1
-    timeout --kill-after=5s "${copy_seconds}s" "$REGCTL" image copy \
+    timeout --foreground --kill-after=5s "${copy_seconds}s" "$REGCTL" image copy \
         "$source_image" "$target_image" || publication_status=$?
     if [ "$publication_status" -ne 0 ]; then
         echo "::warning::Ordered alias publication exited with status $publication_status"
