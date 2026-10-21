@@ -73,7 +73,9 @@ class TrendsResultsFormatter:
             template = f"Previous period:\n{previous_formatted}\n\nCurrent period:\n{current_formatted}"
             return template
 
-        return self._format_results(results)
+        # Only one period is present here, so label aggregated rows with that period's resolved range.
+        resolved_date_range = self._resolved_compare_date_range if previous else self._resolved_date_range
+        return self._format_results(results, resolved_date_range)
 
     def _format_aggregated_values(
         self, results: list[dict[str, Any]], resolved_date_range: Optional[dict[str, Any]] = None

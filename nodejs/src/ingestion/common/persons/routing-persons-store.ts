@@ -1,4 +1,4 @@
-import { Code, ConnectError } from '@connectrpc/connect'
+import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { errorClassLabel } from '~/common/personhog/metrics'
@@ -138,12 +138,9 @@ const SHADOW_CREATE_RETRY_SLEEP_MS = 1_000
 const SHADOW_CREATE_RETRY_MAX_SLEEP_MS = 8_000
 const SHADOW_CREATE_RETRY_DEADLINE_MS = 20_000
 
-/** Transient per the transport's own classification, or a stream reset; identity's get-or-create is safe to repeat. */
+/** Transient per the transport's own classification; identity's get-or-create is safe to repeat. */
 function isTransientCreateFailure(error: unknown): boolean {
-    return (
-        (error as { isRetriable?: boolean } | null)?.isRetriable === true ||
-        (error instanceof ConnectError && error.code === Code.Canceled)
-    )
+    return (error as { isRetriable?: boolean } | null)?.isRetriable === true
 }
 
 /**
@@ -651,7 +648,8 @@ export class RoutingPersonsStore implements PersonsStore {
                 }
                 return unsettled
             }
-            if (error instanceof PersonMergeCallFailedError && defer) {
+            // Abandoned at the ceiling, the merge is re-driven at a flush under the same op id.
+            if ((error instanceof PersonMergeCallFailedError || error instanceof ShadowVerbTimeoutError) && defer) {
                 this.deferShadowMerge(request, batchId)
             }
             throw error

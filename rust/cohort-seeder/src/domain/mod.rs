@@ -38,8 +38,10 @@ pub use chunk::{
     ScanVolume, ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
-    ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
+    BehavioralShapeHash, CatalogMiss, CoverageStartMs, PersonSeed, PersonShapeHash,
+    ReconcileCompleteMarker, ReconcileMarker, ReconcileScope, ReconcileTile,
+    ReconcileWithheldMarker, RunBoundaryMs, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
+    WithheldReason,
 };
 pub use columns::{ColumnName, MaterializedColumns};
 pub use compare::{diff_tiles, Divergence, DivergenceClass, TileDiff, MAX_EXEMPLARS_PER_CLASS};
@@ -47,7 +49,7 @@ pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
     CommittedOffset, CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch,
     DispatchedReconcile, LivenessCheck, MarkerNovelty, MarkerPartition, MarkerPartitionError,
-    MarkerWatch, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
+    MarkerVerdict, MarkerWatch, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
     PartitionBitmapError, ProducedOffset, ReconcileHwms, ReconcileHwmsError, SeedGroupCommits,
     SettleProof, UndispatchedReason, WatchPartition, WatchPositions,
 };
@@ -59,7 +61,7 @@ pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,
 };
-pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict};
+pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict, WithheldCohort};
 pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 pub use person::{
     person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,

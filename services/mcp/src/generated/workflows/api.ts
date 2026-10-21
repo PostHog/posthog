@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -36,7 +36,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
-        .enum(['broadcasts', 'loops'])
+        .enum(['broadcasts', 'loops', 'transactional_emails'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -106,12 +106,16 @@ export const HogFlowsCreateBody = () => zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'transactional_emails'])
+                    .describe(
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
             ),
         trigger_masking: zod
             .union([
@@ -745,6 +749,19 @@ export const HogFlowsBatchJobsListParams = () => zod.object({
         ),
 })
 
+/**
+ * Move a workflow to broadcasts. It keeps its id, runs and metrics, leaves the workflows list and opens
+ * in the broadcast editor. This cannot be undone.
+ */
+export const HogFlowsConvertToBroadcastParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 export const HogFlowsDiscardDraftCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -1293,4 +1310,133 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
             "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
         ),
     before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsBuildParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowDataSuggestionsBuildBodyRetryDefault = false
+
+export const WorkflowDataSuggestionsBuildBody = () => zod.object({
+    suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsCurrentParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const WorkflowDataSuggestionsGenerateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowDataSuggestionsGenerateBodyRefreshDefault = false
+
+export const WorkflowDataSuggestionsGenerateBody = () => zod.object({
+    refresh: zod
+        .boolean()
+        .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const WorkflowSendingRulesRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const WorkflowSendingRulesPartialUpdateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax = 30
+
+export const WorkflowSendingRulesPartialUpdateBody = () => zod.object({
+    expected_project_id: zod
+        .number()
+        .optional()
+        .describe(
+            'Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at.'
+        ),
+    marketing_frequency_cap_max_messages: zod
+        .number()
+        .min(1)
+        .max(workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessagesMax)
+        .nullish()
+        .describe(
+            'The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.'
+        ),
+    marketing_frequency_cap_window_days: zod
+        .number()
+        .min(1)
+        .max(workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax)
+        .nullish()
+        .describe(
+            'The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.'
+        ),
+    email_tracking_consent_mode: zod
+        .enum(['off', 'opt_out', 'opt_in'])
+        .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+        .optional()
+        .describe(
+            "Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+        ),
+    capture_workflows_engagement_events: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage."
+        ),
+})
+
+/**
+ * Whether a project is set up to send messages from workflows.
+ */
+export const WorkflowSetupStatusParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })

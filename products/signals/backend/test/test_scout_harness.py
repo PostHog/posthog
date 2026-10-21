@@ -108,6 +108,8 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
     RunSignalsScoutWorkflow,
+    cancel_failed_scout_trial_activity,
+    check_signals_scout_config_runnable_activity,
     evaluate_signals_scout_precheck_activity,
     run_signals_scout_activity,
     start_trial_signals_scout_run,
@@ -714,14 +716,16 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
 
 
 class TestRunNotePromptSection(SimpleTestCase):
-    def _prompt(self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE) -> str:
+    def _prompt(
+        self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE, allowed_tools: list[str] | None = None
+    ) -> str:
         return build_run_prompt(
             LoadedSkill(
                 name="signals-scout-errors",
                 version=1,
                 body="watch",
                 description="d",
-                allowed_tools=[],
+                allowed_tools=allowed_tools or [],
                 files=[],
                 skill_id="skill-1",
                 origin="canonical",
@@ -757,15 +761,33 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert "do not record it in the scratchpad as a durable memory" in prompt
         assert "# Notes left for you" in prompt
 
-    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_report_tools", [], False, False),
+            ("emit_only", ["emit_report"], True, False),
+            ("emit_and_edit", ["emit_report", "edit_report"], True, True),
+            ("edit_only", ["edit_report"], False, False),
+        ]
+    )
+    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(
+        self, _name: str, allowed_tools: list[str], files_follow_up: bool, edits_live_report: bool
+    ) -> None:
         # Framed as a person's nudge, a check run reads its assignment as optional steering and is
-        # never told about the one tool that closes the check.
-        prompt = self._prompt("Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK)
+        # never told about the one tool that closes the check. A failed verdict lands on a resolved
+        # report nobody reads, so a lane that can author must file the linked follow-up first, and
+        # a lane that cannot must not be told to, because the harness re-surfaces it instead.
+        prompt = self._prompt(
+            "Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK, allowed_tools=allowed_tools
+        )
 
         assert "# The check this run must answer" in prompt
         assert "<check>\nCheck id: abc. Did the exception stop?\n</check>" in prompt
         assert "scout-check-record-result" in prompt
         assert "# A note for this run" not in prompt
+        check_section = prompt[prompt.index("# The check this run must answer") :]
+        assert ('"kind": "follow_up_of"' in check_section) is files_follow_up
+        assert ("re-surfaces without you" in check_section) is not files_follow_up
+        assert ("scout-edit-report" in check_section) is edits_live_report
 
 
 class TestPrecheckResultPromptSection(SimpleTestCase):
@@ -985,6 +1007,14 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
+        assert "never create one" not in granted
+        assert "never create one" in _prompt(write_scopes=["canvas:write"])
+
+        # A scout that holds only the default grant still has to be told it may write notebooks.
+        notebooks_only = _prompt(write_scopes=["notebook:write"])
+        assert "# Write access" in notebooks_only
+        assert "write access to notebooks in this project" in notebooks_only
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1006,7 +1036,10 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=started_at,
+            project_timezone="America/Vancouver",
         )
+        assert "- **project_timezone**: `America/Vancouver`" in prompt
+        assert "toDateTime('YYYY-MM-DD HH:MM:SS', 'UTC')" in prompt
         # Identity carries the skill name + version so bootstrap can reference it. The version
         # renders as the bare number `skill-get` takes, since the endpoint validates it as an
         # integer and the bootstrap points here rather than interpolating the value itself.
@@ -1223,6 +1256,8 @@ class TestPromptBuilder(BaseTest):
         # author, so the guidance must keep the untrusted-content boundary — a scout holds
         # write scopes an injected note could otherwise steer.
         assert "include_all_statuses=true" in prompt
+        # A scout that keeps its reports out of the inbox must still find them, or it re-emits each run.
+        assert "include_unlisted=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
         # Report authors need the metric semantics the generated tool shape cannot express on its own:
@@ -1988,7 +2023,7 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
     assert captured["ai_agent_name"] == "signals-scout-errors"
-    assert captured["max_poll_seconds"] == 15 * 60
+    assert captured["max_poll_seconds"] == 20 * 60
     assert captured["context"].sandbox_timeout_seconds is None
 
 
@@ -2154,16 +2189,23 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
         pytest.param(
             True,
             True,
-            ["dashboard:write"],
-            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]},
+            ["dashboard:write", "notebook:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write", "notebook:write"]},
             id="live_run_holds_the_grant",
         ),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
         pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
         # The grant was approved for the person the runs act as. When that identity no longer
-        # resolves, the team fallback is a member who never approved it and cannot revoke it.
-        pytest.param(True, False, [], "signals_scout", id="team_fallback_holds_no_grant"),
+        # resolves, the team fallback is a member who never approved it and cannot revoke it. The
+        # default notebook scope was granted by the fleet rather than a person, so it stays.
+        pytest.param(
+            True,
+            False,
+            ["notebook:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["notebook:write"]},
+            id="team_fallback_holds_only_the_default_grant",
+        ),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
@@ -2180,7 +2222,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             team_id=ateam.id,
             skill_name="signals-scout-errors",
             emit=emit,
-            write_scopes=["dashboard:write", "feature_flag:write"],
+            write_scopes=["dashboard:write", "feature_flag:write", "notebook:write"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
@@ -3152,6 +3194,8 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
     "status,state,age_s,expect_reaped",
     [
         ("in_progress", {}, STALE_RUN_CUTOFF_S + 60, True),
+        # A paused lane dispatches again long after its orphan started; the reap has no age floor.
+        ("in_progress", {}, 31 * 24 * 60 * 60, True),
         # A worker death after the agent went idle: the Tasks inactivity timeout closes the TaskRun
         # before the next dispatch, so the run no longer blocks the lane but still never reported.
         ("completed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),
@@ -3639,10 +3683,13 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", ["completed", "preflight_error", "timeout", "cancelled"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["completed", "returned_failed", "preflight_error", "timeout", "cancelled", "cleanup_error", "old_history"],
+)
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
-    [("job:step:1", None, 16), (None, None, 16), (None, "11111111-1111-1111-1111-111111111111", 36)],
+    [("job:step:1", None, 21), (None, None, 21), (None, "11111111-1111-1111-1111-111111111111", 36)],
 )
 async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
     outcome, workflow_origin_key, trial_launch_id, timeout_minutes
@@ -3650,7 +3697,7 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
     output = RunSignalsScoutOutput(
         run_id="abc",
         task_run_id="def",
-        status="completed",
+        status="failed" if outcome == "returned_failed" else "completed",
         runtime_s=1.5,
         skill_name="signals-scout-errors",
         skill_version=2,
@@ -3670,6 +3717,8 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         if outcome == "timeout"
         else RuntimeError("Preflight failed")
     )
+    cancellation = asyncio.CancelledError()
+    cleanup_inputs: list[RunSignalsScoutInput] = []
 
     async def execute_activity(activity_function, input=None, **kwargs):
         if activity_function is evaluate_signals_scout_precheck_activity:
@@ -3677,21 +3726,38 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         if activity_function is run_signals_scout_activity:
             assert kwargs["start_to_close_timeout"] == timedelta(minutes=timeout_minutes)
             if outcome == "cancelled":
-                raise asyncio.CancelledError()
-            if outcome != "completed":
+                raise cancellation
+            if outcome not in {"completed", "returned_failed"}:
                 raise error
             return output
+        if activity_function is cancel_failed_scout_trial_activity:
+            cleanup_inputs.append(input)
+            assert kwargs["retry_policy"].maximum_attempts == 3
+            assert kwargs["schedule_to_close_timeout"] == timedelta(minutes=3)
+            if outcome == "cleanup_error":
+                raise ActivityError(
+                    "Cleanup failed",
+                    scheduled_event_id=3,
+                    started_event_id=4,
+                    identity="worker",
+                    activity_type="cancel_failed_scout_trial_activity",
+                    activity_id="cleanup",
+                    retry_state=None,
+                )
+            return None
         return ActivityEnvironment().run(activity_function, *kwargs["args"])
 
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched",
+            side_effect=lambda name: name != "cancel-failed-scout-trial" or outcome != "old_history",
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
             side_effect=execute_activity,
         ),
         patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.logger"),
     ):
         workflow = RunSignalsScoutWorkflow()
         input = RunSignalsScoutInput(
@@ -3700,12 +3766,15 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
             workflow_origin_key=workflow_origin_key,
             trial_launch_id=trial_launch_id,
         )
-        if outcome == "completed":
+        if outcome in {"completed", "returned_failed"}:
             assert await workflow.run(input) == output
         else:
-            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError):
+            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError) as raised:
                 await workflow.run(input)
+            assert raised.value is (cancellation if outcome == "cancelled" else error)
 
+    cleans_up = trial_launch_id is not None and outcome not in {"completed", "returned_failed", "old_history"}
+    assert cleanup_inputs == ([input] if cleans_up else [])
     if workflow_origin_key is None:
         resume.assert_not_called()
     else:
@@ -4056,3 +4125,89 @@ class TestScoutRunTokenCosts(BaseTest):
 def test_background_backoff_props(managed_by, backoff, level, expected):
     config = SignalScoutConfig(managed_by=managed_by, run_interval_minutes=10080, background_backoff_level=level)
     assert _background_backoff_props(config, backoff) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "start_delay_seconds,runnable,expected_sleep,runs",
+    [
+        (0, True, None, True),
+        (420, True, 420, True),
+        (420, False, 420, False),
+    ],
+)
+async def test_workflow_sleeps_its_start_delay_and_skips_a_config_disabled_meanwhile(
+    start_delay_seconds, runnable, expected_sleep, runs
+):
+    output = RunSignalsScoutOutput(
+        run_id="abc", task_run_id="def", status="completed", runtime_s=1.0, skill_name="s", skill_version=1
+    )
+    events: list[object] = []
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        events.append(activity_function)
+        if activity_function is check_signals_scout_config_runnable_activity:
+            return runnable
+        if activity_function is evaluate_signals_scout_precheck_activity:
+            return EvaluateScoutPrecheckOutput(should_run=True)
+        return output
+
+    async def sleep(duration, **kwargs):
+        events.append(duration)
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.sleep", side_effect=sleep),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.now",
+            return_value=datetime(2026, 10, 13, 9, 0, tzinfo=UTC),
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.upsert_memo"),
+    ):
+        result = await RunSignalsScoutWorkflow().run(
+            RunSignalsScoutInput(team_id=7, skill_name="s", start_delay_seconds=start_delay_seconds)
+        )
+
+    if expected_sleep is None:
+        assert events == [evaluate_signals_scout_precheck_activity, run_signals_scout_activity]
+    elif runs:
+        # The sleep comes first, so the pre-check and the run read fresh data after it.
+        assert events == [
+            timedelta(seconds=expected_sleep),
+            check_signals_scout_config_runnable_activity,
+            evaluate_signals_scout_precheck_activity,
+            run_signals_scout_activity,
+        ]
+    else:
+        assert events == [timedelta(seconds=expected_sleep), check_signals_scout_config_runnable_activity]
+    if runs:
+        assert result == output
+    else:
+        assert result.skip_reason == "config_disabled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "activity_function,expected",
+    [
+        (check_signals_scout_config_runnable_activity, False),
+        (evaluate_signals_scout_precheck_activity, EvaluateScoutPrecheckOutput(should_run=False)),
+    ],
+)
+async def test_a_deleted_team_does_not_run(activity_function, expected):
+    missing_team_id = await database_sync_to_async(
+        lambda: (Team.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1000
+    )()
+
+    result = await ActivityEnvironment().run(
+        activity_function, RunSignalsScoutInput(team_id=missing_team_id, skill_name="s")
+    )
+
+    assert result == expected

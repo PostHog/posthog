@@ -41,7 +41,6 @@ function DashboardButtonTileItemInternal(
     const dashboardWidgetMenusLogicProps = {
         instanceKey: buttonId != null ? `button-${buttonId}` : `button-tile-${tile.id}`,
         dashboardId,
-        dashboards: undefined,
         dashboard_tiles: tile.button_tile?.dashboard_tiles,
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))

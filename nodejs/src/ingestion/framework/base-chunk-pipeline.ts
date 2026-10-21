@@ -4,9 +4,9 @@ import { instrumentFn, startDetachedSpan } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
-import { pipelineStepDurationHistogram } from './metrics'
+import { pipelineStepDurationHistogram, recordBudgetCheckpoint } from './metrics'
 import { PipelineBuilderContext, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResult, PipelineResultOk, isOkResult } from './results'
+import { PipelineResult, PipelineResultOk, isOkResult, timeout } from './results'
 
 /**
  * Type guard for ResultWithContext that asserts the result is successful
@@ -42,6 +42,9 @@ export type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) 
  * warnings). Non-OK results pass through unchanged. This is the single
  * implementation of chunk-step semantics, shared by {@link BaseChunkPipeline}
  * and the group-level pipeChunk in ConcurrentlyGroupingChunkPipeline.
+ *
+ * The budget checkpoint runs per element, because one chunk can hold elements
+ * from batches with different budgets.
  */
 export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string, RStep extends string, D = unknown>(
     step: ChunkProcessingStep<TIn, TOut, RStep>,
@@ -49,8 +52,25 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
     items: PipelineResultWithContext<TIn, C, RPrev>[],
     builderContext?: PipelineBuilderContext<D>
 ): Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]> {
-    const successfulItems = items.filter(isSuccessResultWithContext)
-    const successfulValues = successfulItems.map((resultWithContext) => resultWithContext.result.value)
+    const successfulItems: PipelineResultWithContext<TIn, C, RPrev>[] = []
+    const successfulValues: TIn[] = []
+    // Stays null unless the budget cuts something off, so the common path allocates nothing.
+    let budgetCutOff: Set<number> | null = null
+    for (let index = 0; index < items.length; index++) {
+        const item = items[index]
+        if (!isOkResult(item.result)) {
+            continue
+        }
+        const budget = item.context.budget
+        if (budget?.exhausted) {
+            recordBudgetCheckpoint('chunk', stepName)
+            budgetCutOff ??= new Set<number>()
+            budgetCutOff.add(index)
+            continue
+        }
+        successfulItems.push(item)
+        successfulValues.push(item.result.value)
+    }
 
     let stepResults: PipelineResult<TOut, RStep>[] = []
     if (successfulValues.length > 0) {
@@ -101,8 +121,14 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
 
     // Map results back, preserving context and non-successful results
     const output: PipelineResultWithContext<TOut, C, RPrev | RStep>[] = []
-    for (const resultWithContext of items) {
-        if (isOkResult(resultWithContext.result)) {
+    for (let index = 0; index < items.length; index++) {
+        const resultWithContext = items[index]
+        if (budgetCutOff?.has(index)) {
+            output.push({
+                result: timeout(`budget exceeded before ${stepName}`),
+                context: resultWithContext.context,
+            })
+        } else if (isOkResult(resultWithContext.result)) {
             const stepResult = stepResults[stepIndex++]
             output.push({
                 result: stepResult,

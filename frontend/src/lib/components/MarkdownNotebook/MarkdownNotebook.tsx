@@ -27,6 +27,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { findMountedCodeEditorWithin } from 'lib/monaco/mountedCodeEditors'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile, isMac, uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -1232,7 +1233,8 @@ function MarkdownNotebookEditor({
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
         if (firstElement) {
-            firstElement.focus()
+            // The host may have restored a scroll position, such as when the reader goes back to a notebook.
+            firstElement.focus({ preventScroll: true })
             restoreSelection(firstElement, 0, 0)
         }
         // oxlint-disable-next-line exhaustive-deps
@@ -3270,7 +3272,7 @@ function MarkdownNotebookEditor({
             return
         }
 
-        const handleDocumentSelectionChange = (): void => {
+        const updateSelectionToolbar = (): void => {
             if (isTextSelectionPointerActiveRef.current) {
                 setFloatingToolbar(null)
             } else {
@@ -3278,6 +3280,10 @@ function MarkdownNotebookEditor({
                     Math.max(0, floatingToolbarRevealAfterRef.current - Date.now())
                 )
             }
+        }
+
+        const handleDocumentSelectionChange = (): void => {
+            updateSelectionToolbar()
             updateSelectedComponentBlocksFromSelection()
             // Non-text blocks (queries, dividers, comments…) never produce a text caret, so
             // fall back to the focused block — collaborators still see who is on it.
@@ -3290,6 +3296,18 @@ function MarkdownNotebookEditor({
                         blockRefs.current
                     )
             )
+        }
+
+        let viewportUpdateFrame: number | null = null
+        const handleViewportChange = (): void => {
+            // Scrolling moves the toolbar, not the selection or a collaborator's caret.
+            if (viewportUpdateFrame !== null || window.getSelection()?.isCollapsed !== false) {
+                return
+            }
+            viewportUpdateFrame = window.requestAnimationFrame(() => {
+                viewportUpdateFrame = null
+                updateSelectionToolbar()
+            })
         }
 
         const handleDocumentPointerStart = (event: MouseEvent | PointerEvent | TouchEvent): void => {
@@ -3306,9 +3324,9 @@ function MarkdownNotebookEditor({
         window.document.addEventListener('focusin', handleDocumentSelectionChange)
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
-        window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
-        window.addEventListener('resize', handleDocumentSelectionChange)
-        window.addEventListener('scroll', handleDocumentSelectionChange, true)
+        window.document.addEventListener('touchstart', handleDocumentPointerStart, { capture: true, passive: true })
+        window.addEventListener('resize', handleViewportChange)
+        window.addEventListener('scroll', handleViewportChange, { capture: true, passive: true })
 
         return () => {
             window.document.removeEventListener('selectionchange', handleDocumentSelectionChange)
@@ -3316,8 +3334,11 @@ function MarkdownNotebookEditor({
             window.document.removeEventListener('mousedown', handleDocumentPointerStart, true)
             window.document.removeEventListener('pointerdown', handleDocumentPointerStart, true)
             window.document.removeEventListener('touchstart', handleDocumentPointerStart, true)
-            window.removeEventListener('resize', handleDocumentSelectionChange)
-            window.removeEventListener('scroll', handleDocumentSelectionChange, true)
+            window.removeEventListener('resize', handleViewportChange)
+            window.removeEventListener('scroll', handleViewportChange, true)
+            if (viewportUpdateFrame !== null) {
+                window.cancelAnimationFrame(viewportUpdateFrame)
+            }
         }
     }, [
         mode,
@@ -3498,6 +3519,12 @@ function MarkdownNotebookEditor({
     const copyMarkdownToNotebookClipboard = (markdown: string): void => {
         notebookClipboardMarkdownRef.current = markdown
         writeSystemClipboardText(markdown)
+    }
+
+    const copyComponentNode = (componentNode: NotebookComponentBlockNode): void => {
+        const markdown = serializeNotebookNodes([componentNode])
+        notebookClipboardMarkdownRef.current = markdown
+        void copyToClipboard(markdown, 'block')
     }
 
     const pasteNotebookClipboardAfterNode = (nodeId: string): void => {
@@ -6013,8 +6040,6 @@ function MarkdownNotebookEditor({
         }
     }, [jupyterMode, jupyterStore])
 
-    // A markdown cell in edit mode is text with the caret in it. Escape and the run keys there act
-    // on the cell, as in Jupyter, instead of typing; every other key keeps its text-editing meaning.
     const handleJupyterTextKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
         if (!jupyterMode || mode !== 'edit' || insertMenu || event.target !== event.currentTarget) {
             return false
@@ -6036,7 +6061,7 @@ function MarkdownNotebookEditor({
             null,
             Date.now()
         )
-        if (!command) {
+        if (!command || command === 'run-and-advance') {
             return false
         }
         event.preventDefault()
@@ -7016,6 +7041,8 @@ function MarkdownNotebookEditor({
                         ? () => openBtw(serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] }))
                         : undefined,
                     askAIDisabledReason,
+                    // Shared renders have no editor to paste into, matching the legacy notebook's `!isShared` gate.
+                    copyNode: hideResourceLinks ? undefined : copyComponentNode,
                     deleteNode: () => deleteNodeWithRefCleanup(node.id),
                     deleteNodeAndFocusAdjacent: () => {
                         requestFocusAfterRemovingNode(node.id)
@@ -7273,15 +7300,55 @@ function MarkdownNotebookEditor({
                             )
                         })}
                         {jupyterCommands && mode === 'edit' ? (
-                            <button
-                                type="button"
+                            <div
                                 className="MarkdownNotebook__jupyter-add-cell"
                                 contentEditable={false}
                                 data-attr="notebook-jupyter-add-cell"
-                                onClick={() => jupyterCommands.insertCell(null, 'below', { edit: true })}
                             >
-                                Click to add a cell.
-                            </button>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    aria-label="Add a cell"
+                                    tooltip="Add a cell"
+                                    data-attr="notebook-jupyter-add-cell-menu"
+                                    onClick={() => openInsertMenuAtBoundary(getJupyterAppendIndex())}
+                                >
+                                    /
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    data-attr="notebook-jupyter-add-text"
+                                    onClick={() =>
+                                        insertJupyterNodesAt(
+                                            getJupyterAppendIndex(),
+                                            [makeEmptyParagraph('text')],
+                                            'edit'
+                                        )
+                                    }
+                                >
+                                    Add text
+                                </LemonButton>
+                                {jupyterMode?.cellTagNames.map((tagName) => {
+                                    const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, tagName)
+                                    return definition?.insertCommand ? (
+                                        <LemonButton
+                                            key={tagName}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="notebook-jupyter-add-code"
+                                            onClick={() => {
+                                                const node = createJupyterCellNode(tagName)
+                                                if (node) {
+                                                    insertJupyterNodesAt(getJupyterAppendIndex(), [node], 'edit')
+                                                }
+                                            }}
+                                        >
+                                            {`Add ${definition.label}`}
+                                        </LemonButton>
+                                    ) : null
+                                })}
+                            </div>
                         ) : null}
                     </div>
                     {adjustedRemoteCarets?.length ? (

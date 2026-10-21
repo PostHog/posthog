@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import type { UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import { ChoiceOption } from 'products/review_hog/frontend/repositories/repositoryChoices'
 import { reviewHogProjectSettingsLogic } from 'products/review_hog/frontend/repositories/reviewHogProjectSettingsLogic'
+import { withYouIcons } from 'products/review_hog/frontend/repositories/withYouIcons'
 import { YouMark } from 'products/review_hog/frontend/repositories/YouMark'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
@@ -36,11 +38,13 @@ function mineOptions<T extends string>(
     options: { value: T; label: string }[],
     projectValue: T,
     ownValue: T | undefined
-): { value: T | 'project'; label: string }[] {
+): ChoiceOption<T | 'project'>[] {
     const projectLabel = options.find((option) => option.value === projectValue)?.label ?? projectValue
     return [
         { value: 'project', label: `Same as project (${projectLabel})` },
-        ...options.filter((option) => option.value !== projectValue || option.value === ownValue),
+        ...options
+            .filter((option) => option.value !== projectValue || option.value === ownValue)
+            .map((option) => ({ ...option, mine: true })),
     ]
 }
 
@@ -67,29 +71,30 @@ export function FullReviewSettingsSection(): JSX.Element {
     return (
         <SettingsTable>
             <SettingRow
-                title="Resolve comments on my pull requests"
-                description="Applies on your PRs. After a Deep review, ReviewHog pushes fix commits to your branch. Only your own opt-in counts, whoever starts the review. Never commits while the pull request is in the merge queue or has another pull request stacked on it. Without a PostHog account behind a PR, nothing is pushed."
-                project={<span className="text-xs text-secondary">Personal only. Default: off</span>}
+                title="Commit fixes to my pull requests"
+                description="Allow Deep reviews to push fixes to your branch. Only you can enable this."
+                project={<span className="text-xs text-secondary">Personal only</span>}
                 mine={
                     <>
-                        <YouMark shown={settings?.resolve_comments ?? false} />
                         <LemonSwitch
-                            aria-label="Resolve comments on my pull requests"
+                            aria-label="Commit fixes to my pull requests"
+                            tooltip="Requires a PostHog account linked to the PR author. Fixes are paused while your PR is in the merge queue or another PR is stacked on it. Applies even when someone else starts the review."
                             checked={settings?.resolve_comments ?? false}
                             onChange={(checked) => updateSettings({ resolve_comments: checked })}
                             disabledReason={mineDisabledReason}
                             data-attr="review-hog-resolve-comments"
                         />
+                        <YouMark shown={settings?.resolve_comments ?? false} />
                     </>
                 }
             />
             <SettingRow
-                title="Post findings at or above"
-                description="Applies to Deep reviews you start. Findings below this stay in the review report in PostHog."
+                title="Findings to post on GitHub"
+                description="Lower-priority findings stay in the PostHog report."
                 project={
                     <LemonSelect<UrgencyThresholdEnumApi>
                         size="small"
-                        aria-label="Project: Post findings at or above"
+                        aria-label="Project: Findings to post on GitHub"
                         value={projectThreshold}
                         options={THRESHOLD_OPTIONS}
                         onChange={(value) => updateProjectSettings({ urgency_threshold: value })}
@@ -99,12 +104,13 @@ export function FullReviewSettingsSection(): JSX.Element {
                 }
                 mine={
                     <>
-                        <YouMark shown={ownThreshold !== undefined} />
                         <LemonSelect<UrgencyThresholdEnumApi | 'project'>
                             size="small"
-                            aria-label="Mine: Post findings at or above"
+                            className="min-w-0 shrink"
+                            truncateText={{ maxWidthClass: 'max-w-full' }}
+                            aria-label="Mine: Findings to post on GitHub"
                             value={ownThreshold ?? 'project'}
-                            options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
+                            options={withYouIcons(mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold))}
                             onChange={(value) =>
                                 value === 'project'
                                     ? followProjectDefault('urgency_threshold')
@@ -118,7 +124,7 @@ export function FullReviewSettingsSection(): JSX.Element {
             />
             <SettingRow
                 title="Celebrate clean reviews"
-                description="Applies to Deep reviews you start. A clean Deep review gets a small celebration in the status comment."
+                description="Add a celebration to the status comment when no issues are found."
                 project={
                     <LemonSelect<OnOff>
                         size="small"
@@ -132,12 +138,13 @@ export function FullReviewSettingsSection(): JSX.Element {
                 }
                 mine={
                     <>
-                        <YouMark shown={ownCelebrate !== undefined} />
                         <LemonSelect<OnOff | 'project'>
                             size="small"
+                            className="min-w-0 shrink"
+                            truncateText={{ maxWidthClass: 'max-w-full' }}
                             aria-label="Mine: Celebrate clean reviews"
                             value={ownCelebrate ?? 'project'}
-                            options={mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate)}
+                            options={withYouIcons(mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate))}
                             onChange={(value) =>
                                 value === 'project'
                                     ? followProjectDefault('celebrate_clean_reviews')

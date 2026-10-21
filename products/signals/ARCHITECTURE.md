@@ -517,7 +517,7 @@ Execution rides the scout coordinator tick (`run_due_signal_report_checks_activi
 
 A check written _before_ the fix exists has no date to carry. The research pipeline's verification turn is that case: it authors the check in the same pass that writes the report. Such a check is stored `pending` with a `soak_minutes` window, and the report's transition to `resolved` is what sets `next_run_at` — a merged pull request's webhook, a manual resolve in the inbox, and an MCP state write all end in the same `save`, so the resolve is the clock for every kind of fix, including the ones that never had a pull request. `receivers.arm_pending_checks_when_report_resolved` is the choke point. A pending check counts against the per-report cap, is never collected as due, and expires at the 90-day horizon if its report never resolves.
 
-A failed verdict on a resolved report is the one outcome nobody would otherwise read, because the inbox no longer lists the report. An `agent` check has a scout in the loop that can author a fresh one, so only the deterministic lane needs help: a `metric_threshold` breach on a `resolved` report emits a `source_product="signals_check"` signal carrying the verdict and the origin report id. The grouping stage then applies the rule it already applies to any signal landing on a resolved report — a fresh report, linked back by `related_to` and by a typed `follow_up_of` link carrying the verdict as its reason. Nothing reopens the terminal one. The two rows say different things: `related_to` (and `recurrence_of`) says the issue came back, `follow_up_of` says a measurement of the fix breached, and the research agent reads the typed one as context.
+A failed verdict on a resolved report is the one outcome nobody would otherwise read, because the inbox no longer lists the report. An `agent` check has a scout in the loop: the check brief (`_check_relapse_section` in `scout_harness/prompt.py`) tells a lane that holds `emit_report` to author a fresh report linked `follow_up_of` the original before it records `failed`. Every other failure takes the deterministic path: a `metric_threshold` breach, or a failed `agent` verdict from a run whose stamped `report_channel` lacks `emit_report`, on a `resolved` report emits a `source_product="signals_check"` signal carrying the verdict and the origin report id. The grouping stage then applies the rule it already applies to any signal landing on a resolved report — a fresh report, linked back by `related_to` and by a typed `follow_up_of` link carrying the verdict as its reason. Nothing reopens the terminal one. The two rows say different things: `related_to` (and `recurrence_of`) says the issue came back, `follow_up_of` says a measurement of the fix breached, and the research agent reads the typed one as context.
 
 `signals_check` / `check_failed` is self-authorizing in `SignalSourceConfig.is_source_enabled`, alongside the Replay Vision scanner. It is the inbox emitting to itself, so there is no team to configure: `check_failed` is deliberately outside `SignalSourceConfig.SourceType`, the subset that carries a per-team row, so a row-backed gate would refuse the pair forever. The check the team already authored is the opt-in. `CheckFailedSignalInput` is registered in `SIGNAL_INPUT_VARIANTS` for the same reason — without it `validate_signal_input` rejects the pair as an unknown signal type, and the producer logs and swallows the error.
 
@@ -688,10 +688,10 @@ Every save must include all shared defaults. Owners can edit or disable them, bu
 It accepts optional `context` (up to 2,000 characters), saved on that generation request. Concurrent requests keep the first request's context; later requests do not inherit it.
 The editor exposes this as a single optional paragraph. It adds priorities without replacing the scout's responsibilities, shared defaults or saved choices.
 The backend captures the complete governing description, instructions, report rules and all reference files from the exact skill version before the session starts. This context is immutable within a generation and is reused if that attempt resumes.
-Only the generation prompt is bounded: up to 60,000 instruction characters, 20 reference paths and four file contents totaling 60,000 characters. These prompt limits do not shorten the saved reference used for judging. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
-The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
+The complete reference is attached as a session file before the sandbox starts. The initial prompt contains a short index and recent run summaries; the generator can read the full attachment in sections without truncating instructions or reference files. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
+The session uses the existing read-only PostHog MCP posture to inspect ordinary scout runs, transcripts, reports, notes and relevant live project data. Research cannot change the scout's responsibilities or replace its captured instructions with a newer live skill. Missing history or unavailable optional tools do not prevent instruction-based suggestions; the summary identifies material evidence limits. External MCP connections and GitHub access stay disabled, and normal internal Tasks lifecycle permissions remain unchanged.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
-One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
+One conditional format correction is shared across both steps. Selection and format correction do no additional research.
 Criteria explain the required result in plain language, with specific source references where needed to preserve complex conditions and exceptions. Later evaluations must include those reference instructions alongside the rubric.
 The generation prompt ends with writing guidance and a short example for the scout's owner. The selection step also writes an owner-facing summary; it cannot change the selected criteria.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
@@ -1363,7 +1363,7 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. GitHub's other field, the requested reviewer, is never written by this code — a separate app requests the owning team for review, which is why both appear on these pull requests.
+"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request, in bounded batches of 15. The worker does not request a review from the pull request author, an assignee, or an existing requested reviewer. A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 
@@ -1738,7 +1738,6 @@ products/signals/
 │   │   └── commands/
 │   │       ├── analyze_report.py
 │   │       ├── cleanup_signals.py
-│   │       ├── clear_eval_data.py
 │   │       ├── delete_all_signal_reports_for_team.py
 │   │       ├── enable_signals_autonomy.py  # Sets team default priority + opts in users by email
 │   │       ├── export_session_video.py

@@ -279,11 +279,7 @@ function FocusPane({
                             </div>
                         )}
                         {isInFlight(observation) && (
-                            <ObservationProgressBar
-                                observationId={observation.id}
-                                sessionId={observation.session_id}
-                                compact
-                            />
+                            <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} />
                         )}
                     </div>
                 )}

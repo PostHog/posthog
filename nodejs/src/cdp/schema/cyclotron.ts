@@ -35,6 +35,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'replay_vision_scan',
         'task_skills',
     ]),
     key: z.string(),
@@ -141,6 +142,8 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
+    secret_headers_input: z.string().optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10

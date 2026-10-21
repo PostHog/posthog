@@ -112,17 +112,25 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_create_email_template_without_subject_fails(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_templates/",
-            data={
-                "name": "No Subject Template",
-                "content": {"email": {"html": "<p>Hello</p>"}},
-                "type": "email",
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    @parameterized.expand(
+        [
+            (
+                "create_without_subject",
+                "post",
+                False,
+                {"name": "No Subject Template", "content": {"email": {"html": "<p>Hello</p>"}}, "type": "email"},
+            ),
+            ("update_with_blank_subject", "patch", True, {"content": {"email": {"subject": "", "html": "<p>Hi</p>"}}}),
+        ]
+    )
+    def test_email_content_without_subject_fails(self, _name, method, detail, body):
+        url = f"/api/environments/{self.team.id}/messaging_templates/"
+        if detail:
+            url += f"{self.message_template.id}/"
+
+        response = getattr(self.client, method)(url, data=body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     @patch("products.messaging.backend.presentation.views.message_templates.report_user_action")
     def test_create_email_template_with_subject_succeeds(self, mock_report):
@@ -132,11 +140,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
                 "name": "Valid Template",
                 "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
                 "type": "email",
+                "sensitive": True,
             },
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
+        assert response.json()["sensitive"] is True
+        assert MessageTemplate.objects.get(id=response.json()["id"]).sensitive is True
         assert response.json()["content"]["email"]["subject"] == "Hello"
         # The AI-first experiment counts creations from the editor and the agent with this one event.
         mock_report.assert_called_once()
@@ -229,7 +240,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/messaging_templates/",
             data={
                 "name": "Editor-saved template",
-                "content": {"email": {"subject": "Hi", "html": "<p>Editor export</p>", "design": MINIMAL_DESIGN}},
+                "content": {
+                    "email": {
+                        "subject": "Hi",
+                        "preheader": "A quick heads-up",
+                        "html": "<p>Editor export</p>",
+                        "design": MINIMAL_DESIGN,
+                    }
+                },
                 "type": "email",
             },
             format="json",
@@ -237,7 +255,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         mock_render.assert_not_called()
-        assert response.json()["content"]["email"]["html"] == "<p>Editor export</p>"
+        email = MessageTemplate.objects.get(id=response.json()["id"]).content["email"]
+        assert email["html"] == "<p>Editor export</p>"
+        assert email["preheader"] == "A quick heads-up"
 
     @parameterized.expand(
         [

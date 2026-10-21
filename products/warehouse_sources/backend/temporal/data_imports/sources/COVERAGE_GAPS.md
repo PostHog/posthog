@@ -118,7 +118,7 @@ The five narrative patterns below were found in the hand-audited tier 1 and 2 so
    Mailchimp has no `email_activity`, `open_details`, `click_details`, or `unsubscribes`.
    Klaviyo has no `flow_actions` / `flow_messages` or reporting values endpoints.
    Resend has no per-message event table.
-   Postmark has no opens/clicks/stats.
+   Postmark has opens but no clicks or stats.
    Open and click behavior is usually the entire point of connecting an email tool.
 
 5. **State-transition history is missing almost everywhere.**
@@ -131,12 +131,17 @@ The five narrative patterns below were found in the hand-audited tier 1 and 2 so
 ### Stripe — spec-verified
 
 Diffed against [stripe/openapi](https://github.com/stripe/openapi) `spec3.json`.
-Our 16 tables cover the classic payments and billing core.
+Our 43 tables cover the classic payments and billing core.
 The gaps cluster around the payment funnel, modern usage-based billing, and Connect.
 
-Have: `BalanceTransaction`, `Charge`, `Coupon`, `CreditNote`, `Customer`,
-`CustomerBalanceTransaction`, `CustomerPaymentMethod`, `Discount`, `Dispute`, `Invoice`,
-`InvoiceItem`, `Payout`, `Price`, `Product`, `Refund`, `Subscription`.
+Have: `BalanceTransaction`, `Charge`, `Customer`, `Dispute`, `InvoiceItem`, `Invoice`, `Payout`,
+`Price`, `Product`, `Refund`, `Subscription`, `CreditNote`, `CustomerBalanceTransaction`,
+`CustomerPaymentMethod`, `CustomerPaymentMethodHistory`, `Coupon`, `Discount`, `PaymentIntent`,
+`CheckoutSession`, `SubscriptionItem`, `SubscriptionSchedule`, `PromotionCode`, `Plan`,
+`TaxRate`, `TaxId`, `Quote`, `Event`, `BillingMeter`, `BillingCreditGrant`,
+`BillingCreditBalanceTransaction`, `BillingCreditBalanceSummary`, `EntitlementsFeature`,
+`EntitlementsActiveEntitlement`, `InvoicePayment`, `SetupIntent`, `SetupAttempt`, `PaymentLink`,
+`Transfer`, `ApplicationFee`, `Topup`, `Review`, `EarlyFraudWarning`, `ShippingRate`.
 
 High value:
 
@@ -203,7 +208,10 @@ on 2026-08-04, against API version v25.0.
 Have: `campaigns`, `campaign_stats`, `adsets`, `adset_stats`, `ads`, `ad_stats`, `ad_account`,
 `ad_creatives`, `ad_images`, `ads_pixels`, `custom_conversions`, `campaign_stats_by_age_gender`,
 `campaign_stats_by_country`, `campaign_stats_by_region`, `campaign_stats_by_platform`,
-`campaign_stats_hourly`.
+`campaign_stats_hourly`, `adset_stats_by_age_gender`, `adset_stats_by_country`,
+`adset_stats_by_region`, `adset_stats_by_platform`, `adset_stats_hourly`,
+`ad_stats_by_age_gender`, `ad_stats_by_country`, `ad_stats_by_region`, `ad_stats_by_platform`,
+`ad_stats_hourly`, `ad_stats_by_link_url`.
 
 - [x] `adcreatives` — shipped as `ad_creatives`.
 - [x] Insight breakdowns: `age`, `gender`, `country`, `region`, `publisher_platform`, `platform_position`, `impression_device`, plus hourly. Shipped as five campaign-level breakdown tables, all off by default. `device_platform` is not in Meta's valid-permutation table, so it was dropped.
@@ -267,9 +275,10 @@ Have: `issues`, `issue_comments`, `issue_events`, `issue_types`, `labels`, `mile
 Diffed against HubSpot's public spec catalog (<https://api.hubspot.com/public/api/spec/v1/specs>) and the
 individual 2026-03 OpenAPI specs behind it.
 
-Have: contacts, companies, deals, tickets, quotes, emails, meetings, leads, calls, notes, tasks,
-communications, feedback_submissions, line_items, products, invoices, orders, subscriptions,
-commerce_payments, pipelines, pipeline_stages, properties, owners.
+Have: `contacts`, `deals`, `companies`, `tickets`, `quotes`, `emails`, `meetings`, `leads`,
+`calls`, `notes`, `tasks`, `communications`, `feedback_submissions`, `line_items`, `products`,
+`invoices`, `orders`, `subscriptions`, `commerce_payments`, `pipelines`, `pipeline_stages`,
+`properties`, `owners`.
 
 - [x] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
 - [x] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
@@ -290,7 +299,10 @@ commerce_payments, pipelines, pipeline_stages, properties, owners.
 
 Spec: <https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting> (version 202607), diffed 2026-08-04.
 
-Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `campaign_stats`, `campaign_group_stats`, `creative_stats`, `member_company_stats`, `member_company_size_stats`, `member_country_stats`, `member_industry_stats`, `member_job_title_stats`, `member_seniority_stats`. The only ad platform that ships `creatives`.
+Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `campaign_stats`,
+`campaign_group_stats`, `creative_stats`, `member_company_stats`, `member_company_size_stats`,
+`member_country_stats`, `member_industry_stats`, `member_job_title_stats`,
+`member_seniority_stats`. The only ad platform that ships `creatives`.
 
 - [x] Member-demographic pivots: `MEMBER_COMPANY`, `MEMBER_INDUSTRY`, `MEMBER_SENIORITY`, `MEMBER_JOB_TITLE`, `MEMBER_COUNTRY_V2`, `MEMBER_COMPANY_SIZE`. This is the reason people advertise on LinkedIn and none of it is available.
 - [ ] Lead gen forms and form responses. (skipped: the Lead Sync API needs `r_marketing_leadgen_automation`, which is not in PostHog's LinkedIn OAuth app and belongs to a separate approval program)
@@ -305,9 +317,12 @@ Diffed against the [Search Console API discovery document](https://searchconsole
 (revision 20260803) on 2026-08-04.
 
 Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics_by_page`,
-`search_analytics_by_country`, `search_analytics_by_device`, `search_analytics_by_country_device`,
-`search_analytics_by_query_page`, `search_analytics_by_search_appearance`, `search_analytics_by_hour`,
-`sites`, `sitemaps`, `sitemap_contents`.
+`search_analytics_by_country`, `search_analytics_by_device`,
+`search_analytics_by_country_device`, `search_analytics_by_page_device`,
+`search_analytics_by_page_country`, `search_analytics_by_query_device`,
+`search_analytics_by_query_country`, `search_analytics_by_hour`,
+`search_analytics_by_query_page`, `search_analytics_by_search_appearance`, `sites`, `sitemaps`,
+`sitemap_contents`.
 
 - [x] `sitemaps` — submission status, errors, indexed counts. (`indexed` itself is marked deprecated
       "do not use" in the discovery document, so the per-content-type `submitted` count ships instead,
@@ -328,7 +343,7 @@ Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics
 ### Clerk — spec-verified
 
 Diffed against [clerk/openapi-specs](https://github.com/clerk/openapi-specs).
-Four tables, and the two that matter most for an auth provider are missing.
+Twenty-six tables. `sessions` has shipped; `sign_ups`, the other key gap for an auth provider, is still missing.
 
 - [x] `sessions` — no login/session data, so "how many people signed in" is unanswerable. Biggest gap.
 - [ ] `sign_ups` — signup attempts including abandoned and failed ones. `users` only shows successes.
@@ -361,9 +376,10 @@ See patterns 1 and 2 above.
 Split out of the four-platform section above.
 Diffed against the [Snapchat Marketing API v1 reference](https://developers.snap.com/api/marketing-api)
 on 2026-08-04.
-Have: campaigns, ad_squads, ads, campaign_stats_daily, ad_squad_stats_daily, ad_stats_daily,
-ad_accounts, creatives, media, audience_segments, pixels, campaign_stats_daily_country,
-campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demographics.
+Have: `campaigns`, `ad_squads`, `ads`, `ad_accounts`, `creatives`, `media`, `audience_segments`,
+`pixels`, `campaign_stats_daily`, `ad_squad_stats_daily`, `ad_stats_daily`,
+`campaign_stats_daily_country`, `campaign_stats_daily_demographics`, `ad_stats_daily_country`,
+`ad_stats_daily_demographics`.
 
 - [x] Creative metadata — `creatives` and `media`.
 - [x] Breakdown dimensions — `report_dimension` country and age/gender tables at campaign and ad level,
@@ -384,10 +400,11 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 Reddit Ads is done; the section above still covers TikTok.
 Diffed against the Reddit Ads v3 OpenAPI spec (`https://ads-api.reddit.com/api/v3/openapi.json`) on 2026-08-04.
 
-Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, ad_account,
-custom_audiences, saved_audiences, pixels, funding_instruments, lead_gen_forms, profiles,
-structured_posts, campaign_country_report, campaign_gender_report, campaign_placement_report,
-campaign_community_report, campaign_os_type_report, campaign_keyword_report.
+Have: `campaigns`, `ad_groups`, `ads`, `campaign_report`, `ad_group_report`, `ad_report`,
+`ad_account`, `custom_audiences`, `saved_audiences`, `pixels`, `funding_instruments`,
+`lead_gen_forms`, `profiles`, `structured_posts`, `campaign_country_report`,
+`campaign_gender_report`, `campaign_placement_report`, `campaign_community_report`,
+`campaign_os_type_report`, `campaign_keyword_report`.
 
 - [x] Creative metadata — `structured_posts`, fanned out over the account's profiles. Reddit hangs creatives off profiles, not off the ad account, and ad rows carry the `post_id` to join on.
 - [x] Breakdown dimensions on the report tables — gender, country, placement, device (`OS_TYPE`), community and keyword, each a campaign-grain report table defaulted to `should_sync_default=False`. Reddit returns breakdowns as extra dimensions on the same `POST /reports` call, capped at three per request, so each dimension is its own table rather than a new param. Age is not shippable: `AGE` is absent from the spec's `breakdowns` enum (it appears only in a stale request example). `KEYWORD` is requested as a breakdown only: its membership of the `fields` enum was not re-checked against the spec.
@@ -402,9 +419,9 @@ Diffed against the Pinterest API v5 OpenAPI description in
 [pinterest/api-description](https://github.com/pinterest/api-description) (`v5/openapi.yaml`, spec version
 5.28.0) on 2026-08-04. Supersedes the Pinterest entries in the block above.
 
-Have: `campaigns`, `ad_groups`, `ads`, `campaign_analytics`, `ad_group_analytics`, `ad_analytics`,
-`ad_accounts`, `audiences`, `conversion_tags`, `keywords`, `campaign_targeting_analytics`,
-`ad_group_targeting_analytics`, `ad_targeting_analytics`.
+Have: `campaigns`, `ad_groups`, `ads`, `ad_accounts`, `audiences`, `conversion_tags`,
+`keywords`, `campaign_analytics`, `ad_group_analytics`, `ad_analytics`,
+`campaign_targeting_analytics`, `ad_group_targeting_analytics`, `ad_targeting_analytics`.
 
 - [ ] Creative metadata (skipped: the only creative endpoints, `GET /pins` and `GET /pins/{pin_id}`,
       need the `boards:read` and `pins:read` scopes, and the Pinterest OAuth app only requests
@@ -430,10 +447,10 @@ maintained Airbyte `source-tiktok-marketing` manifest
 (<https://github.com/airbytehq/airbyte/blob/master/airbyte-integrations/connectors/source-tiktok-marketing/manifest.yaml>),
 since TikTok publishes no machine-readable spec and its docs portal renders client-side.
 
-Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, creative_videos,
-creative_images, campaign_demographic_report, campaign_country_report, campaign_platform_report,
-ad_group_demographic_report, ad_group_country_report, ad_group_platform_report,
-ad_demographic_report, ad_country_report, ad_platform_report.
+Have: `campaigns`, `ad_groups`, `ads`, `campaign_report`, `ad_group_report`, `ad_report`,
+`creative_videos`, `creative_images`, `campaign_demographic_report`, `campaign_country_report`,
+`campaign_platform_report`, `ad_group_demographic_report`, `ad_group_country_report`,
+`ad_group_platform_report`, `ad_demographic_report`, `ad_country_report`, `ad_platform_report`.
 
 - [x] Creative metadata — `creative_videos` (`/file/video/ad/search/`) and `creative_images` (`/file/image/ad/search/`) decode the `video_id` / `image_ids` already synced on `ads`.
 - [x] Breakdown dimensions on the report tables — nine `report_type=AUDIENCE` tables covering gender + age, country, and operating system at campaign, ad group, and ad level. All default to off.
@@ -448,8 +465,9 @@ ad_demographic_report, ad_country_report, ad_platform_report.
 Verified 2026-08-04 against the root `Query` type published by `@linear/sdk` 89.0.0 (npm), which is
 generated from Linear's live GraphQL schema.
 
-Have: issues, projects, teams, users, comments, labels, cycles, resources, workflow_states,
-project_milestones, initiatives, team_memberships, issue_relations, project_updates, documents.
+Have: `issues`, `projects`, `teams`, `users`, `comments`, `labels`, `cycles`, `resources`,
+`workflow_states`, `project_milestones`, `initiatives`, `team_memberships`, `issue_relations`,
+`project_updates`, `documents`.
 
 - [x] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
 - [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed. (skipped: no root `issueHistory` query — history is only reachable as `issue(id).history`, so it would need a per-issue fan-out)
@@ -464,17 +482,17 @@ project_milestones, initiatives, team_memberships, issue_relations, project_upda
 
 ### Resend — needs confirmation
 
-Five tables. `emails` exists, but delivery outcomes do not.
+Eight tables. `emails` exists, but delivery outcomes do not.
 
 - [ ] Per-email delivery events as their own table (delivered, opened, clicked, bounced, complained). This is the whole analytics payload.
 - [ ] Broadcast recipient-level results and stats.
-- [ ] Contact suppressions.
+- [x] Contact suppressions.
 - [ ] `api_keys`, `webhooks`.
 
 ### Sentry — spec-verified
 
 Diffed against [getsentry/sentry-api-schema](https://github.com/getsentry/sentry-api-schema).
-Fourteen tables and reasonable issue coverage.
+Thirty-seven tables and reasonable issue coverage.
 The gaps are the newer product surfaces.
 
 - [x] `sessions` — release health and crash-free rate. The headline Sentry metric and not available.
@@ -532,7 +550,7 @@ Nine hardcoded tables for what is fundamentally a schemaless CRM.
 
 ### Bing Ads (Microsoft Advertising) — needs confirmation
 
-Five tables: `campaigns` plus four performance reports.
+Six tables: `campaigns` plus five performance reports.
 No ad group, ad, or keyword entity tables at all, which is unusual relative to our other ad sources.
 
 - [ ] `ad_groups` and `ads` as entity tables. Today the ad group and ad performance reports reference IDs with nothing to join to.
@@ -548,7 +566,7 @@ No ad group, ad, or keyword entity tables at all, which is unusual relative to o
 ### Klaviyo — spec-verified
 
 Diffed against [klaviyo/openapi](https://github.com/klaviyo/openapi) stable spec.
-Eight tables. The vendor exposes 42 top-level collections.
+Thirty-eight tables. The vendor exposes 42 top-level collections.
 
 - [x] `segments` and segment membership — Klaviyo users organize everything around segments and we expose none of them. Biggest gap. We already have the analogous `list_profiles` fan-out pattern to copy.
 - [x] `flow-actions` and `flow-messages` — we have `flows` but no step-level structure, so flow performance cannot be broken down.
@@ -556,7 +574,7 @@ Eight tables. The vendor exposes 42 top-level collections.
 - [x] `templates`.
 - [x] `catalog-items`, `catalog-variants`, `catalog-categories` — product catalog for ecommerce attribution.
 - [x] `coupons` and `coupon-codes`.
-- [ ] `forms` — signup form performance.
+- [x] `forms` — signup form performance.
 - [x] `reviews`.
 - [x] `tags` and `tag-groups`.
 - [x] `custom-metrics`, `data-sources`, `object-types`.
@@ -578,20 +596,20 @@ Eight tables. The vendor exposes 42 top-level collections.
 
 ### Google Analytics — needs confirmation
 
-Ten tables, each a fixed dimension/metric bundle.
+Thirteen tables, each a fixed dimension/metric bundle.
 
 - [ ] Ecommerce dimensions and metrics (purchase revenue, items, transactions).
-- [ ] Key events / conversions.
-- [ ] Landing pages (distinct from the existing `pages`).
+- [x] Key events / conversions.
+- [x] Landing pages (distinct from the existing `pages`).
 - [ ] Demographics: age, gender, interests.
-- [ ] Campaign and UTM detail beyond the existing `traffic_sources`.
+- [x] Campaign and UTM detail beyond the existing `traffic_sources`.
 - [ ] Site search terms.
 - [ ] Item / product performance.
 - [ ] Cohorts, audiences, custom dimensions and metrics, realtime.
 
 ### Chargebee — needs confirmation
 
-Six tables covering the transactional core but no catalog.
+Ten tables covering the transactional core but no catalog.
 
 - [ ] `Items`, `ItemPrices`, `ItemFamilies`, `Plans` — the product catalog. Subscriptions reference prices we cannot resolve.
 - [ ] `CreditNotes`.
@@ -606,7 +624,7 @@ Six tables covering the transactional core but no catalog.
 ### Zendesk — spec-verified
 
 Diffed against Zendesk's published OpenAPI description.
-Nine tables.
+Thirty-four tables.
 
 - [x] `satisfaction_ratings` — CSAT. Absent, and it is usually the first thing a support team asks for.
 - [x] `ticket_metrics` — per-ticket first reply time, full resolution time, and reply counts. We ship `ticket_metric_events` (the raw event stream) but not the rolled-up per-ticket metrics that most people actually want.
@@ -622,7 +640,7 @@ Nine tables.
 ### Mailchimp — spec-verified
 
 Diffed against Mailchimp's published Swagger schema.
-Four tables, and the entire per-recipient engagement layer is missing.
+Thirty-two tables. The per-recipient engagement layer this section flagged as missing has shipped.
 
 - [x] `reports/*/email-activity` — per-member opens and clicks. The single biggest gap.
 - [x] `reports/*/open-details`, `reports/*/click-details`, `reports/*/sent-to`, `reports/*/unsubscribed`, `reports/*/abuse-reports`.
@@ -638,9 +656,9 @@ Four tables, and the entire per-recipient engagement layer is missing.
 ### Cloudflare — spec-verified
 
 Diffed against [cloudflare/api-schemas](https://github.com/cloudflare/api-schemas).
-Three tables (`accounts`, `zones`, `dns_records`).
-This is effectively DNS and zone configuration only, and none of the telemetry people connect
-Cloudflare for.
+Thirty-six tables. The source started with DNS and zone configuration only (`accounts`, `zones`, `dns_records`).
+Account, billing and storage tables have shipped since, but the traffic telemetry people connect
+Cloudflare for is still missing.
 
 - [ ] The GraphQL Analytics API entirely (`httpRequests1dGroups`, `httpRequestsAdaptiveGroups`, `firewallEventsAdhoc`, `workersInvocationsAdaptive`, and siblings). This is the traffic data and it is the most valuable single addition. Note it is GraphQL, not REST, so it needs a different transport than the rest of the source.
 - [x] `dns_analytics/report` — query volume and response codes.
@@ -651,9 +669,9 @@ Cloudflare for.
 - [x] `page_shield/scripts`, `page_shield/connections`.
 - [x] `custom_hostnames`, `ssl/certificate_packs`, `custom_certificates`.
 - [x] `waiting_rooms`, `pagerules`, `snippets`, `bot_management`.
-- [ ] Account `audit_logs`, `billing/usage`, `billable/usage`.
+- [x] Account `audit_logs`, `billing/usage`, `billable/usage`.
 - [x] `access/*` (Zero Trust apps, policies, groups, users) — a large product surface with nothing exposed.
-- [ ] R2 buckets, KV namespaces, D1 databases, Stream usage, `spectrum/apps`, `api_gateway/operations`, `security-center/insights`.
+- [x] R2 buckets, KV namespaces, D1 databases, Stream usage, `spectrum/apps`, `api_gateway/operations`, `security-center/insights`.
 
 ## Tier 3
 
@@ -667,10 +685,12 @@ Seventeen tables (10 API endpoints plus 7 webhook event streams) and one of our 
 
 ### Postmark — needs confirmation
 
-Five tables. Delivery config is present, engagement is not. `bounces` also accepts pushed rows
-through the Webhooks API (Bounce and SpamComplaint triggers).
+Six tables. Delivery config and first opens are present, clicks are not. `bounces` also accepts
+pushed rows through the Webhooks API (Bounce and SpamComplaint triggers).
 
-- [ ] Opens and clicks per message.
+- [x] Opens per message (`opens`, first open per recipient, pull only).
+- [ ] Clicks per message.
+- [ ] Open webhook ingestion, so `opens` gets every open and is not capped by the 10,000-row window.
 - [ ] Outbound overview stats (sends, bounce rate, open rate, spam complaints).
 - [ ] `servers`, `suppressions`, `domains`, inbound rules, `webhooks`.
 
@@ -696,7 +716,7 @@ Six tables covering directory sync.
 
 ### Vercel — needs confirmation
 
-Six tables.
+Eight tables.
 
 - [ ] Deployment events and build logs.
 - [ ] Checks and deployment status transitions.
@@ -723,7 +743,7 @@ Eight tables.
 
 ### Notion — needs confirmation
 
-Five tables (`pages`, `databases`, `users`, `blocks`, `comments`).
+Six tables (`pages`, `databases`, `users`, `blocks`, `comments`).
 
 - [ ] Database rows via the query endpoint. We list databases but never read their contents, which is where all the structured data lives. Biggest gap by far.
 - [ ] Data sources (the newer multi-source database model).

@@ -9,6 +9,7 @@ import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import * as featureFlagLogicModule from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
@@ -74,6 +75,7 @@ function renderAll(options: {
     searchQuery?: string
     onCommit?: any
     eventNames?: string[]
+    drillTo?: TaxonomicFilterGroupType
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -84,7 +86,7 @@ function renderAll(options: {
                 eventNames={options.eventNames}
             >
                 <MenuFilterCombobox
-                    drillTo="all"
+                    drillTo={options.drillTo ?? 'all'}
                     recentEntries={options.recentEntries}
                     pinnedEntries={options.pinnedEntries}
                     onCommit={options.onCommit ?? jest.fn()}
@@ -189,6 +191,120 @@ describe('MenuFilterCombobox', () => {
         // Row text appears inside the result rows.
         expect(screen.getAllByText('Internal team').length).toBeGreaterThan(0)
         expect(screen.getAllByText('Power users').length).toBeGreaterThan(0)
+    })
+
+    it('shows an error state with retry when the cohorts fetch fails (not the empty state), captures it once, and retry re-fetches', async () => {
+        const user = userEvent.setup()
+        apiGet.mockImplementation((url: string) =>
+            url.includes('cohorts') ? Promise.reject(new Error('network error')) : emptyPaginated()
+        )
+
+        renderCombobox()
+
+        await waitFor(() => {
+            expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument()
+        })
+        expect(screen.getByText("Couldn't load results")).toBeInTheDocument()
+        expect(screen.queryByTestId('menu-filter-empty')).not.toBeInTheDocument()
+        expect(screen.queryByText(/No "Cohorts" found/)).not.toBeInTheDocument()
+        // Fires once for the failed fetch — mirrors legacy's per-group+query dedup.
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter fetch failed',
+            expect.objectContaining({ groupType: TaxonomicFilterGroupType.Cohorts, searchQuery: '' })
+        )
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+
+        apiGet.mockResolvedValueOnce({ results: [{ id: 1, name: 'Internal team' }], count: 1 })
+        await user.click(screen.getByText('Try again'))
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('menu-filter-error')).not.toBeInTheDocument()
+        })
+        expect(screen.getAllByText('Internal team').length).toBeGreaterThan(0)
+    })
+
+    it('does not capture a stale `taxonomic filter fetch failed` or show the error block after a failed query is followed by a new one that succeeds', async () => {
+        apiGet.mockImplementation((url: string) =>
+            url.includes('search=fail') ? Promise.reject(new Error('network error')) : emptyPaginated()
+        )
+        const tree = (q: string): JSX.Element => (
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={q}
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        const { rerender } = render(tree('fail'))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument())
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+        // A failed fetch is not a dead-end search — it must not also inflate the
+        // `taxonomic filter empty result` metric.
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter empty result')
+        ).toHaveLength(0)
+
+        apiGet.mockImplementation((url: string) =>
+            url.includes('search=fail')
+                ? Promise.reject(new Error('network error'))
+                : Promise.resolve({ results: [{ name: 'ok_event' }], count: 1 })
+        )
+        rerender(tree('ok'))
+
+        await waitFor(() => expect(screen.getAllByText('ok_event').length).toBeGreaterThan(0))
+        expect(screen.queryByTestId('menu-filter-error')).not.toBeInTheDocument()
+        // The new query's own fetch never failed, so the dedup count must stay at the one
+        // genuine failure — a stale report for "fail" must not recapture under "ok".
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+    })
+
+    it('does not recapture `taxonomic filter fetch failed` for a trailing-whitespace edit of the same failing query', async () => {
+        apiGet.mockImplementation((url: string) =>
+            url.includes('search=ab') ? Promise.reject(new Error('network error')) : emptyPaginated()
+        )
+        const tree = (q: string): JSX.Element => (
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={q}
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        const { rerender } = render(tree('ab'))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument())
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+
+        // A trailing space is a different cache key (and a different raw query tag for one
+        // render) but the same trimmed query — it must not read as a fresh failure.
+        rerender(tree('ab '))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument())
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
     })
 
     it('dedups a synthetic selected entry against the real remote entry (no double checkmark)', async () => {
@@ -631,16 +747,26 @@ describe('MenuFilterCombobox', () => {
             expect(screen.queryByText(/URL contains/)).not.toBeInTheDocument()
         })
 
-        it('does not offer Pageview URLs as a navigable category', async () => {
+        it.each([
+            { groupType: TaxonomicFilterGroupType.PageviewUrls, name: 'Pageview URLs' },
+            { groupType: TaxonomicFilterGroupType.EmailAddresses, name: 'Email addresses' },
+            { groupType: TaxonomicFilterGroupType.AutocaptureEvents, name: 'Autocapture events' },
+        ])('does not offer $name as a navigable category', async ({ groupType, name }) => {
             const user = userEvent.setup()
             mockUrlValues(['https://app.posthog.com/checkout'])
 
             renderAll({
-                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PageviewUrls],
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    groupType,
+                ],
             })
 
             await user.click(screen.getByLabelText('Filter category'))
-            expect(within(await openedCategoryPopup()).queryByText('Pageview URLs')).not.toBeInTheDocument()
+            const popup = within(await openedCategoryPopup())
+            expect(popup.getByText('Person properties')).toBeInTheDocument()
+            expect(popup.queryByText(name)).not.toBeInTheDocument()
         })
 
         it('commits the typed query as the value so it becomes $current_url contains <query>', async () => {
@@ -838,7 +964,7 @@ describe('MenuFilterCombobox', () => {
     })
 
     it.each(['Recent', 'Pinned'])(
-        'filters the %s category by the query, endpoint-backed rows included',
+        'filters %s rows in All by the query, endpoint-backed rows included',
         async (label) => {
             const user = userEvent.setup()
             apiGet.mockResolvedValue({ results: [], count: 0 })
@@ -857,7 +983,7 @@ describe('MenuFilterCombobox', () => {
             })
 
             await user.click(screen.getByLabelText('Filter category'))
-            await user.click(await within(await openedCategoryPopup()).findByText(label))
+            await user.click(await within(await openedCategoryPopup()).findByText('All'))
 
             await waitFor(() => expect(rowTexts().some((t) => t.includes('browser_opened'))).toBe(true))
             expect(rowTexts().some((t) => t.includes('checkout_started'))).toBe(false)
@@ -928,20 +1054,39 @@ describe('MenuFilterCombobox', () => {
         expect(rowTexts()[0]).toContain('signup')
     })
 
-    it('exposes Recent and Pinned as category options in the dropdown', async () => {
+    it.each([
+        [TaxonomicFilterGroupType.EmailAddresses, 'Search for an email address or domain.'],
+        [TaxonomicFilterGroupType.PageviewUrls, 'Search for a URL, domain, or path.'],
+        [TaxonomicFilterGroupType.PageviewEvents, 'Search for a URL, domain, or path.'],
+    ])('explains a skipped value search in %s', async (groupType, hint) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: true })
+        renderAll({ groupTypes: [groupType], searchQuery: 'sample', drillTo: groupType })
+        expect(await screen.findByText(hint)).toBeInTheDocument()
+        expect(
+            apiGet.mock.calls.filter(
+                ([url]: string[]) => url.includes('/events/values') || url.includes('/persons/values')
+            )
+        ).toHaveLength(0)
+        expect(captureMock).not.toHaveBeenCalledWith('taxonomic filter empty result', expect.anything())
+    })
+
+    it('keeps recents and pins in All without separate category options', async () => {
         const user = userEvent.setup()
         apiGet.mockResolvedValue({ results: [], count: 0 })
 
         renderAll({
             groupTypes: [TaxonomicFilterGroupType.Events],
-            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'r', 'Events')],
-            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'p', 'Event properties')],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'recent_choice', 'Events')],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'pinned_choice', 'Event properties')],
         })
 
         await user.click(screen.getByLabelText('Filter category'))
         const popup = await openedCategoryPopup()
-        expect(await within(popup).findByText('Recent')).toBeInTheDocument()
-        expect(within(popup).getByText('Pinned')).toBeInTheDocument()
+        expect(within(popup).queryByText('Recent')).not.toBeInTheDocument()
+        expect(within(popup).queryByText('Pinned')).not.toBeInTheDocument()
+        expect(rowTexts().some((text) => text.includes('recent_choice'))).toBe(true)
+        expect(rowTexts().some((text) => text.includes('pinned_choice'))).toBe(true)
     })
 
     it('forwards row selection context on commit and does not emit the legacy event itself', async () => {
@@ -1037,7 +1182,7 @@ describe('MenuFilterCombobox', () => {
         await waitFor(() =>
             expect(captureMock).toHaveBeenCalledWith(
                 'taxonomic filter empty result',
-                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+                expect.objectContaining({ searchQuery: 'zzz_no_match', scope: 'all' })
             )
         )
     })
@@ -1278,7 +1423,7 @@ describe('MenuFilterCombobox', () => {
             expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
         })
 
-        it.each(['Recent', 'Pinned'])('never hides %s behind skeletons when switched to mid-search', async (label) => {
+        it.each(['Recent', 'Pinned'])('keeps %s available in All without skeletons during a search', async (label) => {
             const user = userEvent.setup()
             apiGet.mockResolvedValue({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
             const resolvedEntry = makeEntry(TaxonomicFilterGroupType.Events, `browser_${label.toLowerCase()}`, 'Events')
@@ -1309,7 +1454,7 @@ describe('MenuFilterCombobox', () => {
             observer.observe(document.body, { childList: true, subtree: true })
             try {
                 await user.click(screen.getByLabelText('Filter category'))
-                await user.click(await within(await openedCategoryPopup()).findByText(label))
+                await user.click(await within(await openedCategoryPopup()).findByText('All'))
                 await waitFor(() => expect(rowTexts().some((text) => text.includes(resolvedEntry.name))).toBe(true))
             } finally {
                 observer.disconnect()

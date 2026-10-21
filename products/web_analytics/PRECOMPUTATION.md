@@ -36,6 +36,10 @@ Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHas
   For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 90-day window, chunked to one UTC day per INSERT.
   Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 1h, ≤2 days 1 day, older 90 days); re-runs recompute only expired windows.
   The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
+  The inserts carry the legacy job's memory and time ceilings, because one UTC day of a very large team outgrew the interactive defaults (#117339).
+  They also narrow HogQL's 3-day session lookback to 25 hours, after the wider read ran the shared sessions node out of memory (#117872).
+  The job has no stale grace or forced refresh of its own: today's window rebuilds only when a run finds its job expired.
+  So the today TTL must be clearly shorter than the cron period, or a run skips a still-fresh window that then expires before the next run. Today the two are equal.
 - **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).
   Not goals, vitals, frustration metrics, external clicks, or the other engines (Trends / Retention / HogQL).
   Its differentiator over lazy: arbitrary multi-dimension filters within the fixed set resolve from one table, with no per-filter-combination warming.
@@ -115,7 +119,7 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
 - The team has any property-level access controls (`team_has_property_access_rules`) — precompute results are built userless and shared by a user-independent cache key, so they can't honor per-user property restrictions; the query falls through to the live path, which enforces them per requesting user
-- Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
+- Date range exceeds `MAX_PRECOMPUTE_DAYS`
 - Either date_from or date_to is None
 
 Any event/person filter shape is accepted: the `query.properties` list is translated via `property_to_expr`, and each distinct filter set becomes its own cache key (namespace). Session and cohort filters are refused (they fall through to the live path) — the userless precompute INSERT would apply them, but the live runners handle those types differently per family (web vitals drops them), so precomputing them would serve a different population than the live fallback. Filters the INSERT can't express fail the job and fall back to the live query automatically. Because any filter combination mints a new namespace, `web_ensure_precomputed` enforces a per-team distinct-shape ceiling (`WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM`, default 1000): once a team holds that many live shapes, a build for a _new_ shape drops to a check-only pass and serves live instead, while shapes the team already holds keep serving and refreshing. It is a coarse backstop, not a quota; 0 disables it.
@@ -134,9 +138,16 @@ Different freshness per how recent the data is:
 | 8–14d     | 7 days  | Distinct per-week TTLs force weekly job boundaries, keeping INSERT scans bounded |
 | 15–21d    | 10 days | —                                                                                |
 | 22–35d    | 12–14 d | —                                                                                |
-| 36d+      | 21 days | Bounded in practice by hash rotations (AST-affecting deploys rebuild everything) |
+| 36d+      | 90 days | A year-long shape must not rescan a year of events each time the band expires    |
 
 Stored via the `LAZY_TTL_SECONDS` dict in `web_lazy_precompute_common.py` (see the comment there for the full freshness-vs-job-sizing reasoning); consumed by `lazy_computation_executor.parse_ttl_schedule` against the team's timezone.
+For the framework mechanisms behind it, see [design decisions](../analytics_platform/backend/lazy_computation/README.md#design-decisions).
+
+A user forced refresh treats today's bucket as expired for that read only (#86699): the 4-hour today band otherwise left hourly graphs hours behind after a Reload.
+The forced read goes live, but the stored bucket is not rebuilt early: the revalidation it enqueues runs as a background build with the normal TTL, finds the job still fresh, and reuses it.
+Later non-forced reads keep serving that bucket until its normal TTL lapses.
+Background builds never get this rule, because the same schedule stamps `expires_at` and the revalidation task runs in the forced mode, so it would store buckets that expire after 1 second.
+A forced refresh also never gets the stale grace, or repeated Reloads kept serving the stale row they were meant to clear (#73693).
 
 ### Read path
 
@@ -273,7 +284,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over 90 days. Any event/person property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above); session/cohort filters fall through to live.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over `MAX_PRECOMPUTE_DAYS`. Any event/person property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above); session/cohort filters fall through to live.
 
 ### Observability
 

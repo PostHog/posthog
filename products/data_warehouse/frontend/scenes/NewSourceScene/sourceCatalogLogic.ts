@@ -124,7 +124,7 @@ const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
         category: 'Engineering & monitoring',
         keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
         status: 'stable',
-        releaseStatus: 'alpha',
+        releaseStatus: 'beta',
         url: urls.hogFunctionNew('template-source-webhook'),
     },
     {
@@ -135,7 +135,7 @@ const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
         category: 'Engineering & monitoring',
         keywords: ['pixel', 'tracking pixel', 'image', 'gif', 'email', 'open tracking', 'beacon', 'events'],
         status: 'stable',
-        releaseStatus: 'alpha',
+        releaseStatus: 'beta',
         url: urls.hogFunctionNew('template-source-webhook-pixel'),
     },
 ]
@@ -159,6 +159,7 @@ export interface sourceCatalogLogicValues {
     catalogFuse: Fuse
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
+    customSourceItem: CatalogItem | null
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
     registeredInterestSources: string[]
@@ -226,6 +227,7 @@ export interface sourceCatalogLogicMeta {
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
         hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
+        customSourceItem: (catalogItems: CatalogItem[]) => CatalogItem | null
     }
 }
 
@@ -371,7 +373,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                         const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
                         const { status } = getSourceDisplayStatus(!!connector.unreleasedSource, featureFlagValue)
-                        // Only surface alpha/beta while the source is actually connectable.
+                        // Only surface beta while the source is actually connectable.
                         const releaseStatus =
                             status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
                                 ? connector.releaseStatus
@@ -550,6 +552,16 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     (item) => item.status !== 'coming_soon' && !matchesCategory(item, selectedCategory)
                 )
             },
+        ],
+
+        // A search that finds nothing is usually for a tool we have no connector for. Any tool with
+        // a REST API can still connect through the Custom REST source, so the empty state offers it.
+        customSourceItem: [
+            (s) => [s.catalogItems],
+            (catalogItems: CatalogItem[]): CatalogItem | null =>
+                catalogItems.find(
+                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
+                ) ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({

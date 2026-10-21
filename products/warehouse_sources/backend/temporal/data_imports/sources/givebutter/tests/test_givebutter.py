@@ -58,15 +58,33 @@ def pages(response: SourceResponse) -> Generator[list[dict[str, Any]]]:
     return cast(Generator[list[dict[str, Any]]], iter(items))
 
 
+@pytest.mark.parametrize(
+    ("table", "first", "second"),
+    [
+        (
+            "transactions",
+            {"id": "txn-one", "created_at": "2025-01-01T00:00:00Z", "amount": 25},
+            {"id": "txn-two", "created_at": "2025-01-02T00:00:00Z", "amount": 10},
+        ),
+        (
+            "messages",
+            {"id": "msg-one", "status": "sent", "channel": "email", "recipient_count": "12", "sent_at": None},
+            {"id": "msg-two", "status": "draft", "channel": "sms", "recipient_count": "0", "sent_at": None},
+        ),
+    ],
+)
 def test_pagination_and_resume_after_yield(
     requests_mock: Mocker,
     inputs: SourceInputs,
     manager: ResumableSourceManager[GivebutterResumeConfig],
+    table: str,
+    first: dict[str, Any],
+    second: dict[str, Any],
 ) -> None:
-    next_url = API + "transactions?page=2&per_page=100"
-    first = {"id": "txn-one", "created_at": "2025-01-01T00:00:00Z", "amount": 25}
-    last = [{"id": "txn-two", "created_at": "2025-01-02T00:00:00Z", "amount": 10}]
-    requests_mock.get(API + "transactions", json={"data": [first], "links": {"next": next_url}})
+    inputs.schema_name = table
+    next_url = API + f"{table}?page=2&per_page=100"
+    last = [second]
+    requests_mock.get(API + table, json={"data": [first], "links": {"next": next_url}})
     requests_mock.get(next_url, json={"data": last, "links": {"next": None}})
 
     iterator = pages(givebutter_source("test-api-key", inputs, manager))

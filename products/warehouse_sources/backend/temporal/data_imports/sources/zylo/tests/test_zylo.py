@@ -2,11 +2,12 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zylo import ZyloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source import ZyloSource
@@ -15,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo 
     ZyloResumeConfig,
     _format_zylo_filter_date,
     probe_endpoint_status,
-    validate_credentials,
 )
 
 
@@ -132,41 +132,12 @@ class TestZyloSourceResumeBehavior:
         }
 
 
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo.make_tracked_session")
-    def test_status_code_mapping(self, mock_session: MagicMock, status_code: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("tok_id", "tok_secret") is expected
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo.make_tracked_session")
-    def test_network_error_returns_false(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("tok_id", "tok_secret") is False
-
-
 class TestProbeEndpointStatus:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 429, 500])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo.make_tracked_session")
-    def test_returns_status_code(self, mock_session: MagicMock, status_code: int) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_returns_status_code(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
+            assert probe_endpoint_status("tok_id", "tok_secret", "/v2/purchaseOrders") == status_code
 
-        assert probe_endpoint_status("tok_id", "tok_secret", "/v2/purchaseOrders") == status_code
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo.make_tracked_session")
-    def test_network_error_returns_none(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert probe_endpoint_status("tok_id", "tok_secret", "/v2/purchaseOrders") is None
+    def test_network_error_returns_none(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert probe_endpoint_status("tok_id", "tok_secret", "/v2/purchaseOrders") is None

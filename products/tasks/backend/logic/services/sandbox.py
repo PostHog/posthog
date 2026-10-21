@@ -206,6 +206,8 @@ class SandboxResources:
 
 
 class SandboxConfig(BaseModel):
+    base_image_reference: str | None = None
+    require_snapshot: bool = False
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
@@ -371,10 +373,10 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
-    event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
@@ -397,7 +399,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
-            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+            "false" if settings.DEBUG and not event_ingest_url else "true"
         ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
@@ -407,6 +409,7 @@ def build_agent_runtime_env_prefix(
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
         "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
+        "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -439,7 +442,10 @@ def build_bundled_skills_clear_command() -> str:
     vars, but the container environment still holds the value the launcher set.
     """
     paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-    return f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+    return (
+        "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+        f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then /usr/bin/rm -rf {paths} && /usr/bin/mkdir -p {paths}; fi'
+    )
 
 
 def build_agent_server_capability_probe(capability: str) -> str:
@@ -487,6 +493,9 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+        return self.execute(command, timeout_seconds=timeout_seconds)
 
     @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
@@ -556,9 +565,11 @@ class SandboxBase(ABC):
             # POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN. `env -i` drops those credentials and the
             # user PATH; the fixed PATH resolves only real system binaries (start-dockerd lives
             # in /usr/local/bin). HOME=/root covers tooling that needs it (dockerd runs as root).
-            result = self.execute(
+            result = self.execute_in_task_filesystem(
                 "[ -x /usr/local/bin/bootstrap-dev-stack ] || exit 3; "
-                "/usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
+                "docker_config=$(/usr/bin/mktemp -d /run/posthog-bootstrap-docker.XXXXXX) || exit 1; "
+                '/usr/bin/env -i HOME=/root DOCKER_CONFIG="$docker_config" '
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
                 "setsid /usr/local/bin/bootstrap-dev-stack >/var/log/bootstrap-dev-stack.log 2>&1 </dev/null &",
                 timeout_seconds=30,
             )
@@ -671,12 +682,12 @@ class SandboxBase(ABC):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
@@ -943,7 +954,7 @@ def build_health_check_command(
         f"SECONDS=0; i=0; max_attempts={max_attempts}; budget={budget_seconds}; while :; do "
         "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
+        f"  body=$(curl -q -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
         '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '

@@ -1,4 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -8,6 +10,7 @@ import { ChartDisplayType } from '~/types'
 
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
+import { biStartersLogic } from './biStartersLogic'
 
 export function starterWorksheetUrl(config: BIConfig): string {
     const built = buildBIQuery(config)!
@@ -33,10 +36,34 @@ const EVENTS_CONFIG: BIConfig = {
 }
 
 export function BIStarters(): JSX.Element {
+    const { sources } = useValues(biStartersLogic)
     return (
         <section className="flex flex-col gap-2" aria-label="Worksheet starting points">
             <h3 className="m-0">Start with a question</h3>
             <div className="flex flex-wrap gap-2">
+                {sources.map((source) => {
+                    const config = { ...DEFAULT_BI_CONFIG, source: { table: source.target_name } }
+                    return (
+                        <LemonButton
+                            key={source.id}
+                            type="secondary"
+                            size="small"
+                            className="max-w-full"
+                            to={starterWorksheetUrl(config)}
+                            tooltip={source.notes}
+                            onClick={() =>
+                                captureBIWorksheetAction('starter_selected', config, {
+                                    starter_kind: 'certified_source',
+                                })
+                            }
+                        >
+                            <span className="flex items-center gap-1 min-w-0">
+                                <span className="truncate">Explore {source.target_name}</span>
+                                <LemonTag type="success">Certified</LemonTag>
+                            </span>
+                        </LemonButton>
+                    )
+                })}
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -49,8 +76,8 @@ export function BIStarters(): JSX.Element {
                 </LemonButton>
             </div>
             <p className="m-0 text-xs text-secondary">
-                Choose a starting point, check its definition, then Run. Save your worksheet to return to it or add it
-                to a dashboard.
+                Choose a starting point, add fields, then Run. Save your worksheet to return to it or add it to a
+                dashboard.
             </p>
         </section>
     )

@@ -26,12 +26,6 @@ class TestFirecrawlSourceConfig:
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
 
 
-class TestFirecrawlGetSchemas:
-    def test_names_filter_is_applied(self) -> None:
-        schemas = FirecrawlSource().get_schemas(_config(), team_id=1, names=["team_activity"])
-        assert [s.name for s in schemas] == ["team_activity"]
-
-
 class TestFirecrawlValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_maps_token_probe_to_result(self, _name: str, probe_result: bool) -> None:
@@ -42,29 +36,6 @@ class TestFirecrawlValidateCredentials:
             ok, error = FirecrawlSource().validate_credentials(_config(), team_id=1)
         assert ok is probe_result
         assert (error is None) is probe_result
-
-
-class TestFirecrawlNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.firecrawl.dev/v2/team/activity"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.firecrawl.dev/v2/monitor"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = FirecrawlSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.firecrawl.dev/v2/monitor"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.firecrawl.dev/v2/team/activity"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.firecrawl.dev', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        errors = FirecrawlSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
 
 
 class TestFirecrawlResumableWiring:

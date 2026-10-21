@@ -94,6 +94,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     source?: {
+        id?: string
         name: string
         url: string
     }
@@ -260,7 +261,9 @@ export type MinimalAppMetric = {
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'message_frequency_capped'
         | 'email_suppressed'
+        | 'email_missing_recipient'
         | 'email_suspended'
         | 'email_paused'
         | 'email_blocked'
@@ -465,6 +468,9 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Stamped at run start and persisted with the state, so a recovery path that holds only the
+    // workflow id still keeps a sensitive run's message data out of its snapshot.
+    sensitive?: boolean
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
@@ -479,6 +485,13 @@ export type HogFlowInvocationContext = {
         // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
         // run the next step immediately, which for a "N days before X" message is worse than not sending.
         delayUntilUnresolved?: boolean
+        // Failed cohort membership lookups so far on this step. The step retries on a backoff while
+        // this stays under the limit, because a lookup timeout is usually a short stall.
+        cohortLookupAttempts?: number
+        // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
+        // on_error says, because the default 'continue' takes the continue edge, and on a branch that
+        // edge sends a member down the path for people outside the cohort.
+        cohortLookupFailed?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
@@ -573,6 +586,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'replay_vision_scan'
         | 'task_skills'
     key: string
     label?: string

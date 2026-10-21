@@ -102,6 +102,16 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
 
+    def test_memory_search_filters_private_entries_by_creating_skill(self) -> None:
+        self._as_trial()
+        response = self.client.post(self.memory_url, {"key": "finding:private", "content": "Private value"})
+        assert response.status_code == 200, response.data
+
+        for skill_name, expected in ((self.trial_run.skill_name, ["finding:private"]), ("signals-scout-other", [])):
+            response = self.client.get(self.memory_url, {"skill_name": skill_name})
+            assert response.status_code == 200, response.data
+            assert [row["key"] for row in response.json()] == expected
+
     def test_note_search_filters_saved_content_before_preview_and_limit(self) -> None:
         saved_id = str(uuid4())
         self.context.notes = [
@@ -1287,7 +1297,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             _make_run(self.team, metadata={"scout_trial": {"version": 1, "launch_id": launch_ids[0]}})
             plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
             self.documents[plan_key] = json.dumps(
-                {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-3"}
+                {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-4"}
             )
 
             resumed = self.client.post(

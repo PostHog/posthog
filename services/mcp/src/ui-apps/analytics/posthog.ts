@@ -144,12 +144,14 @@ export function captureToolResult(params: {
     hasAppData?: boolean | undefined
     contentLength?: number | undefined
     rendered?: boolean | undefined
+    isError?: boolean | undefined
 }): void {
     capture('mcp_ui_app_tool_result', {
         has_structured_content: params.hasStructuredContent,
         has_app_data: params.hasAppData,
         content_length: params.contentLength,
         rendered: params.rendered,
+        is_error: params.isError,
     })
 }
 

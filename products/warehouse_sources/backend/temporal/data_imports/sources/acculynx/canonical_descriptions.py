@@ -57,6 +57,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "amount": "Amount of the payment or expense.",
         },
     },
+    "job_milestone_history": {
+        "description": "Milestones each job has moved through, with the date it entered each one.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getmilestonesforjob",
+        "columns": {
+            "job_id": "Identifier of the job whose milestone history was requested.",
+            "name": "Name of the milestone.",
+            "date": "Date and time the job was set to this milestone, in UTC.",
+        },
+    },
+    "job_history": {
+        "description": "Actions performed on each job, with the action type and the user who performed it.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getjobhistory",
+        "columns": {
+            "job_id": "Identifier of the job whose history was requested.",
+            "action": "Description of the action performed on the job.",
+            "type": "Type of action, such as Job, Estimate, Payments, or Appointment.",
+            "date": "Date and time the action happened, in UTC.",
+            "createdBy": "User who performed the action.",
+        },
+    },
+    "financial_amendments": {
+        "description": "Amendments to job financials, with their state, title, total price, and worksheet sections.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getworksheetamendmentsbyid",
+        "columns": {
+            "id": "Unique amendment identifier.",
+            "financials_id": "Identifier of the financial record whose amendments were requested.",
+            "jobId": "Identifier of the job the amendment belongs to.",
+            "currentState": "Current state of the amendment.",
+            "totalPrice": "Total price of the amendment.",
+            "createdDate": "Date and time the amendment was created, in UTC.",
+            "modifiedDate": "Date and time the amendment was last modified, in UTC.",
+        },
+    },
+    "estimate_section_items": {
+        "description": "Line items in each estimate section, with quantities, units, material and labor costs, and prices.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getestimatesectionitems",
+        "columns": {
+            "id": "Unique estimate item identifier.",
+            "estimate_id": "Identifier of the estimate that contains the section.",
+            "estimate_section_id": "Identifier of the estimate section that contains the item.",
+            "materialCost": "Material cost of the item.",
+            "laborCost": "Labor cost of the item.",
+            "quantity": "Quantity of the item.",
+            "price": "Price of the item.",
+            "totalPrice": "Total price of the item.",
+        },
+    },
     "calendars": {
         "description": "Calendars available for the connected AccuLynx location.",
         "docs_url": "https://apidocs.acculynx.com/reference/getcalendars",

@@ -221,17 +221,39 @@ describe('StateManager', () => {
         })
 
         it.each([
-            { label: 'a 401', message: 'INVALID_API_KEY: token revoked', rejected: true },
-            { label: 'an outage', message: 'Network error: fetch failed', rejected: false },
+            { label: 'a 401', error: new Error('INVALID_API_KEY: token revoked'), rejected: true },
+            {
+                label: 'a 403 for an unknown token',
+                error: new PostHogApiError({
+                    status: 403,
+                    statusText: 'Forbidden',
+                    body: '',
+                    url: 'https://us.posthog.com/oauth/introspect',
+                    method: 'POST',
+                }),
+                rejected: true,
+            },
+            {
+                label: 'a 503',
+                error: new PostHogApiError({
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    body: '',
+                    url: 'https://us.posthog.com/oauth/introspect',
+                    method: 'POST',
+                }),
+                rejected: false,
+            },
+            { label: 'an outage', error: new Error('Network error: fetch failed'), rejected: false },
         ])(
-            'reports an introspection failure from $label as a rejection only for a 401',
-            async ({ message, rejected }) => {
+            'reports an introspection failure from $label as a rejection only when the token is refused',
+            async ({ error: introspectError, rejected }) => {
                 const api = {
                     config: { apiToken: 'pha_test' },
                     apiKeys: () => ({
                         current: async () => ({ success: false, error: { message: 'not a personal key' } }),
                     }),
-                    oauth: () => ({ introspect: async () => ({ success: false, error: new Error(message) }) }),
+                    oauth: () => ({ introspect: async () => ({ success: false, error: introspectError }) }),
                 } as unknown as ApiClient
 
                 const error = await new StateManager(cache, api).getApiKey().catch((e: Error) => e)
@@ -1009,6 +1031,59 @@ describe('StateManager', () => {
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
         })
+
+        // A project without events is re-read after a minute so the no-data notice stops soon
+        // after the first event. A project with events never flips back, so it keeps the long TTL.
+        it.each([
+            ['without events is re-read', false, 2],
+            ['with events stays cached', true, 1],
+        ])('a project %s two minutes after the fetch', async (_name, ingestedEvent, expectedFetches) => {
+            await cache.set('projectId', projectId)
+            const get = vi.fn().mockResolvedValue({ success: true, data: { id: 42, ingested_event: ingestedEvent } })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+
+            await stateManager.getCachedOrFetchProject()
+            await cache.set(`cachedProjectFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
+            await stateManager.getCachedOrFetchProject()
+
+            expect(get).toHaveBeenCalledTimes(expectedFetches)
+        })
+    })
+
+    describe('getOrFetchHasWarehouseData', () => {
+        const projectId = '42'
+        const warehouseScopes = ['warehouse_table:read', 'external_data_source:read']
+        const rejected = new Error('Synthetic list failure')
+
+        it.each<[string, string[], unknown[], boolean | undefined, number?]>([
+            ['unknown without a warehouse read scope', ['query:read'], [], undefined],
+            ['unknown when the only readable list is empty', ['warehouse_table:read'], [{ count: 0 }], undefined],
+            ['true when the only readable list has a table', ['warehouse_table:read'], [{ count: 1 }], true],
+            ['unknown when the refresh of an empty answer fails', warehouseScopes, [rejected, rejected], undefined, 0],
+            ['true when a table exists', warehouseScopes, [{ count: 1 }, { count: 0 }], true],
+            ['true when only a source exists', warehouseScopes, [{ count: 0 }, { count: 2 }], true],
+            ['false when both lists are empty', warehouseScopes, [{ count: 0 }, { count: 0 }], false],
+            ['unknown when a list fails and the other is empty', warehouseScopes, [{ count: 0 }, rejected], undefined],
+            ['true when a list fails and the other has a table', warehouseScopes, [{ count: 1 }, rejected], true],
+        ])('is %s', async (_name, scopes, responses, expected, staleCount) => {
+            await cache.set('apiKey', { scopes, scoped_organizations: [], scoped_teams: [] })
+            if (staleCount !== undefined) {
+                await cache.set(`warehouseObjectCount:${projectId}`, staleCount)
+                await cache.set(`warehouseObjectCountFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
+            }
+            const request = vi.fn()
+            for (const response of responses) {
+                if (response instanceof Error) {
+                    request.mockRejectedValueOnce(response)
+                } else {
+                    request.mockResolvedValueOnce(response)
+                }
+            }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchHasWarehouseData(projectId)).toBe(expected)
+            expect(request).toHaveBeenCalledTimes(responses.length)
+        })
     })
 
     describe('getOrFetchIntegrationKinds', () => {
@@ -1049,6 +1124,7 @@ describe('StateManager', () => {
                 uuid: 'project-uuid-456',
                 name: 'My Project',
                 organization: 'org-1',
+                ingested_event: false,
             } as any)
 
             const result = await stateManager.getAnalyticsContext()
@@ -1058,6 +1134,7 @@ describe('StateManager', () => {
                 projectId: '456',
                 projectUuid: 'project-uuid-456',
                 projectName: 'My Project',
+                projectHasData: false,
             })
         })
 

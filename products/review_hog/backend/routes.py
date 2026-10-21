@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.review_hog.backend.api import (
+from products.review_hog.backend.presentation.views import (
     ReviewBlindSpotsConfigViewSet,
     ReviewInstallationClaimViewSet,
     ReviewPerspectiveConfigViewSet,
