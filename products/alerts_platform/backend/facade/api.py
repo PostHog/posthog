@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    DestinationSend,
     HandbackRefusal,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -20,13 +21,19 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
+    PlatformAlertSnapshot,
     PlatformAlertUpsert,
     PlatformCheckEventPage,
     PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
+from products.alerts_platform.backend.logic import (
+    destination_sends,
+    platform_lifecycle,
+    platform_reads,
+    platform_writes,
+)
 
 
 def due_checks(
@@ -164,6 +171,30 @@ def update_configuration(
     )
 
 
+def snooze_group(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    grouping_key: str,
+    snooze_until: datetime | None,
+) -> PlatformAlertSnapshot | None:
+    """Mutes one group of a configuration the platform owns until `snooze_until`, or clears the mute
+    when it is None. Returns the group, or None when the caller cannot read the configuration.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, `UnknownPlatformAlertGroup`
+    for a key with no instance, and `InvalidPlatformAlertEdit` for a time not in the future or an
+    alert that is not grouped.
+    """
+    return platform_writes.snooze_group(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        snooze_until=snooze_until,
+    )
+
+
 def update_owned_copy(
     *,
     team_id: int,
@@ -193,3 +224,10 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
     platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def recent_destination_sends(
+    *, team_id: int, destination_ids: Collection[str], limit: int
+) -> tuple[DestinationSend, ...]:
+    """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
+    return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
