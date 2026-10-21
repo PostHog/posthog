@@ -251,8 +251,23 @@ Sandbox-bound tokens cannot change either tool-selection field.
 Both fields and their initial values are activity-logged.
 
 The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
-Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
-The tool picker and runtime enforcement are separate changes.
+
+While the flag is on, a run stamps the list on its task at dispatch, and a config edit applies from the next run.
+The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
+The run-context tools include `skill-get` and `skill-file-get`, so even an empty selection can load its skill and reference files without granting skill writes.
+The tool catalogue returns `run_context_tools` for the picker’s always-available group. The picker excludes these from choices and removes redundant entries from saved lists when editing them.
+The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
+The method counts because some actions change state behind a read scope.
+Harness run writes and run-context writes are restricted to the token-bound task’s current run.
+Report artefacts require a held tool; they are not a harness exception.
+For soft-delete endpoints, updating an object does not grant deletion, and a delete-only grant cannot change other fields.
+A narrowed run cannot call external MCP server tools or change tool approvals through the MCP Store endpoints.
+The refusal is a 403 with the code `scout_tool_not_granted`.
+The check reads the run from the token's task binding, never from a request header.
+GET reads stay governed by the token scopes.
+Token introspection supplies the dispatch snapshot to the MCP server, which hides unpicked tools and refuses direct and exec calls with `tool_not_granted`.
+Refused exec calls retain the catalogued target tool name in analytics; unknown names are recorded as `unrecognized`.
+Keep the flag disabled for customers until the settings picker ships.
 
 ### Activity attribution
 

@@ -341,13 +341,40 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    /**
+     * * `full` - Full
+     * * `incremental` - Incremental
+     */
+    export type WarehouseSuggestionRefreshModeEnum = typeof WarehouseSuggestionRefreshModeEnum[keyof typeof WarehouseSuggestionRefreshModeEnum];
+
+
+    export const WarehouseSuggestionRefreshModeEnum = {
+      Full: 'full',
+      Incremental: 'incremental',
+    } as const;
+
     export interface AcceptWarehouseSuggestion {
       /**
-         * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+         * Materialize only: refresh interval to use instead of the proposed one, in seconds. Omit to keep the proposed interval.
          * @minimum 1
          * @maximum 2592000
          */
       refresh_interval_seconds?: number;
+      /** Materialize only: incremental or full, instead of the proposed refresh_mode. Omit to keep the proposed one. Switching to incremental needs incremental_key and unique_key when the payload has none.
+       *
+       * * `full` - Full
+       * * `incremental` - Incremental */
+      refresh_mode?: WarehouseSuggestionRefreshModeEnum;
+      /** Materialize only, incremental refresh only: an output column whose value only grows as rows arrive, such as a date, a datetime or an increasing number, instead of the proposed one. view-check-incremental lists the columns that qualify. Omit to keep the proposed key. */
+      incremental_key?: string;
+      /** Materialize only, incremental refresh only: output columns that identify a row, instead of the proposed ones. Must include every GROUP BY column. Omit to keep the proposed key. */
+      unique_key?: string[];
+      /**
+         * Materialize only, incremental refresh only: how far before the last refresh's highest incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the proposed lookback.
+         * @minimum 0
+         * @maximum 2592000
+         */
+      lookback_seconds?: number;
     }
 
     export interface AccessControlResourceDefault {
@@ -2861,7 +2888,7 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
-      /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+      /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
       error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
@@ -31404,6 +31431,7 @@ export namespace Schemas {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -32811,6 +32839,7 @@ export namespace Schemas {
       ReplyIo: 'ReplyIo',
       RetailExpress: 'RetailExpress',
       Retently: 'Retently',
+      Retreaver: 'Retreaver',
       RevolutMerchant: 'RevolutMerchant',
       RocketChat: 'RocketChat',
       Rocketlane: 'Rocketlane',
@@ -34232,6 +34261,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -36988,6 +37018,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -41163,6 +41194,44 @@ export namespace Schemas {
       repo_name?: string;
     }
 
+    /**
+     * * `new` - New
+     * * `increasing` - Increasing
+     * * `decreasing` - Decreasing
+     * * `stable` - Stable
+     */
+    export type IssueTrendDirectionEnum = typeof IssueTrendDirectionEnum[keyof typeof IssueTrendDirectionEnum];
+
+
+    export const IssueTrendDirectionEnum = {
+      New: 'new',
+      Increasing: 'increasing',
+      Decreasing: 'decreasing',
+      Stable: 'stable',
+    } as const;
+
+    export interface ErrorTrackingIssueTrend {
+      /** Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means a change of at least 25%. 'new' means the issue first occurred in the second half, counting merged fingerprints. 'stable' means a smaller change.
+       *
+       * * `new` - New
+       * * `increasing` - Increasing
+       * * `decreasing` - Decreasing
+       * * `stable` - Stable */
+      direction: IssueTrendDirectionEnum;
+      /** Occurrences in the second half of dateRange. */
+      current_occurrences: number;
+      /** Occurrences in the first half of dateRange. */
+      previous_occurrences: number;
+      /** Percent change from the first half to the second half. Absent when the first half has no occurrences. */
+      change_percent?: number;
+      /** Start of the first half. */
+      previous_from: string;
+      /** End of the first half. */
+      previous_to: string;
+      /** Start of the second half. The second half ends at the end of dateRange. */
+      current_from: string;
+    }
+
     export interface ErrorTrackingIssueDetail {
       /** Error tracking issue ID. */
       id: string;
@@ -41213,8 +41282,12 @@ export namespace Schemas {
       top_in_app_frame?: ErrorTrackingTopFrame;
       /** Latest release metadata. */
       latest_release?: ErrorTrackingLatestRelease;
+      /** Release metadata from the issue's first event, found near first_seen and not limited by dateRange. Compare it with latest_release to see which release introduced the issue. Absent when the first event has no release metadata. */
+      first_release?: ErrorTrackingLatestRelease;
       /** Compact impact counts. */
       impact?: ErrorTrackingImpact;
+      /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */
+      trend?: ErrorTrackingIssueTrend;
       /** Optional compact occurrence sparkline. */
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
@@ -41650,7 +41723,7 @@ export namespace Schemas {
       /** Filter by SDK/library value from event $lib, for example posthog-js. */
       library?: string | string[];
       /**
-         * Filter by exact release ID, version, or git commit ID captured in $exception_releases.
+         * Filter by exact release ID, version, or git commit ID captured in $exception_release.
          * @maxLength 500
          */
       release?: string;
@@ -42226,6 +42299,10 @@ export namespace Schemas {
     export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
 
     export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Optional ID from the corresponding bulk start request for upload analytics. */
+      upload_attempt_id?: string;
+      /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+      upload_run_id?: string;
       /** Map of symbol set ID to uploaded content hash. */
       content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
     }
@@ -42237,6 +42314,10 @@ export namespace Schemas {
       force?: boolean;
       /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
       skip_on_conflict?: boolean;
+      /** Optional ID used to correlate upload analytics across start and finish requests. */
+      upload_attempt_id?: string;
+      /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+      upload_run_id?: string;
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**
@@ -44641,6 +44722,8 @@ export namespace Schemas {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -44661,6 +44744,8 @@ export namespace Schemas {
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
@@ -44724,6 +44809,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -44769,6 +44856,8 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -44787,6 +44876,8 @@ export namespace Schemas {
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -44821,6 +44912,8 @@ export namespace Schemas {
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -49245,6 +49338,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -50686,6 +50780,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -55713,7 +55808,7 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse shows the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for a number the person pinned, which `pins` lists, and for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
@@ -55724,6 +55819,11 @@ export namespace Schemas {
          * @nullable
          */
       dashboard_name: string | null;
+      /**
+         * Id of the dashboard the tile comes from, with its filters applied. Pass it when pinning the tile. Null otherwise.
+         * @nullable
+         */
+      dashboard_id: number | null;
       /**
          * On how many of the last 14 days the person opened the insight, or the dashboard of the tile. Null for a key metric.
          * @nullable
@@ -55741,6 +55841,28 @@ export namespace Schemas {
       previous_value: number | null;
       /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
       movers: HighlightMover[];
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `unavailable` - Unavailable
+     */
+    export type HighlightPinStatusEnum = typeof HighlightPinStatusEnum[keyof typeof HighlightPinStatusEnum];
+
+
+    export const HighlightPinStatusEnum = {
+      Ready: 'ready',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface HighlightPin {
+      /** Key of a number the person keeps on their home. */
+      key: string;
+      /** `ready` when the number is in `pulse`. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. A pin missing from this list was added after these highlights were computed.
+       *
+       * * `ready` - Ready
+       * * `unavailable` - Unavailable */
+      status: HighlightPinStatusEnum;
     }
 
     /**
@@ -55777,6 +55899,8 @@ export namespace Schemas {
       pulse: HighlightMetric[];
       /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
       items: HighlightItem[];
+      /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
+      pins: HighlightPin[];
     }
 
     /**
@@ -56150,7 +56274,7 @@ export namespace Schemas {
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
-      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
        *
        * * `exit_on_conversion` - Conversion
        * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -56763,7 +56887,7 @@ export namespace Schemas {
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
-      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
        *
        * * `exit_on_conversion` - Conversion
        * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -68480,6 +68604,12 @@ export namespace Schemas {
       name: string;
       /** What the template is for and when to use it. */
       description?: string;
+      /**
+         * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -78900,11 +79030,39 @@ export namespace Schemas {
       hidden_count: number;
     }
 
+    /**
+     * * `source_sync` - Source sync
+     * * `fastest_schedule` - Fastest schedule
+     * * `read_rate` - Read rate
+     * * `savings` - Savings
+     */
+    export type WarehouseSuggestionRefreshIntervalBasisEnum = typeof WarehouseSuggestionRefreshIntervalBasisEnum[keyof typeof WarehouseSuggestionRefreshIntervalBasisEnum];
+
+
+    export const WarehouseSuggestionRefreshIntervalBasisEnum = {
+      SourceSync: 'source_sync',
+      FastestSchedule: 'fastest_schedule',
+      ReadRate: 'read_rate',
+      Savings: 'savings',
+    } as const;
+
     export interface WarehouseSuggestionMaterializePayload {
       /** Sources that are always current, such as PostHog tables and direct connections. */
       live_sources: WarehouseSuggestionVisibleSources;
       /** Sources with no sync schedule, so their freshness is unknown. */
       unknown_sources: WarehouseSuggestionVisibleSources;
+      /** incremental: each refresh reads only rows with a new incremental_key value and updates rows by unique_key. full: each refresh rebuilds the whole table. Incremental is proposed only when the keys are certain from the query.
+       *
+       * * `full` - Full
+       * * `incremental` - Incremental */
+      refresh_mode: WarehouseSuggestionRefreshModeEnum;
+      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+       *
+       * * `source_sync` - Source sync
+       * * `fastest_schedule` - Fastest schedule
+       * * `read_rate` - Read rate
+       * * `savings` - Savings */
+      refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
       /** Name of the view to materialize. */
       subject_name: string;
       /** Proposed refresh interval, in seconds. */
@@ -78920,6 +79078,15 @@ export namespace Schemas {
       freshness_today_seconds: number | null;
       /** How old the data can be once materialized, in seconds. */
       freshness_after_seconds: number;
+      /**
+         * Output column whose advancing value marks new rows. A proposal only uses a date or datetime column the query groups by. Null for a full refresh.
+         * @nullable
+         */
+      incremental_key?: string | null;
+      /** Output columns that identify a row, so a refresh updates rows instead of adding duplicates. Empty for a full refresh. */
+      unique_key?: string[];
+      /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
+      lookback_seconds?: number;
     }
 
     export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
@@ -83443,7 +83610,7 @@ export namespace Schemas {
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
-      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
        *
        * * `exit_on_conversion` - Conversion
        * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -84447,6 +84614,12 @@ export namespace Schemas {
       name?: string;
       /** What the template is for and when to use it. */
       description?: string;
+      /**
+         * Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Template content keyed by channel. Replaced as a whole on update, not merged. */
@@ -93533,6 +93706,29 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface PulsePin {
+      /**
+         * Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.
+         * @maxLength 200
+         */
+      key: string;
+      /**
+         * Name to show for the number until the highlights compute its value.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.
+         * @nullable
+         */
+      dashboard_id?: number | null;
+    }
+
+    export interface PulsePins {
+      /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
+      pins: PulsePin[];
+    }
+
     /**
      * * `run` - Run
      * * `skip` - Skip
@@ -102268,6 +102464,8 @@ export namespace Schemas {
       tools: ScoutToolCatalogueEntry[];
       /** Tool selections expanded and validated on save. */
       tool_presets: ScoutToolPreset[];
+      /** Tools every scout run holds. Show these as always available, excluding them from saved selections. */
+      readonly run_context_tools: readonly string[];
       /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
       presets: ScoutScopePreset[];
       /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
@@ -105989,6 +106187,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -107461,6 +107660,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -108900,6 +109100,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -118023,8 +118224,6 @@ export namespace Schemas {
        * * `email-template` - Email template
        * * `first-workflow` - First workflow */
       next_open_step: SetupStepKeyEnum | null;
-      /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
-      data_suggestions_available: boolean;
     }
 
     export interface WorkflowStatsRow {
@@ -129308,6 +129507,10 @@ export namespace Schemas {
      * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
      */
     date_to?: string;
+    /**
+     * Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL insights shown as one of them. A trends insight with no chart type set counts as `ActionsLineGraph`.
+     */
+    display?: string;
     /**
      * Exclude Business intelligence worksheets from the insight list.
      */

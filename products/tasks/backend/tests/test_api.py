@@ -3570,8 +3570,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         report = SignalReport.objects.create(team=self.team)
         # Free-form labels share the discussion bucket — otherwise a made-up label resets the cap.
-        labels = ["discussion", "brainstorm", "discussion"]
-        self.assertEqual(len(labels), MAX_DISCUSSION_TASKS_PER_REPORT)
+        labels = [("discussion", "brainstorm")[index % 2] for index in range(MAX_DISCUSSION_TASKS_PER_REPORT)]
         for label in labels:
             self.assertEqual(self._post_signal_report_task(report.id, label).status_code, status.HTTP_201_CREATED)
 
@@ -11624,6 +11623,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -11668,6 +11668,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -11721,6 +11722,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
