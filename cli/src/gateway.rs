@@ -52,7 +52,7 @@ pub fn token(host: Option<String>, json: bool) -> Result<()> {
         "{host}{SETTINGS_PATH}?cli_challenge={challenge}&cli_port={port}&cli_state={state}"
     );
 
-    eprintln!("Approve the request in your browser. If it did not open, visit:\n\n  {url}\n");
+    eprintln!("Approve the request in your browser. If no browser opened, go to:\n\n  {url}\n");
     if let Err(e) = open::that(&url) {
         info!("could not open a browser: {e}");
     }
@@ -63,9 +63,9 @@ pub fn token(host: Option<String>, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string(&minted)?);
     } else {
-        println!("{}", env_exports(&minted));
+        println!("{}", minted.token);
         eprintln!(
-            "\nToken expires at {} and can spend up to ${}.",
+            "\nThe token expires at {} and can spend up to ${}.",
             minted.expires_at, minted.cap_usd
         );
     }
@@ -84,7 +84,7 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if Instant::now() >= deadline {
-                    bail!("Timed out waiting for approval in the browser");
+                    bail!("No approval after 5 minutes. Run the command again.");
                 }
                 std::thread::sleep(Duration::from_millis(200));
             }
@@ -104,7 +104,7 @@ fn handle_callback(mut stream: TcpStream, state: &str) -> Result<Option<String>>
     let body = if code.is_some() {
         "Approved. You can close this tab and return to your terminal."
     } else {
-        "This request did not come from the posthog-cli login you started."
+        "This request doesn't match the posthog-cli command you ran."
     };
     let status = if code.is_some() {
         "200 OK"
@@ -159,19 +159,11 @@ fn exchange(host: &str, code: &str, verifier: &str) -> Result<MintedToken> {
             .ok()
             .and_then(|r| r.detail)
             .unwrap_or_else(|| format!("HTTP {status}"));
-        bail!("PostHog refused the token: {detail}");
+        bail!("Couldn't get a token: {detail}");
     }
     response
         .json::<MintedToken>()
         .context("PostHog returned an unexpected response")
-}
-
-fn env_exports(minted: &MintedToken) -> String {
-    format!(
-        "export ANTHROPIC_BASE_URL={url}\nexport ANTHROPIC_AUTH_TOKEN={token}\nexport OPENAI_BASE_URL={url}/v1\nexport OPENAI_API_KEY={token}",
-        url = minted.gateway_url,
-        token = minted.token
-    )
 }
 
 /// `len` lowercase hex characters from the OS random source (via UUIDv4), within the PKCE verifier alphabet.

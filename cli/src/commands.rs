@@ -215,11 +215,10 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum GatewayCommand {
-    /// Get a short-lived developer mode token, approved in your browser, and print it as
-    /// `export` lines for the Anthropic and OpenAI SDKs. Every request made with it is
-    /// attributed to you. PostHog staff only.
+    /// Get a short-lived AI gateway token after you approve it in your browser, and print it.
+    /// Requests made with it are attributed to you. PostHog staff only.
     Token {
-        /// Print the token as JSON instead of `export` lines
+        /// Print the token, its expiry, spend limit and gateway URL as JSON
         #[arg(long, default_value = "false")]
         json: bool,
     },
