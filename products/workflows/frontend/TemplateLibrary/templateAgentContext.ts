@@ -2,7 +2,7 @@ import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateSc
 
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { MessageTemplate } from './types'
+import type { MessageTemplateListItem } from './types'
 
 // Own dismiss groups: a dismissal is global and never resets, so a chip closed on a workflow must not strip this page.
 // The picked template has its own group so removing its attachment clears the pick and nothing else.
@@ -89,7 +89,7 @@ const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
 }
 
 /** The picked template as untrusted context: a ref the agent fetches, plus the html the composer shows as a thumbnail. */
-export function pickedTemplateContextItem(template: MessageTemplate): AttachedContextItem {
+export function pickedTemplateContextItem(template: MessageTemplateListItem): AttachedContextItem {
     return {
         type: 'email_template',
         key: template.id,
@@ -100,7 +100,7 @@ export function pickedTemplateContextItem(template: MessageTemplate): AttachedCo
 }
 
 /** Skill pointer plus the draft-first instruction, and the picked template when there is one. */
-export function buildNewTemplateComposerContext(pickedTemplate: MessageTemplate | null): AttachedContextItem[] {
+export function buildNewTemplateComposerContext(pickedTemplate: MessageTemplateListItem | null): AttachedContextItem[] {
     const items = [TOOLING_CONTEXT_ITEM, SKILL_CHIP_CONTEXT_ITEM, DRAFT_FIRST_CONTEXT_ITEM]
     return pickedTemplate ? [...items, pickedTemplateContextItem(pickedTemplate)] : items
 }

@@ -11,7 +11,7 @@ describe('findCreatedTemplateId', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/messaging_templates/': {
+                '/api/projects/:team_id/messaging_templates/': {
                     results: [
                         { id: 'other', name: `${NAME} v2`, created_at: '2026-09-16T00:00:00Z' },
                         { id: TEMPLATE_ID, name: NAME, created_at: '2026-09-15T00:00:00Z' },

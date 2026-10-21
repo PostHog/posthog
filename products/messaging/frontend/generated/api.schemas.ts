@@ -588,6 +588,10 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 
 export type MessagingTemplatesListParams = {
     /**
+     * Set to false to omit editable email designs from list responses. Defaults to true.
+     */
+    include_design?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number

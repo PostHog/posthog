@@ -1,6 +1,8 @@
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { urls } from 'scenes/urls'
+
+import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
 
 // pinned: MCP tool name from products/workflows/mcp/email_templates.yaml
 const CREATE_TEMPLATE_TOOL = 'workflows-create-email-template'
@@ -15,7 +17,7 @@ export async function findCreatedTemplateId(name: unknown): Promise<string | nul
     if (!search) {
         return null
     }
-    const { results } = await api.messaging.getTemplates()
+    const { results } = await messagingTemplatesList(String(ApiConfig.getCurrentTeamId()), { include_design: false })
     const match = results
         .filter((template) => template.name === search)
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]

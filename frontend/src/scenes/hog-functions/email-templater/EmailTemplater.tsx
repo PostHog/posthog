@@ -29,6 +29,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
@@ -497,11 +498,17 @@ function LiquidSupportedText({
 }
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { templates } = useValues(emailTemplaterLogic)
-    const { applyTemplate } = useActions(emailTemplaterLogic)
+    const { templates, pickingTemplateId } = useValues(emailTemplaterLogic)
+    const { pickTemplate, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
+
+    // Closing from any surface cancels an in-flight pick, including callers that own their open state.
+    const handleClose = (): void => {
+        setIsTemplatePickerOpen(false)
+        onClose()
+    }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose a starting point" width={880}>
             <div className="flex flex-wrap gap-3">
                 <LemonCard
                     className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
@@ -516,10 +523,14 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                         <MessageTemplateCard
                             template={template}
                             index={index}
-                            onClick={() => {
-                                applyTemplate(template)
-                                onClose()
-                            }}
+                            onClick={() => pickingTemplateId !== template.id && pickTemplate(template, onClose)}
+                            actions={
+                                pickingTemplateId === template.id ? (
+                                    <span role="status" aria-label="Loading template">
+                                        <Spinner />
+                                    </span>
+                                ) : undefined
+                            }
                         />
                     </div>
                 ))}
@@ -557,7 +568,10 @@ function NativeEmailTemplaterForm({
     const compactHeader = logicProps.type === 'native_email_template' && mode === 'full'
     const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
     // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
-    const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
+    const offerPreheader = templates.some((template) => {
+        const email = template.content?.email
+        return !!email && 'preheader' in email && !!email.preheader
+    })
 
     return (
         <>
