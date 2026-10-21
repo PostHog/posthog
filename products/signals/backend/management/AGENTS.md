@@ -13,7 +13,7 @@ Always clean up before re-ingesting to avoid stale data mixing with new results.
 ### From pre-processed signals (Signals format)
 
 ```bash
-# 1. Clean up — removes all signal data, terminates Temporal workflows, and purges Kafka embedding topics
+# 1. Clean up reports, assignment revisions, and signal embeddings; terminate Temporal workflows
 python manage.py cleanup_signals --team-id 1 --yes
 
 # 2. Emit signals from a JSON file (example file)

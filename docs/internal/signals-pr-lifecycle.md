@@ -168,7 +168,8 @@ A successful empty selection clears automatic assignments but preserves human ov
 A failed lookup preserves valid assignments and records a reason for reassessment.
 Every application checks current project access and resolves linked GitHub identities from the member record.
 Loss of access removes an assignment even when a person selected it earlier.
-The generic artefact API cannot edit or delete decisions or delete their reviewer projections.
+The generic artefact API cannot edit or delete decisions or their reviewer projections.
+The development-only `cleanup_signals` command deletes assignment revisions before their artefacts.
 
 `signals-assignment-agent-selection` gates automatic proposals through this writer.
 `signals-assignment-github-application` reserves a separate control for decision-based GitHub delivery.
