@@ -36,6 +36,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.actor_strategies import SessionStrategy
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner, get_query_runner_or_none
@@ -300,7 +301,7 @@ class TestActorExecutionUserContext(APIBaseTest):
             runner.strategy.get_actors(["a-session"])
         self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
 
-    @parameterized.expand([("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",)])
+    @parameterized.expand([("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("EventsQuery",)])
     def test_nested_query_context_follows_execution_user(self, kind: str) -> None:
         source = FunnelsQuery(series=[EventsNode(event="started"), EventsNode(event="finished")])
         actors = FunnelsActorsQuery(source=source, funnelStep=1)
@@ -308,6 +309,7 @@ class TestActorExecutionUserContext(APIBaseTest):
             "ActorsQuery": ActorsQuery(source=actors),
             "InsightActorsQuery": InsightActorsQuery(source=source),
             "InsightActorsQueryOptions": InsightActorsQueryOptions(source=actors),
+            "EventsQuery": EventsQuery(select=["*"], source=InsightActorsQuery(source=source)),
         }
         runner = get_query_runner_or_none(query=queries[kind], team=self.team, user=self.user)
         assert runner is not None
@@ -316,13 +318,15 @@ class TestActorExecutionUserContext(APIBaseTest):
             if isinstance(runner, ActorsQueryRunner):
                 assert runner.source_query_runner is not None
                 return runner.source_query_runner
-            assert isinstance(runner, (InsightActorsQueryRunner, InsightActorsQueryOptionsRunner))
+            assert isinstance(runner, (InsightActorsQueryRunner, InsightActorsQueryOptionsRunner, EventsQueryRunner))
             return runner.source_runner
 
         def execution_context() -> HogQLContext:
             child = source_runner()
             if isinstance(runner, ActorsQueryRunner):
                 return child.build_hogql_context()
+            if isinstance(runner, EventsQueryRunner):
+                child = cast(InsightActorsQueryRunner, child).source_runner
             return cast(FunnelsQueryRunner, child).context.hogql_context
 
         child = source_runner()
