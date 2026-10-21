@@ -9,12 +9,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Final
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import ensure_utc
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.facade.contracts import (
+    MovedAlertCheck,
+    MovedAlertCheckPage,
+    MovedAlertLastCheck,
+    MovedAlertRuntime,
+    MovedAlertStatus,
+)
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_cutover import insight_state_of_platform
 from products.alerts_platform.backend.facade.api import (
     check_page_by_legacy_id,
@@ -22,6 +29,7 @@ from products.alerts_platform.backend.facade.api import (
     runtime_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
 # Long enough to hold the last check of a monthly alert.
 LAST_CHECK_WINDOW: Final = timedelta(days=32)
@@ -29,50 +37,70 @@ _EARLIEST: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
 
 
-def with_platform_runtime(alerts: Sequence[AlertConfiguration], *, now: datetime) -> None:
-    """Shows each moved alert's state, schedule and last check as the platform has them, in place.
+def moved_alert_statuses(*, team_id: int, alert_ids: Sequence[UUID], now: datetime) -> dict[UUID, MovedAlertStatus]:
+    """Each moved alert's state, schedule and last check as the platform has them.
 
-    One Postgres query, and one ClickHouse query when the alerts include a moved one. A ClickHouse
-    failure leaves the last check as the insight row has it, and the response still goes out.
+    Alerts the platform does not own are left out. Two Postgres queries, and one ClickHouse query
+    when the alerts include a moved one. A ClickHouse failure leaves out the last check, and the
+    response still goes out.
     """
-    moved = [alert for alert in alerts if alert.platform_owned]
-    if not moved:
-        return
-    team_id = moved[0].team_id
-    alert_ids = [alert.id for alert in moved]
-    runtime = runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=alert_ids)
+    snoozed_until = dict(
+        AlertConfiguration.objects.filter(
+            team_id=team_id, id__in=alert_ids, owner=PlatformAlertOwner.PLATFORM
+        ).values_list("id", "snoozed_until")
+    )
+    if not snoozed_until:
+        return {}
+    moved = list(snoozed_until)
+    runtime = runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=moved)
     try:
         history = history_by_legacy_id(
-            team_id=team_id, legacy_configuration_ids=alert_ids, since=now - LAST_CHECK_WINDOW, until=now
+            team_id=team_id, legacy_configuration_ids=moved, since=now - LAST_CHECK_WINDOW, until=now
         )
     except Exception as error:
         capture_exception(error, additional_properties={"team_id": team_id})
         history = {}
-    for alert in moved:
-        if (alert_runtime := runtime.get(alert.id)) is not None:
-            alert.state = insight_state_of_platform(alert_runtime.state, snoozed_until=alert.snoozed_until, at=now)
-            alert.next_check_at = alert_runtime.next_check_at
-            alert.last_notified_at = alert_runtime.last_notified_at
-        if (alert_history := history.get(alert.id)) is not None:
-            alert.last_checked_at = ensure_utc(alert_history.last_checked_at)
-            # Annotated from the alert's own checks, which stop once the shadow ends.
-            alert.last_value = alert_history.last_value
+    statuses = {}
+    for alert_id in moved:
+        alert_runtime = runtime.get(alert_id)
+        alert_history = history.get(alert_id)
+        statuses[alert_id] = MovedAlertStatus(
+            runtime=MovedAlertRuntime(
+                state=insight_state_of_platform(alert_runtime.state, snoozed_until=snoozed_until[alert_id], at=now),
+                next_check_at=alert_runtime.next_check_at,
+                last_notified_at=alert_runtime.last_notified_at,
+            )
+            if alert_runtime is not None
+            else None,
+            last_check=MovedAlertLastCheck(
+                checked_at=ensure_utc(alert_history.last_checked_at), value=alert_history.last_value
+            )
+            if alert_history is not None
+            else None,
+        )
+    return statuses
 
 
-def platform_checks(
-    alert: AlertConfiguration, *, since: datetime | None, until: datetime | None, limit: int, offset: int
-) -> tuple[int, list[AlertCheck]] | None:
+def moved_alert_check_page(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    since: datetime | None,
+    until: datetime | None,
+    limit: int,
+    offset: int,
+) -> MovedAlertCheckPage | None:
     """A page of a moved alert's checks in `[since, until]`, newest first, with how many the window holds.
 
     None when the alert's own checks are the ones to show: the platform does not own it, or its
     history could not be read.
     """
-    if not alert.platform_owned:
+    if not AlertConfiguration.objects.filter(team_id=team_id, id=alert_id, owner=PlatformAlertOwner.PLATFORM).exists():
         return None
     try:
         page = check_page_by_legacy_id(
-            team_id=alert.team_id,
-            legacy_configuration_id=alert.id,
+            team_id=team_id,
+            legacy_configuration_id=alert_id,
             since=since or _EARLIEST,
             # The platform's window leaves out its end, and the API's keeps a check made at that moment.
             until=until + timedelta(microseconds=1) if until is not None else _LATEST,
@@ -80,22 +108,18 @@ def platform_checks(
             offset=offset,
         )
     except Exception as error:
-        capture_exception(error, additional_properties={"alert_configuration_id": str(alert.id)})
+        capture_exception(error, additional_properties={"alert_configuration_id": str(alert_id)})
         return None
     if page is None:
         return None
-    return page.total, [_as_check(alert, check) for check in page.checks]
+    return MovedAlertCheckPage(total=page.total, checks=tuple(_as_check(alert_id, check) for check in page.checks))
 
 
-def _as_check(alert: AlertConfiguration, check: PlatformCheckEntry) -> AlertCheck:
-    # Never saved. It carries what the check serializer shows, with an id that stays the same on every read.
-    return AlertCheck(
-        id=uuid5(NAMESPACE_URL, f"{alert.id}|{check.evaluation_key}"),
-        alert_configuration=alert,
-        created_at=ensure_utc(check.occurred_at),
-        calculated_value=check.value,
-        condition=alert.condition,
+def _as_check(alert_id: UUID, check: PlatformCheckEntry) -> MovedAlertCheck:
+    return MovedAlertCheck(
+        id=uuid5(NAMESPACE_URL, f"{alert_id}|{check.evaluation_key}"),
+        checked_at=ensure_utc(check.occurred_at),
+        value=check.value,
         state=insight_state_of_platform(check.state, snoozed_until=None, at=check.occurred_at),
-        error={"message": check.error_message} if check.error_message else None,
-        targets_notified={},
+        error_message=check.error_message or None,
     )

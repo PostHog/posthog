@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 from functools import partial
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
@@ -88,10 +89,17 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
+    follow_insight_alert,
     is_llm_detector_config,
     llm_detector_access_error,
+    moved_alert_check_page,
+    moved_alert_statuses,
 )
-from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MovedAlertCheck,
+)
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
@@ -105,6 +113,7 @@ from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailab
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
+    apply_platform_state,
     apply_snooze,
     apply_threshold_change,
     apply_unsnooze,
@@ -116,8 +125,6 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
     Threshold,
 )
-from products.alerts.backend.platform_alert_backfill import follow_insight_alert
-from products.alerts.backend.platform_alert_reads import platform_checks, with_platform_runtime
 from products.alerts.backend.platform_ownership import (
     PlatformCannotOwn,
     before_delete,
@@ -913,7 +920,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         # A handed-over copy is the platform's now, and a revived copy would lose its state.
         if instance.enabled and not instance.platform_owned:
-            transaction.on_commit(partial(follow_insight_alert, instance), robust=True)
+            transaction.on_commit(
+                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     @transaction.atomic
@@ -1046,7 +1055,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         if enable_now and not instance.platform_owned:
-            transaction.on_commit(partial(follow_insight_alert, instance), robust=True)
+            transaction.on_commit(
+                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
@@ -1479,6 +1490,39 @@ class AlertListFiltersSerializer(serializers.Serializer):
         ],
     ),
 )
+def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
+    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
+    moving once the insight stack stops checking it."""
+    moved = {alert.id: alert for alert in alerts if alert.platform_owned}
+    if not moved:
+        return
+    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
+    for alert_id, moved_status in statuses.items():
+        alert = moved[alert_id]
+        if moved_status.runtime is not None:
+            apply_platform_state(alert, moved_status.runtime.state)
+            alert.next_check_at = moved_status.runtime.next_check_at
+            alert.last_notified_at = moved_status.runtime.last_notified_at
+        if moved_status.last_check is not None:
+            alert.last_checked_at = moved_status.last_check.checked_at
+            # Annotated from the alert's own checks, which stop once the shadow ends.
+            alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+
+
+def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
+    # Never saved. It carries what the check serializer shows.
+    return AlertCheck(
+        id=check.id,
+        alert_configuration=alert,
+        created_at=check.checked_at,
+        calculated_value=check.value,
+        condition=alert.condition,
+        state=check.state,
+        error={"message": check.error_message} if check.error_message else None,
+        targets_notified={},
+    )
+
+
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
@@ -1644,10 +1688,22 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             offset = 0
 
-        with_platform_runtime([instance], now=timezone.now())
-        platform_page = platform_checks(instance, since=checks_since, until=checks_until, limit=limit, offset=offset)
+        _show_platform_status([instance], now=timezone.now())
+        platform_page = (
+            moved_alert_check_page(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                since=checks_since,
+                until=checks_until,
+                limit=limit,
+                offset=offset,
+            )
+            if instance.platform_owned
+            else None
+        )
         if platform_page is not None:
-            instance.checks_total, instance.checks = platform_page
+            instance.checks_total = platform_page.total
+            instance.checks = [_as_alert_check(instance, check) for check in platform_page.checks]
         else:
             checks_total = checks_qs.count()
             instance.checks_total = checks_total
@@ -1670,7 +1726,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)
         alerts = list(page) if page is not None else list(queryset)
-        with_platform_runtime(alerts, now=timezone.now())
+        _show_platform_status(alerts, now=timezone.now())
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:
