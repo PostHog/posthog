@@ -65,6 +65,14 @@ class JSONTolerantListField(serializers.ListField):
         return value
 
 
+class RepeatedCommaSeparatedOrJSONListField(RepeatedOrCommaSeparatedListField, JSONTolerantListField):
+    """Repeated keys, one comma-joined value (the generated frontend client) or one JSON array (the MCP client).
+
+    The base order matters: JSONTolerantListField reads a JSON array before
+    RepeatedOrCommaSeparatedListField splits on commas.
+    """
+
+
 @extend_schema_field(
     {
         "oneOf": [
