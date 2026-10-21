@@ -121,16 +121,3 @@ class TestRequestUntaggedQuestionConfirmation(TestCase):
             patch(f"{MODULE}.activity.info", return_value=info),
         ):
             assert classify_untagged_question_activity(self.inputs) is expected
-
-    def test_a_post_without_a_question_signal_is_measured_but_never_offered(self):
-        self.inputs.event["text"] = "need signups by country for last month"
-        verdict = UntaggedQuestionVerdict(asks_for_information=0.99, answerable_by_posthog=0.99)
-        with (
-            patch(f"{MODULE}.classify_untagged_question", return_value=verdict),
-            patch(f"{MODULE}.capture_slack_event") as mock_capture,
-        ):
-            assert classify_untagged_question_activity(self.inputs) is False
-
-        properties = mock_capture.call_args.kwargs
-        assert properties["answerable"] is True
-        assert properties["has_question_signal"] is False

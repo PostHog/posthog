@@ -48,7 +48,6 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
-SLACK_APP_UNPROMPTED_ANSWERS_LOOSE_FILTER_FLAG = "slack-app-unprompted-answers-loose-filter"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -137,19 +136,6 @@ def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
         SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
         failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_unprompted_answers_loose_filter_enabled(integration: Integration) -> bool:
-    """Gate for classifying untagged top-level posts that have no ``?`` and no question word first.
-
-    The classifier result for these posts is only measured. PostHog makes no offer and no answer.
-    Keyed on the workspace for the same reason as ``is_slack_app_unprompted_answers_enabled``.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_UNPROMPTED_ANSWERS_LOOSE_FILTER_FLAG,
-        integration,
-        failure_log_key="slack_app_unprompted_answers_loose_filter_feature_flag_check_failed",
     )
 
 

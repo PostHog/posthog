@@ -201,8 +201,7 @@ def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowI
         answerable_by_posthog=verdict.answerable_by_posthog if verdict else None,
         threshold=UNTAGGED_QUESTION_MIN_PROBABILITY,
     )
-    # A post without a question signal passed only the loose-filter flag. Its verdict is measured, not acted on.
-    if not answerable or not question_signal:
+    if not answerable:
         return False
 
     from products.slack_app.backend.api import (

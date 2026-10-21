@@ -17,11 +17,12 @@ def has_question_signal(text: str) -> bool:
     return "?" in text or bool(_QUESTION_OPENER_PATTERN.match(text))
 
 
-def is_untagged_question_candidate(event: dict[str, Any], *, require_question_signal: bool = True) -> bool:
+def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
     """Whether a top-level post nobody tagged the app in could be a question for PostHog.
 
     Text-only checks, because every top-level post in every channel the app is in comes through
-    here. The classifier makes the real decision later, on the few posts that pass.
+    here. They drop only posts that cannot be a question for PostHog. The classifier reads the
+    words, because a request without a ``?`` or a question word is still a request.
     """
     # ``group`` is a private channel. Group DMs (``mpim``) are private conversations between people.
     if event.get("channel_type") not in ("channel", "group"):
@@ -33,4 +34,4 @@ def is_untagged_question_candidate(event: dict[str, Any], *, require_question_si
     # the whole channel addresses them, not PostHog.
     if "<@" in text or "<!" in text:
         return False
-    return not require_question_signal or has_question_signal(text)
+    return True

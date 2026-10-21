@@ -162,7 +162,14 @@ class TestRouteThreadMessage(TestCase):
         [
             ("an untagged question", {}, True, None, False, True),
             ("a private channel", {"channel_type": "group"}, True, None, False, True),
-            ("a statement", {"text": "Shipped the new export filter today"}, True, None, False, False),
+            (
+                "a request without a question word",
+                {"text": "need signups by country for last month"},
+                True,
+                None,
+                False,
+                True,
+            ),
             ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
             ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
             ("the flag is off", {}, False, None, False, False),
@@ -194,21 +201,6 @@ class TestRouteThreadMessage(TestCase):
             assert kwargs["untagged_question"] is True
             assert kwargs["posthog_user"].id == self.bob.id
             assert mock_start.call_args.args[1].id == self.integration.id
-
-    @parameterized.expand([("loose filter on", True), ("loose filter off", False)])
-    def test_top_level_post_without_a_question_signal_dispatches_only_on_the_loose_filter(self, _name, loose_on):
-        event = self._make_question_event(text="need signups by country for last month")
-        with (
-            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=True),
-            patch(
-                "products.slack_app.backend.api.is_slack_app_unprompted_answers_loose_filter_enabled",
-                return_value=loose_on,
-            ),
-            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
-        ):
-            self._route(event)
-
-        assert mock_start.called is loose_on
 
     @parameterized.expand(
         [
