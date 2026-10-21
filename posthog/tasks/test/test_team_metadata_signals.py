@@ -145,3 +145,12 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
                 TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=["example.com"])
 
         mock_task.delay.assert_called_once_with(self.team.id)
+
+    def test_flag_policy_save_without_blocklist_change_does_not_refresh(self) -> None:
+        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                config = TeamFeatureFlagPolicyConfig.objects.create(team=self.team)
+                config.require_tags = True
+                config.save(update_fields=["require_tags"])
+
+        mock_task.delay.assert_not_called()

@@ -469,6 +469,23 @@ class TestVerifyTeamMetadata(BaseTest):
         self.assertEqual(result["issue"], "DATA_MISMATCH")
         self.assertIn(field, result["diff_fields"])
 
+    @parameterized.expand([("without_entries", [], "match"), ("with_entries", ["example.com"], "mismatch")])
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_reads_missing_blocklist_keys_as_empty(
+        self, _name, blocked_hosts, expected_status, mock_get_metadata
+    ):
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=blocked_hosts)
+        cached_data = _serialize_team_to_metadata(self.team)
+        del cached_data["flags_blocked_hosts"]
+        del cached_data["flags_blocked_ips"]
+        mock_get_metadata.return_value = cached_data
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], expected_status)
+
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
     def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
         """Verify returns cache miss when no data is cached."""
@@ -518,8 +535,12 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
             team=gated_team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.0/24"]
         )
         ungated_team = self.organization.teams.create(name="Ungated team")
+        teams = list(
+            Team.objects.select_related("organization", "project").filter(id__in=[gated_team.id, ungated_team.id])
+        )
 
-        batch_result = _batch_load_team_metadata([gated_team, ungated_team])
+        with self.assertNumQueries(2):
+            batch_result = _batch_load_team_metadata(teams)
 
         self.assertEqual(
             batch_result[gated_team.id]["minimal_flag_called_events"],

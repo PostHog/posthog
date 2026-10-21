@@ -373,7 +373,11 @@ export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCap
 
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
 
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax = 100
+
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax = 100
 
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
@@ -2925,15 +2929,17 @@ export const OrganizationsProjectsCreateBody = () => zod
                     ),
                 blocked_hosts: zod
                     .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains whose requests to \/flags and \/decide get an empty response, up to 100. Matched against the Origin header, or the Referer header when Origin is missing. A domain also blocks its subdomains. Entries are stored lowercase without duplicates, and a pasted URL is reduced to its domain.'
+                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
                     ),
                 blocked_ips: zod
                     .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax)
                     .optional()
                     .describe(
-                        'IPv4 or IPv6 addresses or CIDR ranges whose requests to \/flags and \/decide get an empty response, up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates.'
+                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
                     ),
             })
             .optional(),
@@ -3242,7 +3248,11 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequ
 
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
 
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax = 100
+
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax = 100
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5812,17 +5822,19 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                             .string()
                             .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax)
                     )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains whose requests to \/flags and \/decide get an empty response, up to 100. Matched against the Origin header, or the Referer header when Origin is missing. A domain also blocks its subdomains. Entries are stored lowercase without duplicates, and a pasted URL is reduced to its domain.'
+                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
                     ),
                 blocked_ips: zod
                     .array(
                         zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax)
                     )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax)
                     .optional()
                     .describe(
-                        'IPv4 or IPv6 addresses or CIDR ranges whose requests to \/flags and \/decide get an empty response, up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates.'
+                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
                     ),
             })
             .optional(),

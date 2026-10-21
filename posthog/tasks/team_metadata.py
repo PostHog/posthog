@@ -175,10 +175,17 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 
 @receiver(post_save, sender=TeamFeatureFlagPolicyConfig)
 def update_team_metadata_cache_on_flag_policy_save(
-    sender: type[TeamFeatureFlagPolicyConfig], instance: TeamFeatureFlagPolicyConfig, **kwargs: Any
+    sender: type[TeamFeatureFlagPolicyConfig], instance: TeamFeatureFlagPolicyConfig, created: bool, **kwargs: Any
 ) -> None:
-    """The cached team carries this row's request blocklists, and the flags service reads them only from the cache."""
+    """Refresh the cached team when its request blocklists change, because the flags service reads them from that cache."""
     if not settings.FLAGS_REDIS_URL:
+        return
+    # The first read of Team.feature_flag_policy_config creates an empty row, and the cache
+    # already holds empty lists for a team without a row.
+    if created and not instance.blocked_hosts and not instance.blocked_ips:
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"blocked_hosts", "blocked_ips"} & update_fields:
         return
 
     _enqueue_team_metadata_update_on_commit(instance.team_id)
