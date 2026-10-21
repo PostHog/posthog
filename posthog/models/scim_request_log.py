@@ -44,6 +44,7 @@ class SCIMRequestLog(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "ee_scimrequestlog"
         indexes = [
             models.Index(fields=["organization_domain", "-created_at"]),
             models.Index(fields=["identity_provider_config", "-created_at"]),
