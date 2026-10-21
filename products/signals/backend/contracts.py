@@ -1065,6 +1065,37 @@ class HubspotTicketSignalInput(SignalInputBase):
     extra: HubspotTicketSignalExtra
 
 
+class Dynamics365TicketSignalExtra(SignalExtraBase):
+    ticketnumber: str | None
+    prioritycode: str | None
+    severitycode: str | None
+    casetypecode: str | None
+    statuscode: str | None
+    createdon: str | None
+
+
+class Dynamics365TicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.DYNAMICS365]
+    extra: Dynamics365TicketSignalExtra
+
+
+class ZohoCrmTicketSignalExtra(SignalExtraBase):
+    case_number: str | None
+    status: str | None
+    priority: str | None
+    type: str | None
+    case_origin: str | None
+    case_reason: str | None
+    created_time: str | None
+
+
+class ZohoCrmTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.ZOHO_CRM]
+    extra: ZohoCrmTicketSignalExtra
+
+
 # ── Search analytics ──────────────────────────────────────────────────────────────
 
 
@@ -1278,6 +1309,8 @@ SignalInput = Annotated[
     | JudgemeReviewsReviewSignalInput
     | IntercomTicketSignalInput
     | HubspotTicketSignalInput
+    | Dynamics365TicketSignalInput
+    | ZohoCrmTicketSignalInput
     | EngineeringAnalyticsCIFlakyCheckSignalInput
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
@@ -1345,6 +1378,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     JudgemeReviewsReviewSignalInput,
     IntercomTicketSignalInput,
     HubspotTicketSignalInput,
+    Dynamics365TicketSignalInput,
+    ZohoCrmTicketSignalInput,
     EngineeringAnalyticsCIFlakyCheckSignalInput,
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
