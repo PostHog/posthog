@@ -98,6 +98,7 @@ It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'hori
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
 Supports `config.legend` for grouped series and `onBoxClick`.
 `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
+Whiskers are drawn at `min` and `max`. Set `whiskerMin` and `whiskerMax` on a datum to clip them (for example to 1.5 × IQR) while `min` and `max` stay the true extremes; the y-axis then spans the whiskers, and the default tooltip lists both.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
