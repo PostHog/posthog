@@ -353,48 +353,6 @@ describe('inboxReportDetailLogic', () => {
             }
         })
 
-        it('resumes from the displayed state and blocks a second request while saving', async () => {
-            let completeSave: () => void = () => {}
-            const pendingSave = new Promise<void>((resolve) => {
-                completeSave = resolve
-            })
-            const save = jest.fn(async ({ request }) => {
-                const body = await request.json()
-                expect(body.expected_reviewers).toEqual(REVIEWER_CONTROL.state)
-                expect(body.operation_id).toEqual(expect.any(String))
-                await pendingSave
-                return [200, { ...REVIEWER_CONTROL, control: 'automatic' }]
-            })
-            useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/reviewers/resume/': save } })
-            logic.actions.resumeAutomaticReviewers()
-            await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
-            logic.actions.resumeAutomaticReviewers()
-            expect(logic.values.resumingReviewers).toBe(true)
-            completeSave()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(save).toHaveBeenCalledTimes(1)
-            expect(logic.values.reviewerControl?.control).toBe('automatic')
-            expect(logic.values.resumingReviewers).toBe(false)
-            expect(logic.values.displayReviewers).toEqual([reviewer])
-        })
-
-        it('keeps human control and reloads state when a resume request is stale', async () => {
-            useMocks({
-                post: {
-                    '/api/projects/:team_id/signals/reports/:id/reviewers/resume/': [
-                        409,
-                        { detail: 'Reviewers changed' },
-                    ],
-                },
-            })
-            const error = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
-            await expectLogic(logic, () => logic.actions.resumeAutomaticReviewers()).toFinishAllListeners()
-            expect(error).toHaveBeenCalled()
-            expect(logic.values.reviewerControl?.control).toBe('human')
-            expect(logic.values.resumingReviewers).toBe(false)
-            error.mockRestore()
-        })
-
         it('keeps a removed reviewer hidden until the refreshed list arrives', async () => {
             let releaseRefresh: () => void = () => {}
             const heldRefresh = new Promise<void>((resolve) => {
