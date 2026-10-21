@@ -385,8 +385,8 @@ export function HogFunctionFilters({
                                         // Every function type here receives $feature_flag_called at every flag
                                         // evaluations mode. Transformations run during ingestion, before the step
                                         // that drops the call from `events`. Site destinations run in the browser.
-                                        // Destinations read a stream that carries the call when the events table
-                                        // does not store it.
+                                        // Destinations also consume `realtime_only_events_json`, which carries the
+                                        // call when ingestion does not write it to `events`.
                                         includeHiddenEvents
                                         allowNonCapturedEvents
                                     />
