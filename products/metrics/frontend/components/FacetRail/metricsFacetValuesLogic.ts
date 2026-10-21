@@ -184,8 +184,9 @@ export const metricsFacetValuesLogic = kea<metricsFacetValuesLogicType>([
     })),
     listeners(({ actions, values }) => ({
         retryFacetValues: () => actions.loadFacetValues({}),
+        // A load still in flight is left to finish, because a restart would discard its result.
         liveRefreshTick: () => {
-            if (!values.collapsed) {
+            if (!values.collapsed && !values.facetValuesLoading) {
                 actions.loadFacetValues({})
             }
         },

@@ -163,7 +163,7 @@ describe('metricsFacetRailLogic', () => {
         expect(logic.values.visibleFacets).toHaveLength(KEYS.length + 1)
     })
 
-    it('reloads the keys and the expanded facet values on each auto-refresh tick', async () => {
+    it('reloads the keys and the expanded facet values on each auto-refresh tick, but not mid-load', async () => {
         viewer.actions.setMetricName('http_requests')
         await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
         const expanded = logic.values.visibleFacets[0]
@@ -186,6 +186,45 @@ describe('metricsFacetRailLogic', () => {
         expect(jest.mocked(metricsAttributeValuesRetrieve).mock.calls.map((call) => call[1].key)).toEqual([
             expanded.attributeKey,
         ])
+
+        // A query slower than the refresh interval: the next tick must not restart it.
+        jest.mocked(metricsAttributesRetrieve).mockClear()
+        jest.mocked(metricsAttributeValuesRetrieve).mockClear()
+        let releaseKeys: () => void = () => {}
+        let releaseValues: () => void = () => {}
+        let keysRequested: () => void = () => {}
+        let valuesRequested: () => void = () => {}
+        const bothRequested = Promise.all([
+            new Promise<void>((resolve) => {
+                keysRequested = resolve
+            }),
+            new Promise<void>((resolve) => {
+                valuesRequested = resolve
+            }),
+        ])
+        jest.mocked(metricsAttributesRetrieve).mockImplementationOnce(() => {
+            keysRequested()
+            return new Promise((resolve) => {
+                releaseKeys = () => resolve({ results: KEYS, count: KEYS.length })
+            })
+        })
+        jest.mocked(metricsAttributeValuesRetrieve).mockImplementationOnce(() => {
+            valuesRequested()
+            return new Promise((resolve) => {
+                releaseValues = () => resolve({ results: [{ id: 'prod', name: 'prod', count: 3 }] })
+            })
+        })
+        viewer.actions.liveRefreshTick()
+        await bothRequested
+
+        viewer.actions.liveRefreshTick()
+        releaseKeys()
+        releaseValues()
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        await expectLogic(expandedValues).toDispatchActions(['loadFacetValuesSuccess'])
+
+        expect(metricsAttributesRetrieve).toHaveBeenCalledTimes(1)
+        expect(metricsAttributeValuesRetrieve).toHaveBeenCalledTimes(1)
         expandedValues.unmount()
         collapsedValues.unmount()
     })

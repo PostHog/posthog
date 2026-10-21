@@ -204,8 +204,13 @@ export const metricsFacetRailLogic = kea<metricsFacetRailLogicType>([
             actions.setFacetCollapsed(facetKey, !values.collapsedFacetKeys.includes(facetKey))
         },
         retryAttributeKeys: () => actions.loadAttributeKeys(values.attributeKeysScope),
-        // A rolling range moves with each refresh, so new attributes can appear in it.
-        liveRefreshTick: () => actions.loadAttributeKeys(values.attributeKeysScope),
+        // A rolling range moves with each refresh, so new attributes can appear in it. A load still in
+        // flight is left to finish, because a restart would discard its result.
+        liveRefreshTick: () => {
+            if (!values.attributeKeysLoading) {
+                actions.loadAttributeKeys(values.attributeKeysScope)
+            }
+        },
     })),
     subscriptions(({ actions }) => ({
         attributeKeysScope: (scope: string) => actions.loadAttributeKeys(scope),
