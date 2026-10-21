@@ -928,8 +928,10 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
     source_property = _mirrored_source_property(field_type, context)
     restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
-    if (source_property is not None and source_property in restricted_keys) or restricted_key_path(
-        node.keys, restricted_keys
+    if (
+        source_property in restricted_keys
+        if source_property is not None
+        else restricted_key_path(node.keys, restricted_keys) is not None
     ):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))

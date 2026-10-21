@@ -727,7 +727,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             printed, _ = prepare_and_print_ast(query, context, "clickhouse")
         select_list = printed.split("FROM")[0]
         # The nested read is a constant, never an extract that could reach the raw blob.
-        assert select_list.startswith("SELECT NULL,"), printed
+        assert select_list.startswith("SELECT NULL AS `$set__email`,"), printed
         # The container read comes from the scrubbed blob, which drops the nested path.
         assert JSON_DROP_KEYS_CLICKHOUSE_NAME in select_list, printed
         dropped = [value for value in context.values.values() if isinstance(value, list)]
