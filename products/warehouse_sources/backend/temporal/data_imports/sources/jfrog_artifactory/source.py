@@ -82,7 +82,7 @@ class JfrogArtifactorySource(
             name=ExternalDataSourceType.JFROGARTIFACTORY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="JFrog (Artifactory / JFrog Platform)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["artifactory", "jfrog platform"],
             caption="""Connect your JFrog Platform instance to pull your Artifactory data into the PostHog Data warehouse.
 

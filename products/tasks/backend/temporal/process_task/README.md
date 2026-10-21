@@ -164,7 +164,6 @@ Desktop and the command endpoint check this owner before sending a token.
 Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
 The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
 Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
-The separate event-ingest rollout flag does not control this path.
 The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
 If no token arrives within 120 seconds, the run fails with setup instructions.
 

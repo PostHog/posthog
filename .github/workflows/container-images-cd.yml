@@ -217,7 +217,7 @@ jobs:
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
-                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_REPOSITORY=PostHog/posthog
                       GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
@@ -297,7 +297,7 @@ jobs:
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
-                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_REPOSITORY=PostHog/posthog
                       GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
@@ -1575,7 +1575,7 @@ jobs:
                         },
                         "release": "dagster-ml-code-location",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels || '[]') }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

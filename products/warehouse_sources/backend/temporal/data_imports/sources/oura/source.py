@@ -51,7 +51,7 @@ class OuraSource(ResumableSource[OuraSourceConfig, OuraResumeConfig]):
             name=ExternalDataSourceType.OURA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Oura",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Oura personal access token to automatically pull your Oura Ring health data into the PostHog Data warehouse.
 
 You can create a personal access token in the [Oura developer portal](https://cloud.ouraring.com/personal-access-tokens).

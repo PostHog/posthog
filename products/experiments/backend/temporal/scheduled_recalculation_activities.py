@@ -154,6 +154,9 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
         return ScheduledRecalculationStartResult(
             experiment_id=experiment_id, started=False, skip_reason=SKIP_ACTIVE_RUN
         )
+    # Discovery selects only experiments younger than the age limit, so a rejected run is not expected here.
+    if payload["status"] != ExperimentMetricsRecalculation.Status.PENDING:
+        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
 
     recalculation_id = str(payload["id"])
     try:
