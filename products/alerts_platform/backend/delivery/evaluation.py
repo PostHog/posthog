@@ -16,7 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook, transition_events
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
@@ -33,7 +33,7 @@ from products.alerts_platform.backend.delivery.transport import DeliveryError, D
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
-    AlertDestinationGroup,
+    AlertDestinationData,
     AlertEventKind,
     AnnouncedTransition,
     DeliveryPath,
@@ -153,6 +153,47 @@ class _WebhookTransports:
         )
 
 
+def emit_transition_events(request: AlertDeliveryRequest) -> int:
+    """Emits one `$alert_transition` per transition the evaluation announced, and returns how many.
+
+    Only where native delivery would contact the team, so a workflow never hears about an alert
+    whose source still delivers on its own. Every transition goes out whatever path its destinations
+    take, because a workflow is a separate subscription, not a destination.
+    """
+    if not request.sends_messages:
+        return 0
+    team = Team.objects.filter(id=request.team_id).first()
+    if team is None or not transition_events_enabled(team):
+        return 0
+    if not (request.owned_by_platform or destinations_are_live(team)):
+        return 0
+    announced = announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        part=request.part,
+        parts=request.parts,
+    )
+    if announced is None:
+        return 0
+    events = transition_events.transition_events(request, announced)
+    if events:
+        transition_events.producer()(team_id=request.team_id, configuration_id=request.configuration_id, events=events)
+    return len(events)
+
+
+def transition_events_enabled(team: Team) -> bool:
+    """Fail closed: a flag-eval blip leaves the team without the event, which is where it started."""
+    try:
+        return bool(team_flag_enabled(transition_events.TRANSITION_EVENT_FLAG, team))
+    except Exception:
+        logger.warning(
+            "alerts_platform_transition_event_flag_check_failed_defaulting_off", team_id=team.id, exc_info=True
+        )
+        return False
+
+
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
     team = Team.objects.filter(id=request.team_id).first()
@@ -202,11 +243,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     noticed: set[str] = set()
     native_by_event = _by_subscription(request, native_announced)
     for event_id, all_transitions in _by_subscription(request, announced).items():
-        for group in _destination_groups(request, event_id):
-            transitions = native_by_event.get(event_id, ()) if group.receives_emitted_events else all_transitions
+        for subscribed_destination in _destinations(request, event_id):
+            transitions = (
+                native_by_event.get(event_id, ()) if subscribed_destination.receives_emitted_events else all_transitions
+            )
             if not transitions:
                 continue
-            target = group.data
+            target = subscribed_destination.data
             overflowed = 0
             destination = json.dumps(target, sort_keys=True)
             owns_notice = request.parts <= 1 or any(
@@ -228,7 +271,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                         team_id=request.team_id,
                         configuration_id=request.configuration_id,
                         provider=WebhookTransport.provider,
+                        destination_id=subscribed_destination.id,
                         succeeded=False,
+                        error=str(error),
                     )
                 failures.append(str(error))
                 first_refusal = first_refusal or error
@@ -241,6 +286,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
+                    destination_id=subscribed_destination.id,
                     announcement=replace(announced, transitions=transitions, overflowed=overflowed),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
@@ -377,8 +423,8 @@ def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertE
             first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
     keys: dict[str, str] = {}
     for event_id, first in first_by_event_id.items():
-        for group in _destination_groups(request, event_id):
-            destination = json.dumps(group.data, sort_keys=True)
+        for subscribed_destination in _destinations(request, event_id):
+            destination = json.dumps(subscribed_destination.data, sort_keys=True)
             keys[destination] = min(keys.get(destination, first), first)
     return keys
 
@@ -420,7 +466,16 @@ def _subscribed_events(request: AlertDeliveryRequest, transition: AnnouncedTrans
     )
 
 
-def _destination_groups(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationGroup]:
+@frozen
+class _SubscribedDestination:
+    # The HogFunction that subscribed this destination to the event, which its sends are recorded under.
+    id: str | None
+    data: AlertDestinationData
+    # Whether the destination hears the events the source emits for its HogFunctions.
+    receives_emitted_events: bool
+
+
+def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[_SubscribedDestination]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
@@ -431,4 +486,12 @@ def _destination_groups(request: AlertDeliveryRequest, event_id: str) -> list[Al
         alert_id=request.destination_alert_id,
         allowed_event_ids=[event_id],
     )
-    return [group for group in groups if group.fully_enabled]
+    return [
+        _SubscribedDestination(
+            id=str(min(group.hog_function_ids)) if group.hog_function_ids else None,
+            data=group.data,
+            receives_emitted_events=group.receives_emitted_events,
+        )
+        for group in groups
+        if group.fully_enabled
+    ]

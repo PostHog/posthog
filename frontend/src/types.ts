@@ -6193,6 +6193,7 @@ export enum ActivityScope {
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
+    PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
@@ -6623,6 +6624,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when the resource has no API list endpoint and can only be populated via webhooks
      *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
     webhook_only?: boolean
+    /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
+     *  wizard defaults it to `full_refresh` even though incremental or append is available. */
+    prefers_full_refresh?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
