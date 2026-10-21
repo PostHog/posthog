@@ -141,7 +141,6 @@ export function MaterializationStatusPanel({
         savedQueryLoading,
         initialSyncFrequency,
         incrementalCheck,
-        incrementalCheckLoading,
         incrementalDraft,
         syncFrequencyDraft,
         savingMaterialization,
@@ -309,38 +308,35 @@ export function MaterializationStatusPanel({
                                         </div>
                                     )}
                                 </div>
-                                {supportsIncremental &&
-                                    !savedQuery.managed_viewset_kind &&
-                                    (incrementalCheckLoading || incrementalCheck) && (
-                                        <fieldset
-                                            className="mt-4 max-w-160"
-                                            disabled={
-                                                !!(
-                                                    sync ||
-                                                    savingMaterialization ||
-                                                    materializationAccessReason ||
-                                                    materializationActionLoading
-                                                )
-                                            }
-                                        >
-                                            <h4 className="mb-0">Refresh mode</h4>
-                                            <IncrementalConfigOptions
-                                                check={incrementalCheck}
-                                                loading={incrementalCheckLoading}
-                                                draft={incrementalDraft}
-                                                onChange={setIncrementalDraft}
-                                            />
-                                            {refreshModeChanged && incrementalDraft.enabled && (
-                                                <div className="mt-2">
-                                                    <div className="text-xs text-secondary mt-1">
-                                                        {structuralChange
-                                                            ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
-                                                            : 'The new lookback applies from the next run.'}
-                                                    </div>
+                                {supportsIncremental && !savedQuery.managed_viewset_kind && incrementalCheck && (
+                                    <fieldset
+                                        className="mt-4 max-w-160"
+                                        disabled={
+                                            !!(
+                                                sync ||
+                                                savingMaterialization ||
+                                                materializationAccessReason ||
+                                                materializationActionLoading
+                                            )
+                                        }
+                                    >
+                                        <h4 className="mb-0">Refresh mode</h4>
+                                        <IncrementalConfigOptions
+                                            check={incrementalCheck}
+                                            draft={incrementalDraft}
+                                            onChange={setIncrementalDraft}
+                                        />
+                                        {refreshModeChanged && incrementalDraft.enabled && (
+                                            <div className="mt-2">
+                                                <div className="text-xs text-secondary mt-1">
+                                                    {structuralChange
+                                                        ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                                                        : 'The new lookback applies from the next run.'}
                                                 </div>
-                                            )}
-                                        </fieldset>
-                                    )}
+                                            </div>
+                                        )}
+                                    </fieldset>
+                                )}
                             </div>
                         ) : (
                             <div>
@@ -376,7 +372,6 @@ export function MaterializationStatusPanel({
                                     <div className="max-w-160">
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
-                                            loading={incrementalCheckLoading}
                                             draft={incrementalDraft}
                                             onChange={setIncrementalDraft}
                                         />

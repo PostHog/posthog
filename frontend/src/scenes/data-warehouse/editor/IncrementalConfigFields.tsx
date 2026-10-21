@@ -184,9 +184,15 @@ function LookbackInput({ value, onChange }: { value: number; onChange: (value: n
 interface IncrementalConfigOptionsProps {
     /** Result of the backend eligibility check for the view's query. */
     check: DataWarehouseSavedQueryIncrementalCheck | null
-    loading?: boolean
     draft: IncrementalConfigDraft
     onChange: (draft: Partial<IncrementalConfigDraft>) => void
+}
+
+export const INCREMENTAL_CHECK_LOADING: DataWarehouseSavedQueryIncrementalCheck = {
+    eligible: false,
+    key_candidates: [],
+    blockers: [],
+    warnings: [],
 }
 
 /**
@@ -195,11 +201,10 @@ interface IncrementalConfigOptionsProps {
  */
 export function IncrementalConfigOptions({
     check,
-    loading,
     draft,
     onChange,
 }: IncrementalConfigOptionsProps): JSX.Element | null {
-    if (loading) {
+    if (check === INCREMENTAL_CHECK_LOADING) {
         return (
             <div className="mt-4 deprecated-space-y-2" data-attr="materialization-refresh-mode-loading">
                 <LemonSkeleton className="h-8 w-full" repeat={2} />
