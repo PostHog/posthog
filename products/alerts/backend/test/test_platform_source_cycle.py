@@ -18,7 +18,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
+from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -174,7 +174,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             (
                 "platform_owned",
                 "platform",
-                {"breaches": ["above 100"], "insight_chart_url": "https://example.com/chart.png"},
+                {"breaches": ["above 100"], "insight_chart_asset_id": 7, "insight_chart_render_user_id": 3},
             ),
         ]
     )
@@ -183,7 +183,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     ) -> None:
         configuration = self._copy(self._alert(), owner=owner)
 
-        with patch(f"{_MODULE}.render_alert_insight_chart_url", return_value="https://example.com/chart.png") as render:
+        with patch(
+            f"{_MODULE}.render_alert_insight_chart",
+            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
+        ) as render:
             outcome, _ = self._evaluate(
                 configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
             )
