@@ -3010,7 +3010,7 @@ Today (3): `datasets`, `embed_jobs`, `models`
 
 Diffed against: <https://raw.githubusercontent.com/cohere-ai/cohere-developer-experience/main/cohere-openapi.yaml>
 
-- [ ] `GET /v2/batches (ListBatches)` — batch inference jobs with status and token counts - the only remaining job/usage table not synced (medium)
+- [x] `GET /v2/batches (ListBatches)` — batch inference jobs with status and token counts - the only remaining job/usage table not synced (medium)
 - [ ] `GET /v1/finetuning/finetuned-models/{id}/events (ListEvents)` — fine-tune job state-transition history; resolves how a synced finetuned_model reached its status (medium)
 - [ ] `GET /v1/finetuning/finetuned-models/{id}/training-step-metrics (ListTrainingStepMetrics)` — per-step training loss/accuracy for evaluating fine-tunes (medium)
 
