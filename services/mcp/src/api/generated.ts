@@ -11699,6 +11699,43 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
+    export interface AgentReasoningEffortOption {
+      /** Effort id to pass as agent_reasoning_effort, e.g. 'medium'. */
+      value: string;
+      /** Display name, e.g. 'Medium'. */
+      label: string;
+    }
+
+    export interface AgentModelOption {
+      /** Model id to pass as agent_model, e.g. 'claude-sonnet-5-5'. */
+      model: string;
+      /** Display name, e.g. 'Claude Sonnet 5.5'. */
+      label: string;
+      /** Runtime that drives the model: 'claude' or 'codex'. */
+      runtime_adapter: string;
+      /** Reasoning efforts this model supports. Empty when it has no effort setting. */
+      supported_efforts: AgentReasoningEffortOption[];
+      /**
+         * Token price relative to Claude Sonnet 5, e.g. '2×'. Null when no rate is known.
+         * @nullable
+         */
+      cost_multiplier: string | null;
+    }
+
+    export interface AgentModelOptions {
+      /** Model a pipeline with a null agent_model trains on. */
+      default_model: string;
+      /** Display name of default_model. */
+      default_model_label: string;
+      /**
+         * Reasoning effort a pipeline with a null agent_reasoning_effort trains at.
+         * @nullable
+         */
+      default_reasoning_effort: string | null;
+      /** Models a pipeline may set as agent_model. */
+      models: AgentModelOption[];
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -14184,6 +14221,23 @@ export namespace Schemas {
        * * `60` - 60
        * * `90` - 90 */
       readonly research_interval_days: ResearchIntervalDaysEnum | null;
+      /**
+         * Model the training agent runs on, as set on this pipeline. Null uses the autoresearch default.
+         * @nullable
+         */
+      readonly agent_model: string | null;
+      /**
+         * Reasoning effort for the training agent, as set on this pipeline. Null uses the autoresearch default.
+         * @nullable
+         */
+      readonly agent_reasoning_effort: string | null;
+      /** Model the next training run uses: agent_model, or the autoresearch default when that is null. */
+      readonly effective_agent_model: string;
+      /**
+         * Reasoning effort the next training run uses: agent_reasoning_effort, or the autoresearch default when that is null. Null when the model has no effort setting.
+         * @nullable
+         */
+      readonly effective_agent_reasoning_effort: string | null;
       /** explore: a research run on each scoring day until a run does not promote a better model, or until 5 research runs have run. maintain: one research run every research_interval_days.
        *
        * * `explore` - Explore
@@ -14364,6 +14418,18 @@ export namespace Schemas {
        * * `60` - 60
        * * `90` - 90 */
       research_interval_days?: ResearchIntervalDaysEnum | null;
+      /**
+         * Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it.
+         * @maxLength 100
+         * @nullable
+         */
+      agent_model?: string | null;
+      /**
+         * Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run.
+         * @maxLength 20
+         * @nullable
+         */
+      agent_reasoning_effort?: string | null;
       /**
          * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
          * @minimum 0
@@ -14701,6 +14767,26 @@ export namespace Schemas {
        * * `rescue` - Rescue
        * * `manual` - Manual */
       readonly kickoff_reason: AutoresearchTrainingRunKickoffReasonEnum | null;
+      /**
+         * Runtime that drove the training agent, 'claude' or 'codex'. Null for older runs and runs with no task.
+         * @nullable
+         */
+      readonly agent_runtime_adapter: string | null;
+      /**
+         * Model the training agent ran on. Null for older runs and runs with no task.
+         * @nullable
+         */
+      readonly agent_model: string | null;
+      /**
+         * Display name of agent_model, e.g. 'Claude Opus 5.5'. Null when agent_model is null.
+         * @nullable
+         */
+      readonly agent_model_label: string | null;
+      /**
+         * Reasoning effort the training agent ran at. Null for older runs, runs with no task, and models with no effort setting.
+         * @nullable
+         */
+      readonly agent_reasoning_effort: string | null;
       /**
          * Maximum iterations allowed for this run.
          * @minimum -2147483648
@@ -17584,6 +17670,11 @@ export namespace Schemas {
       event_filters?: (EventPropFilter | HogQLFilter)[] | null;
       explicit_datetime?: string | null;
       explicit_datetime_to?: string | null;
+    }
+
+    export interface BetterstackIncidentSignalExtra {
+      url: string | null;
+      started_at: string | null;
     }
 
     export interface BiasRisk {
@@ -25742,6 +25833,28 @@ export namespace Schemas {
       images?: ConversationsTicketImage[] | null;
     }
 
+    export type ConversionCandidateKindEnum = typeof ConversionCandidateKindEnum[keyof typeof ConversionCandidateKindEnum];
+
+
+    export const ConversionCandidateKindEnum = {
+      EventsNode: 'EventsNode',
+      ActionsNode: 'ActionsNode',
+    } as const;
+
+    export interface ConversionCandidate {
+      source_ref: string;
+      kind: ConversionCandidateKindEnum;
+      event?: string | null;
+      action_id?: number | null;
+      name: string;
+      description?: string;
+      count?: number | null;
+      distinct_users?: number | null;
+      numeric_properties?: string[];
+      property_names?: string[];
+      already_configured?: boolean;
+    }
+
     /**
      * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
      */
@@ -25954,6 +26067,64 @@ export namespace Schemas {
       Manual: 'manual',
       Automatic: 'automatic',
     } as const;
+
+    export type IntentEnum = typeof IntentEnum[keyof typeof IntentEnum];
+
+
+    export const IntentEnum = {
+      Conversion: 'conversion',
+      Customer: 'customer',
+      Revenue: 'revenue',
+    } as const;
+
+    export interface ConversionRecommendation {
+      source_ref: string;
+      name: string;
+      reason: string;
+      intent: IntentEnum;
+      questions: string[];
+      candidate: ConversionCandidate;
+      /** Observed numeric property proposed for revenue. Confirm its units and currency. */
+      amount_property?: string | null;
+    }
+
+    export interface ConversionRecommendationResults {
+      recommendations?: ConversionRecommendation[];
+      limitations?: string[];
+    }
+
+    export interface ConversionRecommendationRun {
+      readonly id: string;
+      readonly status: ZendeskImportJobStatusEnum;
+      readonly lookback_days: number;
+      readonly date_from: string;
+      readonly date_to: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly completed_at: string | null;
+      readonly error: string;
+    }
+
+    export interface ConversionRecommendationStart {
+      /** False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request. */
+      refresh?: boolean;
+    }
+
+    export interface ConversionRecommendationState {
+      /**
+         * Why this user cannot start an analysis, or null when generation is available.
+         * @nullable
+         */
+      generation_disabled_reason: string | null;
+      /** Latest analysis, including its actual state and observation period. */
+      latest_run: ConversionRecommendationRun | null;
+      /** Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure. */
+      result_run: ConversionRecommendationRun | null;
+      /** Suggested event or action goals with source evidence and business questions. Configure reviewed goals with the existing editor. */
+      results: ConversionRecommendationResults;
+      /** Whether this user can request or initialize project recommendations. */
+      can_generate: boolean;
+    }
 
     export interface ConversionRecordingsRequest {
       /** A unique query ID for tracing this request in query logs. */
@@ -53624,6 +53795,14 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantIncidentSignalExtra {
+      severity: string | null;
+      priority: string | null;
+      current_milestone: string | null;
+      incident_url: string | null;
+      created_at: string | null;
+    }
+
     export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
 
 
@@ -54836,6 +55015,12 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmIncidentSignalExtra {
+      status: string | null;
+      severity_label: string | null;
+      created_time: string | null;
     }
 
     /**
@@ -60860,6 +61045,67 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `pagerduty` - PagerDuty
+     * * `opsgenie` - Opsgenie
+     * * `incident_io` - incident.io
+     * * `firehydrant` - FireHydrant
+     * * `squadcast` - Squadcast
+     * * `servicenow` - ServiceNow
+     * * `solarwinds_service_desk` - SolarWinds Service Desk
+     * * `grafana_irm` - Grafana IRM
+     * * `xmatters` - xMatters
+     * * `betterstack` - Better Stack
+     * * `newrelic` - New Relic
+     * * `trigger_dev` - Trigger.dev
+     * * `checkly` - Checkly
+     * * `roark` - Roark
+     * * `monte_carlo` - Monte Carlo
+     * * `bigeye` - Bigeye
+     * * `aws_security_hub` - AWS Security Hub
+     * * `aws_guardduty` - AWS GuardDuty
+     * * `aws_inspector` - AWS Inspector
+     * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+     * * `clickup` - ClickUp
+     * * `wrike` - Wrike
+     * * `trello` - Trello
+     * * `bugherd` - BugHerd
+     * * `dynamics365` - Dynamics 365
+     * * `zoho_crm` - Zoho CRM
+     * * `planhat` - Planhat
+     * * `trustpilot` - Trustpilot
+     * * `okendo` - Okendo
+     * * `sleekplan` - Sleekplan
+     * * `bettermode` - Bettermode
+     * * `discourse` - Discourse
+     * * `mintlify` - Mintlify
+     * * `langsmith` - LangSmith
+     * * `sprig` - Sprig
+     * * `gainsight_px` - Gainsight PX
+     * * `dynatrace` - Dynatrace
+     * * `statuspage` - Statuspage
+     * * `cronitor` - Cronitor
+     * * `instatus` - Instatus
+     * * `asana` - Asana
+     * * `monday` - monday.com
+     * * `plane` - Plane
+     * * `azure_devops` - Azure DevOps
+     * * `helpscout` - Help Scout
+     * * `decagon` - Decagon
+     * * `vitally` - Vitally
+     * * `usersnap` - Usersnap
+     * * `typeform` - Typeform
+     * * `qualtrics` - Qualtrics
+     * * `surveymonkey` - SurveyMonkey
+     * * `formbricks` - Formbricks
+     * * `survicate` - Survicate
+     * * `surveysparrow` - SurveySparrow
+     * * `lacework` - Lacework
+     * * `orca_security` - Orca Security
+     * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+     * * `google_play_console` - Google Play Console
+     * * `azure_application_insights` - Azure Application Insights
+     * * `appsignal` - AppSignal
+     * * `cursor` - Cursor
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -60916,6 +61162,67 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
+      Dynatrace: 'dynatrace',
+      Statuspage: 'statuspage',
+      Cronitor: 'cronitor',
+      Instatus: 'instatus',
+      Asana: 'asana',
+      Monday: 'monday',
+      Plane: 'plane',
+      AzureDevops: 'azure_devops',
+      Helpscout: 'helpscout',
+      Decagon: 'decagon',
+      Vitally: 'vitally',
+      Usersnap: 'usersnap',
+      Typeform: 'typeform',
+      Qualtrics: 'qualtrics',
+      Surveymonkey: 'surveymonkey',
+      Formbricks: 'formbricks',
+      Survicate: 'survicate',
+      Surveysparrow: 'surveysparrow',
+      Lacework: 'lacework',
+      OrcaSecurity: 'orca_security',
+      TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+      GooglePlayConsole: 'google_play_console',
+      AzureApplicationInsights: 'azure_application_insights',
+      Appsignal: 'appsignal',
+      Cursor: 'cursor',
     } as const;
 
     /**
@@ -60939,6 +61246,7 @@ export namespace Schemas {
      * * `ci_broken_default_branch` - CI broken default branch
      * * `ci_duration_regression` - CI duration regression
      * * `search_opportunity` - Search opportunity
+     * * `incident` - Incident
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -60964,6 +61272,7 @@ export namespace Schemas {
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
+      Incident: 'incident',
     } as const;
 
     export interface InboxOnboardingSource {
@@ -61019,7 +61328,68 @@ export namespace Schemas {
        * * `intercom` - Intercom
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
-       * * `google_search_console` - Google Search Console */
+       * * `google_search_console` - Google Search Console
+       * * `pagerduty` - PagerDuty
+       * * `opsgenie` - Opsgenie
+       * * `incident_io` - incident.io
+       * * `firehydrant` - FireHydrant
+       * * `squadcast` - Squadcast
+       * * `servicenow` - ServiceNow
+       * * `solarwinds_service_desk` - SolarWinds Service Desk
+       * * `grafana_irm` - Grafana IRM
+       * * `xmatters` - xMatters
+       * * `betterstack` - Better Stack
+       * * `newrelic` - New Relic
+       * * `trigger_dev` - Trigger.dev
+       * * `checkly` - Checkly
+       * * `roark` - Roark
+       * * `monte_carlo` - Monte Carlo
+       * * `bigeye` - Bigeye
+       * * `aws_security_hub` - AWS Security Hub
+       * * `aws_guardduty` - AWS GuardDuty
+       * * `aws_inspector` - AWS Inspector
+       * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+       * * `clickup` - ClickUp
+       * * `wrike` - Wrike
+       * * `trello` - Trello
+       * * `bugherd` - BugHerd
+       * * `dynamics365` - Dynamics 365
+       * * `zoho_crm` - Zoho CRM
+       * * `planhat` - Planhat
+       * * `trustpilot` - Trustpilot
+       * * `okendo` - Okendo
+       * * `sleekplan` - Sleekplan
+       * * `bettermode` - Bettermode
+       * * `discourse` - Discourse
+       * * `mintlify` - Mintlify
+       * * `langsmith` - LangSmith
+       * * `sprig` - Sprig
+       * * `gainsight_px` - Gainsight PX
+       * * `dynatrace` - Dynatrace
+       * * `statuspage` - Statuspage
+       * * `cronitor` - Cronitor
+       * * `instatus` - Instatus
+       * * `asana` - Asana
+       * * `monday` - monday.com
+       * * `plane` - Plane
+       * * `azure_devops` - Azure DevOps
+       * * `helpscout` - Help Scout
+       * * `decagon` - Decagon
+       * * `vitally` - Vitally
+       * * `usersnap` - Usersnap
+       * * `typeform` - Typeform
+       * * `qualtrics` - Qualtrics
+       * * `surveymonkey` - SurveyMonkey
+       * * `formbricks` - Formbricks
+       * * `survicate` - Survicate
+       * * `surveysparrow` - SurveySparrow
+       * * `lacework` - Lacework
+       * * `orca_security` - Orca Security
+       * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+       * * `google_play_console` - Google Play Console
+       * * `azure_application_insights` - Azure Application Insights
+       * * `appsignal` - AppSignal
+       * * `cursor` - Cursor */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -61042,7 +61412,8 @@ export namespace Schemas {
        * * `ci_flaky_check` - CI flaky check
        * * `ci_broken_default_branch` - CI broken default branch
        * * `ci_duration_regression` - CI duration regression
-       * * `search_opportunity` - Search opportunity */
+       * * `search_opportunity` - Search opportunity
+       * * `incident` - Incident */
       source_type: SignalSourceConfigSourceTypeEnum;
       /** Whether this source should be enabled at activation. */
       enabled: boolean;
@@ -61250,6 +61621,14 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoIncidentSignalExtra {
+      severity_name: string | null;
+      status_name: string | null;
+      mode: string | null;
+      permalink: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -71170,6 +71549,14 @@ export namespace Schemas {
       iteration_budget?: number;
     }
 
+    export interface OpsgenieAlertSignalExtra {
+      status: string | null;
+      priority: string | null;
+      tags: unknown[];
+      source: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `latest` - latest
      * * `earliest` - earliest
@@ -72049,6 +72436,13 @@ export namespace Schemas {
       kind: PRTimelineSegmentKindEnum;
       /** Average seconds per merged pull request attributed to this cause. */
       seconds_per_merged_pr: number;
+    }
+
+    export interface PagerdutyIncidentSignalExtra {
+      status: string | null;
+      urgency: string | null;
+      html_url: string | null;
+      created_at: string | null;
     }
 
     export interface PaginatedAEOPromptList {
@@ -80421,6 +80815,18 @@ export namespace Schemas {
        * * `90` - 90 */
       research_interval_days?: ResearchIntervalDaysEnum | null;
       /**
+         * Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it.
+         * @maxLength 100
+         * @nullable
+         */
+      agent_model?: string | null;
+      /**
+         * Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run.
+         * @maxLength 20
+         * @nullable
+         */
+      agent_reasoning_effort?: string | null;
+      /**
          * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
          * @minimum 0
          * @maximum 1
@@ -87238,8 +87644,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 12
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 13
          */
       write_scopes?: string[];
       /**
@@ -97994,6 +98400,67 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `pagerduty` - pagerduty
+     * * `opsgenie` - opsgenie
+     * * `incident_io` - incident_io
+     * * `firehydrant` - firehydrant
+     * * `squadcast` - squadcast
+     * * `servicenow` - servicenow
+     * * `solarwinds_service_desk` - solarwinds_service_desk
+     * * `grafana_irm` - grafana_irm
+     * * `xmatters` - xmatters
+     * * `betterstack` - betterstack
+     * * `newrelic` - newrelic
+     * * `trigger_dev` - trigger_dev
+     * * `checkly` - checkly
+     * * `roark` - roark
+     * * `monte_carlo` - monte_carlo
+     * * `bigeye` - bigeye
+     * * `aws_security_hub` - aws_security_hub
+     * * `aws_guardduty` - aws_guardduty
+     * * `aws_inspector` - aws_inspector
+     * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+     * * `clickup` - clickup
+     * * `wrike` - wrike
+     * * `trello` - trello
+     * * `bugherd` - bugherd
+     * * `dynamics365` - dynamics365
+     * * `zoho_crm` - zoho_crm
+     * * `planhat` - planhat
+     * * `trustpilot` - trustpilot
+     * * `okendo` - okendo
+     * * `sleekplan` - sleekplan
+     * * `bettermode` - bettermode
+     * * `discourse` - discourse
+     * * `mintlify` - mintlify
+     * * `langsmith` - langsmith
+     * * `sprig` - sprig
+     * * `gainsight_px` - gainsight_px
+     * * `dynatrace` - dynatrace
+     * * `statuspage` - statuspage
+     * * `cronitor` - cronitor
+     * * `instatus` - instatus
+     * * `asana` - asana
+     * * `monday` - monday
+     * * `plane` - plane
+     * * `azure_devops` - azure_devops
+     * * `helpscout` - helpscout
+     * * `decagon` - decagon
+     * * `vitally` - vitally
+     * * `usersnap` - usersnap
+     * * `typeform` - typeform
+     * * `qualtrics` - qualtrics
+     * * `surveymonkey` - surveymonkey
+     * * `formbricks` - formbricks
+     * * `survicate` - survicate
+     * * `surveysparrow` - surveysparrow
+     * * `lacework` - lacework
+     * * `orca_security` - orca_security
+     * * `tenable_vulnerability_management` - tenable_vulnerability_management
+     * * `google_play_console` - google_play_console
+     * * `azure_application_insights` - azure_application_insights
+     * * `appsignal` - appsignal
+     * * `cursor` - cursor
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -98050,6 +98517,67 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Pagerduty: 'pagerduty',
+      Opsgenie: 'opsgenie',
+      IncidentIo: 'incident_io',
+      Firehydrant: 'firehydrant',
+      Squadcast: 'squadcast',
+      Servicenow: 'servicenow',
+      SolarwindsServiceDesk: 'solarwinds_service_desk',
+      GrafanaIrm: 'grafana_irm',
+      Xmatters: 'xmatters',
+      Betterstack: 'betterstack',
+      Newrelic: 'newrelic',
+      TriggerDev: 'trigger_dev',
+      Checkly: 'checkly',
+      Roark: 'roark',
+      MonteCarlo: 'monte_carlo',
+      Bigeye: 'bigeye',
+      AwsSecurityHub: 'aws_security_hub',
+      AwsGuardduty: 'aws_guardduty',
+      AwsInspector: 'aws_inspector',
+      MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+      Clickup: 'clickup',
+      Wrike: 'wrike',
+      Trello: 'trello',
+      Bugherd: 'bugherd',
+      Dynamics365: 'dynamics365',
+      ZohoCrm: 'zoho_crm',
+      Planhat: 'planhat',
+      Trustpilot: 'trustpilot',
+      Okendo: 'okendo',
+      Sleekplan: 'sleekplan',
+      Bettermode: 'bettermode',
+      Discourse: 'discourse',
+      Mintlify: 'mintlify',
+      Langsmith: 'langsmith',
+      Sprig: 'sprig',
+      GainsightPx: 'gainsight_px',
+      Dynatrace: 'dynatrace',
+      Statuspage: 'statuspage',
+      Cronitor: 'cronitor',
+      Instatus: 'instatus',
+      Asana: 'asana',
+      Monday: 'monday',
+      Plane: 'plane',
+      AzureDevops: 'azure_devops',
+      Helpscout: 'helpscout',
+      Decagon: 'decagon',
+      Vitally: 'vitally',
+      Usersnap: 'usersnap',
+      Typeform: 'typeform',
+      Qualtrics: 'qualtrics',
+      Surveymonkey: 'surveymonkey',
+      Formbricks: 'formbricks',
+      Survicate: 'survicate',
+      Surveysparrow: 'surveysparrow',
+      Lacework: 'lacework',
+      OrcaSecurity: 'orca_security',
+      TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+      GooglePlayConsole: 'google_play_console',
+      AzureApplicationInsights: 'azure_application_insights',
+      Appsignal: 'appsignal',
+      Cursor: 'cursor',
     } as const;
 
     /**
@@ -98076,6 +98604,7 @@ export namespace Schemas {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `incident` - incident
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -98104,6 +98633,7 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
       CheckFailed: 'check_failed',
+      Incident: 'incident',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -98227,7 +98757,39 @@ export namespace Schemas {
       created_date: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
+    export interface SquadcastIncidentSignalExtra {
+      status: string | null;
+      priority: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ServicenowIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      urgency: string | null;
+      impact: string | null;
+      category: string | null;
+      sys_created_on: string | null;
+    }
+
+    export interface SolarwindsServiceDeskIncidentSignalExtra {
+      number: string | null;
+      state: string | null;
+      priority: string | null;
+      category_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface XmattersIncidentSignalExtra {
+      incident_identifier: string | null;
+      severity: string | null;
+      status: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | BetterstackIncidentSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -98295,7 +98857,68 @@ export namespace Schemas {
        * * `intercom` - intercom
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
-       * * `google_search_console` - google_search_console */
+       * * `google_search_console` - google_search_console
+       * * `pagerduty` - pagerduty
+       * * `opsgenie` - opsgenie
+       * * `incident_io` - incident_io
+       * * `firehydrant` - firehydrant
+       * * `squadcast` - squadcast
+       * * `servicenow` - servicenow
+       * * `solarwinds_service_desk` - solarwinds_service_desk
+       * * `grafana_irm` - grafana_irm
+       * * `xmatters` - xmatters
+       * * `betterstack` - betterstack
+       * * `newrelic` - newrelic
+       * * `trigger_dev` - trigger_dev
+       * * `checkly` - checkly
+       * * `roark` - roark
+       * * `monte_carlo` - monte_carlo
+       * * `bigeye` - bigeye
+       * * `aws_security_hub` - aws_security_hub
+       * * `aws_guardduty` - aws_guardduty
+       * * `aws_inspector` - aws_inspector
+       * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+       * * `clickup` - clickup
+       * * `wrike` - wrike
+       * * `trello` - trello
+       * * `bugherd` - bugherd
+       * * `dynamics365` - dynamics365
+       * * `zoho_crm` - zoho_crm
+       * * `planhat` - planhat
+       * * `trustpilot` - trustpilot
+       * * `okendo` - okendo
+       * * `sleekplan` - sleekplan
+       * * `bettermode` - bettermode
+       * * `discourse` - discourse
+       * * `mintlify` - mintlify
+       * * `langsmith` - langsmith
+       * * `sprig` - sprig
+       * * `gainsight_px` - gainsight_px
+       * * `dynatrace` - dynatrace
+       * * `statuspage` - statuspage
+       * * `cronitor` - cronitor
+       * * `instatus` - instatus
+       * * `asana` - asana
+       * * `monday` - monday
+       * * `plane` - plane
+       * * `azure_devops` - azure_devops
+       * * `helpscout` - helpscout
+       * * `decagon` - decagon
+       * * `vitally` - vitally
+       * * `usersnap` - usersnap
+       * * `typeform` - typeform
+       * * `qualtrics` - qualtrics
+       * * `surveymonkey` - surveymonkey
+       * * `formbricks` - formbricks
+       * * `survicate` - survicate
+       * * `surveysparrow` - surveysparrow
+       * * `lacework` - lacework
+       * * `orca_security` - orca_security
+       * * `tenable_vulnerability_management` - tenable_vulnerability_management
+       * * `google_play_console` - google_play_console
+       * * `azure_application_insights` - azure_application_insights
+       * * `appsignal` - appsignal
+       * * `cursor` - cursor */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -98321,7 +98944,8 @@ export namespace Schemas {
        * * `ci_broken_default_branch` - ci_broken_default_branch
        * * `ci_duration_regression` - ci_duration_regression
        * * `search_opportunity` - search_opportunity
-       * * `check_failed` - check_failed */
+       * * `check_failed` - check_failed
+       * * `incident` - incident */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -101078,8 +101702,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 12
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 13
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -101362,8 +101986,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 12
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 13
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -104696,8 +105320,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 12
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 13
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -122457,6 +123081,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -122569,6 +123194,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -122667,6 +123293,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -122767,6 +123394,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',

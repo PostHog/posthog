@@ -6192,6 +6192,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_PROMPT = 'LLMPrompt',
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
+    LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -7493,7 +7494,6 @@ export type HogFunctionConfigurationContextId =
     | 'batch-export-alerts'
     | 'billing-alerts'
     | 'replay-vision-alerts'
-    | 'data-warehouse-alerts'
     | 'replay-vision-requests'
 
 export type HogFunctionSubTemplateIdType =
@@ -7516,10 +7516,6 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-firing'
     | 'health-check-resolved'
     | 'batch-export-run-failed'
-    | 'data-warehouse-sync-failed'
-    | 'data-warehouse-sync-recovered'
-    | 'data-warehouse-sync-completed'
-    | 'data-warehouse-billing-limit-reached'
     | 'replay-vision-request-completed'
 
 export type HogFunctionConfigurationType = Omit<
