@@ -189,7 +189,7 @@ class TestTrialExecution(BaseTest):
             report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="outside-rollout")
             report.refresh_from_db()
-            assert report.self_driving_funding is None
+            assert not (report.self_driving_funding or {}).get("grant_id")
             assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
             assert not SignalTrialReportReservation.objects.for_team(self.team.id).exists()
             return

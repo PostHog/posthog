@@ -277,3 +277,7 @@ A Self-driving trial grant follows its canonical project and environments when t
 Trial task receipts include raw token costs and compute across each sandbox's full recorded lifetime, including time before user attribution. Customer compute charges continue to use the user-attributed window.
 
 Paid continuation after trial exhaustion checks billing with a three-second connection timeout and a five-second read timeout, including product-catalog fallback requests. If billing times out, admission remains blocked until paid authorization can be confirmed.
+
+Report admission and the transition to in-progress commit in one transaction. A failed transition rolls back the report reservation and funding snapshot.
+Direct report attempts release their reservations when funding setup fails or is canceled.
+Async report and LLM stages run billing checks on the general database thread pool, outside report transactions.
