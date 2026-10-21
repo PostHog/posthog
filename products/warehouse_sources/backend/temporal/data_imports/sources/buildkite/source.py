@@ -77,7 +77,7 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
             name=ExternalDataSourceType.BUILDKITE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             docsUrl="https://posthog.com/docs/cdp/sources/buildkite",
             caption="""Enter your Buildkite API access token and organization slug to sync your CI/CD data into the PostHog Data warehouse.
 
