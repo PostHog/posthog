@@ -1,6 +1,10 @@
 """DRF serializers for security."""
 
+from typing import get_args
+
 from rest_framework import serializers
+
+from ..facade.hub import CountableType
 
 
 class ResolveRequestSerializer(serializers.Serializer):
@@ -14,7 +18,7 @@ class ResolveRequestSerializer(serializers.Serializer):
 
 class CountAccountsRequestSerializer(serializers.Serializer):
     target_type = serializers.ChoiceField(
-        choices=["email", "email_root", "email_domain"], help_text="How target_value matches accounts."
+        choices=list(get_args(CountableType)), help_text="How target_value matches accounts."
     )
     target_value = serializers.CharField(max_length=320, help_text="The value the hub normalized for this target type.")
 

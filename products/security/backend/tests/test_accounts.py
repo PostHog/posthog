@@ -47,6 +47,9 @@ class TestAccounts(BaseTest):
         assert count_active_accounts("email", "farmbot@example.com").count == 1
         assert count_active_accounts("email_domain", "throwaway.example").count == 1
         assert count_active_accounts("email_root", "dot@gmail.com").count == 1
+        assert count_active_accounts("email_pattern", "farm.bot+*@example.com").count == 1
+        assert count_active_accounts("email_pattern", "far.*@*").count == 0
+        assert count_active_accounts("email_pattern", "*@*").count == 0
 
     def test_counts_are_capped(self) -> None:
         User.objects.bulk_create(
