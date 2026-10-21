@@ -494,7 +494,6 @@ class EvaluationBackfillViewSet(
     def estimate(self, request: Request, **kwargs: Any) -> Response:
         """Count what a backfill over the given window would evaluate, without creating one."""
         evaluation = self._evaluation_for_url()
-        self._require_enabled(evaluation)
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
@@ -668,7 +667,7 @@ class EvaluationBackfillViewSet(
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so
-                # a failed handle costs nothing and does not need a stack trace.
+                # a failed handle only lets the current page finish and does not need a stack trace.
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()

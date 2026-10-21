@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal skips it when the request carries a HogQL predicate. Deferred event removal with a predicate reaches only the rows that have an events copy (below). Property removal with a predicate does not sweep it. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -192,7 +192,7 @@ Each expired row that drops took its property with it.
 
 #### HogQL predicates
 
-`compile_hogql_predicate` compiles against the events schema only (see the HogQL section below), so the job cannot apply a request's predicate to this table.
+Property removal compiles a request's predicate against the events schema only. Event removal compiles one for this table's rows with no events copy (see the HogQL section below), but property removal does not use it, so the job cannot apply a request's predicate to this table.
 A property removal with a predicate leaves `flag_evaluations` out of the sweep, and `get_property_removal_shards` and `verify_property_removal` refuse the request while the table holds rows that match its other criteria.
 Sweeping the table without the predicate would erase rows the predicate excludes.
 
@@ -213,49 +213,79 @@ The copy carries every other column through unchanged.
 `flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.
 The job finds typed columns through their comments in `system.columns`, not through that set, and adding the table there enrolls it in `materialize()` and the HogQL property planner, which is a separate change.
 
-### Immediate event removal with a HogQL predicate skips `flag_evaluations`
+### Immediate event removal with a HogQL predicate does not sweep `flag_evaluations`
 
-`get_event_removal_shards` leaves `flag_evaluations` out of an immediate request that carries a HogQL predicate, so the request neither sweeps the table nor checks it for matching rows.
-The rows age out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
-The skip exists because of the HogQL gap below: without it, the gate refuses every immediate request with a predicate whose team has matching `$feature_flag_called` rows.
+`get_event_removal_shards` leaves `flag_evaluations` out of the sweep for an immediate request that carries a HogQL predicate.
+A row with an events copy ages out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
 The events copies that a deferred request deletes through do not help here, because the immediate path deletes the events rows without queueing their uuids.
+A row with no events copy is checked instead.
+The request refuses while such a row matches the predicate compiled for this table (below), or matches the request's other criteria when the predicate cannot run on this table.
+That turns a request from an org on `flag_evaluations_mode` 2, whose flag calls have no events copy, into a refusal rather than a completed request that leaves every flag call behind.
+Re-filing the request as deferred deletes those rows.
+A fresh run of a request whose earlier run already deleted events also refuses, because those events were the copies of matching rows.
+The admin Retry button starts such a fresh run.
+"Re-execute from failure" on the earlier Dagster run finishes the request, because it reuses the output of `get_event_removal_shards` and does not run the check again.
 An immediate request without a predicate sweeps the table and verifies it like the events tables, because its delete predicate names only `team_id`, `timestamp` and `event`.
 
-### Event removal with a HogQL predicate reaches `flag_evaluations` only through events copies
+### Event removal with a HogQL predicate on `flag_evaluations`
 
-`compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
-Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
-Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
-The dag does not guess.
-It never runs a fragment against the table.
-An immediate request with a predicate skips the table (above).
-A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
-
-A deferred request with a predicate reaches the table through `events` instead.
 A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
 `DeletionTarget.copied_from` records that relationship.
-The queue fill reads uuids from `sharded_events` with the full predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.
+A deferred request with a predicate reaches a row that has an events copy through `events`.
+The queue fill reads uuids from `sharded_events` with the events-compiled predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.
 A flag row whose event the predicate does not name keeps its events copy and stays.
 
-That only works for a row that has an events copy.
+A row with no events copy needs the predicate itself.
 An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
-The gate therefore counts the matching rows that have no copy in `sharded_events`, shard-locally, and refuses the request when it finds any.
+`DeletionTarget.uncopied_rows_hogql_table` names the HogQL table that compiles the predicate for those rows, `posthog.flag_evaluations` here.
+The compile adds that table even when the org flag hides it from queries.
+The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
+A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
+The check for an events copy reads `sharded_events` only.
+In production, `sharded_events_json` holds no `$feature_flag_called` rows: the deployed ingestion view and the backfill both leave the event out, so a flag row has no copy there.
+The view this repo defines (`EVENTS_JSON_TABLE_MV_SQL`) still writes the event, so local, CI and self-hosted deployments do keep a copy.
+There, a flag row can keep its `sharded_events_json` copy after its `sharded_events` copy is gone, when an earlier immediate request matched the two events tables differently.
+Queueing that row would also delete its `sharded_events_json` copy, even when the native-JSON compile of the predicate excludes it, because the drain deletes a queued uuid from every target.
+The check cannot look for that copy row by row, because `sharded_events_json` can sit on another cluster, where a shard-local subquery cannot reach it.
+So before a deferred request queues rows with no `sharded_events` copy, the gate counts the flag calls in the request's window on `sharded_events_json`.
+It counts through the `events_json` proxy, and also on the storage table through its own handle when that table sits on another cluster, because the proxy can read an empty table there.
+When it finds any, the request refuses while a row with no `sharded_events` copy matches the compiled predicate.
+Production stores no flag calls in `sharded_events_json`, so the gate finds none there.
+
+The compiled predicate never decides for a row that has an events copy.
+The drain deletes a queued uuid from every target, so a flag row that matched the flag-compiled predicate would take its events copy with it, even where the events-compiled predicate does not name that event.
+The two compiles can disagree.
+On cloud, `propertyGroupsMode` is `optimized`, and events reads a custom property, an `$ai_` property or a `$feature/` property from a property-group map such as `properties_group_custom`.
+The map is built with `JSONExtractKeysAndValues(properties, 'String')`, which decodes JSON escapes, so a stored `"a\"b"` reads as `a"b`.
+For `=`, `!=` and `IN`, the `optimized` rewrite also compares a typed property as a string.
+`flag_evaluations` has no property-group map, so it reads the raw JSON with the surrounding quotes stripped, which reads `a\"b`, and it casts a typed property to its defined type.
+On cloud, events reads some `$` properties from `mat_` or `dmat_string_` columns instead, and those differ on edge values: the column reads an empty string and the string `"null"` as NULL, and a nullable column decodes escapes.
+So with `$browser` materialized, `properties.$browser = ''` excludes a row that stores `""` on events and matches it on `flag_evaluations`.
+The compile therefore refuses a predicate whenever the events compile of it reads a property-group map or a materialized column.
+Every property the compile accepts reads raw JSON on both tables.
+It also refuses one that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
+`person.properties` and `elements_chain` do not resolve on the table, so those predicates fail to compile.
+
+When the predicate cannot run on the table, the gate counts the rows with no copy in `sharded_events` that match the request's other criteria, shard-locally, and refuses the request when it finds any.
 Requests without a predicate, immediate or deferred, are swept normally.
 A deferred one reads the table's own uuids into the queue.
 
-Verification of a deferred request with a predicate, when the table holds rows in the request's window, makes two counts: the request's queue rows that the drain has not marked deleted, and the table's rows with no copy in `sharded_events`.
+Verification of a deferred request with a predicate, when the table holds rows in the request's window, makes two counts.
+The first is the request's queue rows that the drain has not marked deleted.
+The second is the table's rows with no copy in `sharded_events` that the compiled predicate matches, or that match the request's other criteria when the predicate cannot run on the table.
 The queue rows hold the request until `deletes_job` drains them, including a queued row whose event a property removal changed so that the predicate no longer matches it.
 The rows with no copy hold the request after the drain.
-A flag row stamped after its uuid was queued falls outside the drain's `inserted_at` bound, so it survives the drain.
+A flag row stamped after its events copy's uuid was queued falls outside the drain's `inserted_at` bound, so it survives the drain.
 The drain still deletes its events copy.
 The rows with no copy therefore include it and keep the request in QUEUED.
 A re-filed request does not reach that row.
-The gate refuses one with the predicate, because the row has no events copy.
-A deferred one without the predicate queues the uuid, but the drain skips it while the first drain's `is_deleted` marker lasts, which is 3 months.
+A deferred one queues the uuid, but the drain skips it while the first drain's `is_deleted` marker lasts, which is 3 months.
 Only an immediate request without the predicate deletes the row, and it also deletes every other row in its window that its event filter names.
 The verify sweep therefore keeps checking a deferred request with a predicate for `lookback_days` after its window falls behind the table's TTL horizon, so the request moves to COMPLETED once the TTL drops the row.
 The rows with no copy also keep a request the gate refused, which queued nothing, from passing verification as a FAILED request.
 Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
+The second count uses the same compiled predicate as the queue fill, so it cannot see the two compiles disagreeing.
+The compile's refusals are the guard against that.
 
 ## Producer prerequisite: person_id parity
 
@@ -293,6 +323,8 @@ Staff set the retention in Django admin, on the team and organization pages:
 - `TeamEventsRetentionConfig` holds a team's own months, which must fall within its organization's range. Saving an organization range that excludes an existing team value fails until that team changes.
 - A team's effective retention is its own value, else its organization's default. A team with neither keeps all its events.
 - This setting is separate from `Team.event_retention_months`, which the billing plan sets and which only hides older events from queries.
+- The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
+  It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
 `monthly_old_events_cleanup_job` has two steps:
 

@@ -29,13 +29,6 @@ from posthog.test.insight_queries import browser_filtered_pageview_query, defaul
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.models.subscription import (
-    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
-    AIQueryPlanStatus,
-    Subscription,
-    SubscriptionDelivery,
-)
-from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.api import (
     AI_REPORT_CHARTS_KEY,
@@ -50,6 +43,13 @@ from products.subscriptions.backend.facade.api import (
 )
 from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
+from products.subscriptions.backend.models.subscription import (
+    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
+    AIQueryPlanStatus,
+    Subscription,
+    SubscriptionDelivery,
+)
+from products.subscriptions.backend.models.subscription_context import SubscriptionContext
 from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 from ee.api.test.base import APILicensedTest

@@ -14,9 +14,9 @@ from posthog.sync import database_sync_to_async
 
 from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.temporal.llm_change_summary import generate_change_summary
 from products.subscriptions.backend.temporal.results_summarizer import build_results_summary
 from products.subscriptions.backend.temporal.types import (

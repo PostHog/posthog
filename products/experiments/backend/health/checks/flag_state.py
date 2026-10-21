@@ -4,7 +4,16 @@ Conflicting states of an experiment and its feature flag. Pure functions, no I/O
 A port of the page's `browserExperimentWarning` selector (frontend/src/scenes/experiments/experimentLogic.tsx)
 and the flag helpers it calls (`hasZeroRollout`, `hasMultipleVariantsActive`, `isSingleVariantShipped`).
 Change both sides together until the page reads these findings.
+
+A running experiment whose flag has a 0% rollout is the exception. The flag service and local evaluation serve no
+variant then, so people who still get one get it from the customer's own assignment, which only the flag's calls
+show. Only the server reports that case.
+
+A paused experiment is the other exception. Only the server reads the experiment's activity log, so only the server
+tells a pause from the experiment from a flag disabled elsewhere, and reports the pause with its own subcode.
 """
+
+from datetime import UTC, datetime, timedelta
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
@@ -12,7 +21,15 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.context import FlagState, HealthContext, SplitHistoryNotChecked
+from products.experiments.backend.health.context import (
+    ConditionSetTraffic,
+    FlagHistoryNotChecked,
+    FlagState,
+    HealthContext,
+    PauseHistory,
+    SplitChange,
+)
+from products.experiments.backend.health.skips import NO_FLAG, CheckSkip, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -27,10 +44,31 @@ RUNNING_BUT_NO_ROLLOUT = "running_but_no_rollout"
 RUNNING_BUT_SINGLE_VARIANT_SHIPPED = "running_but_single_variant_shipped"
 ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "ended_but_multiple_variants_rolled_out"
 NOT_STARTED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "not_started_but_multiple_variants_rolled_out"
-# pinned: the page sends it as `finding_variant` on its events, as the keys above. No banner uses it.
+# pinned: the page sends these as `finding_variant` on its events, as the keys above. No banner uses them.
 RUNNING_BUT_FLAG_DELETED = "running_but_flag_deleted"
+ASSIGNED_OUTSIDE_FLAG_SERVICE = "assigned_outside_flag_service"
+PAUSED_FROM_EXPERIMENT = "paused_from_experiment"
+
+# The experiment's Pause and Resume write activity log entries since August 25, 2026, and a pause before then has
+# none. So a missing entry shows that the flag was disabled outside the experiment only for an experiment launched
+# after that date. The day after the merge leaves time for the deploy.
+PAUSE_ENTRIES_SINCE = datetime(2026, 8, 26, tzinfo=UTC)
+
+# A bootstrap can come from a server's cached evaluation, and an older client can report a variant it cached before
+# the rollout went to 0%. Calls in this time after the start of the window don't count as assigned outside the flag
+# service, so that these leftovers don't hide a rollout that really stopped new exposures.
+OUTSIDE_ASSIGNMENT_GRACE = timedelta(hours=1)
+# A few people can get a variant from a developer's local override, or from a client that cached it before the
+# rollout went to 0%.
+_MIN_PEOPLE_ASSIGNED_OUTSIDE = 10
+# A shorter window can still fill up, so an answer under the minimum is asked again sooner.
+_OUTSIDE_ASSIGNMENT_SETTLED_AFTER = timedelta(days=1)
 
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
+
+
+def flag_state_skip(ctx: HealthContext) -> CheckSkip | None:
+    return not_applicable(NO_FLAG) if ctx.flag is None else None
 
 
 def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
@@ -61,16 +99,11 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
     if ctx.is_running:
         if ctx.is_paused:
-            return _finding(
-                code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
-                subcode=RUNNING_BUT_FLAG_DISABLED,
-                title="The experiment is paused",
-                detail=(
-                    "The linked feature flag is disabled while the experiment has not been ended. "
-                    "Resume or end the experiment."
-                ),
-            )
+            return _flag_disabled(ctx.pause_history)
         if zero_rollout:
+            traffic = ctx.condition_set_traffic
+            if traffic is not None and traffic.people_assigned_outside >= _MIN_PEOPLE_ASSIGNED_OUTSIDE:
+                return _assigned_outside(traffic)
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
                 subcode=RUNNING_BUT_NO_ROLLOUT,
@@ -110,17 +143,95 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
+            # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
                 subcode=NOT_STARTED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
-                title=_NOT_RUNNING_BUT_EXPOSED_TITLE,
+                severity=ExperimentHealthFindingSeverity.INFO,
+                title="The feature flag is active before launch",
                 detail=(
-                    "This experiment hasn't launched yet, but the linked feature flag is already active and "
-                    "exposing users to multiple variants. Disable the flag, or start the experiment."
+                    "The linked feature flag is already active with multiple variants, but the experiment hasn't "
+                    "launched. The results count exposures from launch on, so a user who gets a variant now enters the "
+                    "results only when exposed again after launch. This is expected while you test the variants. "
+                    "If users outside your team get them, launch the experiment or disable the flag."
                 ),
             )
 
     return None
+
+
+def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
+    if pause is not None and pause.paused_at is not None:
+        # The latest pause or resume decides. A flag enabled and disabled again on the flag page after a pause writes
+        # no entry, so it still reads as that pause.
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+            subcode=PAUSED_FROM_EXPERIMENT,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title="The experiment is paused",
+            detail=(
+                f"The experiment was paused on {format_change_time(pause.paused_at, pause.team_timezone)}, so the "
+                "linked feature flag serves no variants. Users exposed before the pause stay in the results. Their "
+                "events during the pause can still count toward their variant, although the flag doesn't serve it to "
+                "them then. Resume the experiment when you want to expose users again."
+            ),
+            evidence={"paused_at": pause.paused_at.astimezone(UTC).isoformat()},
+        )
+    if pause is not None and pause.launched_at >= PAUSE_ENTRIES_SINCE:
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+            subcode=RUNNING_BUT_FLAG_DISABLED,
+            title="The experiment is running, but its feature flag is disabled",
+            detail=(
+                "The linked feature flag was disabled outside the experiment, for example on the feature flag page, "
+                "so it serves no variants. Users exposed earlier stay in the results. Resume the experiment to expose "
+                "users again, or end it with a conclusion."
+            ),
+        )
+    # The history is unread, or the experiment launched before pauses wrote entries, so the cause is unknown.
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+        subcode=RUNNING_BUT_FLAG_DISABLED,
+        title="The experiment is paused",
+        detail=(
+            "The linked feature flag is disabled while the experiment has not been ended. Resume or end the experiment."
+        ),
+    )
+
+
+def needs_outside_assignment_check(ctx: HealthContext) -> bool:
+    """Whether this check reads the flag's calls: a running experiment whose flag has a 0% rollout."""
+    flag = ctx.flag
+    return ctx.is_running and not ctx.is_paused and flag is not None and not flag.deleted and _has_zero_rollout(flag)
+
+
+def outside_assignment_unsettled(ctx: HealthContext, traffic: ConditionSetTraffic, *, now: datetime) -> bool:
+    """Whether `traffic` holds too few people assigned outside the flag service only because its window is young."""
+    return (
+        needs_outside_assignment_check(ctx)
+        and traffic.people_assigned_outside < _MIN_PEOPLE_ASSIGNED_OUTSIDE
+        and now - traffic.since < _OUTSIDE_ASSIGNMENT_SETTLED_AFTER
+    )
+
+
+def _assigned_outside(traffic: ConditionSetTraffic) -> ExperimentHealthFinding:
+    since = traffic.since + OUTSIDE_ASSIGNMENT_GRACE
+    people = traffic.people_assigned_outside
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+        subcode=ASSIGNED_OUTSIDE_FLAG_SERVICE,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title="Variants are assigned outside PostHog",
+        detail=(
+            "The linked feature flag has a 0% rollout, so PostHog assigns no variants. But "
+            f"{people:,} {'user' if people == 1 else 'users'} got a variant since "
+            f"{format_change_time(since, traffic.team_timezone)} from flag calls that PostHog didn't evaluate, so "
+            "your own code assigns the variants, directly or through a bootstrap. These users count in the results. "
+            "The flag's release conditions and variant split don't decide who gets which variant. If PostHog should "
+            "assign the variants, increase the rollout and stop assigning them in your code."
+        ),
+        evidence={"people_assigned_outside": people, "assigned_outside_since": since.astimezone(UTC).isoformat()},
+    )
 
 
 def _finding(
@@ -130,11 +241,12 @@ def _finding(
     title: str,
     detail: str,
     evidence: dict[str, str | int | float | None] | None = None,
+    severity: ExperimentHealthFindingSeverity = ExperimentHealthFindingSeverity.WARNING,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=code,
         subcode=subcode,
-        severity=ExperimentHealthFindingSeverity.WARNING,
+        severity=severity,
         title=title,
         detail=detail,
         evidence=evidence or {},
@@ -145,10 +257,12 @@ def _finding(
 
 def _rollout_since(ctx: HealthContext) -> str:
     # The split check leaves this rollout to this finding, so the finding carries the date of the change.
-    history = ctx.split_history
+    history = ctx.flag_history
     if history is None:
         return ""
-    effect = net_effect(history.changes if isinstance(history, SplitHistoryNotChecked) else history.counted_changes)
+    effect = net_effect(
+        history.of_kind(SplitChange) if isinstance(history, FlagHistoryNotChecked) else history.counted(SplitChange)
+    )
     if effect is None or effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
         return ""
     at = format_change_time(effect.last.changed_at, history.team_timezone)

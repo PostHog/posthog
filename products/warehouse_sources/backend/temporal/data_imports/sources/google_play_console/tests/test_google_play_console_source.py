@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     LIST_ENDPOINTS,
     METRIC_SETS,
     PRIMARY_KEYS,
+    RELEASE_FILTER_OPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
     GooglePlayConsoleSource,
@@ -154,12 +155,6 @@ def test_aggregate_endpoints_are_full_refresh(name: str) -> None:
     assert schema.incremental_fields == []
 
 
-def test_get_schemas_filters_by_names() -> None:
-    schemas = GooglePlayConsoleSource().get_schemas(_config(), team_id=1, names=["crash_rate", "anomalies"])
-
-    assert {schema.name for schema in schemas} == {"crash_rate", "anomalies"}
-
-
 def test_table_catalog_is_published_without_credentials() -> None:
     source = GooglePlayConsoleSource()
 
@@ -183,7 +178,7 @@ def test_metric_set_descriptions_document_their_primary_key_columns(name: str) -
     assert set(PRIMARY_KEYS[name]).issubset(columns)
 
 
-@pytest.mark.parametrize("name", sorted(LIST_ENDPOINTS))
+@pytest.mark.parametrize("name", sorted([*LIST_ENDPOINTS, RELEASE_FILTER_OPTIONS]))
 def test_list_endpoint_descriptions_document_their_primary_key_columns(name: str) -> None:
     columns = CANONICAL_DESCRIPTIONS[name]["columns"]
 

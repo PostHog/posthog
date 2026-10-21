@@ -42,7 +42,13 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    UNREADABLE_SOURCE_CONFIG_ERROR,
+    schema_display_status,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
@@ -166,6 +172,28 @@ class TestExternalDataSchema(APIBaseTest):
             "primary_key_detection_supported": False,
         }
 
+    def test_incremental_fields_handles_a_probe_that_raises(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        with mock.patch.object(StripeSource, "validate_credentials", side_effect=RuntimeError("probe exploded")):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
     @parameterized.expand(
         [
             ("non_retryable_source_error", Exception("Invalid API Key provided"), False),
@@ -283,6 +311,28 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         assert response.status_code == 400
+
+    def test_incremental_fields_returns_400_when_stored_config_is_still_encrypted(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "gAAAAAfake-undecrypted-token"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"message": UNREADABLE_SOURCE_CONFIG_ERROR}
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(
@@ -801,6 +851,11 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=initial_sync_type,
             sync_type_config={
                 **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
+                **(
+                    {"incremental_field": "created_at", "incremental_field_type": "datetime"}
+                    if initial_sync_type == "incremental"
+                    else {}
+                ),
                 "schema_metadata": {"columns": columns},
             },
         )
@@ -1009,6 +1064,85 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 400, response.json()
         schema.refresh_from_db()
         assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+    @parameterized.expand(
+        [
+            ("switch_to_incremental_without_field", "full_refresh", None, True, {"sync_type": "incremental"}, 400),
+            (
+                "switch_to_append_with_null_field",
+                "full_refresh",
+                None,
+                True,
+                {"sync_type": "append", "incremental_field": None},
+                400,
+            ),
+            ("clear_field_on_incremental", "incremental", "created", True, {"incremental_field": None}, 400),
+            ("enable_schema_without_field", "incremental", None, False, {"should_sync": True}, 400),
+            (
+                "unrelated_edit_on_schema_without_field",
+                "incremental",
+                None,
+                True,
+                {"sync_type": "incremental", "incremental_field": None, "should_sync": False},
+                200,
+            ),
+            (
+                "switch_to_incremental_with_field",
+                "full_refresh",
+                None,
+                True,
+                {"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+                200,
+            ),
+        ]
+    )
+    def test_update_schema_requires_incremental_field_for_cursor_sync_types(
+        self,
+        _name: str,
+        stored_sync_type: str,
+        stored_field: str | None,
+        stored_should_sync: bool,
+        request_data: dict[str, Any],
+        expected_status: int,
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=stored_should_sync,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=stored_sync_type,
+            sync_type_config={"incremental_field": stored_field, "incremental_field_type": "integer"}
+            if stored_field
+            else {},
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=request_data,
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        if expected_status == 400:
+            assert "needs an incremental field" in response.json()["detail"]
+            assert schema.should_sync == stored_should_sync
+            assert schema.sync_type == stored_sync_type
+            assert schema.sync_type_config.get("incremental_field") == stored_field
 
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(
@@ -3258,6 +3392,47 @@ class TestUpdateExternalDataSchema:
         schema.refresh_from_db()
         assert schema.should_sync is False
         assert schema.table_id == table.id
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
+    def test_delete_data_turns_off_sync_and_pauses_schedule(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            external_data_source=source,
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="Customer",
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            table=table,
+        )
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            mock.patch(f"{views}.external_data_workflow_exists", return_value=True),
+            mock.patch(f"{views}.pause_external_data_schedule") as mock_pause,
+            mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+        ):
+            response = client.delete(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/delete_data")
+
+        assert response.status_code == 200
+        mock_pause.assert_called_once_with(str(schema.id))
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.table_id is None
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
     def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):

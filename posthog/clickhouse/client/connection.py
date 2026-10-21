@@ -77,7 +77,14 @@ SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
 )
 
 
-_default_workload = Workload.ONLINE
+def default_workload_from_settings() -> Workload:
+    workload = Workload(settings.CLICKHOUSE_DEFAULT_WORKLOAD)
+    if workload not in (Workload.ONLINE, Workload.OFFLINE):
+        raise ValueError(f"CLICKHOUSE_DEFAULT_WORKLOAD must be ONLINE or OFFLINE, got {workload}")
+    return workload
+
+
+_default_workload = default_workload_from_settings()
 
 
 class ClickHouseUser(StrEnum):
@@ -102,6 +109,7 @@ class ClickHouseUser(StrEnum):
     # Notebook frame materializations (Temporal worker streaming to the object store)
     NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
+    SIGNALS = "signals"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
     BUSINESS_KNOWLEDGE = "business_knowledge"
@@ -218,13 +226,19 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
         password = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
         password_file = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD_FILE")
+        if (
+            u == ClickHouseUser.SIGNALS
+            and (data_stores.DEBUG or data_stores.TEST)
+            and not any((user, password, password_file))
+        ):
+            user, password = "signals", "signalspass"
         secret = password or password_file
         if user and secret:
             user_dict[u] = ClickHouseCredentials(
                 user=user,
                 password=password or "",
                 password_file=password_file,
-                require_password=u == ClickHouseUser.DELETION_EXECUTOR,
+                require_password=u in (ClickHouseUser.DELETION_EXECUTOR, ClickHouseUser.SIGNALS),
             )
         elif bool(user) != bool(secret):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
@@ -247,8 +261,8 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     This function retrieves the credentials associated with a given ClickHouse
     user. Most missing dedicated users fall back to the ClickHouseUser.DEFAULT
     credentials, which belong to the pod's CLICKHOUSE_USER.
-    Business Knowledge fails closed so a deployment cannot silently bypass its
-    isolated query limit.
+    Business Knowledge and Signals fail closed so a deployment cannot silently
+    bypass their isolated query limits.
 
     The user and a password or token file must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
@@ -265,6 +279,11 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
         raise RuntimeError(
             "Business Knowledge ClickHouse credentials are missing; set "
             "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    if user == ClickHouseUser.SIGNALS:
+        raise RuntimeError(
+            "Signals ClickHouse credentials are missing; set CLICKHOUSE_SIGNALS_USER and "
+            "CLICKHOUSE_SIGNALS_PASSWORD or CLICKHOUSE_SIGNALS_PASSWORD_FILE"
         )
     if user == ClickHouseUser.DELETION_EXECUTOR:
         raise RuntimeError(
@@ -452,7 +471,12 @@ def get_kwargs_for_client(
         return {**base_kwargs, **user_settings}
 
     # Note that `readonly` does nothing if the relevant vars are not set!
-    if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
+    if (
+        readonly
+        and ch_user != ClickHouseUser.SIGNALS
+        and settings.READONLY_CLICKHOUSE_USER is not None
+        and settings.READONLY_CLICKHOUSE_PASSWORD
+    ):
         return {
             "user": settings.READONLY_CLICKHOUSE_USER,
             "password": settings.READONLY_CLICKHOUSE_PASSWORD,
@@ -606,8 +630,9 @@ class RefreshingChPool(ClickHouseChPool):
         super().__init__(**kwargs)
 
     def pull(self, key: str | None = None) -> SyncClient:
+        password = self._credential_provider()
         client = super().pull(key)
-        client.connection.password = self._credential_provider()
+        client.connection.password = password
         return client
 
 

@@ -19,17 +19,16 @@ from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import RunContext, snapshot_bounds
-from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
 # runs get their own id so they never blend into the prod series.
 DISTINCT_ID = "inbox_ranking_training"
-LOCAL_DISTINCT_ID = "inbox_ranking_training_local"
+LOCAL_SUFFIX = "_local"
+LOCAL_DISTINCT_ID = f"{DISTINCT_ID}{LOCAL_SUFFIX}"
 LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
-EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
 MODEL_PROMOTED_EVENT = "inbox_ranking_model_promoted"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
@@ -60,20 +59,6 @@ class TrainingEvent:
     properties: dict[str, object]
 
 
-@frozen
-class HeadExampleCounts:
-    rows: int
-    positives: int
-    # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
-    # drop in this share is the first sign the birth-day rule stopped keeping them.
-    birth_day_positives: int
-    # The earliest report-creation day the head kept, and whether the row budget dropped older days,
-    # so a chart shows when the budget starts to cut history.
-    example_window_start: datetime.date | None
-    example_cap_bound: bool
-    pairs_skipped_missing_label_columns: int
-
-
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head: the head's metrics plus the candidate context. A head the candidate
     could not fit still gets an event (`trained` false, `readable` false), so a per-head alert sees
@@ -100,47 +85,6 @@ def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
         for head in metadata.get("skipped_heads", [])
     ]
     return [*trained, *skipped]
-
-
-def examples_events(
-    *,
-    partition_key: str,
-    run_id: str,
-    feature_set: str,
-    snapshots: int,
-    backfilled_rows: int,
-    excluded: ConsentExclusion,
-    per_head: Mapping[str, HeadExampleCounts],
-) -> list[TrainingEvent]:
-    """One event per head with its example and positive counts; the run-level counts repeat on each.
-
-    Examples are per feature set, not per model family: every family on a set trains on one
-    Parquet, so `feature_set` is the dimension that separates two of these series.
-    """
-    return [
-        TrainingEvent(
-            event=EXAMPLES_BUILT_EVENT,
-            properties={
-                "model_version": partition_key,
-                "feature_set": feature_set,
-                "run_id": run_id,
-                "snapshots": snapshots,
-                "backfilled_state_rows_excluded": backfilled_rows,
-                "excluded_no_training_consent_reports": excluded.reports,
-                "excluded_no_training_consent_teams": excluded.teams,
-                "head": head,
-                "rows": counts.rows,
-                "positives": counts.positives,
-                "birth_day_positives": counts.birth_day_positives,
-                "example_window_start": counts.example_window_start.isoformat()
-                if counts.example_window_start
-                else None,
-                "example_cap_bound": counts.example_cap_bound,
-                "pairs_skipped_missing_label_columns": counts.pairs_skipped_missing_label_columns,
-            },
-        )
-        for head, counts in per_head.items()
-    ]
 
 
 def promotion_event(
@@ -325,15 +269,18 @@ def capture_training_events(
     events: list[TrainingEvent],
     *,
     timestamp: datetime.datetime | None = None,
+    distinct_id: str = DISTINCT_ID,
 ) -> None:
     """Best-effort: a failed capture is logged, never raised, so telemetry cannot fail a training
     run. Local runs are marked twice, by `environment` and by their own distinct id, so a chart
     that forgets to filter still shows them as a separate series. `timestamp` defaults to the
-    partition's midday; an event about a person's action passes the moment it happened."""
+    partition's midday; an event about a person's action passes the moment it happened. Another
+    pipeline of this dag passes its own fixed `distinct_id`."""
     if not capture_allowed():
         return
     environment = settings.CLOUD_DEPLOYMENT or LOCAL_ENVIRONMENT
-    distinct_id = DISTINCT_ID if environment != LOCAL_ENVIRONMENT else LOCAL_DISTINCT_ID
+    if environment == LOCAL_ENVIRONMENT:
+        distinct_id = f"{distinct_id}{LOCAL_SUFFIX}"
     timestamp = timestamp or event_timestamp(partition_key)
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds

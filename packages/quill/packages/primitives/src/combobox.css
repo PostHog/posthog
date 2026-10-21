@@ -116,6 +116,8 @@
     }
 
     .quill-combobox__item {
+        --quill-combobox-item-gap: 0.375rem;
+
         /* The check indicator is absolutely positioned (start-2) and must anchor
            to the item, not the scrolling popup. */
         position: relative;
@@ -126,10 +128,23 @@
      * or not and the check indicator (absolute start-2) sits in the gutter —
      * matching checkbox/radio menu-item spacing. The `.quill-combobox__content`
      * ancestor scope outranks Button's own `padding-inline`, which otherwise
-     * ties and wins by source order.
+     * ties and wins by source order. An action row is never selected, so it
+     * keeps Button's own padding. The gutter is the row's padding, an icon and
+     * the item's gap, so an option's content starts exactly where an action
+     * row's label does. The gap lives in one variable, so the two cannot drift.
      */
-    .quill-combobox__content .quill-combobox__item {
-        padding-inline-start: 1.875rem;
+    .quill-combobox__content .quill-combobox__item:not([data-action]) {
+        /* Button's row padding and row icon size, then the item's gap. */
+        padding-inline-start: calc(0.5rem + 0.875rem + var(--quill-combobox-item-gap));
+    }
+
+    .quill-combobox__item-content {
+        gap: var(--quill-combobox-item-gap);
+    }
+
+    /* The selection check. An app whose row icons draw thinner lines sets the variable to match them. */
+    .quill-combobox__indicator-icon {
+        stroke-width: var(--quill-indicator-stroke-width, 2);
     }
 
     .quill-combobox__item[data-disabled] {
@@ -149,7 +164,9 @@
         box-shadow: none;
     }
 
-    .quill-combobox__item:not([data-variant='destructive'])[data-highlighted] * {
+    /* `data-keep-color` opts a child out, for example a product icon that carries its own color. */
+    .quill-combobox__item:not([data-variant='destructive'])[data-highlighted]
+        *:not([data-keep-color], [data-keep-color] *) {
         color: var(--foreground);
     }
 

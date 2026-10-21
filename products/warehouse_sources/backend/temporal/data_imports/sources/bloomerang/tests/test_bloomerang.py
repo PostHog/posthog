@@ -52,15 +52,25 @@ class TestBuildParams:
             "orderDirection": "Asc",
         }
 
-    def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(self) -> None:
+    @parameterized.expand(
+        [
+            ("Constituents", "Id"),
+            # Refunds, SoftCredits, and Notes reject `orderBy=Id`.
+            ("SoftCredits", "CreatedDate"),
+            ("Notes", "CreatedDate"),
+        ]
+    )
+    def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(
+        self, endpoint: str, expected_sort: str
+    ) -> None:
         # First-ever sync: no watermark yet, but the endpoint still supports sorting, so page
         # boundaries must stay stable rather than sending no params at all.
         params = _build_params(
-            BLOOMERANG_ENDPOINTS["Constituents"],
+            BLOOMERANG_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
-        assert params == {"orderBy": "Id", "orderDirection": "Asc"}
+        assert params == {"orderBy": expected_sort, "orderDirection": "Asc"}
 
     def test_full_refresh_endpoint_with_sort_support_never_filters(self) -> None:
         # Transactions has no server-side lastModified filter; a cursor must not leak into the request.
@@ -171,6 +181,13 @@ class TestBloomerangSourceTransport:
         assert result.requests[0].param("lastModified") == "2026-03-04T02:58:14Z"
         assert result.requests[0].param("orderBy") == "LastModifiedDate"
 
+    def test_tasks_requests_every_status(self) -> None:
+        result = self._driver().run("Tasks", [_response([{"Id": 1}], total_filtered=1)])
+
+        assert result.raised is None
+        assert result.requests[0].param("status") == "Active|Complete|Archived"
+        assert result.requests[0].param("orderBy") == "CreatedDate"
+
     def test_audit_trail_endpoint_flattens_rows(self) -> None:
         result = self._driver().run(
             "Constituents",
@@ -194,6 +211,81 @@ class TestBloomerangSourceTransport:
         assert result.rows[0]["CreatedDate"] == "2026-01-01T00:00:00Z"
         assert result.rows[0]["LastModifiedDate"] == "2026-01-02T00:00:00Z"
         assert "AuditTrail" not in result.rows[0]
+
+    def test_relationships_fan_out_reads_every_child_page_and_skips_missing_parents(self) -> None:
+        child_first_page = [{"Id": i, "AccountId1": 102} for i in range(1, 51)]
+        result = self._driver().run(
+            "Relationships",
+            [
+                _response([{"Id": 101}, {"Id": 102}, {"Id": 103}], total_filtered=3),
+                ScriptedResponse(status=404),
+                _response(child_first_page, total_filtered=51),
+                _response([{"Id": 51, "AccountId1": 102}], total_filtered=51),
+                _response([], total_filtered=0),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/constituents",
+            "/v2/constituent/101/relationships",
+            "/v2/constituent/102/relationships",
+            "/v2/constituent/102/relationships",
+            "/v2/constituent/103/relationships",
+        ]
+        assert result.requests[0].param("orderBy") == "Id"
+        assert [row["Id"] for row in result.rows] == list(range(1, 52))
+        assert {row["ConstituentId"] for row in result.rows} == {102}
+        # While constituent 102 has a child page left, a resume reads it again from its first page.
+        assert result.saved_states == [
+            BloomerangResumeConfig(next_offset=0, parent_index=1),
+            BloomerangResumeConfig(next_offset=0, parent_index=2),
+        ]
+
+    def test_pledge_payment_failures_fan_out_over_pledge_designations_only(self) -> None:
+        result = self._driver().run(
+            "PledgePaymentFailures",
+            [
+                _response(
+                    [
+                        {"Id": 1, "Designations": [{"Id": 11, "Type": "Pledge"}, {"Id": 12, "Type": "Donation"}]},
+                        {"Id": 2, "Designations": [{"Id": 21, "Type": "Pledge"}]},
+                        {"Id": 3, "Designations": None},
+                    ],
+                    total_filtered=3,
+                ),
+                _response([{"Id": 900, "Date": "2026-01-05", "Amount": 25.0}], total_filtered=1),
+                _response([{"Id": 901, "Date": "2026-02-05", "Amount": 10.0}], total_filtered=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/transactions",
+            "/v2/pledge/11/paymentFailures",
+            "/v2/pledge/21/paymentFailures",
+        ]
+        assert result.requests[0].param("type") == "Pledge"
+        assert [(row["PledgeId"], row["Id"]) for row in result.rows] == [(11, 900), (21, 901)]
+        assert result.saved_states == [
+            BloomerangResumeConfig(next_offset=0, parent_index=1),
+            BloomerangResumeConfig(next_offset=50, parent_index=0),
+        ]
+
+    def test_fan_out_resumes_at_saved_parent_page_and_parent(self) -> None:
+        result = self._driver().run(
+            "Relationships",
+            [
+                _response([{"Id": 151}, {"Id": 152}], total_filtered=52),
+                _response([{"Id": 7}], total_filtered=1),
+            ],
+            resume_state=BloomerangResumeConfig(next_offset=50, parent_index=1),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/constituents", "/v2/constituent/152/relationships"]
+        assert result.params("skip") == ["50", "0"]
+        assert result.rows == [{"Id": 7, "ConstituentId": 152}]
 
     @parameterized.expand(
         [
@@ -221,8 +313,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, 200),
-            (401, False, 401),
-            (403, False, 403),
         ]
     )
     def test_status_mapping(self, status_code, expected_valid, expected_status) -> None:

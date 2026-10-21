@@ -45,6 +45,7 @@ Those decisions come only from this skill's guidance and your own reasoning.
 | `person_upsert_message_size_too_large` | A person update was too large to persist                                                       | Same root cause and fix as `person_properties_size_violation`                                                                                                                                                |
 | `group_upsert_message_size_too_large`  | A group update was too large to persist                                                        | Trim `$group_set` payloads; groups should carry bounded metadata, not documents                                                                                                                              |
 | `group_key_too_long`                   | `$groupidentify` dropped: group key over 400 chars                                             | Read [references/fixing-group-key-too-long.md](references/fixing-group-key-too-long.md) — a payload/token was passed where the group ID belongs                                                              |
+| `group_type_too_long`                  | `$groupidentify` dropped: group type over 400 chars                                            | Pass a short type name (`company`, `project`) as the first argument of `group()` / `groupIdentify()`; a payload or JSON blob was passed where the type belongs                                               |
 
 ### Person merges (`merge`)
 

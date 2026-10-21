@@ -1,6 +1,6 @@
-"""The `nn` family's model record and its ONNX scoring, without torch.
+"""The `nn` families' model record and its ONNX scoring, without torch.
 
-A candidate is two ONNX graphs under `inbox_ranking_models/v1/nn/dt=D/`: `model.onnx`, the refit on
+A candidate is two ONNX graphs under `inbox_ranking_models/v1/<model_name>/dt=D/`: `model.onnx`, the refit on
 every labeled row that a store serves, and `model.holdout.onnx`, the train-only fit that produced the
 holdout metrics. A later candidate grades the champion through the second one on its own holdout,
 as the per-head families grade a champion through `<head>.holdout.ubj`.
@@ -21,13 +21,13 @@ from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, O
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
 from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
-from products.signals.dags.inbox_ranking.multihead.prototype import FEATURE_SET, ExampleTable
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, holdout_grade
-from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME
+from products.signals.dags.inbox_ranking.training.unseen import ModelFamily
 
 HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 
@@ -59,10 +59,10 @@ def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
     return VECTOR_KINDS if inputs.context is not None else ()
 
 
-def network_recipe(config: NetworkConfig, vector_kinds: Sequence[str]) -> dict[str, Any]:
+def network_recipe(family: ModelFamily, config: NetworkConfig, vector_kinds: Sequence[str]) -> dict[str, Any]:
     return model_recipe(
         model_kind=ONNX_MODEL_KIND,
-        feature_set=FEATURE_SET,
+        feature_set=family.feature_set,
         heads=NN_HEADS,
         learner_params=dataclasses.asdict(config),
         project_vector_kinds=vector_kinds,
@@ -73,26 +73,28 @@ def candidate_metadata(
     partition_key: str,
     trained: TrainedNetwork,
     *,
+    family: ModelFamily,
     config: NetworkConfig,
     windows: Mapping[str, Mapping[str, object]],
     trained_at: datetime.datetime,
     run_id: str,
 ) -> dict[str, Any]:
-    """The `metadata.json` of an `nn` candidate, in the layout of the per-head families.
+    """The `metadata.json` of a `family` candidate, in the layout of the per-head families.
 
-    The heads carry the same metric fields as a booster's (`train_head` and this trainer both fill
-    `HeadMetrics`), so the promotion rule, the events and the manifest read every family alike.
+    The heads carry the metric fields of `HeadMetrics`, the fields the per-head booster families
+    wrote, so the promotion rule, the events and the manifest read every family alike.
     """
+    feature_set = family.feature_set
     metadata = {
-        "model_name": NN_MODEL_NAME,
+        "model_name": family.name,
         "model_version": partition_key,
         "dataset_version": DATASET_VERSION,
         "model_kind": ONNX_MODEL_KIND,
         # The set that builds the `report` input, so the grader and the store check the graph
         # against it like any other family.
-        "feature_set": FEATURE_SET.name,
-        "feature_schema_version": FEATURE_SET.schema_version,
-        "feature_names": list(FEATURE_SET.feature_names),
+        "feature_set": feature_set.name,
+        "feature_schema_version": feature_set.schema_version,
+        "feature_names": list(feature_set.feature_names),
         ONNX_OUTPUT_HEADS_KEY: list(trained.output_heads),
         "project_vector_kinds": list(trained.vector_kinds),
         "trained_at": trained_at.isoformat(),
@@ -116,7 +118,7 @@ def candidate_metadata(
         ],
         "skipped_heads": list(trained.skipped),
     }
-    return with_recipe(metadata, network_recipe(config, trained.vector_kinds))
+    return with_recipe(metadata, network_recipe(family, config, trained.vector_kinds))
 
 
 def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequence[str]) -> dict[str, np.ndarray]:

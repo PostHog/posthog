@@ -77,6 +77,7 @@ class TestValidateCredentials:
             (None, "/v1/notes"),
             ("notes", "/v1/notes"),
             ("folders", "/v1/folders"),
+            ("spaces", "/v1/spaces"),
             ("transcripts", "/v1/notes"),  # fan-out child probes its parent listing
             ("unknown", "/v1/notes"),
         ],

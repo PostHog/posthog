@@ -250,11 +250,13 @@ export interface ChartConfig {
     yScaleType?: 'linear' | 'log'
     // — Axis formatting —
 
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean
@@ -293,7 +295,9 @@ export interface ChartConfig {
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
-     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+     *  label can't push the plot off screen. Horizontal charts raise the cap to 30% of the chart
+     *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
+     *  render labels untruncated. */
     maxCategoryLabelWidth?: number
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;

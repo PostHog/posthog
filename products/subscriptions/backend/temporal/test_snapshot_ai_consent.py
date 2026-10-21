@@ -8,9 +8,9 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.temporal.snapshot_activities import snapshot_subscription_insights
 from products.subscriptions.backend.temporal.types import SnapshotInsightsInputs
 
