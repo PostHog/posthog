@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -59,6 +60,12 @@ class ReportText(BaseModel):
             previous_text = item.text
         return "".join(parts)
 
+    def render_bullet(self, marker: str = "-", bold_marker: str = "**") -> str:
+        content = re.sub(r"^(?:[ \t]*(?:[-+*•]|\d+[.)])[ \t]+)+", "", self.render(bold_marker).strip())
+        if not content:
+            return ""
+        return f"{marker} {content}"
+
 
 class ReportSubsection(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -71,7 +78,7 @@ class ReportSubsection(BaseModel):
 
     def render(self) -> str:
         parts = [f"### {self.heading}"]
-        parts.extend("- " + finding.render() for finding in self.findings)
+        parts.extend(finding.render_bullet() for finding in self.findings)
         parts.extend(visual.render() for visual in self.visuals)
         return "\n\n".join(parts)
 
@@ -88,7 +95,7 @@ class ReportSection(BaseModel):
 
     def render(self) -> str:
         parts = [f"## {self.heading}"]
-        parts.extend("- " + finding.render() for finding in self.findings)
+        parts.extend(finding.render_bullet() for finding in self.findings)
         parts.extend(subsection.render() for subsection in self.subsections)
         parts.extend(visual.render() for visual in self.visuals)
         return "\n\n".join(parts)

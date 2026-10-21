@@ -153,7 +153,7 @@ class SlackSummaryContent(BaseModel):
     findings: list[ReportText]
 
     def render(self) -> str:
-        return "\n\n".join("• " + finding.render("*") for finding in self.findings)
+        return "\n\n".join(finding.render_bullet("•", "*") for finding in self.findings)
 
 
 def _compile_template(template: str, variables: dict[str, str]) -> str:
