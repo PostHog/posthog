@@ -13,12 +13,14 @@ import json
 from typing import Any
 
 from products.data_catalog.evals.constants import (
+    APPROVED_BADGE_CODE_POINT,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
     EVAL_DESCRIPTION_CHAR_LIMIT,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
     METRICS_CATALOG_MARKER,
+    PROPOSED_BADGE_ICON,
 )
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
@@ -41,12 +43,17 @@ __all__ = [
     "MetricsCatalogBeforeDataDiscovery",
     "MetricsCatalogNotQueried",
     "GovernedBehaviorCorrectness",
+    "ClarificationAsked",
+    "MetricDescribeBeforeAdaptedSql",
+    "ProposedBadgeShown",
+    "TrustBadgeShown",
 ]
 
 SQL_TOOL = "execute-sql"
 METRIC_LIST_TOOL = "metric-list"
 METRIC_DESCRIBE_TOOL = "metric-describe"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
+QUESTION_TOOL = "askuserquestion"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
@@ -82,7 +89,9 @@ def _successful_sql(parser: LogParser) -> list[ToolCall]:
 
 
 def _is_catalog_lookup(call: ToolCall) -> bool:
-    return call.name == METRIC_LIST_TOOL or (call.name == SQL_TOOL and METRICS_CATALOG_MARKER in _query_text(call))
+    return call.name in (METRIC_LIST_TOOL, METRIC_DESCRIBE_TOOL) or (
+        call.name == SQL_TOOL and METRICS_CATALOG_MARKER in _query_text(call)
+    )
 
 
 def _successful_catalog_lookups(parser: LogParser) -> list[ToolCall]:
@@ -90,6 +99,10 @@ def _successful_catalog_lookups(parser: LogParser) -> list[ToolCall]:
         (call for call in parser.get_tool_calls() if not call.is_error and _is_catalog_lookup(call)),
         key=lambda call: call.position,
     )
+
+
+def _is_question_call(call: ToolCall) -> bool:
+    return call.name.replace("_", "").casefold() == QUESTION_TOOL
 
 
 def _is_discovery(call: ToolCall) -> bool:
@@ -110,7 +123,7 @@ def _is_tool_discovery(call: ToolCall) -> bool:
 
 
 def _is_data_bearing(call: ToolCall) -> bool:
-    if _is_tool_discovery(call) or call.name == METRIC_LIST_TOOL:
+    if _is_tool_discovery(call) or call.name in (METRIC_LIST_TOOL, METRIC_DESCRIBE_TOOL):
         return False
     if call.name in _KNOWN_DATA_BEARING_TOOLS or call.name.startswith("query-"):
         return True
@@ -234,6 +247,18 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
         return Score(name=self._name(), score=1.0, metadata={"failed_catalog_lookups": failed_catalog_lookups})
 
 
+def _first_line(answer: str) -> str:
+    return next((line for line in answer.splitlines() if line.strip()), "")
+
+
+def _expected_metric_names(metric_name: object) -> list[str]:
+    if isinstance(metric_name, str):
+        return [metric_name] if metric_name else []
+    if isinstance(metric_name, list) and all(isinstance(name, str) and name for name in metric_name):
+        return metric_name
+    return []
+
+
 class CanonicalMetricRun(Scorer):
     """Binary: did the expected canonical metric run after discovery with the expected outcome?"""
 
@@ -267,11 +292,12 @@ class CanonicalMetricRun(Scorer):
             )
 
         metric_name = spec.get("metric_name")
-        if not isinstance(metric_name, str) or not metric_name:
+        metric_names = _expected_metric_names(metric_name)
+        if not metric_names:
             return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
 
         called_names = [call.input.get("name") for call in run_calls]
-        if any(name != metric_name for name in called_names):
+        if any(name not in metric_names for name in called_names):
             return Score(
                 name=self._name(),
                 score=0.0,
@@ -283,14 +309,15 @@ class CanonicalMetricRun(Scorer):
         post_catalog_runs = [
             call
             for call in run_calls
-            if call.input.get("name") == metric_name
+            if call.input.get("name") in metric_names
             and any(position < call.position for position in successful_catalog_positions)
         ]
         matching_calls = [call for call in post_catalog_runs if call.is_error is expected_error]
         contradicting_calls = [call for call in post_catalog_runs if call.is_error is not expected_error]
+        matched_names = {call.input.get("name") for call in matching_calls}
         # Mixed outcomes (e.g. a failed run followed by a successful one) are contradictory —
         # only accept when every canonical run agreed with the expected outcome.
-        if matching_calls and not contradicting_calls:
+        if matched_names == set(metric_names) and not contradicting_calls:
             return Score(
                 name=self._name(),
                 score=1.0,
@@ -441,10 +468,11 @@ class MetricDescriptionConcise(Scorer):
 METRIC_DESCRIPTION_QUALITY_PROMPT = """\
 You are grading the 'description' an agent wrote when saving a metric to a governed catalog.
 
-A good description states, in 1-3 sentences, what the metric means and what it serves: the
-business meaning plus any load-bearing inclusions/exclusions or grain. It must not narrate or
-restate the query or calculation steps - those live in the metric's definition, and the agent's
-rationale belongs in the separate 'reasoning' field.
+A good description states, in 1-2 short sentences, what the number is: its meaning and grain plus
+any inclusion or exclusion that changes it. It must not narrate or restate the query or calculation
+steps - those live in the metric's definition, and the agent's rationale belongs in the separate
+'reasoning' field. It must not name source tables or views, trace lineage, list columns, or compare
+with or point to other metrics.
 
 The description to grade:
 <description>{{output.description}}</description>
@@ -455,9 +483,10 @@ The metric's definition, for reference, to spot narration:
 The agent's reasoning field:
 <reasoning>{{output.reasoning}}</reasoning>
 
-Answer "yes" only if the description is 1-3 sentences stating meaning and purpose without walking
+Answer "yes" only if the description is 1-2 sentences stating what the number is without walking
 through the query or calculation steps. Answer "no" if it narrates the query, restates SQL or
-step-by-step mechanics, or pads beyond 3 sentences."""
+step-by-step mechanics, names source tables or lineage, lists columns, compares with or points to
+other metrics, or pads beyond 2 sentences."""
 
 
 class MetricDescriptionQuality(JudgedScorer):
@@ -513,8 +542,68 @@ class MetricsCatalogNotQueried(Scorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        hits = [c for c in _successful_sql(parser) if _is_catalog_lookup(c)]
+        hits = _successful_catalog_lookups(parser)
         return Score(name=self._name(), score=0.0 if hits else 1.0, metadata={"catalog_lookups": len(hits)})
+
+
+class ClarificationAsked(Scorer):
+    """Binary: did the agent ask a catalog clarifying question before any data-bearing call?"""
+
+    def _name(self) -> str:
+        return "clarification_asked"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        question_positions = [call.position for call in parser.get_tool_calls() if _is_question_call(call)]
+        if not question_positions:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no clarifying question was asked"})
+
+        first_question = min(question_positions)
+        premature = [
+            {"call_id": call.call_id, "tool": call.name}
+            for call in parser.get_tool_calls()
+            if _is_data_bearing(call) and not call.is_error and call.position <= first_question
+        ]
+        if premature:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "answered from data before asking", "offenders": premature},
+            )
+        return Score(name=self._name(), score=1.0, metadata={"question_position": first_question})
+
+
+class MetricDescribeBeforeAdaptedSql(Scorer):
+    """Soft: SQL adapted from a catalog definition should follow a `metric-describe`."""
+
+    def _name(self) -> str:
+        return "metric_describe_before_adapted_sql"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        analytical_sql = [call for call in _successful_sql(parser) if not _is_catalog_lookup(call)]
+        if not analytical_sql:
+            return Score(name=self._name(), score=1.0, metadata={"reason": "no adapted SQL"})
+        describe_positions = [call.position for call in parser.get_tool_calls(METRIC_DESCRIBE_TOOL)]
+        if not describe_positions:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "adapted SQL without metric-describe"})
+        first_describe = min(describe_positions)
+        late = [call.call_id for call in analytical_sql if call.position < first_describe]
+        return Score(
+            name=self._name(),
+            score=0.0 if late else 1.0,
+            metadata={"sql_before_describe": late},
+        )
 
 
 GOVERNED_BEHAVIOR_PROMPT = """\
@@ -528,7 +617,9 @@ with the requested measure, dimensions, grain, and time semantics, and must be r
 data-catalog-metric-run.
 - Multiple materially different approved matches require a clarification question and no metric run.
 - The runner response is the current trust result: recheck status and is_drifted after execution. \
-If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical.
+If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical. \
+The word itself belongs in the query context. In the final answer, a plain statement that the number \
+is a one-off calculation rather than a saved definition counts as that label.
 - A 'proposed' or drifted metric must never be presented as canonical or official; the agent \
 must derive the number itself (it may note the unapproved definition exists).
 - An empty catalog is normal: the agent must derive the number itself without stalling or \
@@ -766,3 +857,84 @@ class SemanticTrustDecisionCorrectness(JudgedScorer):
             },
             "expected": {"expected_behavior": spec["expected_behavior"]},
         }
+
+
+CANARY_ROUTING_SCORERS: list[Scorer] = [
+    MetricsCatalogBeforeDataDiscovery(),
+    MetricsCatalogNotQueried(),
+    CanonicalMetricRun(),
+    ClarificationAsked(),
+    MetricDescribeBeforeAdaptedSql(),
+]
+
+
+class TrustBadgeShown(Scorer):
+    """Binary: does the final answer show the approved-metric badge exactly when it should?
+
+    ``expected["trust_badge"]["shown"]`` is true when the answer comes from an approved, non-drifted
+    metric run, and false when no badge may appear (a proposed or drifted metric, or a derived number).
+    """
+
+    def _name(self) -> str:
+        return "trust_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        should_show = spec.get("shown") if isinstance(spec, dict) else None
+        if not isinstance(should_show, bool):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected value"})
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        opens_with_badge = APPROVED_BADGE_CODE_POINT in _first_line(answer)
+        has_badge = APPROVED_BADGE_CODE_POINT in answer
+        passed = opens_with_badge if should_show else not has_badge
+        return Score(
+            name=self._name(),
+            score=1.0 if passed else 0.0,
+            metadata={"expected_shown": should_show, "opens_with_badge": opens_with_badge, "has_badge": has_badge},
+        )
+
+
+class ProposedBadgeShown(Scorer):
+    """Binary: when the agent runs the named proposed metric, does the answer badge it and link to it?
+
+    Using a proposed metric is the agent's call, so a case where it never runs the metric is skipped
+    (``score=None``) and left to the behavior judge.
+    """
+
+    def _name(self) -> str:
+        return "proposed_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
+        if not isinstance(metric_name, str) or not metric_name:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        ran = any(
+            not call.is_error and call.input.get("name") == metric_name
+            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
+        )
+        if not ran:
+            return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
+
+        answer = (output or {}).get("last_message") or ""
+        opening = _first_line(answer)
+        # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
+        # name only starts the same way does not count.
+        link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
+        has_badge = PROPOSED_BADGE_ICON in opening
+        has_link = bool(link.search(opening))
+        return Score(
+            name=self._name(),
+            score=1.0 if has_badge and has_link else 0.0,
+            metadata={"has_badge": has_badge, "has_link": has_link},
+        )

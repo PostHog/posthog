@@ -37,6 +37,7 @@ _MUTAGEN_VERSION = "0.18.1"
 # resulting silence tolerance (~30s, comfortably past the ~26s reset cadence).
 _SSH_SHIM_DIR = Path.home() / ".hogli" / "mutagen-ssh-shim"
 _KEEPALIVE_COUNT = 3
+_CONNECT_TIMEOUT_SECONDS = 60
 
 # Baked at generation time (see ensure_ssh_shim): only when the ssh/scp target is
 # a devbox (a `coder.*` host -- the sole thing hogli syncs to) do we bump
@@ -55,6 +56,7 @@ done
 args=()
 for a in "$@"; do
   case "$a" in
+  -oConnectTimeout=*) [ -n "$devbox" ] && a="-oConnectTimeout={connect_timeout}" ;;
   -oServerAliveCountMax=*) [ -n "$devbox" ] && a="-oServerAliveCountMax={count}" ;;
   esac
   args+=("$a")
@@ -271,7 +273,11 @@ def ensure_ssh_shim() -> Path:
     _SSH_SHIM_DIR.chmod(0o700)
     for name in ("ssh", "scp"):
         target = _SSH_SHIM_DIR / name
-        content = _SHIM_TEMPLATE.format(count=_KEEPALIVE_COUNT, real=_resolve_real_ssh(name))
+        content = _SHIM_TEMPLATE.format(
+            count=_KEEPALIVE_COUNT,
+            connect_timeout=_CONNECT_TIMEOUT_SECONDS,
+            real=_resolve_real_ssh(name),
+        )
         if not target.exists() or target.read_text() != content:
             _write_owner_only(target, content)
         else:

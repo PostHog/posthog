@@ -80,6 +80,31 @@ const EMPTY_PARAGRAPH_MARKDOWN = ' '
  * one lands as its own node. */
 export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
 const NOTEBOOK_BLOCK_JOINER = '\n\n'
+/**
+ * A block id the document stores, rather than one derived from the block's content on every
+ * parse. Only these are written back as an anchor, so a document that never carried one
+ * serializes byte for byte as it was read.
+ */
+export const STORED_NODE_ID_PREFIX = 'phb-'
+/**
+ * A stored block id, written on its own line above the block it names.
+ *
+ * A comment is the only place a paragraph can carry an id: the document is markdown, and prose
+ * has no attribute to hold one. It renders nowhere, so a reader never sees it.
+ *
+ * The prefix is part of the pattern, so this matches exactly what the serializer writes back.
+ * A wider pattern would eat an authorial `<!--ph:note-->` as an anchor and drop it on the next
+ * save, because the serializer writes no anchor for an id it did not store.
+ */
+const NODE_ANCHOR_REGEX = /^<!--ph:(phb-[A-Za-z0-9._-]{1,124})-->$/
+
+export function isStoredNodeId(id: string | undefined): boolean {
+    return !!id && id.startsWith(STORED_NODE_ID_PREFIX)
+}
+
+export function serializeNodeAnchor(id: string): string {
+    return `<!--ph:${id}-->\n`
+}
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -128,7 +153,19 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     const nodes: NotebookBlockNode[] = []
     const errors: NotebookParseError[] = []
     const occurrences = new Map<string, number>()
+    let pendingAnchorId: string | null = null
     const pushParsedNode = (node: NotebookBlockNode): void => {
+        const anchorId = pendingAnchorId
+        pendingAnchorId = null
+        // A tag's own `nodeId` prop wins over an anchor above it, matching the backend walk in
+        // products/notebooks/backend/util.py. Taking the anchor here would address one cell by
+        // two different ids, one per layer.
+        const carriesOwnId = node.type === 'component' && typeof node.props.nodeId === 'string' && !!node.props.nodeId
+        if (anchorId !== null && !carriesOwnId) {
+            node.id = anchorId
+            nodes.push(node)
+            return
+        }
         const fingerprint = getNodeFingerprint(node)
         const occurrence = occurrences.get(fingerprint) ?? 0
         occurrences.set(fingerprint, occurrence + 1)
@@ -154,7 +191,21 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
         }
 
         if (!line.trim()) {
+            // An anchor names only the block on the line below it. Text removed from under an
+            // anchor leaves the anchor behind, and carried over a blank line it would hand the id
+            // to the next block, so an edit by that id would reach a block its caller never read.
+            pendingAnchorId = null
             blankLinesBeforeBlock += 1
+            lineIndex += 1
+            continue
+        }
+
+        // Read before the block scan, so `parseCommentBlock` never takes an anchor for an
+        // authorial note. The blank-line count is left alone: the anchor sits inside the
+        // separator that decides the card boundary, and must not close it.
+        const anchorMatch = NODE_ANCHOR_REGEX.exec(line.trim())
+        if (anchorMatch) {
+            pendingAnchorId = anchorMatch[1]!
             lineIndex += 1
             continue
         }
@@ -184,7 +235,10 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
         .map((node, index) => {
-            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            const body = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            // A derived id is rebuilt from the block on the next parse, so writing it back would
+            // rewrite every document the editor opens and break `serialize(parse(md)) === md`.
+            const block = isStoredNodeId(node.id) ? `${serializeNodeAnchor(node.id)}${body}` : body
             if (index === 0) {
                 return block
             }
@@ -501,6 +555,21 @@ function parseInlineLink(
         return null
     }
 
+    const label = markdown.slice(index + 1, labelEnd)
+
+    // CommonMark's pointy-bracket form, `[label](<href>)`. Slack writes links this way, so it
+    // arrives with every link someone copies out of a Slack message.
+    if (markdown[labelEnd + 2] === '<') {
+        const hrefEnd = markdown.indexOf('>', labelEnd + 3)
+        if (hrefEnd !== -1 && markdown[hrefEnd + 1] === ')') {
+            return {
+                label,
+                href: sanitizeNotebookLinkHref(markdown.slice(labelEnd + 3, hrefEnd)),
+                nextIndex: hrefEnd + 2,
+            }
+        }
+    }
+
     // Hrefs may contain backslash-escaped characters and balanced parentheses (Wikipedia-style URLs)
     let cursor = labelEnd + 2
     let parenDepth = 0
@@ -519,7 +588,7 @@ function parseInlineLink(
         if (character === ')') {
             if (parenDepth === 0) {
                 return {
-                    label: markdown.slice(index + 1, labelEnd),
+                    label,
                     href: sanitizeNotebookLinkHref(rawHref),
                     nextIndex: cursor + 1,
                 }
@@ -1939,11 +2008,35 @@ export function escapeMarkdownLineStart(line: string): string {
         return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
     }
 
-    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z]|<!--)/.test(content)) {
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$)/.test(content) || COMPONENT_TAG_LINE_START.test(content)) {
         return `${leadingWhitespace}\\${content}`
     }
 
     return line
+}
+
+const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
+const COMPONENT_TAG_OPENER = /^\\?(<[A-Z][A-Za-z0-9]*|<!--)/
+// The notebooks backend reads a cell after Python's `str.strip()`, which also removes `\x1c` to `\x1f`
+// and `\x85`. The editor lifts a quoted tag out of its blockquote, so `>` markers count as a prefix too.
+const COMPONENT_TAG_LINE_PREFIX = /^[\s\x1c-\x1f\x85>]*/
+
+// A backslash is not enough: both parsers recover a `\<Tag` that spans lines, because the prose
+// serializer writes multiline components that way. Inline code cannot be recovered into a tag.
+function escapeComponentTagLineStart(line: string): string {
+    const prefix = line.match(COMPONENT_TAG_LINE_PREFIX)?.[0] ?? ''
+    const content = line.slice(prefix.length)
+    const match = content.match(COMPONENT_TAG_OPENER)
+    return match ? `${prefix}\`${match[1]}\`${content.slice(match[0].length)}` : line
+}
+
+// For markdown the author meant to render: only a line that would parse as a component tag or a
+// comment is neutralized, so headings and lists stay live. Lines inside code fences are neutralized
+// too, because the editor and the notebooks backend disagree on where a fence ends, and a fence can
+// span the blocks a caller joins. The cost is a stray pair of backticks in a code sample.
+// The notebooks backend reads `\r` as a line break, so it is one here too.
+export function escapeComponentTagLines(markdown: string): string {
+    return markdown.replace(/\r\n?/g, '\n').split('\n').map(escapeComponentTagLineStart).join('\n')
 }
 
 function getCodeBlockFence(text: string): string {

@@ -5,12 +5,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PendingBatch,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
+    process_batches,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load"
 
@@ -58,3 +57,18 @@ class TestProcessBatch:
             await process_batch(_make_batch(latest_attempt=latest_attempt))
 
         assert mock_process_message.call_args.kwargs["attempt"] == expected_attempt
+
+
+class TestProcessBatches:
+    @pytest.mark.asyncio
+    async def test_forwards_every_member_and_the_highest_attempt(self):
+        # The set's attempt number decides whether the processor scans delta history; taking the
+        # first member's count would let a redelivered member skip that scan.
+        batches = [_make_batch(batch_index=0, latest_attempt=0), _make_batch(batch_index=1, latest_attempt=2)]
+
+        with patch(f"{_LOAD_MODULE}.process_messages") as mock_process_messages:
+            await process_batches(batches)
+
+        messages = mock_process_messages.call_args.args[0]
+        assert [message["batch_index"] for message in messages] == [0, 1]
+        assert mock_process_messages.call_args.kwargs["attempt"] == 3

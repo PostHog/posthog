@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.source import BuzzsproutSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buzzsprout import (
@@ -33,11 +32,12 @@ class TestBuzzsproutSource:
         assert podcast_field.secret is False
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_get_schemas_full_refresh_only(self, endpoint):
-        # Buzzsprout has no server-side timestamp filter, so every endpoint is full refresh only.
+    def test_get_schemas_sync_modes(self, endpoint):
+        # Only downloads has a server-side filter (its per-request date). It re-reads its last days,
+        # so append would duplicate rows.
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert schemas[endpoint].supports_incremental is False
+        assert schemas[endpoint].supports_incremental is (endpoint == "downloads")
         assert schemas[endpoint].supports_append is False
 
     def test_non_retryable_errors_include_auth_failures(self):

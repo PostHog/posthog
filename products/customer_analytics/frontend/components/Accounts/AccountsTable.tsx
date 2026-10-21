@@ -5,6 +5,7 @@ import { IconCheck, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
+    LemonDialog,
     LemonInput,
     LemonSelect,
     LemonSkeleton,
@@ -51,6 +52,7 @@ import { accountsLogic, customPropertySavingKey, savingRoleKey } from './account
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -92,6 +94,7 @@ function parseAssignedUserIds(value: unknown): number[] {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
+    const { accountPresenceByAccountId } = useValues(accountsLogic)
     const cell = getNameCell(record)
     return (
         <AccountsTableNameCell
@@ -99,6 +102,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
             name={cell?.name ?? ''}
             externalId={cell?.external_id}
             logoDomain={cell?.logo_domain}
+            viewers={cell?.id ? (accountPresenceByAccountId[cell.id] ?? []) : []}
         />
     )
 }
@@ -106,7 +110,8 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
@@ -119,10 +124,12 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         <ObjectTags
             tags={tags}
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onEdit={loadTagsIfNeeded}
             onTagClick={addTagToFilter}
-            saving={isTagsSaving(accountId)}
+            saving={isTagsSaving(accountId) || tagsLoading}
             tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
             data-attr="accounts-tags-cell"
+            editorFullWidth
         />
     )
 }
@@ -512,7 +519,7 @@ function renderCustomPropertyEditor(
                 onClose={cancelEdit}
                 buttonProps={{
                     size: 'small',
-                    className: 'w-40',
+                    className: 'w-full',
                     'data-attr': 'accounts-custom-property-value-input',
                 }}
             />
@@ -549,7 +556,7 @@ function renderCustomPropertyEditor(
                     ? 'danger'
                     : 'default'
             }
-            className="w-40"
+            className="w-full"
             data-attr="accounts-custom-property-value-input"
         />
     )
@@ -577,7 +584,7 @@ function CustomPropertyCell({
     const currentValue = display
         ? (buildHistoryDisplay(parseHistoryPoints(raw), display.window_days, dayjs().valueOf()).latest?.[1] ?? null)
         : raw
-    const value = override ?? currentValue
+    const value = override !== undefined ? override : currentValue
     const [isEditing, setIsEditing] = useState(false)
     const [draft, setDraft] = useState<CustomPropertyDraft>(() => customPropertyDraftValue(value, definition))
     const saving = accountId ? isCustomPropertySaving(accountId, definition.id) : false
@@ -586,31 +593,70 @@ function CustomPropertyCell({
         setDraft(customPropertyDraftValue(value, definition))
         setIsEditing(true)
     }
-    const saveValue = (nextValue: CustomPropertyDraft = draft): void => {
-        if (!accountId || !isCustomPropertyValueValid(nextValue, definition)) {
+    const saveValue = (nextValue: CustomPropertyDraft | null = draft): void => {
+        if (!accountId || saving || (nextValue !== null && !isCustomPropertyValueValid(nextValue, definition))) {
             return
         }
-        updateAccountCustomProperty(accountId, definition, customPropertyValueToSave(nextValue, definition))
+        updateAccountCustomProperty(
+            accountId,
+            definition,
+            nextValue === null ? null : customPropertyValueToSave(nextValue, definition)
+        )
         setIsEditing(false)
+    }
+    const confirmClear = (): void => {
+        if (saving) {
+            return
+        }
+        LemonDialog.open({
+            title: `Clear ${definition.name}?`,
+            content: 'This will remove the current value. You can set it again later.',
+            primaryButton: {
+                children: 'Clear value',
+                status: 'danger',
+                onClick: () => saveValue(null),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
     }
     const isDatePicker = definition.display_type === 'date' || definition.display_type === 'datetime'
 
     if (isEditing && accountId) {
         return (
             <div
-                className={`inline-flex w-fit items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+                className={`inline-flex w-fit min-w-0 max-w-full flex-wrap items-center gap-y-2 ${definition.display_type === 'boolean' ? 'gap-x-2' : 'gap-x-1'}`}
             >
-                <div className={definition.display_type === 'boolean' ? undefined : 'w-40'}>
+                <div className={definition.display_type === 'boolean' ? undefined : 'w-40 min-w-0 max-w-full'}>
                     {renderCustomPropertyEditor(draft, definition, setDraft, saveValue, () => setIsEditing(false))}
                 </div>
+                <LemonButton
+                    size="xsmall"
+                    status="danger"
+                    tooltip="Clear value"
+                    aria-label="Clear value"
+                    onClick={confirmClear}
+                    disabledReason={
+                        saving
+                            ? 'Saving…'
+                            : value === null || value === undefined
+                              ? 'This property has no value'
+                              : undefined
+                    }
+                    data-attr="accounts-custom-property-value-clear"
+                >
+                    Clear
+                </LemonButton>
                 {!isDatePicker && (
-                    <>
+                    <div
+                        className={`ml-auto flex shrink-0 items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+                    >
                         <LemonButton
                             type="primary"
                             size="xsmall"
                             icon={<IconCheck />}
                             tooltip="Save"
                             onClick={() => saveValue()}
+                            loading={saving}
                             disabledReason={
                                 isCustomPropertyValueValid(draft, definition)
                                     ? undefined
@@ -628,7 +674,7 @@ function CustomPropertyCell({
                             onClick={() => setIsEditing(false)}
                             data-attr="accounts-custom-property-value-cancel"
                         />
-                    </>
+                    </div>
                 )}
             </div>
         )
@@ -896,20 +942,25 @@ export function AccountsTable(): JSX.Element {
             query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
-    const contextColumns = useContextColumns()
+    const {
+        tableRef,
+        columns: contextColumns,
+        hasAutoSizedColumns,
+    } = useAccountColumnAutoSizing(useContextColumns(), response, responseLoading)
     const expandable = useExpandable()
     const dataTableContext = useMemo<QueryContext<DataTableNode>>(
         () => ({
             columns: contextColumns,
             tableLayout: 'fixed',
-            tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
+            tableStyle:
+                hasAutoSizedColumns || Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
             expandable,
             dataTableRowsTransformer: sortedRowsTransformer,
             dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
             emptyStateHeading: 'There are no matching accounts for this query',
             emptyStateDetail: 'Try adjusting the filters or refreshing',
         }),
-        [contextColumns, columnWidths, expandable, sortedRowsTransformer]
+        [contextColumns, columnWidths, hasAutoSizedColumns, expandable, sortedRowsTransformer]
     )
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
@@ -917,7 +968,7 @@ export function AccountsTable(): JSX.Element {
         return <AccountsTableSkeleton />
     }
     return (
-        <div className="@container">
+        <div ref={tableRef} className="@container">
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}

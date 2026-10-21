@@ -1,78 +1,96 @@
 import { type ChartTheme } from '@posthog/quill-charts'
 
-import antigravityLogo from '../harness-logos/antigravity.png'
-import claudeLogo from '../harness-logos/claude.svg'
-import coderabbitLogo from '../harness-logos/coderabbit.svg'
-import cursorLogo from '../harness-logos/cursor.svg'
-import grokLogo from '../harness-logos/grok.svg'
-import librechatLogo from '../harness-logos/librechat.svg'
-import linearLogo from '../harness-logos/linear.svg'
-import lovableLogo from '../harness-logos/lovable.png'
-import manusLogo from '../harness-logos/manus.svg'
-import notionLogo from '../harness-logos/notion.svg'
-import openaiLogo from '../harness-logos/openai.svg'
-import opencodeLogo from '../harness-logos/opencode.svg'
-import piLogo from '../harness-logos/pi.svg'
-import replitLogo from '../harness-logos/replit.svg'
-import vscodeLogo from '../harness-logos/vscode.svg'
-import windsurfLogo from '../harness-logos/windsurf.svg'
+import { hashCodeForString } from 'lib/utils/strings'
 
-export interface HarnessLogo {
-    src: string
-    alt: string
-}
+import { type AiLab } from '../aiLabs'
+import { type BrandMarkName } from '../brandMarks'
+import { labColor, shadeColor } from '../colors'
+
+const HARNESS_BRAND_COLORS = {
+    vscode: '#007acc',
+    coderabbit: '#ff570a',
+    kimchi: '#ff521d',
+    posthog: '#f54e00',
+} as const
+
+type HarnessBrand = keyof typeof HARNESS_BRAND_COLORS
 
 interface HarnessDescriptor {
-    logo?: HarnessLogo
-    // Index into the data-viz palette, chosen so the logo drawn on top keeps
-    // enough contrast against its slice.
+    mark?: BrandMarkName
+    brand?: AiLab | HarnessBrand | 'monochrome'
+    // Index into the data-viz palette for harnesses without a brand color.
     colorIndex?: number
+    shade?: number
 }
 
-// Maps a *resolved* harness label to its logo and slice colour. The label itself is
+// Maps a *resolved* harness label to its brand mark and chart colour. The label itself is
 // produced server-side by the backend classifier (products/mcp_analytics/backend/mcp_harness.py,
 // the single source of truth); this map owns only the frontend-specific concerns the backend
 // has no opinion on. Keys must match HARNESS_LABELS / harness_label_sql in mcp_harness.py.
 // Exported so tests can assert coverage against the backend HARNESS_LABELS tuple.
 export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
-    'Claude Desktop': { logo: { src: claudeLogo, alt: 'Claude Desktop logo' }, colorIndex: 5 },
-    'Claude Code (VS Code)': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, colorIndex: 6 },
-    'Claude Agent SDK': { logo: { src: claudeLogo, alt: 'Claude Agent SDK logo' }, colorIndex: 7 },
-    'Claude Code': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, colorIndex: 0 },
-    'Claude.ai': { logo: { src: claudeLogo, alt: 'Claude.ai logo' }, colorIndex: 2 },
-    'Anthropic API': {},
-    Cowork: { logo: { src: claudeLogo, alt: 'Cowork logo' }, colorIndex: 3 },
-    'Claude Design': { logo: { src: claudeLogo, alt: 'Claude Design logo' }, colorIndex: 4 },
-    ChatGPT: { logo: { src: openaiLogo, alt: 'ChatGPT logo' }, colorIndex: 8 },
-    'OpenAI Agent Builder': { logo: { src: openaiLogo, alt: 'OpenAI Agent Builder logo' }, colorIndex: 9 },
-    'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, colorIndex: 10 },
-    OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, colorIndex: 1 },
-    'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, colorIndex: 13 },
-    Grok: { logo: { src: grokLogo, alt: 'Grok logo' }, colorIndex: 14 },
-    Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, colorIndex: 12 },
-    'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, colorIndex: 11 },
-    Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' } },
-    Replit: { logo: { src: replitLogo, alt: 'Replit logo' } },
-    Lovable: { logo: { src: lovableLogo, alt: 'Lovable logo' } },
-    Manus: { logo: { src: manusLogo, alt: 'Manus logo' } },
-    CodeRabbit: { logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' } },
-    Notion: { logo: { src: notionLogo, alt: 'Notion logo' } },
-    Linear: { logo: { src: linearLogo, alt: 'Linear logo' } },
-    LibreChat: { logo: { src: librechatLogo, alt: 'LibreChat logo' } },
-    Pi: { logo: { src: piLogo, alt: 'Pi logo' } },
-    Antigravity: { logo: { src: antigravityLogo, alt: 'Antigravity logo' } },
-    Poke: {},
-    opencode: { logo: { src: opencodeLogo, alt: 'opencode logo' } },
-    Kiro: {},
-    'Desktop Commander': {},
-    'PostHog CLI': {},
+    'Claude Desktop': { mark: 'Claude', brand: 'Anthropic', shade: -8 },
+    'Claude Code (VS Code)': { mark: 'Claude', brand: 'Anthropic', shade: -4 },
+    'Claude Agent SDK': { mark: 'Claude', brand: 'Anthropic', shade: 4 },
+    'Claude Code': { mark: 'Claude', brand: 'Anthropic', shade: 0 },
+    'Claude.ai': { mark: 'Claude', brand: 'Anthropic', shade: 8 },
+    'Anthropic API': { mark: 'Anthropic', brand: 'Anthropic', shade: -12 },
+    Cowork: { mark: 'Claude', brand: 'Anthropic', shade: 12 },
+    'Claude Design': { mark: 'Claude', brand: 'Anthropic', shade: 16 },
+    ChatGPT: { mark: 'OpenAI', brand: 'OpenAI', shade: 0 },
+    'OpenAI Agent Builder': { mark: 'OpenAI', brand: 'OpenAI', shade: 4 },
+    'OpenAI Responses API': { mark: 'OpenAI', brand: 'OpenAI', shade: -4 },
+    OpenAI: { mark: 'OpenAI', brand: 'OpenAI', shade: 8 },
+    'OpenAI Codex': { mark: 'OpenAI', brand: 'OpenAI', shade: -8 },
+    Grok: { mark: 'Grok', brand: 'xAI' },
+    Cursor: { mark: 'Cursor', brand: 'Cursor' },
+    'VS Code': { mark: 'VS Code', brand: 'vscode' },
+    Windsurf: { mark: 'Windsurf', brand: 'monochrome' },
+    Replit: { mark: 'Replit', colorIndex: 11, shade: 15 },
+    Lovable: { mark: 'Lovable', colorIndex: 4 },
+    Manus: { mark: 'Manus', brand: 'monochrome' },
+    CodeRabbit: { mark: 'CodeRabbit', brand: 'coderabbit' },
+    Notion: { mark: 'Notion', brand: 'monochrome' },
+    Linear: { mark: 'Linear', colorIndex: 9 },
+    LibreChat: { mark: 'LibreChat', colorIndex: 14 },
+    Pi: { mark: 'Pi', brand: 'monochrome' },
+    Kimchi: { mark: 'Kimchi', brand: 'kimchi' },
+    Antigravity: { mark: 'Antigravity', colorIndex: 7 },
+    Poke: { mark: 'Poke' },
+    opencode: { mark: 'opencode', brand: 'monochrome' },
+    Kiro: { mark: 'Kiro' },
+    'Desktop Commander': { mark: 'Desktop Commander' },
+    'PostHog CLI': { mark: 'PostHog', brand: 'posthog' },
+    // Not backend labels: clients the classifier does not recognize keep their own name, and these
+    // two names are common enough to get a mark.
+    'PostHog AI': { mark: 'PostHog', brand: 'posthog' },
+    Slack: { mark: 'Slack' },
 }
 
-export function harnessLogo(label: string): HarnessLogo | undefined {
-    return HARNESS_BY_LABEL[label]?.logo
+export function harnessMark(label: string): BrandMarkName {
+    if (label === 'Unidentified client') {
+        return 'Unidentified client'
+    }
+    return HARNESS_BY_LABEL[label]?.mark ?? 'Other harnesses'
 }
 
-export function harnessSliceColor(theme: ChartTheme, label: string, fallbackIndex: number): string {
-    const index = HARNESS_BY_LABEL[label]?.colorIndex ?? fallbackIndex
-    return theme.colors[index % theme.colors.length]
+export function harnessColor(theme: ChartTheme, label: string): string | undefined {
+    if (label === 'Other' || label === 'Unidentified client') {
+        return theme.axisColor
+    }
+    const descriptor = HARNESS_BY_LABEL[label]
+    const brand = descriptor?.brand
+    if (brand === 'monochrome') {
+        return theme.axisColor
+    }
+    const index = descriptor?.colorIndex ?? hashCodeForString(label)
+    const base = !brand
+        ? theme.colors[index % theme.colors.length]
+        : brand in HARNESS_BRAND_COLORS
+          ? HARNESS_BRAND_COLORS[brand as HarnessBrand]
+          : labColor(theme, brand)
+    if (!base) {
+        return theme.axisColor
+    }
+    return descriptor?.shade ? shadeColor(base, descriptor.shade) : base
 }

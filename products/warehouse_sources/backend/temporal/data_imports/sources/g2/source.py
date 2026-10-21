@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class G2Source(ResumableSource[G2SourceConfig, G2ResumeConfig]):
+    codebase_detection = detect(script_hosts=("tracking.g2crowd.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -48,10 +49,10 @@ class G2Source(ResumableSource[G2SourceConfig, G2ResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.G2,
+            name=ExternalDataSourceType.G2,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="G2 (G2.com, Inc.)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your G2 access token to pull your product's reviews and G2's product catalog into the PostHog Data warehouse.
 
 Create an account and generate an access token in the [G2 Developer Portal](https://my.g2.com/developers). Grant read access to the tables you want to sync:

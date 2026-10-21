@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import {
     buildInsertCommands,
+    MarkdownNotebook,
     getMarkdownNotebookDefaultRegistry,
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
@@ -9,7 +10,9 @@ import {
 import {
     type ComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
+    withPersistedComponentPanelProps,
 } from 'lib/components/MarkdownNotebook/componentPanels'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,7 +48,10 @@ jest.mock('./MarkdownNotebookEntityPicker', () => ({
 // Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
 // rather than the registry alone: built-in commands are not registry entries, so a node hidden
 // from the registry can still reach the menu through a built-in that inserts the same tag.
-function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string): { key: string; category: string }[] {
+function getInsertCommandsByLabel(
+    featureFlags: FeatureFlagsSet,
+    label: string
+): { key: string; category: string; badge?: string }[] {
     const noop = (): void => {}
     const commands = omitInsertCommands(
         buildInsertCommands(
@@ -64,10 +70,22 @@ function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string):
 
     return commands
         .filter((command) => command.label === label)
-        .map((command) => ({ key: command.key, category: command.category }))
+        .map((command) => ({ key: command.key, category: command.category, badge: command.badge }))
 }
 
 describe('markdownNotebookRegistry', () => {
+    it.each([undefined, 'saved-widget'])('pins widget identity when opening filters (explicit ID: %s)', (nodeId) => {
+        const node = parseMarkdownNotebook(`<Widget prompt="Draw a chart"${nodeId ? ` nodeId="${nodeId}"` : ''} />`)
+            .nodes[0] as NotebookComponentBlockNode
+        const updated = withPersistedComponentPanelProps(node, NOTEBOOK_MARKDOWN_REGISTRY.components.Widget, {
+            filters: true,
+            results: true,
+        })
+
+        expect(updated.props.nodeId).toBe(nodeId ?? node.id)
+        expect(updated.props.showFilters).toBe(true)
+    })
+
     describe('getMarkdownRegistryForFeatureFlags', () => {
         it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
@@ -87,11 +105,10 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('gates widget insertion and registers only the Widget component', () => {
-            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
-                { key: 'component-Widget', category: 'Common' },
+        it('offers widget insertion without feature flags and registers only the Widget component', () => {
+            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([
+                { key: 'component-Widget', category: 'Common', badge: 'BETA' },
             ])
-            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
             for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
                 expect(NOTEBOOK_MARKDOWN_REGISTRY.components).not.toHaveProperty(legacyTag)
             }
@@ -112,7 +129,6 @@ describe('markdownNotebookRegistry', () => {
                     getMarkdownNotebookDefaultRegistry(),
                     getMarkdownRegistryForFeatureFlags({
                         [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
-                        [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true,
                     })
                 ),
                 (_nodeId, node) => insertedNodes.push(node),
@@ -123,14 +139,52 @@ describe('markdownNotebookRegistry', () => {
             )
 
             commands.find((command) => command.key === commandKey)?.run('target-node')
+            commands.find((command) => command.key === commandKey)?.run('target-node')
 
-            expect(insertedNodes).toHaveLength(1)
+            expect(insertedNodes).toHaveLength(2)
+            expect(insertedNodes[0].props.nodeId).not.toEqual(insertedNodes[1].props.nodeId)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+            if (_label !== 'Widget') {
+                expect(insertedNodes[0].props.returnVariable).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                expect(insertedNodes[0].props.returnVariable).not.toEqual(insertedNodes[1].props.returnVariable)
+            }
         })
     })
 
     describe('discussion comment composer', () => {
-        const renderCommentShell = (componentPanels: ComponentPanelVisibility): ReturnType<typeof render> => {
+        it('persists replies and resolution after reopening, and deletes only the thread', () => {
+            const onChange = jest.fn()
+            const markdown =
+                '# Notes\n\n<Comment ref="note" replies={[]} />\n\nA <ref id="note">useful</ref> paragraph.'
+            const { container, unmount } = render(
+                <MarkdownNotebook value={markdown} onChange={onChange} registry={NOTEBOOK_MARKDOWN_REGISTRY} />
+            )
+            fireEvent.change(container.querySelector('textarea[data-attr="notebook-discussion-comment-input"]')!, {
+                target: { value: 'Please review.' },
+            })
+            fireEvent.click(container.querySelector('[aria-label="Send reply"]')!)
+            fireEvent.click(screen.getByText('Resolve'))
+            const saved = onChange.mock.calls.at(-1)![0] as string
+            expect(saved).toContain('Please review.')
+            expect(parseMarkdownNotebook(saved).nodes.find((node) => node.type === 'component')).toMatchObject({
+                props: { resolved: true },
+            })
+            unmount()
+
+            const reopened = render(
+                <MarkdownNotebook value={saved} onChange={onChange} registry={NOTEBOOK_MARKDOWN_REGISTRY} />
+            )
+            expect(reopened.container.querySelector('[data-attr="notebook-discussion-comment-input"]')).toBeNull()
+            fireEvent.click(screen.getByText('Reopen'))
+            expect(reopened.container.querySelector('[data-attr="notebook-discussion-comment-input"]')).not.toBeNull()
+            fireEvent.click(reopened.container.querySelector('[aria-label="Delete thread"]')!)
+            expect(onChange.mock.calls.at(-1)![0]).toBe('# Notes\n\nA useful paragraph.')
+        })
+
+        const renderCommentShell = (
+            componentPanels: ComponentPanelVisibility,
+            mode: 'edit' | 'view'
+        ): ReturnType<typeof render> => {
             // No `showFilters` in props: composer visibility is driven by the transient panel
             // state, so the open state never has to be written into the shared document markdown.
             const node: NotebookComponentBlockNode = {
@@ -142,7 +196,7 @@ describe('markdownNotebookRegistry', () => {
             return render(
                 <NotebookComponentShell
                     node={node}
-                    mode="edit"
+                    mode={mode}
                     componentPanels={componentPanels}
                     persistComponentPanelVisibility={false}
                     isSelected={false}
@@ -160,14 +214,12 @@ describe('markdownNotebookRegistry', () => {
             )
         }
 
-        // The edit panel is what makes the composer editable, so a thread renders its composer
-        // when that panel is open and the read-only view branch (no composer) when it is closed.
-        // Insertion opens the panel transiently, so the composer never depends on a persisted prop.
         it.each([
-            ['renders the composer when the edit panel is open', { filters: true, results: true }, true],
-            ['renders no composer when the edit panel is closed', { filters: false, results: true }, false],
-        ])('%s', (_label, componentPanels, expectComposer) => {
-            const { container } = renderCommentShell(componentPanels)
+            ['new thread', { filters: true, results: true }, 'edit', true],
+            ['reopened thread', { filters: false, results: true }, 'edit', true],
+            ['read-only notebook', { filters: false, results: true }, 'view', false],
+        ] as const)('uses notebook permissions for a %s', (_label, componentPanels, mode, expectComposer) => {
+            const { container } = renderCommentShell(componentPanels, mode)
             const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
             expect(composer !== null).toBe(expectComposer)
         })
@@ -191,6 +243,14 @@ describe('markdownNotebookRegistry', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn }, 'SQL')).toEqual(
                 expectedCommands
             )
+        })
+
+        // Both the group and the badge come from the node's insertCommand override, so this also
+        // covers the badge surviving buildInsertCommands.
+        it('puts Python beside SQL in the top group, badged as new', () => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Python')).toEqual([
+                { key: 'component-PythonV2', category: 'Common', badge: 'New' },
+            ])
         })
     })
 
@@ -437,6 +497,19 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it.each(['Query', 'Insight'])('assigns distinct render IDs to identical ID-less %s blocks', (tagName) => {
+        const nodes = parseMarkdownNotebook(`<${tagName} id="example" />\n\n<${tagName} id="example" />`)
+            .nodes as NotebookComponentBlockNode[]
+        const attributes = nodes.map((node) =>
+            getNodeAttributes(node.props, node.id, KNOWN_NODES[NotebookNodeType.Query], NotebookNodeType.Query, false)
+        )
+
+        expect(attributes.map(({ nodeId }) => nodeId)).toEqual(nodes.map(({ id }) => id))
+        expect(attributes[0].nodeId).toBeTruthy()
+        expect(attributes[1].nodeId).toBeTruthy()
+        expect(attributes[0].nodeId).not.toEqual(attributes[1].nodeId)
     })
 
     it('renders a SQL cell whose query arrived as a query prop', () => {

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite import (
     BuildkiteResumeConfig,
     buildkite_source,
@@ -18,8 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import (
+    DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -40,6 +42,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConfig]):
+    codebase_detection = detect(
+        env=("^BUILDKITE_",),
+        npm=("@buildkite/buildkite-sdk",),
+        go=(
+            "github.com/buildkite/go-buildkite",
+            "github.com/buildkite/buildkite-agent-metrics",
+            "github.com/buildkite/buildkite-agent-scaler",
+            "github.com/buildkite/buildkite-gha",
+            "github.com/buildkite/buildkite-logs",
+            "github.com/buildkite/buildkite-mcp-server",
+            "github.com/buildkite/git-credential-helper-buildkite-oidc",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -58,10 +74,10 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUILDKITE,
+            name=ExternalDataSourceType.BUILDKITE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             docsUrl="https://posthog.com/docs/cdp/sources/buildkite",
             caption="""Enter your Buildkite API access token and organization slug to sync your CI/CD data into the PostHog Data warehouse.
 
@@ -71,7 +87,11 @@ Make sure to grant the following read scopes:
 - `read_organizations`
 - `read_pipelines`
 - `read_builds`
+- `read_artifacts`
 - `read_agents`
+- `read_clusters`
+- `read_teams`
+- `read_suites`
 """,
             iconPath="/static/services/buildkite.png",
             fields=cast(
@@ -117,7 +137,14 @@ Make sure to grant the following read scopes:
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY,
+            descriptions=DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,

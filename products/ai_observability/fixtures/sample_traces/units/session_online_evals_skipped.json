@@ -1,0 +1,168 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Online guardrail evals skip two tool-only generations",
+  "scenario": "Three live, boolean, allow-N/A online evaluators from a recruiting copilot's guardrail suite - a salary-mention check, an interview-timezone check, and a panel-confirmation check - run against two separate tool-calling generations that contain no user-facing text, so all three mark themselves not applicable both times.",
+  "summary": {
+    "events": {
+      "$ai_evaluation": 6
+    },
+    "traces": 2,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-capture-v1-internal"
+    ],
+    "providers": [],
+    "frameworks": [],
+    "models": [],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "d917d2ff-70bc-76aa-e5ab-757ff09fdee6",
+        "$ai_evaluation_name": "salary-mention-check",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-23T16:04:40.955007+00:00",
+        "$ai_evaluation_reasoning": "No relevant content found in this generation to evaluate.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": true,
+        "$ai_evaluation_applicable": false,
+        "$ai_target_event_id": "ccdcc307-5335-77e5-a49e-02fdabbd8250",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "ccdcc307-5335-77e5-a49e-02fdabbd8250",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "conv-66400ce2-e8c1-turn-1-eval-scope-extra",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 11,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "5f63dec2-eb87-7426-2bde-f5a855e5fc30",
+        "$ai_evaluation_name": "interview-time-zone-included",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-23T16:04:40.970337+00:00",
+        "$ai_evaluation_reasoning": "No relevant content found in this generation to evaluate.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": true,
+        "$ai_evaluation_applicable": false,
+        "$ai_target_event_id": "ccdcc307-5335-77e5-a49e-02fdabbd8250",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "ccdcc307-5335-77e5-a49e-02fdabbd8250",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "conv-66400ce2-e8c1-turn-1-eval-scope-extra",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 41,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "474d6202-48e1-75d0-ab70-de9b75957518",
+        "$ai_evaluation_name": "panel-members-confirmed-required",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-23T16:04:40.962926+00:00",
+        "$ai_evaluation_reasoning": "This generation made no reference to any interview panelists.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": true,
+        "$ai_evaluation_applicable": false,
+        "$ai_target_event_id": "ccdcc307-5335-77e5-a49e-02fdabbd8250",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "ccdcc307-5335-77e5-a49e-02fdabbd8250",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "conv-66400ce2-e8c1-turn-1-eval-scope-extra",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 317425,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "d917d2ff-70bc-76aa-e5ab-757ff09fdee6",
+        "$ai_evaluation_name": "salary-mention-check",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-23T16:09:58.385613+00:00",
+        "$ai_evaluation_reasoning": "No relevant content found in this generation to evaluate.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": true,
+        "$ai_evaluation_applicable": false,
+        "$ai_target_event_id": "27e75b8b-e025-76c2-3818-cc08b4f3e80e",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "27e75b8b-e025-76c2-3818-cc08b4f3e80e",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "conv-66400ce2-e8c1-turn-2-eval-scope-extra",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 317428,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "474d6202-48e1-75d0-ab70-de9b75957518",
+        "$ai_evaluation_name": "panel-members-confirmed-required",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-23T16:09:58.385666+00:00",
+        "$ai_evaluation_reasoning": "This generation made no reference to any interview panelists.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": true,
+        "$ai_evaluation_applicable": false,
+        "$ai_target_event_id": "27e75b8b-e025-76c2-3818-cc08b4f3e80e",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "27e75b8b-e025-76c2-3818-cc08b4f3e80e",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "conv-66400ce2-e8c1-turn-2-eval-scope-extra",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 317429,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "5f63dec2-eb87-7426-2bde-f5a855e5fc30",
+        "$ai_evaluation_name": "interview-time-zone-included",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "hog",
+        "$ai_evaluation_result_type": "boolean",
+        "$ai_evaluation_start_time": "2026-09-23T16:09:58.387255+00:00",
+        "$ai_evaluation_reasoning": "No relevant content found in this generation to evaluate.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_evaluation_allows_na": true,
+        "$ai_evaluation_applicable": false,
+        "$ai_target_event_id": "27e75b8b-e025-76c2-3818-cc08b4f3e80e",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "27e75b8b-e025-76c2-3818-cc08b4f3e80e",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "conv-66400ce2-e8c1-turn-2-eval-scope-extra",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

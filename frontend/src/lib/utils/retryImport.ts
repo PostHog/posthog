@@ -1,6 +1,6 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react'
 
-import { isChunkLoadError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
@@ -8,6 +8,10 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     }
     const { name, message } = error as { name?: string; message?: string }
     return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
+}
+
+function isSyntaxError(error: unknown): boolean {
+    return !!error && typeof error === 'object' && (error as { name?: string }).name === 'SyntaxError'
 }
 
 /**
@@ -27,7 +31,18 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
-        if (retries <= 0 || !isChunkLoadError(error)) {
+        // A truncated or corrupted chunk fails to parse. The browser caches the failed module per URL,
+        // so a retry gets the same error. Only a page reload fetches the chunk again.
+        if (isSyntaxError(error)) {
+            markAsChunkLoadError(error)
+            throw error
+        }
+        if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
+            throw error
+        }
+        // Mark as a chunk load error so downstream boundaries recognize it if retries fail.
+        markAsChunkLoadError(error)
+        if (retries <= 0) {
             throw error
         }
         await new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs))

@@ -117,6 +117,7 @@ export class TriggerHandler implements ActionHandler {
             fn: invocation.hogFlow,
             filters: trigger.filters,
             filterGlobals: invocation.filterGlobals,
+            caller: 'hogflow_trigger_action',
         })
 
         if (filterResults.error) {

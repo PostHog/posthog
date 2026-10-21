@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import React, { useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
@@ -13,6 +14,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { cohortsModel, getReferencedCohortIds } from '~/models/cohortsModel'
 import { Query } from '~/queries/Query/Query'
 import {
     ArtifactMessage,
@@ -77,6 +79,7 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     extraActions,
     embedded = false,
 }: VisualizationWidgetProps): JSX.Element {
+    const { loadCohortsByIds } = useActions(cohortsModel)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [internalCollapsed, setInternalCollapsed] = useState(false)
     const isCollapsed = controlledCollapsed ?? internalCollapsed
@@ -110,7 +113,12 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
                     <div className="flex items-center gap-1.5">
                         <LemonButton
                             sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                            onClick={() => setIsSummaryShown(!isSummaryShown)}
+                            onClick={() => {
+                                if (!isSummaryShown) {
+                                    loadCohortsByIds({ ids: getReferencedCohortIds(query) })
+                                }
+                                setIsSummaryShown(!isSummaryShown)
+                            }}
                             size="xsmall"
                             className="-m-1 shrink"
                             tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}

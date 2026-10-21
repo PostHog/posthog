@@ -23,20 +23,24 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import (
+    metric_node as _metric_node,
     saved_query_node as _saved_query_node,
     table_node as _table_node,
     warehouse_source_node as _warehouse_source_node,
 )
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 M15 = timedelta(minutes=15)
 M30 = timedelta(minutes=30)
 M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
+H12 = timedelta(hours=12)
 DAY = timedelta(days=1)
 
 
@@ -142,6 +146,29 @@ class TestBuildFrequencyGraph(BaseTest):
         floor = all_source_floors(graph.edges, graph.source_intervals).get(str(matview.id), STREAMING)
         self.assertEqual(floor, STREAMING)
 
+    @parameterized.expand([("user_reader", False, H12), ("managed_reader", True, M15)])
+    def test_only_a_managed_reader_pulls_a_managed_view_to_its_cadence(self, _name, reader_is_managed, expected):
+        dag = DAG.get_or_create_default(self.team)
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        managed_view = _saved_query_node(self.team, dag, "revenue_view", NodeType.MAT_VIEW)
+        reader = _saved_query_node(self.team, dag, "reader", NodeType.ENDPOINT)
+        for node in [managed_view, reader] if reader_is_managed else [managed_view]:
+            assert node.saved_query is not None
+            node.saved_query.managed_viewset = viewset
+            node.saved_query.save(update_fields=["managed_viewset"])
+        Edge.objects.create(team=self.team, dag=dag, source=managed_view, target=reader)
+        set_declared_target(managed_view, H12)
+        set_declared_target(reader, M15)
+
+        graph = build_frequency_graph(dag)
+        effective = compute_effective_cadences(
+            nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+        )
+
+        self.assertEqual(effective[str(managed_view.id)], expected)
+
     def test_imported_source_floor_makes_a_tighter_descendant_unsatisfiable(self):
         dag = DAG.get_or_create_default(self.team)
         source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H6)
@@ -186,10 +213,17 @@ class TestSeedTargets(BaseTest):
         seeds = seed_targets(dag)
         self.assertEqual(seeds, {} if expected is None else {str(node.id): expected})
 
-    def test_source_tables_are_never_seeded(self):
-        dag = DAG.objects.create(team=self.team, name="seed-demo-src", sync_frequency_interval=H1)
-        _table_node(self.team, dag, "events", {"origin": "posthog"})
+    @parameterized.expand(
+        [
+            ("source_table", lambda team, dag: _table_node(team, dag, "events", {"origin": "posthog"})),
+            ("metric", lambda team, dag: _metric_node(team, dag, "weekly_active_accounts")),
+        ]
+    )
+    def test_nodes_that_never_run_are_never_seeded(self, _name, make_node):
+        dag = DAG.objects.create(team=self.team, name=f"seed-demo-{_name}", sync_frequency_interval=H1)
+        make_node(self.team, dag)
         self.assertEqual(seed_targets(dag), {})
+        self.assertEqual(persist_seed_targets(dag), 0)
 
 
 @pytest.mark.django_db

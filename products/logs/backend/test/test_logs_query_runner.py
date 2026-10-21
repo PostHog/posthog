@@ -633,6 +633,18 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(queries), 1)
 
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
+    def test_logs_integration_null_limit_uses_the_default(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 10:32:36.178572Z", "date_to": None},
+            "limit": None,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertEqual(len(response["results"]), 51)
+        self.assertFalse(response["hasMore"])
+
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest
         query_params = {
@@ -1291,6 +1303,7 @@ class TestLogsPersonIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, API
         [
             ("single_key", ["team_ref"], {"team_ref"}),
             ("multiple_keys", ["team_ref", "account_ref"], {"team_ref", "account_ref"}),
+            ("flattened_json_key", ["attributes.personId"], {"attributes.personId"}),
         ]
     )
     def test_person_id_respects_configured_attribute_keys(
@@ -1307,6 +1320,7 @@ class TestLogsPersonIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, API
             [
                 self._log_row("person-id-test-cfg", attribute_key="team_ref"),
                 self._log_row("person-id-test-cfg", attribute_key="account_ref"),
+                self._log_row("person-id-test-cfg", attribute_key="attributes.personId"),
             ]
         )
 

@@ -16,15 +16,23 @@ export const DEFAULT_SUGGESTION_INTERVAL_MINUTES = 1440
 export function suggestionCadenceLabel(config: ScoutSuggestionProposedConfigApi): string {
     if (config.run_cron_schedule) {
         const dailyTime = dailyCronToTime(config.run_cron_schedule)
-        return dailyTime ? `daily at ${dailyTime}` : (describeCron(config.run_cron_schedule)?.toLowerCase() ?? 'daily')
+        if (dailyTime) {
+            return `daily at ${dailyTime}`
+        }
+        // The times are 24h, so cronstrue must not add "AM". Day names keep their capitals.
+        const described = describeCron(config.run_cron_schedule, { use24HourTimeFormat: true })
+        return described ? described.charAt(0).toLowerCase() + described.slice(1) : 'daily'
     }
     return formatRunIntervalShort(config.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES)
 }
 
-/** The card's one-line summary of what the scout would do: how often, and where its output goes. */
+/**
+ * The one-line summary of what the scout would do. The output shows only when it is not the
+ * default, because every row would otherwise repeat "files reports to the inbox".
+ */
 export function suggestionMetaLine(config: ScoutSuggestionProposedConfigApi): string {
-    const output = config.emit ? 'files reports to the inbox' : 'dry run, files nothing'
-    return `Runs ${suggestionCadenceLabel(config)} · ${output}`
+    const cadence = `Runs ${suggestionCadenceLabel(config)}`
+    return config.emit ? cadence : `${cadence} · dry run, files nothing`
 }
 
 /** The scout a canonical pick would turn on, as it exists on the project. */
@@ -52,8 +60,8 @@ export function suggestionToCreateValues(
     if (existing) {
         // The pick proposes when the scout runs, and a pick that names no cadence leaves the
         // scout's own. Everything else the config already holds is the person's own: the emit
-        // posture, the Slack destination, tags and servers stay as they are, shown in the form so
-        // turning the scout on cannot quietly restore delivery it had before.
+        // posture, the Slack destination, tags, servers, repositories and write access stay as they
+        // are, shown in the form so turning the scout on cannot quietly change what it had before.
         const { config } = existing
         return {
             name: item.skill_name,
@@ -71,6 +79,8 @@ export function suggestionToCreateValues(
                 output_destinations: config.output_destinations,
                 tags: config.tags ?? [],
                 mcp_gateway_server_ids: [...config.mcp_gateway_server_ids],
+                repositories: [...(config.repositories ?? [])],
+                write_scopes: [...(config.write_scopes ?? [])],
             },
             suggestionId: item.id,
         }

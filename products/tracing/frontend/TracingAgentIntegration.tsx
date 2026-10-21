@@ -21,7 +21,7 @@ import { tracingViewerLogic } from './tracingViewerLogic'
  * query-apm-spans call back onto the open viewer, and opens the trace an apm-trace-get call
  * fetched in the drawer. Resolves the viewer instance from the enclosing BindLogic. Renders nothing.
  */
-export function TracingAgentIntegration(): null {
+export function TracingAgentIntegration({ sceneTabIsViewer }: { sceneTabIsViewer: boolean }): null {
     const { filters } = useValues(tracingFiltersLogic)
     const { setFilters } = useActions(tracingFiltersLogic)
     const { selectedTraceId, selectedSpanId } = useValues(tracingViewerLogic)
@@ -47,6 +47,9 @@ export function TracingAgentIntegration(): null {
     useMcpToolApplyBack({
         tools: ['query-apm-spans'],
         targetKey: `tracing-viewer:${TRACING_SCENE_VIEWER_ID}`,
+        // Only mirror onto the viewer while the user is looking at it, so a query the agent runs while
+        // the user is on the SQL tab does not silently rewrite the hidden viewer's filters.
+        active: sceneTabIsViewer,
         onApply: (_event, { innerInput }) => {
             if (!innerInput) {
                 return

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusResumeConfig]):
+    codebase_detection = detect(env=("^EMAILOCTOPUS_", "^EMAIL_OCTOPUS_"))
+
     # The source has always talked to EmailOctopus's REST API at api.emailoctopus.com — the v2 API.
     # Existing instances carry the legacy default label "v1"; both resolve to that same host (the
     # version isn't encoded in EmailOctopus requests), so the default bump leaves them unaffected.
@@ -57,10 +58,10 @@ class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.EMAIL_OCTOPUS,
+            name=ExternalDataSourceType.EMAILOCTOPUS,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="EmailOctopus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your EmailOctopus API key to automatically pull your EmailOctopus data into the PostHog Data warehouse.
 
 You can create an API key in your [EmailOctopus account settings](https://emailoctopus.com/api-documentation). The key grants account-wide read access.""",

@@ -26,8 +26,12 @@ DEFAULT_DATASET_NAME = "semantic-layer-canaries-v1"
 DEFAULT_MAX_CONCURRENCY = 3
 DEFAULT_MAX_ATTEMPTS = 2
 MAX_STREAM_RECONNECTS = 8
+MAX_CANCEL_ATTEMPTS = 3
+STOPPED_RUN_STATUSES = frozenset({"cancelled", "failed"})
 DEFAULT_TIMEOUT_SECONDS = 1_900.0
 DATASET_PAGE_SIZE = 25
+DATASETS_PATH = "/api/environments/{project_id}/datasets/"
+DATASET_ITEMS_PATH = "/api/environments/{project_id}/dataset_items/"
 BROWSER_HELPER_PATH = Path(__file__).with_name("browser_session_credentials.mjs")
 DEFAULT_BROWSER_PROFILE = Path(".context/semantic-layer-canary-browser")
 DEFAULT_BROWSER_LOGIN_TIMEOUT_SECONDS = 600
@@ -52,14 +56,20 @@ class PermanentCanaryError(CanaryError):
     pass
 
 
-class _DatasetSummary(BaseModel):
+class ClarificationRequested(CanaryError):
+    def __init__(self, questions: list[str]) -> None:
+        super().__init__("clarification_requested")
+        self.questions = questions
+
+
+class DatasetSummary(BaseModel):
     id: str
     name: str
     current_revision: int | None
 
 
 class _DatasetPage(BaseModel):
-    results: list[_DatasetSummary]
+    results: list[DatasetSummary]
 
 
 class CanaryCaseInput(BaseModel):
@@ -127,6 +137,12 @@ class DatasetSnapshot(BaseModel):
     cases: list[CanaryCase]
 
 
+class ParsedDatasetItemPage(BaseModel):
+    cases: list[CanaryCase]
+    next_page: str | None
+    item_count: int
+
+
 class CanaryRunConfig(BaseModel):
     dataset_name: str = DEFAULT_DATASET_NAME
     revision: int | None = Field(default=None, ge=1)
@@ -151,6 +167,7 @@ class CanaryAttemptResult(BaseModel):
     task_url: str | None
     duration_ms: int
     error: str | None = None
+    clarification_questions: list[str] = Field(default_factory=list)
 
 
 class CanaryCaseResult(BaseModel):
@@ -167,11 +184,12 @@ class CanaryCaseResult(BaseModel):
     task_id: str | None
     task_run_id: str | None
     task_url: str | None
+    clarification_questions: list[str] = Field(default_factory=list)
     attempts: list[CanaryAttemptResult]
 
 
 class CanaryRunResult(BaseModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     run_id: str
     project_id: int
     dataset_id: str
@@ -230,16 +248,14 @@ class PostHogCanaryClient:
 
     async def load_dataset_snapshot(self, dataset_name: str, revision: int | None = None) -> DatasetSnapshot:
         dataset_response = await self._client.get(
-            f"/api/environments/{self.project_id}/datasets/",
-            params={"search": dataset_name, "archived": "false"},
+            DATASETS_PATH.format(project_id=self.project_id),
+            params=dataset_search_params(dataset_name),
         )
         dataset_response.raise_for_status()
-        dataset_page = _DatasetPage.model_validate(dataset_response.json())
-        exact_matches = [dataset for dataset in dataset_page.results if dataset.name == dataset_name]
-        if len(exact_matches) != 1:
-            raise PermanentCanaryError("dataset_not_found")
-
-        dataset = exact_matches[0]
+        try:
+            dataset = select_dataset(dataset_response.json(), dataset_name)
+        except ValueError as error:
+            raise RetryableCanaryError("invalid_dataset_response") from error
         selected_revision = revision if revision is not None else dataset.current_revision
         if selected_revision is None:
             raise PermanentCanaryError("dataset_has_no_revision")
@@ -259,40 +275,18 @@ class PostHogCanaryClient:
 
         while True:
             response = await self._client.get(
-                f"/api/environments/{self.project_id}/dataset_items/",
-                params={
-                    "dataset": dataset_id,
-                    "revision": revision,
-                    "archived": "false",
-                    "limit": DATASET_PAGE_SIZE,
-                    "offset": offset,
-                },
+                DATASET_ITEMS_PATH.format(project_id=self.project_id),
+                params=dataset_items_params(dataset_id, revision, offset),
             )
             response.raise_for_status()
-            page = _DatasetItemPage.model_validate(response.json())
-            for item in page.results:
-                if not item.metadata.enabled:
-                    continue
-                if item.metadata.case_id in seen_case_ids:
-                    raise PermanentCanaryError("duplicate_case_id")
-                seen_case_ids.add(item.metadata.case_id)
-                cases.append(
-                    CanaryCase(
-                        dataset_item_id=item.id,
-                        case_id=item.metadata.case_id,
-                        category=item.metadata.category,
-                        question=item.input.question,
-                        agent_mode=item.input.agent_mode,
-                        expected_metric=item.expected_output.expected_metric,
-                        expected_routing=item.expected_output.expected_routing,
-                        expected_behavior=item.expected_output.expected_behavior,
-                    )
-                )
-            if page.next is None:
+            try:
+                page = parse_dataset_item_page(response.json(), seen_case_ids)
+            except ValueError as error:
+                raise RetryableCanaryError("invalid_dataset_item_response") from error
+            cases.extend(page.cases)
+            if page.next_page is None:
                 return cases
-            if not page.results:
-                raise PermanentCanaryError("invalid_dataset_pagination")
-            offset += len(page.results)
+            offset += page.item_count
 
     async def open_turn(
         self,
@@ -318,13 +312,28 @@ class PostHogCanaryClient:
         _raise_for_api_error(response)
         try:
             opened = _ConversationOpenResponse.model_validate(response.json())
-        except (json.JSONDecodeError, ValidationError) as error:
+        except ValueError as error:
             raise RetryableCanaryError("invalid_open_response") from error
         if opened.trace_id != trace_id:
             raise RetryableCanaryError("invalid_open_response")
         return opened
 
-    async def wait_for_turn(self, opened: _ConversationOpenResponse) -> None:
+    async def cancel_run(self, opened: _ConversationOpenResponse) -> None:
+        for _attempt in range(MAX_CANCEL_ATTEMPTS):
+            try:
+                response = await self._client.post(
+                    f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/cancel/",
+                    json={"reason": "semantic-layer canary: agent asked a clarifying question"},
+                )
+            except (httpx.TimeoutException, httpx.TransportError):
+                continue
+            if _is_retryable_status(response.status_code):
+                continue
+            _raise_for_api_error(response)
+            return
+        await self._confirm_cancelled(opened)
+
+    async def wait_for_turn(self, opened: _ConversationOpenResponse) -> list[str]:
         last_event_id: str | None = None
         stream_path = f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/stream/"
 
@@ -338,7 +347,10 @@ class PostHogCanaryClient:
                     if "text/event-stream" not in response.headers.get("content-type", ""):
                         raise RetryableCanaryError("invalid_content_type")
                     await _consume_task_stream(response)
-                    return
+                    return []
+            except ClarificationRequested as clarification:
+                await self.cancel_run(opened)
+                return clarification.questions
             except TaskStreamReconnect as reconnect:
                 if reconnect.last_event_id is not None:
                     last_event_id = reconnect.last_event_id
@@ -346,14 +358,15 @@ class PostHogCanaryClient:
                     raise RetryableCanaryError("task_stream_reconnect_exhausted") from reconnect
             except TaskStreamEnded:
                 await self._confirm_terminal_status(opened)
-                return
+                return []
             except CanaryError:
                 raise
             except (httpx.TimeoutException, httpx.TransportError) as error:
                 if reconnect_number == MAX_STREAM_RECONNECTS:
                     raise RetryableCanaryError("task_stream_reconnect_exhausted") from error
+        return []
 
-    async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
+    async def _read_run_status(self, opened: _ConversationOpenResponse) -> str:
         try:
             response = await self._client.get(
                 f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/"
@@ -362,17 +375,72 @@ class PostHogCanaryClient:
             raise RetryableCanaryError("transport_error") from error
         _raise_for_api_error(response)
         try:
-            task_run = _TaskRunResponse.model_validate(response.json())
-        except (json.JSONDecodeError, ValidationError) as error:
+            return _TaskRunResponse.model_validate(response.json()).status
+        except ValueError as error:
             raise RetryableCanaryError("invalid_task_run_response") from error
-        if task_run.status == "completed":
+
+    async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
+        status = await self._read_run_status(opened)
+        if status == "completed":
             return
-        if task_run.status in {"failed", "cancelled"}:
-            raise RetryableCanaryError(f"task_run_{task_run.status}")
+        if status in STOPPED_RUN_STATUSES:
+            raise RetryableCanaryError(f"task_run_{status}")
         raise RetryableCanaryError("missing_turn_completion")
+
+    async def _confirm_cancelled(self, opened: _ConversationOpenResponse) -> None:
+        if await self._read_run_status(opened) not in STOPPED_RUN_STATUSES:
+            raise RetryableCanaryError("cancel_unconfirmed")
 
     def task_url(self, task_id: str, task_run_id: str) -> str:
         return f"{self.host}/project/{self.project_id}/tasks/{task_id}?runId={task_run_id}"
+
+
+def dataset_search_params(dataset_name: str) -> dict[str, str]:
+    return {"search": dataset_name, "archived": "false"}
+
+
+def dataset_items_params(dataset_id: str, revision: int, offset: int) -> dict[str, str | int]:
+    return {
+        "dataset": dataset_id,
+        "revision": revision,
+        "archived": "false",
+        "limit": DATASET_PAGE_SIZE,
+        "offset": offset,
+    }
+
+
+def select_dataset(page_json: object, dataset_name: str) -> DatasetSummary:
+    dataset_page = _DatasetPage.model_validate(page_json)
+    exact_matches = [dataset for dataset in dataset_page.results if dataset.name == dataset_name]
+    if len(exact_matches) != 1:
+        raise PermanentCanaryError("dataset_not_found")
+    return exact_matches[0]
+
+
+def parse_dataset_item_page(page_json: object, seen_case_ids: set[str]) -> ParsedDatasetItemPage:
+    page = _DatasetItemPage.model_validate(page_json)
+    if page.next is not None and not page.results:
+        raise PermanentCanaryError("invalid_dataset_pagination")
+    cases: list[CanaryCase] = []
+    for item in page.results:
+        if not item.metadata.enabled:
+            continue
+        if item.metadata.case_id in seen_case_ids:
+            raise PermanentCanaryError("duplicate_case_id")
+        seen_case_ids.add(item.metadata.case_id)
+        cases.append(
+            CanaryCase(
+                dataset_item_id=item.id,
+                case_id=item.metadata.case_id,
+                category=item.metadata.category,
+                question=item.input.question,
+                agent_mode=item.input.agent_mode,
+                expected_metric=item.expected_output.expected_metric,
+                expected_routing=item.expected_output.expected_routing,
+                expected_behavior=item.expected_output.expected_behavior,
+            )
+        )
+    return ParsedDatasetItemPage(cases=cases, next_page=page.next, item_count=len(page.results))
 
 
 def parse_browser_credentials(raw_credentials: str) -> BrowserSessionCredentials:
@@ -431,8 +499,12 @@ class TaskStreamEnded(CanaryError):
         super().__init__("task_stream_ended")
 
 
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code == 429 or status_code >= 500
+
+
 def _raise_for_api_error(response: httpx.Response) -> None:
-    if response.status_code == 429 or response.status_code >= 500:
+    if _is_retryable_status(response.status_code):
         raise RetryableCanaryError(f"http_{response.status_code}")
     if response.is_error:
         raise PermanentCanaryError(f"http_{response.status_code}")
@@ -466,7 +538,7 @@ async def _consume_task_stream(response: httpx.Response) -> None:
             raise RetryableCanaryError("invalid_sse_json") from error
         if not isinstance(payload, dict):
             return False
-        return _is_completed_turn(payload)
+        return is_completed_turn(payload)
 
     try:
         async for line in response.aiter_lines():
@@ -494,7 +566,7 @@ async def _consume_task_stream(response: httpx.Response) -> None:
     raise TaskStreamReconnect(last_event_id)
 
 
-def _is_completed_turn(payload: dict[str, object]) -> bool:
+def is_completed_turn(payload: dict[str, object]) -> bool:
     payload_type = payload.get("type")
     if payload_type == "task_run_state":
         status = payload.get("status")
@@ -516,8 +588,16 @@ def _is_completed_turn(payload: dict[str, object]) -> bool:
         raise PermanentCanaryError("permission_required")
     questions = metadata.get("questions")
     if metadata.get("codeToolKind") == "question" and isinstance(questions, list) and questions:
-        return True
+        raise ClarificationRequested(_question_texts(questions))
     raise PermanentCanaryError("permission_required")
+
+
+def _question_texts(questions: list[object]) -> list[str]:
+    texts: list[str] = []
+    for question in questions:
+        text = question.get("question") if isinstance(question, dict) else None
+        texts.append(text if isinstance(text, str) else "")
+    return texts
 
 
 async def execute_canary(
@@ -596,7 +676,7 @@ async def _execute_case(
                 conversation_id=conversation_id,
                 trace_id=trace_id,
             )
-            await client.wait_for_turn(opened)
+            clarification_questions = await client.wait_for_turn(opened)
         except CanaryError as error:
             unconfirmed_conversation_id = conversation_id if opened is None else None
             attempts.append(
@@ -626,6 +706,7 @@ async def _execute_case(
                 task_run_id=opened.run_id,
                 task_url=client.task_url(opened.task_id, opened.run_id),
                 duration_ms=_duration_ms(attempt_started_at),
+                clarification_questions=clarification_questions,
             )
         )
         return CanaryCaseResult(
@@ -642,6 +723,7 @@ async def _execute_case(
             task_id=opened.task_id,
             task_run_id=opened.run_id,
             task_url=client.task_url(opened.task_id, opened.run_id),
+            clarification_questions=clarification_questions,
             attempts=attempts,
         )
 

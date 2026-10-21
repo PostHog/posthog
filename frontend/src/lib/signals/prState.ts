@@ -38,23 +38,19 @@ export function derivePrState(
     prMerged: boolean,
     prState?: SignalReportAssignmentPrStateEnumApi | null
 ): PrBadgeState {
-    if (prMerged) {
+    if (prMerged || prState === 'merged') {
         return 'merged'
     }
-    // A terminal report no longer points at an open PR: dismiss and resolve close the report's open
-    // implementation PR, a report suppressed by its PR closing without merging is closed by
-    // definition, and a failed report's PR never landed. Only a live report still has an open PR.
+    if (prState === 'open' || prState === 'draft' || prState === 'closed') {
+        return prState
+    }
     if (
-        status === SignalReportStatus.FAILED ||
-        status === SignalReportStatus.SUPPRESSED ||
-        status === SignalReportStatus.RESOLVED
+        !prState &&
+        [SignalReportStatus.FAILED, SignalReportStatus.SUPPRESSED, SignalReportStatus.RESOLVED].includes(
+            status as SignalReportStatus
+        )
     ) {
         return 'closed'
-    }
-    // GitHub keeps a draft pull request in the `open` state, so the draft flag is the only thing
-    // that separates work in review from work still being written.
-    if (prState === 'draft') {
-        return 'draft'
     }
     return 'open'
 }

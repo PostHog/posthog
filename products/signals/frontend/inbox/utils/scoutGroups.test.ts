@@ -22,6 +22,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
         enabled: true,
         status: 'active',
         pause_reason: null,
+        managed_by: 'team',
         emit: true,
         run_interval_minutes: 60,
         run_cron_schedule: null,
@@ -35,6 +36,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
         auto_pause_exempt: false,
         tags: [],
         created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
         ...overrides,
     } as SignalScoutConfig
 }
@@ -42,6 +44,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: 'signals-scout-apm',
         skill_version: 1,
         status: 'completed',
@@ -129,6 +132,34 @@ describe('scoutGroups', () => {
                 'Warned — nothing surfaced in the last two weeks',
             ],
             ['a dry run says it files nothing', { emit: false }, 'Runs and investigates, but files nothing'],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
+        })
+
+        // A card that only says when a scout went off sends the reader to the activity log to find
+        // out who did it, which nobody looking at the roster knows to open.
+        it.each<[string, Partial<SignalScoutConfig>, string]>([
+            [
+                'a user pause names the person who did it',
+                {
+                    enabled: false,
+                    status: 'paused_by_user',
+                    status_changed_at: '2026-06-24T00:00:00Z',
+                    status_changed_by: {
+                        id: 7,
+                        uuid: 'user-7',
+                        first_name: 'Ada',
+                        last_name: 'Byron',
+                        email: 'ada@example.com',
+                    } as SignalScoutConfig['status_changed_by'],
+                },
+                'Turned off by Ada Byron · Jun 24, 2026',
+            ],
+            [
+                'an unattributed pause credits nobody',
+                { enabled: false, status: 'paused_by_user', status_changed_at: '2026-06-24T00:00:00Z' },
+                'Turned off Jun 24, 2026',
+            ],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
         })

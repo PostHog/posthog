@@ -1,7 +1,7 @@
 """Emitting AI observability events on behalf of a team, without a Postgres read per event.
 
 Every emitted `$ai_evaluation` / `$ai_tag` event needs the team's `api_token` to call
-`capture_internal`. Those emit closures run under `database_sync_to_async(thread_sensitive=False)`,
+`capture_ai_internal`. Those emit closures run under `database_sync_to_async(thread_sensitive=False)`,
 so each one lands on a fresh executor thread and grabs a pooled Postgres connection for a
 single-row read — under pool pressure pgbouncer answers with `query_wait_timeout` instead.
 `api_token` is effectively static, so cache it per worker process and only pay for the query
@@ -10,12 +10,16 @@ once per team per TTL.
 
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from http import HTTPStatus
-from typing import Any
+from typing import Any, NoReturn
 
-from posthog.api.capture import CaptureInternalError, capture_internal
+from temporalio.common import RetryPolicy
+
+from posthog.api.capture import CaptureInternalError, capture_ai_internal
 from posthog.models.team import Team
+from posthog.temporal.ai_observability.retries import is_last_attempt
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 # Also bounds how long emits keep using a rotated token: capture-rs accepts stale tokens at
 # the edge, so rotation is only picked up once this TTL lapses.
@@ -25,12 +29,34 @@ _MAX_CACHED_TEAMS = 10_000
 
 _AUTH_REJECTED_STATUSES = (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
 
+# A capture-ai restart or DNS blip outlasts the urllib3 retries inside capture_ai_internal. The
+# attempts wait 5s, 10s, 20s and 40s between them, so the last one starts over a minute after the first.
+EMIT_EVENT_RETRY_POLICY = RetryPolicy(
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_attempts=5,
+)
+# Each schedule_to_close budget fits every attempt running to its start_to_close timeout plus the
+# backoff, so the attempt count ends retries and `raise_emit_failure` can tell the final attempt.
+EMIT_EVENT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
+EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=4)
+# For emits that first read their generation, which can run to several MiB.
+HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)
+HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=12)
+
 _lock = threading.Lock()
 _cache: dict[int, tuple[float, str]] = {}
 
 
 class TeamNotFound(Exception):
     pass
+
+
+def raise_emit_failure(error: Exception) -> NoReturn:
+    """Re-raise an emit failure, kept out of error tracking while Temporal still has attempts left."""
+    if is_last_attempt():
+        raise error
+    raise NonReportableApplicationError(str(error), type=type(error).__name__) from error
 
 
 def get_team_api_token(team_id: int) -> str:
@@ -66,7 +92,7 @@ def clear_team_api_token_cache() -> None:
         _cache.clear()
 
 
-def capture_internal_for_team(
+def capture_ai_internal_for_team(
     *,
     team_id: int,
     event_name: str,
@@ -77,10 +103,15 @@ def capture_internal_for_team(
     process_person_profile: bool = True,
     event_uuid: str | None = None,
 ) -> None:
-    """Capture one event for a team, raising on a non-2xx capture response."""
+    """Capture one AI event for a team, raising on a non-2xx capture response.
+
+    Every caller here emits `$ai_*` events, so this goes to the AI lane
+    (`/i/v1/ai/events` on capture-ai). A non-AI event name would be rerouted to the
+    analytics lane and counted, not rejected.
+    """
     token = get_team_api_token(team_id)
     try:
-        result = capture_internal(
+        result = capture_ai_internal(
             token=token,
             event_name=event_name,
             event_source=event_source,

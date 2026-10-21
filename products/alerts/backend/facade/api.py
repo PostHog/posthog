@@ -1,54 +1,50 @@
+"""Facade for insight alerts.
+
+Reads and writes other products need on the insight-alert model, in ids and plain values.
+Destination configuration lives in `facade.destinations`, email in `facade.email`, the
+lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduling`.
+"""
+
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Any, Literal, cast
+from itertools import islice
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_enums import AlertState
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.destination_configs import (
-    DESTINATION_SPECS,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-    build_alert_destination_config,
-    validate_destination_data,
-)
-from products.alerts.backend.destinations import (
-    count_active_alert_destinations,
-    create_alert_destination_hog_functions,
-    list_alert_destination_groups,
-    owned_alert_destinations_qs,
-    redact_urls_in_name,
-    soft_delete_alert_destinations,
-    soft_delete_alert_destinations_for_alerts,
-    soft_delete_all_alert_destinations,
-)
-from products.alerts.backend.email_notifications import send_alert_email
-from products.alerts.backend.insight_alert_destinations import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
-    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
-    MAX_DESTINATIONS_PER_ALERT,
-    build_insight_alert_slack_config,
-)
+from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.scheduling import (
-    validate_and_normalize_schedule_restriction,
-    validate_and_normalize_schedule_start_time,
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    MAX_CONCURRENT_MODEL_CALLS,
+    MAX_PROMPT_POINTS,
+    LLMDetectorError,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
 )
+from products.alerts.backend.llm_detector_limits import (
+    LLMAlertRefusal,
+    LLMAlertWrite,
+    admit_llm_alert_write,
+    is_llm_detector_config,
+    llm_detector_access_error,
+)
+from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -85,21 +81,6 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
 
 
-def insight_alerts_prefetch(to_attr: str) -> Prefetch:
-    """A ``Prefetch`` loading an insight's alerts in the shape ``serialize_insight_alerts`` needs.
-
-    Callers add it to their insight queryset and read the alerts back off ``to_attr``. The
-    select_related/prefetch_related shape belongs here because it follows AlertSerializer:
-    that serializer emits threshold and subscribed_users per alert, so without them every
-    alert in the response costs two extra queries.
-    """
-    # Sets no team filter of its own: the prefetch is scoped by the insight queryset it is
-    # attached to, and an alert always belongs to its insight's team.
-    # nosemgrep: idor-lookup-without-team
-    queryset = AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related("subscribed_users")
-    return Prefetch("alertconfiguration_set", queryset=queryset, to_attr=to_attr)
-
-
 def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     """Delete the alerts pointing at the given insights.
 
@@ -112,20 +93,6 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     # nosemgrep: idor-lookup-without-team
     for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
         alert.delete()
-
-
-def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: dict[str, Any]) -> list[dict[str, Any]]:
-    """Render an insight's alerts for the insight API response.
-
-    The insight API prefetches the alerts so the render costs no extra query, then hands them
-    back here — the alert JSON shape is this product's to define, not product_analytics'.
-    ``context`` is the calling serializer's DRF context.
-    """
-    # Deferred so the facade does not pull DRF onto its import path.
-    from products.alerts.backend.presentation.views.alert import AlertSerializer  # noqa: PLC0415
-
-    # `many=True` yields a ReturnList; the DRF stubs type `.data` as ReturnDict either way.
-    return cast(list[dict[str, Any]], AlertSerializer(alerts, many=True, context=context).data)
 
 
 def snooze_alert_from_slack(
@@ -215,36 +182,46 @@ def snooze_alert_from_slack(
     return "snoozed"
 
 
+FIRING_ALERT_CANDIDATES = 200
+
+
+def list_firing_alerts_created_by(
+    team: Team, user: User, *, include_metrics_insights: bool, limit: int
+) -> list[contracts.FiringAlert]:
+    alerts = AlertConfiguration.objects.filter(
+        team_id=team.id,
+        enabled=True,
+        state=AlertState.FIRING,
+        created_by_id=user.id,
+        insight__deleted=False,
+    ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
+    if not include_metrics_insights:
+        alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
+    access = UserAccessControl(user, team=team)
+    candidates = alerts.select_related("insight").order_by("-created_at")[:FIRING_ALERT_CANDIDATES]
+    viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
+    return [
+        contracts.FiringAlert(
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
+        )
+        for alert in islice(viewable, limit)
+    ]
+
+
 __all__ = [
-    "DESTINATION_SPECS",
-    "INSIGHT_ALERT_DESTINATION_TYPES",
-    "INSIGHT_ALERT_EVENT_IDS",
-    "MAX_DESTINATIONS_PER_ALERT",
-    "MAX_DESTINATION_IDS_PER_DELETE_REQUEST",
-    "AlertDestinationData",
-    "AlertDestinationValidationError",
-    "AlertScheduleRestriction",
-    "DestinationType",
-    "SLACK_SNOOZE_MAX_DAYS",
-    "SlackSnoozeOutcome",
-    "build_alert_destination_config",
-    "build_insight_alert_slack_config",
-    "count_active_alert_destinations",
-    "create_alert_destination_hog_functions",
-    "delete_insight_alerts",
-    "get_alert_team_id",
-    "insight_alerts_prefetch",
-    "insight_ids_with_alerts",
-    "list_alert_destination_groups",
-    "owned_alert_destinations_qs",
-    "redact_urls_in_name",
-    "serialize_insight_alerts",
-    "snooze_alert_from_slack",
-    "soft_delete_alert_destinations",
-    "soft_delete_alert_destinations_for_alerts",
-    "soft_delete_all_alert_destinations",
-    "send_alert_email",
-    "validate_destination_data",
-    "validate_and_normalize_schedule_restriction",
-    "validate_and_normalize_schedule_start_time",
+    "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
+    "MAX_CONCURRENT_MODEL_CALLS",
+    "MAX_PROMPT_POINTS",
+    "LLMAlertRefusal",
+    "LLMAlertWrite",
+    "LLMDetectorError",
+    "LLMDetectorMisconfiguredError",
+    "LLMDetectorUnavailableError",
+    "admit_llm_alert_write",
+    "is_llm_detector_config",
+    "llm_detector_access_error",
 ]

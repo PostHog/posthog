@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -17,11 +17,13 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -45,6 +47,15 @@ describe('taxonomicFilterLogic', () => {
         actionRequestCount = 0
         useMocks({
             get: {
+                '/api/environments/:team/dashboards/': () => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [{ id: 1, name: 'Workflows', pinned: false }],
+                    },
+                ],
                 '/api/projects/:team/actions/': () => {
                     actionRequestCount++
                     return [200, { results: [], count: 0 }]
@@ -130,6 +141,44 @@ describe('taxonomicFilterLogic', () => {
         noActionsLogic.unmount()
     })
 
+    it.each([
+        {
+            name: 'mounts dashboardsModel so the Dashboards group can read its items',
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Dashboards],
+            expectsDashboardsModel: true,
+        },
+        {
+            name: 'leaves dashboardsModel unmounted for a filter without the Dashboards group',
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            expectsDashboardsModel: false,
+        },
+    ])('$name', async ({ groupTypes, expectsDashboardsModel }) => {
+        const logicProps: TaxonomicFilterLogicProps = {
+            taxonomicFilterLogicKey: 'dashboardsGroupGate',
+            taxonomicGroupTypes: groupTypes,
+            initialSearchQuery: 'workflows',
+        }
+        const gatedLogic = taxonomicFilterLogic(logicProps)
+        gatedLogic.mount()
+
+        expect(dashboardsModel.isMounted()).toBe(expectsDashboardsModel)
+
+        if (expectsDashboardsModel) {
+            const dashboardsList = infiniteListLogic({
+                ...logicProps,
+                listGroupType: TaxonomicFilterGroupType.Dashboards,
+            })
+            dashboardsList.mount()
+
+            await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+            expect(dashboardsList.values.localItems.results).toEqual([expect.objectContaining({ name: 'Workflows' })])
+
+            dashboardsList.unmount()
+        }
+
+        gatedLogic.unmount()
+    })
+
     it('keeps infiniteListCounts in sync', async () => {
         await expectLogic(logic)
             .toMatchValues({
@@ -170,6 +219,7 @@ describe('taxonomicFilterLogic', () => {
 
         // load the initial results
         await waitForRemoteResults()
+        logic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
 
         await waitForRemoteResults(() => logic.actions.setSearchQuery('event'))
         await expectLogic(logic).toMatchValues({
@@ -226,6 +276,7 @@ describe('taxonomicFilterLogic', () => {
             ...logic.props,
             listGroupType: TaxonomicFilterGroupType.Events,
         })
+        logic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
 
         await expectLogic(eventsListLogic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
             'loadRemoteItemsSuccess',
@@ -270,6 +321,7 @@ describe('taxonomicFilterLogic', () => {
 
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
+        logic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
 
         // move right from Events, skipping Actions (0 results)
         await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
@@ -641,9 +693,21 @@ describe('taxonomicFilterLogic', () => {
                 barrierLogic.actions.setSearchQuery('whatever')
             }).toMatchValues({ revealBarrierOpen: false })
 
+            const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
             expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+
+            const latencyCalls = captureSpy.mock.calls.filter(([event]) => event === 'taxonomic filter search latency')
+            expect(latencyCalls).toHaveLength(1)
+            expect(latencyCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: 'whatever',
+                time_to_see_data_ms: expect.any(Number),
+                revealedBy: 'all_groups_settled',
+                pendingGroupTypes: [],
+            })
+            captureSpy.mockRestore()
         })
     })
 
@@ -953,14 +1017,11 @@ describe('taxonomicFilterLogic', () => {
     describe('events whose data is moving out of the events table', () => {
         const HIDDEN_EVENT = '$feature_flag_called'
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
-        const eventsGroupExclusions = (props: Record<string, any>): (string | null)[] => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-            })
+        const eventsGroupExclusions = (
+            props: Record<string, any>,
+            mode: FlagEvaluationsModeEnumApi = FlagEvaluationsModeEnumApi.Number1
+        ): (string | null)[] => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             const testLogic = taxonomicFilterLogic({
                 taxonomicFilterLogicKey: `hidden-events-${JSON.stringify(props)}`,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
@@ -980,8 +1041,11 @@ describe('taxonomicFilterLogic', () => {
             expect(eventsGroupExclusions({})).toContain(HIDDEN_EVENT)
         })
 
-        it('offers them to a picker that opts out', () => {
-            expect(eventsGroupExclusions({ includeHiddenEvents: true })).not.toContain(HIDDEN_EVENT)
+        it.each([
+            ['a team on the Events mode', {}, FlagEvaluationsModeEnumApi.Number0],
+            ['a picker that opts out', { includeHiddenEvents: true }, FlagEvaluationsModeEnumApi.Number1],
+        ])('offers them to %s', (_label, props, mode) => {
+            expect(eventsGroupExclusions(props, mode)).not.toContain(HIDDEN_EVENT)
         })
 
         // Cohorts exclude "All events" and transformations exclude $exception; adding ours must not
@@ -995,17 +1059,50 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
-    describe('SuggestedFilters presence by variant', () => {
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'control',
+    describe('SuggestedFilters presence', () => {
+        it.each([
+            { restriction: 'none', props: {}, expected: true },
+            {
+                restriction: 'exclusion',
+                props: { excludedProperties: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+                expected: false,
+            },
+            {
+                restriction: 'allowlist mismatch',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$host'] } },
+                expected: false,
+            },
+            {
+                restriction: 'empty allowlist',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: [] } },
+                expected: false,
+            },
+            {
+                restriction: 'allowlist match',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+                expected: true,
+            },
+            { restriction: 'numeric properties only', props: { showNumericalPropsOnly: true }, expected: false },
+        ])('offers a primary property in Suggested with $restriction', ({ restriction, props, expected }) => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `testPrimary-${restriction}`,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                eventNames: ['$pageview'],
+                ...props,
             })
+            testLogic.mount()
+
+            const suggested = testLogic.values.taxonomicGroups.find(
+                (group) => group.type === TaxonomicFilterGroupType.SuggestedFilters
+            )
+            expect(suggested?.options?.some((option) => option.name === '$pathname')).toBe(expected)
+
+            testLogic.unmount()
         })
 
         it.each([
             {
-                description: 'control: includes SuggestedFilters when explicitly listed in a multi-group picker',
-                variant: 'control',
+                description: 'keeps SuggestedFilters when explicitly listed in a multi-group picker',
                 groupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.Events,
@@ -1015,47 +1112,26 @@ describe('taxonomicFilterLogic', () => {
                 expectDefault: true,
             },
             {
-                description: 'control: does not auto-inject SuggestedFilters for a multi-group picker',
-                variant: 'control',
-                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                expectPresent: false,
-                expectDefault: false,
-            },
-            {
-                description: 'pill: auto-injects SuggestedFilters as the default for a multi-group picker',
-                variant: 'pill',
+                description: 'adds SuggestedFilters as the default for a multi-group picker',
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
                 expectPresent: true,
                 expectDefault: true,
             },
             {
-                description: 'pill: does not auto-inject SuggestedFilters for a single substantive group',
-                variant: 'pill',
+                description: 'adds SuggestedFilters after a single substantive group without making it the default',
                 groupTypes: [TaxonomicFilterGroupType.Events],
-                expectPresent: false,
+                expectPresent: true,
                 expectDefault: false,
             },
             {
-                description: 'control: strips explicitly-listed SuggestedFilters for a single substantive group',
-                variant: 'control',
+                description: 'moves explicitly listed SuggestedFilters after a single substantive group',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectPresent: false,
+                expectPresent: true,
                 expectDefault: false,
             },
-            {
-                description: 'pill: strips explicitly-listed SuggestedFilters for a single substantive group',
-                variant: 'pill',
-                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectPresent: false,
-                expectDefault: false,
-            },
-        ])('$description', ({ variant, groupTypes, expectPresent, expectDefault }) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-            })
-
+        ])('$description', ({ groupTypes, expectPresent, expectDefault }) => {
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testVariant-${variant}-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testSuggested-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
@@ -1072,39 +1148,105 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
+    })
 
-        it('pill flag resolving after mount still makes SuggestedFilters the default tab', () => {
+    describe('search-only groups', () => {
+        it.each([
+            {
+                picker: 'property picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                hidden: [TaxonomicFilterGroupType.EmailAddresses],
+                shown: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.PageviewUrls],
+            },
+            {
+                picker: 'series picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                hidden: [
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                shown: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            },
+            {
+                picker: 'picker of a search-only group and a meta group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses, TaxonomicFilterGroupType.HogQLExpression],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+            {
+                picker: 'picker of only a search-only group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+        ])(
+            'keeps search-only groups searched but out of the categories in a $picker',
+            ({ picker, groupTypes, hidden, shown }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testSearchOnly-${picker}`,
+                    taxonomicGroupTypes: groupTypes,
+                })
+                testLogic.mount()
+
+                for (const groupType of hidden) {
+                    expect(testLogic.values.categoryGroupTypes).not.toContain(groupType)
+                    expect(testLogic.values.taxonomicGroupTypes).toContain(groupType)
+                }
+                for (const groupType of shown) {
+                    expect(testLogic.values.categoryGroupTypes).toContain(groupType)
+                }
+
+                testLogic.unmount()
+            }
+        )
+    })
+
+    describe('searchPlaceholder', () => {
+        it.each([
+            { groupTypes: [TaxonomicFilterGroupType.Events], expected: 'events' },
+            {
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expected: 'events or actions',
+            },
+            {
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                ],
+                expected: 'events, actions or cohorts',
+            },
+            {
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Cohorts,
+                ],
+                expected: 'event properties, person properties, and more',
+            },
+        ])('names $expected without meta groups', ({ groupTypes, expected }) => {
             const testLogic = taxonomicFilterLogic({
-                taxonomicFilterLogicKey: 'testLateFlagDefault',
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                taxonomicFilterLogicKey: `testPlaceholder-${groupTypes.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
             })
             testLogic.mount()
 
-            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
-
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
-
-            expect(testLogic.values.taxonomicGroupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
-            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
-
-            testLogic.unmount()
-        })
-
-        it('an explicit tab choice made before the pill flag resolves is kept', () => {
-            const testLogic = taxonomicFilterLogic({
-                taxonomicFilterLogicKey: 'testLateFlagExplicit',
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-            })
-            testLogic.mount()
-
-            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
-
-            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Actions)
+            expect(testLogic.values.searchPlaceholder).toBe(expected)
 
             testLogic.unmount()
         })
@@ -1138,7 +1280,7 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'promotes shortcut groups after auto-injected meta groups when no SuggestedFilters',
+                description: 'promotes shortcut groups after the all and auto-injected meta groups',
                 groupTypes: [
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
@@ -1147,6 +1289,7 @@ describe('taxonomicFilterLogic', () => {
                     TaxonomicFilterGroupType.EmailAddresses,
                 ],
                 expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                     TaxonomicFilterGroupType.PageviewUrls,
@@ -1157,13 +1300,14 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'auto-injects meta groups when no shortcut groups are present',
+                description: 'adds all and auto-injected meta groups when no shortcut groups are present',
                 groupTypes: [
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.EventProperties,
                 ],
                 expected: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                     TaxonomicFilterGroupType.Events,
@@ -1172,19 +1316,21 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'single substantive group leads, with Recent/Pinned after it (no All)',
+                description: 'single substantive group leads, with Suggested then Recent/Pinned after it',
                 groupTypes: [TaxonomicFilterGroupType.Events],
                 expected: [
                     TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ],
             },
             {
-                description: 'single substantive group drops an explicitly-prepended All and still leads',
+                description: 'single substantive group moves an explicitly-prepended All after it',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
                 expected: [
                     TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ],

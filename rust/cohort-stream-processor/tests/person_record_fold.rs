@@ -155,6 +155,45 @@ fn row0_inactive_person_side_neither_reads_nor_writes_the_record() {
 }
 
 #[test]
+fn row0_null_payload_keeps_the_record_so_an_older_full_event_still_evaluates() {
+    let (_dir, store) = temp_store();
+    let f = filters(vec![email_leaf(), plan_leaf()]);
+    let alice = person(1);
+
+    feed(
+        &store,
+        &f,
+        &event(alice, PRO, 0, "2026-05-26 10:00:00.000000"),
+    );
+    let before = record(&store, alice).unwrap();
+
+    // The shuffler forwards an event that ingestion processed without a person profile with a null
+    // payload. It carries no person state, so its newer timestamp must not advance the stamp.
+    let personless = CohortStreamEvent {
+        person_properties: None,
+        ..event(alice, PRO, 1, "2026-05-26 11:00:00.000000")
+    };
+    let out = feed(&store, &f, &personless);
+    assert!(out.transitions.is_empty(), "a null payload flips nothing");
+    assert_eq!(
+        record(&store, alice).unwrap(),
+        before,
+        "a null payload leaves the record byte-identical"
+    );
+
+    let out = feed(
+        &store,
+        &f,
+        &event(alice, FREE, 2, "2026-05-26 10:30:00.000000"),
+    );
+    assert_eq!(
+        sorted(&out.transitions),
+        vec![(PLAN_HASH, TransitionKind::Left)],
+        "a full event older than the personless one is not stale"
+    );
+}
+
+#[test]
 fn row4b_first_eval_enters_true_conditions_and_writes_the_record() {
     let (_dir, store) = temp_store();
     let f = filters(vec![email_leaf(), plan_leaf()]);

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
+import { IconBalance, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -28,14 +29,16 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
-import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
-import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
+import { QuillSharedMetricActions } from 'products/experiments/frontend/components/QuillSharedMetricActions'
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { isLegacyExperimentQuery } from '../utils'
+import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
+import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {
@@ -47,14 +50,35 @@ export const scene: SceneExport<SharedMetricLogicProps> = {
     }),
 }
 
-function openDeleteSharedMetricDialog(onDelete: () => void): void {
+function openSaveWithRunningExperimentsDialog(
+    runningExperiments: readonly ExperimentSavedMetricLinkedExperimentApi[],
+    onSave: () => void
+): void {
     LemonDialog.open({
-        title: 'Delete this metric?',
-        content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+        title: 'Save changes to this metric?',
+        content: (
+            <div className="text-sm text-secondary max-w-120">
+                <p>
+                    This metric is used by{' '}
+                    {runningExperiments.length === 1
+                        ? 'a running experiment'
+                        : `${runningExperiments.length} running experiments`}
+                    . Saving changes to the metric definition also changes{' '}
+                    {runningExperiments.length === 1 ? 'its' : 'their'} results.
+                </p>
+                <ul className="list-disc pl-4 space-y-1 max-h-60 overflow-y-auto">
+                    {runningExperiments.map((experiment) => (
+                        <li key={experiment.id} className="truncate">
+                            <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        ),
         primaryButton: {
-            children: 'Delete',
+            children: 'Save',
             type: 'primary',
-            onClick: onDelete,
+            onClick: onSave,
             size: 'small',
         },
         secondaryButton: {
@@ -66,13 +90,54 @@ function openDeleteSharedMetricDialog(onDelete: () => void): void {
 }
 
 export function SharedMetric(): JSX.Element {
-    const { sharedMetric, action } = useValues(sharedMetricLogic)
+    const { sharedMetric, action, metricSaving } = useValues(sharedMetricLogic)
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
 
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentProjectId } = useValues(teamLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+    const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
+
+    const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
+    const isLegacy = isLegacyExperimentQuery(sharedMetric?.query)
+    const saveDisabledReason = isLegacy
+        ? 'Legacy shared metrics can no longer be edited'
+        : sharedMetric?.name
+          ? undefined
+          : 'You must give your metric a name'
+
+    const handleDelete = async (): Promise<void> => {
+        if (!sharedMetric.id || deleteCheckLoading) {
+            return
+        }
+        setDeleteCheckLoading(true)
+        try {
+            await openDeleteSharedMetricDialog({
+                projectId: currentProjectId,
+                sharedMetricId: sharedMetric.id,
+                onDelete: deleteSharedMetric,
+            })
+        } finally {
+            setDeleteCheckLoading(false)
+        }
+    }
+
+    const handleSave = (): void => {
+        if (metricSaving) {
+            return
+        }
+        if (['create', 'duplicate'].includes(action)) {
+            createSharedMetric()
+            return
+        }
+        if (runningExperiments.length > 0) {
+            openSaveWithRunningExperimentsDialog(runningExperiments, () => updateSharedMetric())
+            return
+        }
+        updateSharedMetric()
+    }
 
     if (!sharedMetric || !sharedMetric.query) {
         return (
@@ -84,55 +149,6 @@ export function SharedMetric(): JSX.Element {
 
     return (
         <SceneContent>
-            {sharedMetric.query.kind !== NodeKind.ExperimentMetric && (
-                <div className="flex gap-4 mb-4">
-                    <div
-                        className={`flex-1 cursor-pointer p-4 rounded border ${
-                            sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
-                                ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary'
-                        }`}
-                        onClick={() => {
-                            setSharedMetric({
-                                query: getDefaultTrendsMetric(),
-                            })
-                        }}
-                    >
-                        <div className="font-semibold flex justify-between items-center">
-                            <span>Trend</span>
-                            {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
-                            )}
-                        </div>
-                        <div className="text-secondary text-sm leading-relaxed">
-                            Track a single event, action or a property value.
-                        </div>
-                    </div>
-                    <div
-                        className={`flex-1 cursor-pointer p-4 rounded border ${
-                            sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
-                                ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary'
-                        }`}
-                        onClick={() => {
-                            setSharedMetric({
-                                query: getDefaultFunnelsMetric(),
-                            })
-                        }}
-                    >
-                        <div className="font-semibold flex justify-between items-center">
-                            <span>Funnel</span>
-                            {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
-                            )}
-                        </div>
-                        <div className="text-secondary text-sm leading-relaxed">
-                            Analyze conversion rates between sequential steps.
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {sceneMenuBarEnabled && action === 'update' && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="shared-metric-menubar-file">
@@ -147,8 +163,8 @@ export function SharedMetric(): JSX.Element {
                                 <SceneMenuBarItem
                                     variant="destructive"
                                     opensFloatingUi
-                                    disabled={!!disabledReason}
-                                    onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                    disabled={!!disabledReason || deleteCheckLoading}
+                                    onClick={() => void handleDelete()}
                                     data-attr="shared-metric-menubar-delete"
                                 >
                                     <IconTrash />
@@ -170,7 +186,7 @@ export function SharedMetric(): JSX.Element {
                                 updateSharedMetric(false)
                             }
                         }}
-                        canEdit
+                        canEdit={!isLegacy}
                         tags={sharedMetric.tags}
                         tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
@@ -187,7 +203,8 @@ export function SharedMetric(): JSX.Element {
                             <ButtonPrimitive
                                 variant="danger"
                                 menuItem
-                                onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                disabled={deleteCheckLoading}
+                                onClick={() => void handleDelete()}
                             >
                                 <IconTrash /> Delete
                             </ButtonPrimitive>
@@ -210,7 +227,7 @@ export function SharedMetric(): JSX.Element {
                         description: newDescription,
                     })
                 }}
-                canEdit
+                canEdit={!isLegacy}
                 forceEdit={!sharedMetric.id}
                 forceBackTo={{
                     name: 'Experiments / shared metrics',
@@ -218,71 +235,88 @@ export function SharedMetric(): JSX.Element {
                     key: ExperimentsTabs.SharedMetrics,
                 }}
                 actions={
-                    <>
-                        {action === 'update' && (
-                            <More
-                                overlay={
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={sharedMetric.user_access_level}
-                                    >
-                                        <LemonButton
-                                            fullWidth
-                                            size="small"
-                                            icon={<IconTrash />}
-                                            status="danger"
-                                            data-attr="shared-metric-delete"
-                                            onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                }
-                            />
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                            minAccessLevel={AccessControlLevel.Editor}
+                    todayRailNav ? (
+                        <QuillSharedMetricActions
+                            showDelete={action === 'update'}
                             userAccessLevel={sharedMetric.user_access_level}
-                        >
-                            <LemonButton
-                                disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
-                                size="small"
-                                type="primary"
-                                onClick={() => {
-                                    if (['create', 'duplicate'].includes(action)) {
-                                        createSharedMetric()
-                                        return
+                            deleteLoading={deleteCheckLoading}
+                            onDelete={() => void handleDelete()}
+                            saveDisabledReason={saveDisabledReason}
+                            saving={metricSaving}
+                            onSave={handleSave}
+                        />
+                    ) : (
+                        <>
+                            {action === 'update' && (
+                                <More
+                                    overlay={
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={sharedMetric.user_access_level}
+                                        >
+                                            <LemonButton
+                                                fullWidth
+                                                size="small"
+                                                icon={<IconTrash />}
+                                                status="danger"
+                                                data-attr="shared-metric-delete"
+                                                loading={deleteCheckLoading}
+                                                onClick={() => void handleDelete()}
+                                            >
+                                                Delete
+                                            </LemonButton>
+                                        </AccessControlAction>
                                     }
-
-                                    updateSharedMetric()
-                                }}
+                                />
+                            )}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={sharedMetric.user_access_level}
                             >
-                                Save
-                            </LemonButton>
-                        </AccessControlAction>
-                    </>
+                                <LemonButton
+                                    disabledReason={saveDisabledReason}
+                                    loading={metricSaving}
+                                    size="small"
+                                    type="primary"
+                                    onClick={handleSave}
+                                >
+                                    Save
+                                </LemonButton>
+                            </AccessControlAction>
+                        </>
+                    )
                 }
             />
 
-            {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
-                <ExperimentMetricForm
-                    metric={sharedMetric.query as ExperimentMetric}
-                    isSharedMetric={true}
-                    handleSetMetric={(newMetric) => {
-                        setSharedMetric({
-                            ...sharedMetric,
-                            query: newMetric,
-                        })
-                    }}
-                    filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
-                />
-            ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
-                <LegacySharedTrendsMetricForm />
-            ) : (
-                <LegacySharedFunnelsMetricForm />
-            )}
+            <div className="flex flex-col gap-4 @min-[64rem]/main-content:flex-row @min-[64rem]/main-content:items-start">
+                <div className="min-w-0 flex-1 order-2 @min-[64rem]/main-content:order-1">
+                    {isLegacy ? (
+                        <LemonBanner type="warning">
+                            Legacy shared metrics can no longer be edited. When you migrate an experiment that uses this
+                            metric, the metric is migrated too.
+                        </LemonBanner>
+                    ) : (
+                        <ExperimentMetricForm
+                            metric={sharedMetric.query as ExperimentMetric}
+                            isSharedMetric={true}
+                            handleSetMetric={(newMetric) => {
+                                setSharedMetric({
+                                    ...sharedMetric,
+                                    query: newMetric,
+                                })
+                            }}
+                            filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
+                        />
+                    )}
+                </div>
+                {action === 'update' && (sharedMetric.linked_experiments || []).length > 0 && (
+                    <div className="order-1 @min-[64rem]/main-content:order-2 @min-[64rem]/main-content:w-80 shrink-0 @min-[64rem]/main-content:sticky @min-[64rem]/main-content:top-4">
+                        <SharedMetricLinkedExperiments experiments={sharedMetric.linked_experiments || []} />
+                    </div>
+                )}
+            </div>
             <div className="flex justify-between">
                 <AccessControlAction
                     resourceType={AccessControlResourceType.ExperimentSavedMetric}
@@ -290,17 +324,11 @@ export function SharedMetric(): JSX.Element {
                     userAccessLevel={sharedMetric.user_access_level}
                 >
                     <LemonButton
-                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        disabledReason={saveDisabledReason}
+                        loading={metricSaving}
                         size="medium"
                         type="primary"
-                        onClick={() => {
-                            if (['create', 'duplicate'].includes(action)) {
-                                createSharedMetric()
-                                return
-                            }
-
-                            updateSharedMetric()
-                        }}
+                        onClick={handleSave}
                     >
                         Save
                     </LemonButton>

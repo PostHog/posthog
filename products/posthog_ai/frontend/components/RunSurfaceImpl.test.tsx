@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { RunStatus } from '../logics/runStreamLogic'
@@ -24,10 +26,12 @@ jest.mock('../logics/runStreamLogic', () => ({
         status != null && ['completed', 'failed', 'cancelled'].includes(status),
 }))
 
+jest.mock('lib/hooks/useFeatureFlag', () => ({ useFeatureFlag: jest.fn() }))
+
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
-jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
+jest.mock('./ContextUsageChip', () => ({ ContextUsageChip: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
 jest.mock('./RunLogSkeleton', () => ({ RunLogSkeleton: () => <div data-attr="run-log-skeleton" /> }))
@@ -38,14 +42,18 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         respondingToPermission: boolean
         bootstrapLoading: boolean
+        runOpening: boolean
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
+        piAcpEnabled: boolean
     }>
 ): void {
+    const { piAcpEnabled = true, ...values } = overrides
+    ;(useFeatureFlag as jest.Mock).mockReturnValue(piAcpEnabled)
     ;(useValues as jest.Mock).mockReturnValue({
         bootstrapLoading: false,
         threadItems: [],
-        hasThreadItems: !!overrides.threadItems?.length,
+        hasThreadItems: !!values.threadItems?.length,
         pendingPermissionRequest: null,
         respondingToPermission: false,
         currentRunStatus: 'in_progress',
@@ -53,7 +61,7 @@ function setValues(
         taskLoading: false,
         taskError: null,
         taskNotFound: false,
-        ...overrides,
+        ...values,
     })
 }
 
@@ -105,8 +113,14 @@ describe('RunSurface', () => {
         cleanup()
     })
 
-    it('does not mount the ACP run surface for a Pi task', () => {
-        setValues({ task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi } })
+    it.each([
+        { caseName: 'a Pi task', runtime: TaskRuntimeEnumApi.Pi },
+        { caseName: 'an ACP task', runtime: TaskRuntimeEnumApi.Acp },
+        { caseName: 'an older API response without runtime', runtime: undefined },
+    ])('mounts the run surface and bootstraps with the runtime for $caseName', ({ runtime }) => {
+        const bootstrapRun = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun, reset: jest.fn(), loadTask: jest.fn() })
+        setValues({ task: { origin_product: 'user_created', runtime } })
 
         render(
             <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
@@ -117,13 +131,18 @@ describe('RunSurface', () => {
             </RunSurface.Root>
         )
 
-        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
-        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
-        expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+        expect(screen.getByTestId('thread')).toBeInTheDocument()
+        expect(screen.getByTestId('composer-child')).toBeInTheDocument()
+        expect(bootstrapRun).toHaveBeenCalledWith({ taskId: 'task-1', runId: 'run-1', taskRuntime: runtime })
     })
 
-    it('keeps the ACP run surface available when an older API response omits runtime', () => {
-        setValues({ task: { origin_product: 'user_created' } })
+    it('keeps a Pi task behind the unavailable banner until Pi web sessions are on', () => {
+        const bootstrapRun = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun, reset: jest.fn(), loadTask: jest.fn() })
+        setValues({
+            task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi },
+            piAcpEnabled: false,
+        })
 
         render(
             <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
@@ -131,11 +150,37 @@ describe('RunSurface', () => {
             </RunSurface.Root>
         )
 
-        expect(screen.getByTestId('thread')).toBeInTheDocument()
-        expect(screen.queryByText("Pi session logs aren't available in PostHog yet.")).not.toBeInTheDocument()
+        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
+        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+        expect(bootstrapRun).not.toHaveBeenCalled()
     })
 
     describe('Composer slot', () => {
+        it('replaces the loading fallback with the composer after the run status resolves', () => {
+            setValues({ currentRunStatus: null })
+            const surface = (
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Composer loadingFallback={<div data-attr="composer-loading" />}>
+                        <div data-attr="composer-child" />
+                    </RunSurface.Composer>
+                </RunSurface.Root>
+            )
+            const { rerender } = render(surface)
+            expect(screen.getByTestId('composer-loading')).toBeInTheDocument()
+            expect(screen.queryByTestId('composer-child')).not.toBeInTheDocument()
+
+            setValues({ currentRunStatus: 'completed' })
+            rerender(
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Composer loadingFallback={<div data-attr="composer-loading" />}>
+                        <div data-attr="composer-child" />
+                    </RunSurface.Composer>
+                </RunSurface.Root>
+            )
+            expect(screen.queryByTestId('composer-loading')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer-child')).toBeInTheDocument()
+        })
+
         it('clears a draft sent before its debounce commits', () => {
             jest.useFakeTimers()
             try {
@@ -167,9 +212,9 @@ describe('RunSurface', () => {
             }
         )
 
-        it('hides the composer during the null bootstrap window', () => {
-            renderLiveWithComposer(null)
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+        it.each([false, true])('shows the pending composer only for an optimistic start: %s', (runOpening) => {
+            renderLiveWithComposer({ currentRunStatus: null, runOpening })
+            expect(!!screen.queryByTestId('composer')).toBe(runOpening)
             // The thread still renders while bootstrapping.
             expect(screen.getByTestId('thread')).toBeInTheDocument()
         })
@@ -305,5 +350,22 @@ describe('RunSurface', () => {
                 expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
             }
         )
+
+        it('keeps an optimistic provisioning thread visible while task metadata loads', () => {
+            setValues({ bootstrapLoading: true, threadItems: [], task: null })
+            render(
+                <RunSurface.Root
+                    taskId="task-1"
+                    runId="run-1"
+                    streamKey="report-implementation-client-stream"
+                    interaction="live"
+                >
+                    <RunSurface.Thread />
+                </RunSurface.Root>
+            )
+
+            expect(screen.getByTestId('thread')).toBeInTheDocument()
+            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+        })
     })
 })

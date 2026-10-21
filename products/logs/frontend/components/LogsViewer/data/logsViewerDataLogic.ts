@@ -26,6 +26,7 @@ import { dayjs } from 'lib/dayjs'
 import {
     NEW_QUERY_STARTED_ERROR_MESSAGE,
     UNMOUNTING_ERROR_MESSAGE,
+    abortResilientLoading,
     isUserInitiatedError,
 } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,10 +41,18 @@ import {
     logsViewerFiltersLogic,
     unsetColumnQueryFields,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsQueryCreate, logsSparklineCreate } from 'products/logs/frontend/generated/api'
+import type {
+    _LogsFilterGroupApi,
+    _LogsQueryBodyApi,
+    _LogsSparklineBodyApi,
+} from 'products/logs/frontend/generated/api.schemas'
+import { retryOnFastFailure } from 'products/logs/frontend/retryOnFastFailure'
 import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'
 import type { DateRange } from '../../../../../../frontend/src/queries/schema/schema-general'
+import type { _LogsSparklineBucketApi } from '../../../generated/api.schemas'
 // TODO: Move to ./types.ts
 import { ParsedLogMessage } from '../../../types'
 import type { LogsOrderBy } from '../../../types'
@@ -140,12 +149,14 @@ export interface logsViewerDataLogicValues {
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    queryScopeKey: string // logsViewerFiltersLogic
     sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
         explicitDate: boolean | null | undefined
     } // logsViewerFiltersLogic
+    currentTeamId: number | null // teamLogic
     customColumnAliases: Record<string, string> | null
     hasMoreLogsToLoad: boolean
     hasRunQuery: boolean
@@ -158,6 +169,7 @@ export interface logsViewerDataLogicValues {
     liveTailRunning: boolean
     logs: LogMessage[]
     logsAbortController: AbortController | null
+    logsError: string | null
     logsLoading: boolean
     logsRemainingToLoad: number
     maxExportableLogs: number
@@ -174,6 +186,7 @@ export interface logsViewerDataLogicValues {
         }[]
         dates: string[]
     }
+    sparklineError: string | null
     sparklineIncompleteBarIndices: number[]
     sparklineLoading: boolean
     totalLogsMatchingFilters: number
@@ -298,10 +311,10 @@ export interface logsViewerDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        sparkline: any[],
+        sparkline: _LogsSparklineBucketApi[],
         payload?: any
     ) => {
-        sparkline: any[]
+        sparkline: _LogsSparklineBucketApi[]
         payload?: any
     }
     handleQueryChange: (
@@ -481,8 +494,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             ['setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
         values: [
+            teamLogic,
+            ['currentTeamId'],
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId', 'sessionId'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId', 'sessionId', 'queryScopeKey'],
             logsViewerConfigLogic({ id }),
             ['orderBy', 'customColumns'],
         ],
@@ -589,23 +604,22 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 fetchLogsFailure: () => true,
             },
         ],
-        logsLoading: [
-            false as boolean,
+        logsLoading: [false as boolean, abortResilientLoading('fetchLogs', 'fetchNextLogsPage')],
+        sparklineLoading: [false as boolean, abortResilientLoading('fetchSparkline')],
+        logsError: [
+            null as string | null,
             {
-                fetchLogs: () => true,
-                fetchLogsSuccess: () => false,
-                fetchLogsFailure: () => true,
-                fetchNextLogsPage: () => true,
-                fetchNextLogsPageSuccess: () => false,
-                fetchNextLogsPageFailure: () => true,
+                fetchLogs: () => null,
+                fetchLogsSuccess: () => null,
+                fetchLogsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
             },
         ],
-        sparklineLoading: [
-            false as boolean,
+        sparklineError: [
+            null as string | null,
             {
-                fetchSparkline: () => true,
-                fetchSparklineSuccess: () => false,
-                fetchSparklineFailure: () => true,
+                fetchSparkline: () => null,
+                fetchSparklineSuccess: () => null,
+                fetchSparklineFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
             },
         ],
         liveTailRunning: [
@@ -666,20 +680,21 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const sentCustomColumns = values.customColumns
                     const sentExpressions = sentCustomColumns ?? []
 
-                    const response = await api.logs.query({
-                        query: {
-                            limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
-                            orderBy: values.orderBy,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.filters.searchTerm,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            ...unsetColumnQueryFields(),
-                            personId: values.personId,
-                            sessionId: values.sessionId,
-                            customColumns: sentCustomColumns,
-                        },
-                        signal,
-                    })
+                    const query: _LogsQueryBodyApi = {
+                        limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
+                        orderBy: values.orderBy,
+                        dateRange: values.utcDateRange,
+                        searchTerm: values.filters.searchTerm,
+                        filterGroup: values.queryFilterGroup as _LogsFilterGroupApi,
+                        ...unsetColumnQueryFields(),
+                        personId: values.personId,
+                        sessionId: values.sessionId,
+                        customColumns: sentCustomColumns,
+                    }
+                    const response = await retryOnFastFailure(
+                        () => logsQueryCreate(String(values.currentTeamId), { query }, { signal }),
+                        { signal }
+                    )
                     actions.setLogsAbortController(null)
                     // A 2xx response with an empty body legitimately resolves to null (see
                     // getJSONFromSuccessResponse in lib/api.ts) — treat it as a failure instead of
@@ -706,7 +721,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     if (response.results.length > 0) {
                         actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
                     }
-                    return response.results
+                    return response.results as LogMessage[]
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
                     const logsController = new AbortController()
@@ -753,21 +768,21 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const signal = sparklineController.signal
                     actions.cancelInProgressSparkline(sparklineController)
 
-                    const response = await api.logs.sparkline({
-                        query: {
-                            orderBy: values.orderBy,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.filters.searchTerm,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            ...unsetColumnQueryFields(),
-                            // The severity result key, colors, and live-tail merge all assume a
-                            // severity breakdown, so state it rather than lean on the server default.
-                            sparklineBreakdownBy: 'severity',
-                            personId: values.personId,
-                            sessionId: values.sessionId,
-                        },
-                        signal,
-                    })
+                    const query: _LogsSparklineBodyApi = {
+                        dateRange: values.utcDateRange,
+                        searchTerm: values.filters.searchTerm,
+                        filterGroup: values.queryFilterGroup as _LogsFilterGroupApi,
+                        ...unsetColumnQueryFields(),
+                        // The severity result key, colors, and live-tail merge all assume a
+                        // severity breakdown, so state it rather than lean on the server default.
+                        sparklineBreakdownBy: 'severity',
+                        personId: values.personId,
+                        sessionId: values.sessionId,
+                    }
+                    const response = await retryOnFastFailure(
+                        () => logsSparklineCreate(String(values.currentTeamId), { query }, { signal }),
+                        { signal }
+                    )
                     actions.setSparklineAbortController(null)
                     return response
                 },
@@ -974,7 +989,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         // Subscribe to the combined query view rather than the user-editable filterGroup
         // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
         // resolves after mount), not just when the user edits filters.
@@ -983,6 +998,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 return
             }
             actions.handleQueryChange('attributes')
+        },
+        // The mount firing is skipped, but a scope change during the first query is not, because
+        // that query already went out with the old scope.
+        queryScopeKey: () => {
+            if (!values.hasRunQuery && !values.logsLoading) {
+                return
+            }
+            actions.runQuery()
         },
     })),
 
@@ -1035,7 +1058,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             if (isUserInitiatedError(error)) {
                 return
             }
-            lemonToast.error(`Failed to load logs: ${error}`)
             const { error_type, status_code } = classifyQueryError(errorObject ?? error)
             posthog.capture('logs query failed', {
                 query_type: 'logs',

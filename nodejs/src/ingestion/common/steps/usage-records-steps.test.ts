@@ -3,7 +3,9 @@ import { DateTime } from 'luxon'
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { isOkResult } from '~/ingestion/framework/results'
+import { Properties } from '~/plugin-scaffold'
 import { Person } from '~/types'
 
 import { createRecordEventUsageAfterIngestStep, createRecordEventUsageStep } from './usage-records-steps'
@@ -41,11 +43,17 @@ describe('usage-records-steps', () => {
 
     async function queueEventUsage(
         ingested: Promise<IngestedEventInfo | null>[],
-        event: Partial<{ event: string; eventUuid: string; distinctId: string }> = {},
+        event: Partial<{
+            event: string
+            eventUuid: string
+            distinctId: string
+            timestamp: string
+            properties: Properties
+        }> = {},
         personProcessing: { processPerson?: boolean; person?: Person } = {},
         headers: { now?: Date } = {}
     ): Promise<void> {
-        const prepare = createRecordEventUsageStep(() => 'events')
+        const prepare = createRecordEventUsageStep(resolveAnalyticsUsageKey)
         const prepared = await prepare({
             preparedEvent: {
                 teamId: 42,
@@ -53,6 +61,7 @@ describe('usage-records-steps', () => {
                 eventUuid: 'event-uuid',
                 distinctId: 'user-7',
                 timestamp: '2026-06-15T23:55:00.000Z',
+                properties: {},
                 ...event,
             },
             headers,
@@ -110,6 +119,26 @@ describe('usage-records-steps', () => {
         expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(2)
     })
 
+    it.each([
+        ['share a submission ID', { $survey_id: 'survey-1', $survey_submission_id: 'submission-1' }, 1],
+        ['have no submission ID', { $survey_id: 'survey-1' }, 2],
+    ])('bills partial and completed survey sent events once when they %s', async (_name, properties, expected) => {
+        const acknowledged = (): Promise<IngestedEventInfo> => Promise.resolve({ topic: 'events', partition: 0 })
+        const step = (eventUuid: string, completed: boolean): Promise<void> =>
+            queueEventUsage([acknowledged()], {
+                event: 'survey sent',
+                eventUuid,
+                properties: { ...properties, $survey_completed: completed },
+            })
+        await step('partial-uuid', false)
+        await step('completed-uuid', true)
+
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage.every((record) => record.usageKey === 'survey_responses')).toBe(true)
+        expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(expected)
+    })
+
     it('bills two events apart when only the position of a newline differs', async () => {
         const acknowledged = (): Promise<IngestedEventInfo> => Promise.resolve({ topic: 'events', partition: 0 })
         await queueEventUsage([acknowledged()], { event: 'a\nb', distinctId: 'c' })
@@ -146,20 +175,28 @@ describe('usage-records-steps', () => {
         ])
     })
 
-    it('uses trusted capture time when an event flushes six hours later', async () => {
-        const capturedAtMs = FLUSH_TIMESTAMP_MS
+    it.each([
+        ['same day', '2026-07-01T00:01:00.000Z'],
+        ['closed month', '2026-05-15T12:00:00.000Z'],
+        ['future source date', '2026-08-01T00:00:00.000Z'],
+    ])('bills receipt time and preserves the source date for %s', async (_name, timestamp) => {
+        const capturedAtMs = Date.parse('2026-07-01T23:59:00.000Z')
         jest.setSystemTime(capturedAtMs)
         await queueEventUsage(
             [Promise.resolve({ topic: 'events', partition: 0 })],
-            {},
-            {},
+            { timestamp },
+            { processPerson: true },
             { now: new Date(capturedAtMs) }
         )
 
         jest.advanceTimersByTime(6 * 60 * 60 * 1000)
         await eventUsageBatch.flush()
 
-        expect(ingestedUsage[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual(['events', 'enhanced_person_events'])
+        for (const record of ingestedUsage) {
+            expect(record.timestampMs).toBe(capturedAtMs)
+            expect(record.recordId).toMatch(new RegExp(`^${timestamp.slice(0, 10)}:[0-9a-f]{32}$`))
+        }
     })
 
     // The meters have to match `person_mode` in the nightly report's two billable-event queries,

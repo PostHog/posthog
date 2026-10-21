@@ -2,6 +2,7 @@ import '~/styles'
 import './styles.scss'
 
 import { KeaPlugin, resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -12,14 +13,13 @@ import { windowValuesPlugin } from 'kea-window-values'
 import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
-import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
-import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, identifiesToolbarUser } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
-import { safeFetch } from '~/toolbar/utils'
+import { safeFetch, toError } from '~/toolbar/utils'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -55,7 +55,10 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                 // expected request failures (4xx/5xx/network) - those are logged above but
                 // must not pollute error tracking. Anything else is a genuine toolbar bug.
                 if (!isToolbarRequestError(error)) {
-                    captureToolbarException(error, 'kea_loader', {
+                    // A loader can reject with a non-Error value (e.g. html-to-image throws a raw
+                    // DOM Event). Normalize first so no bare value reaches error tracking without a
+                    // message or stack, whatever a loader throws.
+                    captureToolbarException(toError(error), 'kea_loader', {
                         reducer_key: reducerKey,
                         action_key: actionKey,
                     })
@@ -91,6 +94,17 @@ win['posthogToolbarController'] = posthogToolbarController
 
 // Re-exported for the loader script (loader.ts), which forwards its controller stub here.
 export { posthogToolbarController }
+
+// posthog-js's default refresh interval. The toolbar instance starts with refresh off, see toolbarPosthogJS.ts.
+const TOOLBAR_FLAGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+
+function startToolbarFlags(toolbarParams: ToolbarParams): void {
+    toolbarPosthogJS.set_config({ remote_config_refresh_interval_ms: TOOLBAR_FLAGS_REFRESH_INTERVAL_MS })
+    // Otherwise identify() gives the instance a new distinct id, and posthog-js loads the flags for that user
+    if (!identifiesToolbarUser(toolbarParams)) {
+        toolbarPosthogJS.reloadFeatureFlags()
+    }
+}
 
 // Tracks an in-flight mount. The mounted-state flag isn't set until the very end of the async
 // mount, so without this two overlapping ph_load_toolbar calls would both pass the guard below
@@ -128,6 +142,8 @@ async function mountToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Pr
     // The loader script already stamps this before fetching the app module, so the measured
     // duration includes the chunk fetch — keep the earliest timestamp.
     ;(window as any).__posthog_toolbar_load_start ??= performance.now()
+
+    startToolbarFlags(toolbarParams)
 
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {

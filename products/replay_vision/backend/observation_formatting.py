@@ -84,6 +84,14 @@ def read_output(obs: "ReplayObservation") -> dict[str, Any] | None:
     return output if isinstance(output, dict) else None
 
 
+def _tag_list(value: Any) -> list[str]:
+    # persisted model output, so a scanner that wrote a bare string or a number here must not take the
+    # whole listing down with it
+    if isinstance(value, list | tuple):
+        return [str(v) for v in value]
+    return [str(value)] if isinstance(value, str) and value else []
+
+
 def describe_output(output: dict[str, Any]) -> str | None:
     """Short type-specific descriptor (verdict / score / tags / title) prepended to each result line."""
     scanner_type = output.get("scanner_type")
@@ -93,9 +101,9 @@ def describe_output(output: dict[str, Any]) -> str | None:
         label = output.get("label")
         return f"score={output['score']}{f' ({label})' if label else ''}"
     if scanner_type == ScannerType.CLASSIFIER:
-        tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
-        return f"tags={', '.join(str(t) for t in tags)}" if tags else None
-    if scanner_type == ScannerType.SUMMARIZER:
+        tags = [*_tag_list(output.get("tags")), *_tag_list(output.get("tags_freeform"))]
+        return f"tags={', '.join(tags)}" if tags else None
+    if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
         title = output.get("title")
         return str(title) if isinstance(title, str) and title.strip() else None
     return None
@@ -111,14 +119,65 @@ def explanation_text(output: dict[str, Any]) -> str:
     return plain_snippet(explanation, limit=None)
 
 
-def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
-    descriptor = describe_output(output)
-    clean = explanation_text(output)[:SEARCH_SNIPPET_LIMIT]
+def _playback_time(timestamp_ms: int) -> str:
+    minutes, seconds = divmod(timestamp_ms // 1000, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
 
-    prefix = f"{obs.created_at:%Y-%m-%d}"
+
+def timed_explanation_text(output: dict[str, Any]) -> str:
+    """`explanation_text` with each citation put back as an `[at m:ss]` playback time.
+
+    The scan stores the explanation with its citations removed and keeps their times in a parallel
+    `<field>_segments` list, so the plain text alone leaves "it first appears at." with no time.
+    """
+    field = "reasoning" if output.get("reasoning") else "summary"
+    segments = output.get(f"{field}_segments")
+    if not isinstance(segments, list) or not any(
+        isinstance(segment, dict) and segment.get("kind") == "chip" for segment in segments
+    ):
+        return explanation_text(output)
+    parts: list[str] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        if segment.get("kind") == "text" and isinstance(segment.get("value"), str):
+            value = segment["value"]
+            parts.append(f" {value}" if parts and parts[-1].endswith("]") and value[:1].isalnum() else value)
+        elif segment.get("kind") == "chip" and isinstance(segment.get("timestamp_ms"), int):
+            parts.append(f" [at {_playback_time(segment['timestamp_ms'])}]")
+    return plain_snippet("".join(parts), limit=None)
+
+
+def summarize_output(output: dict[str, Any], *, with_times: bool = False) -> str:
+    """What the scanner found, on one line: the type-specific descriptor, then the model's own words."""
+    descriptor = describe_output(output)
+    clean = (timed_explanation_text(output) if with_times else explanation_text(output))[:SEARCH_SNIPPET_LIMIT]
+    return f"[{descriptor}] {clean}".rstrip() if descriptor else clean
+
+
+def summarize_observation(obs: "ReplayObservation") -> str:
+    """One line describing an observation, whatever state it reached.
+
+    A full observation row carries the scanner snapshot and the model's segmented reasoning, which is far
+    more than a reader needs to pick which row to open. This is the condensed form, so a listing can stay
+    readable at any page size. An observation that produced no output says why instead, and one still in
+    flight has nothing to say yet.
+    """
+    output = read_output(obs)
+    if output is not None:
+        return summarize_output(output)
+    return plain_snippet(obs.error_reason) if obs.error_reason else ""
+
+
+def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool, show_ids: bool = False) -> str:
+    # The recording date, not the scan date: a recent scan of an old recording says nothing about today's flow.
+    recorded = getattr(obs, "session_started_at", None)
+    prefix = f"recorded {recorded:%Y-%m-%d}" if recorded else f"scanned {obs.created_at:%Y-%m-%d}"
     session = str(obs.session_id)
     # `scanner_name` is annotated by the search hydration so no scanner row is joined; fall back to the relation.
     scanner_name = getattr(obs, "scanner_name", None) or (obs.scanner.name if show_scanner and obs.scanner else "")
     scanner_part = f" {scanner_name}" if show_scanner and scanner_name else ""
-    descriptor_part = f" [{descriptor}]" if descriptor else ""
-    return f"- (session {session}, {prefix}){scanner_part}{descriptor_part} {clean}".rstrip()
+    # Max passes these ids to follow-up tools; other readers only need the session.
+    ids = f"observation_id={obs.id}, session_id={session}" if show_ids else f"session {session}"
+    return f"- ({ids}, {prefix}){scanner_part} {summarize_output(output, with_times=True)}".rstrip()

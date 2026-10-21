@@ -5,13 +5,14 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import {
     AnyResponseType,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAggregatedQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
@@ -41,7 +42,7 @@ export function MarketingAnalyticsOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -51,8 +52,7 @@ export function MarketingAnalyticsOverview(props: {
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    // Convert results dict to array for rendering and map to OverviewItem
-    const overviewItems: OverviewItem[] = marketingOverviewQueryResponse?.results
+    const overviewItems: OverviewMetricCardItem[] = marketingOverviewQueryResponse?.results
         ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => ({
               key,
               value: item.value,
@@ -69,7 +69,13 @@ export function MarketingAnalyticsOverview(props: {
 
     const hasResults = overviewItems.length > 0
     if (responseError && !responseLoading && !hasResults) {
-        return <InsightErrorState title={responseError} />
+        return <InsightErrorState title={responseError} queryId={responseErrorObject?.queryId ?? queryId} />
+    }
+
+    // A cold precompute window comes back as an empty result, which the metric grid would render as a row
+    // of blanks. Say it is still being prepared instead.
+    if (!responseLoading && marketingOverviewQueryResponse?.precomputeNotReady) {
+        return <MarketingAnalyticsNotReady />
     }
 
     // Combine validation warnings with any backend warnings (e.g. skipped conversion goals)
@@ -81,14 +87,14 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <OverviewGrid
-                compact
-                items={overviewItems}
+            <OverviewMetricCardGrid
+                className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
+                items={overviewItems.filter(filterEmptyMetrics)}
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
+                emptyMessage="-"
                 samplingRate={samplingRate}
-                labelFromKey={labelFromKey}
-                filterEmptyItems={filterEmptyMetrics}
+                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
             />
         </>
     )
@@ -107,7 +113,7 @@ const labelFromKey = (key: string): string => {
         .join(' ')
 }
 
-const filterEmptyMetrics = (item: OverviewItem): boolean => {
+const filterEmptyMetrics = (item: OverviewMetricCardItem): boolean => {
     // Always show cost per metrics, even if they're null (they'll display as "-")
     if (item.key.toLowerCase().startsWith('cost per')) {
         return true

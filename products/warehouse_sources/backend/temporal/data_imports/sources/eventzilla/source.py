@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeConfig]):
+    codebase_detection = detect(env=("^EVENTZILLA_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.eventzilla.net/docs/"
@@ -48,10 +49,10 @@ class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.EVENTZILLA,
+            name=ExternalDataSourceType.EVENTZILLA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventzilla",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Eventzilla API key to automatically pull your Eventzilla data into the PostHog Data warehouse.
 
 You can generate an API key in your Eventzilla account under **Settings > App Management**.""",

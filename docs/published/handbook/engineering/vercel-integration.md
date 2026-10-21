@@ -105,7 +105,11 @@ sequenceDiagram
     participant PH as PostHog
 
     User->>VM: Click "Link Existing Account"
-    VM->>PH: GET /connect/vercel/callback (OAuth code)
+    VM->>PH: GET /connect/vercel/callback (OAuth code, no state)
+    PH-->>User: Redirect to Vercel's install page with a state, set a state cookie
+    User->>VM: Continue on the install page
+    VM->>PH: GET /connect/vercel/callback (OAuth code + same state)
+    PH->>PH: Reject unless the state matches this browser's cookie
     PH->>PH: Exchange code for access token
     PH->>PH: Store session in cache (10 min TTL)
 
@@ -123,6 +127,16 @@ sequenceDiagram
 - `POST /api/vercel/connect/complete` - Finalize the link
 
 **Note:** Connectable installs do NOT call the billing service. The customer keeps their existing PostHog billing. On uninstall, the `OrganizationIntegration` record is simply deleted with no billing side effects.
+
+### C. Transfer to another Vercel team
+
+A Vercel user can move a Marketplace install, with its resources, to another Vercel team ([Vercel docs](https://vercel.com/docs/integrations/install-an-integration/transferring-an-integration)). The installation ID, its access token, the PostHog organization and its billing stay the same. Vercel enables transfers per integration, so ask in [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) before relying on them.
+
+- Vercel calls `GET /v1/installations/{id}/resources/{resourceId}/plans` during the transfer, and the transfer stalls until that call succeeds.
+- Vercel does not call the installation endpoint. The `integration-configuration.transferred` webhook refreshes `config.account` (team name, dashboard URL, contact) from Vercel's account endpoint instead.
+- Connectable installs cannot be transferred, and the webhook handler leaves them unchanged.
+- The new team's contact becomes an Owner. If they signed in through Vercel before the webhook arrived, the webhook promotes them. If not, they become an Owner when they first sign in.
+- Members of the old team keep their PostHog access. Nothing removes them.
 
 ---
 
@@ -165,6 +179,25 @@ graph LR
 | **Feature flags**               | Synced to Vercel Experimentation       | PostHog only             |
 | **SSO**                         | Via Vercel (`/login/vercel`)           | PostHog login            |
 | **Uninstall**                   | Resets to `billing_provider=posthog`   | N/A                      |
+
+The billing page also treats Vercel customers differently:
+
+- A banner says billing for the organization is managed by Vercel. The "View invoices in Vercel" button links to the Vercel invoices page when `external_billing_provider_invoices_url` is set.
+- The "Downgrade to free plan" card is hidden.
+- With an active subscription, add-ons, platform plan switches, and billing limits work as usual.
+- Without an active subscription, the page locks self-serve billing the same way it does for a paying partner, through `selfServeBillingDisabledReason` in `billingLogic`:
+  - The upgrade hero and the add-on upgrade banner are hidden.
+  - `BillingUpgradeCTA`, pay gate, and startup program upgrade buttons are disabled.
+  - `startPaymentEntryFlow` and `handleProductUpgrade` show a toast and stop before they call `api/billing/activate`.
+  - The banner, the toast, and the usage limit alert tell the customer to contact support to change their plan.
+
+The billing service refuses these requests for Vercel customers with a 400 and the code `billing_managed_by_provider`:
+
+- `POST /api/activate` when the customer has no subscription
+- card authorization at `POST /api/activate/authorize`
+- `GET /api/billing/portal`
+
+PostHog's `api/billing/activate` and `api/billing/activate/authorize` pass the refusal on as a 400 with billing's message and the same code. `api/billing/portal` redirects to the Vercel invoices page instead, and returns that 400 only when the organization's Vercel integration has no account URL.
 
 ### The `billing_provider` field
 
@@ -437,6 +470,11 @@ sequenceDiagram
 
 Vercel users can SSO into PostHog without a separate login.
 
+An existing active PostHog account can link automatically when the signed Vercel SSO token contains a verified, matching email.
+Accounts with two-factor authentication or enforced domain SSO must complete PostHog login.
+The installation's verified-domain restrictions also apply before automatic linking.
+A stored mapping keeps its original account, and a removed organization member cannot regain access by retrying SSO.
+
 ```mermaid
 sequenceDiagram
     actor User
@@ -509,7 +547,7 @@ For connectable integrations (linked existing accounts), the webhook handler sim
 
 **Key files:**
 
-- `ee/api/vercel/vercel_webhooks.py` - Webhook handler
+- `ee/api/vercel/webhook_events.py` - Webhook event handling
 - `ee/vercel/integration.py` - `VercelIntegration.delete_installation()`
 - `billing/api/billing.py` - Uninstall endpoint
 - `billing/models/customer.py` - `cancel_billing_provider_subscription()`
@@ -532,19 +570,19 @@ For integration or billing issues that need Vercel's involvement, post in the sh
 
 ### PostHog repo (`posthog/`)
 
-| File                                         | Purpose                                                                |
-| -------------------------------------------- | ---------------------------------------------------------------------- |
-| `ee/api/vercel/vercel_installation.py`       | Installation CRUD (`PUT /api/vercel/v1/installations/{id}`)            |
-| `ee/api/vercel/vercel_connect.py`            | Connectable account OAuth flow                                         |
-| `ee/api/vercel/vercel_sso.py`                | SSO endpoints (`/login/vercel`)                                        |
-| `ee/api/vercel/vercel_webhooks.py`           | Webhook handler (`/webhooks/vercel`)                                   |
-| `ee/api/vercel/vercel_resource.py`           | Resource management (Vercel projects)                                  |
-| `ee/api/vercel/vercel_product.py`            | Product plans                                                          |
-| `ee/vercel/client.py`                        | `VercelAPIClient` - HTTP client for Vercel APIs                        |
-| `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)    |
-| `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls          |
-| `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores Vercel credentials) |
-| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)               |
+| File                                         | Purpose                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| `ee/api/vercel/vercel_installation.py`       | Installation CRUD (`PUT /api/vercel/v1/installations/{id}`)              |
+| `ee/api/vercel/vercel_connect.py`            | Connectable account OAuth flow                                           |
+| `ee/api/vercel/vercel_sso.py`                | SSO endpoints (`/login/vercel`)                                          |
+| `ee/api/vercel/webhook_events.py`            | Webhook event handling (`/webhooks/vercel`, served by `posthog/ingress`) |
+| `ee/api/vercel/vercel_resource.py`           | Resource management (Vercel projects)                                    |
+| `ee/api/vercel/vercel_product.py`            | Product plans                                                            |
+| `ee/vercel/client.py`                        | `VercelAPIClient` - HTTP client for Vercel APIs                          |
+| `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)      |
+| `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls            |
+| `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores Vercel credentials)   |
+| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)                 |
 
 ### Billing repo (`billing/`)
 

@@ -25,12 +25,13 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import type { IdentityMatchingLinkApi } from './generated/api.schemas'
 import { IdentityMatchingDetail } from './IdentityMatchingDetail'

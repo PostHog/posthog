@@ -29,12 +29,14 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     This is the core tag-setting logic extracted for reuse across serializers
     and bulk operations.
     """
-    deduped_tags = list({tagify(t) for t in tags})
+    # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
+    deduped_tags = sorted({tagify(t) for t in tags})
     tagged_item_objects = []
 
     for tag in deduped_tags:
         tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        # The instance, not the id, so TaggedItem.save() reads the team without re-fetching.
+        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag=tag_instance)
         tagged_item_objects.append(tagged_item_instance)
 
     # Delete tags that are missing (use individual deletes to trigger activity logging)
@@ -200,6 +202,10 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
 BULK_UPDATE_TAGS_MAX_IDS = 500
 BULK_UPDATE_TAGS_MAX_TAGS = 100
+TAG_NAME_MAX_LENGTH = 255  # Mirrors Tag.name's max_length
+# One reason for both missing and inaccessible objects, so callers can't probe which
+# restricted IDs exist by comparing skipped reasons.
+BULK_UPDATE_TAGS_SKIPPED_REASON = "Not found or no edit access"
 # Tags are written with a get_or_create per (object, tag), so ids × distinct tags is the unit of
 # database work a single request can demand; bound the product, not just each list, or 500 ids
 # with 100 tags each still turns one request into 50k writes.
@@ -224,9 +230,9 @@ class BulkUpdateTagsRequestSerializer(serializers.Serializer):
         help_text="'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.",
     )
     tags = serializers.ListField(
-        child=serializers.CharField(max_length=255),
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
         max_length=BULK_UPDATE_TAGS_MAX_TAGS,
-        help_text="Tag names to add, remove, or set.",
+        help_text="Tag names to add, remove, or set (up to 100 per request, 255 characters each).",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -278,7 +284,7 @@ class BulkUpdateTagsUUIDItemSerializer(serializers.Serializer):
 
 class BulkUpdateTagsUUIDErrorSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="UUID of the object that was skipped.")
-    reason = serializers.CharField(help_text="Why the object was skipped, e.g. 'Not found'.")
+    reason = serializers.CharField(help_text="Why the object was skipped, e.g. 'Not found or no edit access'.")
 
 
 class BulkUpdateTagsUUIDResponseSerializer(serializers.Serializer):
@@ -420,13 +426,13 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if user_access_level and access_level_satisfied_for_resource(scope_object, user_access_level, "editor"):
                 editable_objects.append(obj)
             else:
-                errors.append({"id": obj.id, "reason": "Permission denied"})
+                errors.append({"id": obj.id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
 
         # Track missing IDs
         found_ids = {obj.id for obj in objects}
         for obj_id in validated_ids:
             if obj_id not in found_ids:
-                errors.append({"id": obj_id, "reason": "Not found"})
+                errors.append({"id": obj_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
 
         self.validate_bulk_tag_changes(editable_objects, tag_action, tags)
 

@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -25,6 +27,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 
 describe('aiObservabilityDatasetsLogic', () => {
     const mockDataset1: Dataset = {
+        tags: [],
         id: 'test-dataset-1',
         name: 'Test Dataset 1',
         description: 'First test dataset',
@@ -40,6 +43,7 @@ describe('aiObservabilityDatasetsLogic', () => {
     }
 
     const mockDataset2: Dataset = {
+        tags: [],
         id: 'test-dataset-2',
         name: 'Test Dataset 2',
         description: 'Second test dataset',
@@ -63,6 +67,7 @@ describe('aiObservabilityDatasetsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        localStorage.clear()
         jest.resetAllMocks()
 
         mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
@@ -94,6 +99,27 @@ describe('aiObservabilityDatasetsLogic', () => {
         expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('item=')
     })
 
+    it('shares tag filters in the URL and restores them when returning to datasets', async () => {
+        router.actions.push(urls.aiObservabilityDatasets())
+        const logic = aiObservabilityDatasetsLogic()
+        logic.mount()
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ tags: ['quality', 'a,b'], tag_match: 'all' }, true, false)
+        ).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'a,b'], tag_match: 'all' })
+        expect(mockDatasetsApi.listDatasets).toHaveBeenLastCalledWith(
+            expect.objectContaining({ tags: '["quality","a,b"]', tag_match: 'all' })
+        )
+        router.actions.push(urls.aiObservabilityScorers())
+        router.actions.push(urls.aiObservabilityDatasets())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(['quality', 'a,b'])
+        expect(router.values.searchParams.tags).toEqual(['quality', 'a,b'])
+        router.actions.push(urls.aiObservabilityDatasets(), { tags: [], tag_match: 'any' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual([])
+    })
+
     describe('filters functionality', () => {
         it('sets and processes filters correctly', () => {
             const logic = aiObservabilityDatasetsLogic()
@@ -110,6 +136,8 @@ describe('aiObservabilityDatasetsLogic', () => {
             )
 
             expect(logic.values.filters).toEqual({
+                tags: [],
+                tag_match: 'any',
                 page: 2,
                 search: 'test search',
                 order_by: 'name',
@@ -140,6 +168,8 @@ describe('aiObservabilityDatasetsLogic', () => {
             logic.actions.setFilters({}, false)
 
             expect(logic.values.filters).toEqual({
+                tags: [],
+                tag_match: 'any',
                 page: 1,
                 search: '',
                 order_by: '-created_at',

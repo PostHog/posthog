@@ -12,6 +12,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
@@ -25,9 +26,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.storage import object_storage
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, StartupProgramLabel
 
-from ..facade.enums import DocumentType
+from ..facade.enums import BaaBlockReason, DocumentType
 from ..models import LegalDocument
 from ..storage import signed_pdf_storage_key
 from . import pandadoc as pandadoc_client
@@ -36,6 +37,11 @@ logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
+
+# Startup program organizations always pay with credits, and credits do not cover
+# a BAA, whatever addon they hold. YC organizations keep BAA access. Staff who
+# impersonate a startup organization that pays for a BAA generate it on its behalf.
+BAA_BLOCKED_STARTUP_PROGRAM_LABEL: StartupProgramLabel = "Startup"
 
 # Attribute `annotate_signed_baa` writes onto each Organization row.
 SIGNED_BAA_ANNOTATION = "has_signed_baa"
@@ -71,17 +77,20 @@ def template_id_matches_document(document: LegalDocument, template_id: str) -> b
     """
     expected = _pandadoc_template_id_for(document.document_type)
     # If the env var isn't configured we skip the check rather than block every
-    # webhook — verify_webhook_signature already proves provenance.
+    # webhook, because the HMAC check on the raw body already proves provenance.
     return not expected or expected == template_id
 
 
-def has_qualifying_baa_addon(organization: Organization) -> bool:
+def get_baa_block_reason(organization: Organization, impersonated: bool) -> BaaBlockReason | None:
     billing = BillingManager(get_cached_instance_license()).get_billing(organization)
+    on_startup_program = billing.get("startup_program_label") == BAA_BLOCKED_STARTUP_PROGRAM_LABEL
+    if on_startup_program and not impersonated:
+        return BaaBlockReason.STARTUP_PROGRAM
     for product in billing.get("products") or []:
         for addon in product.get("addons") or []:
             if addon.get("type") in BAA_ADDON_TYPES and addon.get("subscribed"):
-                return True
-    return False
+                return None
+    return BaaBlockReason.NO_QUALIFYING_ADDON
 
 
 def _signed_baa_subquery() -> QuerySet[LegalDocument]:
@@ -160,12 +169,6 @@ def create_document(
     )
 
 
-def mark_document_signed(document: LegalDocument) -> LegalDocument:
-    document.status = LegalDocument.Status.SIGNED
-    document.save(update_fields=["status", "updated_at"])
-    return document
-
-
 def try_mark_signed_if_pending(document: LegalDocument) -> bool:
     """
     Conditional UPDATE that re-asserts the row was still `submitted_for_signature`
@@ -174,6 +177,9 @@ def try_mark_signed_if_pending(document: LegalDocument) -> bool:
     concurrent `document.completed` webhook may have already signed the row.
     Losing that race must skip the caller's side effects (BAA opt-out email)
     rather than re-fire them, so the caller only proceeds when this returns True.
+
+    The inbound webhook takes the same route: PandaDoc sends no delivery id, so
+    ingress cannot dedup and two deliveries reach the handler as equals.
     """
     updated = LegalDocument.objects.filter(id=document.id, status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE).update(
         status=LegalDocument.Status.SIGNED, updated_at=timezone.now()
@@ -187,7 +193,18 @@ def mark_signed_pdf_stored(document: LegalDocument) -> LegalDocument:
     return document
 
 
-# PandaDoc status string for a fully-signed envelope. Mirrors the webhook layer.
+def schedule_pdf_archive(document: LegalDocument, delay_seconds: int = 0) -> None:
+    # Local import breaks the logic ⇄ tasks import cycle (tasks import the facade,
+    # which imports this module).
+    from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
+
+    document_id = str(document.id)
+    transaction.on_commit(
+        lambda: archive_signed_legal_document_pdf.apply_async(args=[document_id], countdown=delay_seconds)
+    )
+
+
+# PandaDoc status string for a fully-signed envelope.
 PANDADOC_COMPLETED_STATUS = "document.completed"
 
 # PandaDoc status string for an envelope stuck before its signing email ever went

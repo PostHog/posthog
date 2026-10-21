@@ -33,6 +33,15 @@ export function QuestionRenderer(props: ToolRendererProps): JSX.Element {
         answer: answersByKey[question.question] ?? (index === 0 ? fallbackAnswer : null),
     }))
 
+    // The agent titles every finished call "Question answered" whatever the question count, so the
+    // recap derives its own title from the parsed input once the call completes.
+    const title =
+        message.status === 'completed'
+            ? questions.length > 1
+                ? 'Questions answered'
+                : 'Question answered'
+            : message.title || displayName || 'Question'
+
     const body = (
         <div className="flex flex-col gap-3 break-words">
             {entries.map((entry, index) => (
@@ -48,7 +57,7 @@ export function QuestionRenderer(props: ToolRendererProps): JSX.Element {
         <ToolActivity
             message={message}
             icon={icon ?? <IconAI />}
-            title={message.title || displayName || 'Question'}
+            title={title}
             body={body}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}

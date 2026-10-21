@@ -1,19 +1,19 @@
-import { PlusIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
-import {
-  suggestedReviewerDisplayName,
-  toSuggestedReviewerWriteContent,
-} from "@posthog/core/inbox/artefacts";
+import { InfoIcon, PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { toSuggestedReviewerWriteContent } from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
 import {
   Button,
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport, SuggestedReviewer } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { ReviewerSearchList } from "@posthog/ui/features/inbox/components/ReviewerSearchList";
-import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
+import { SuggestedReviewersList } from "@posthog/ui/features/inbox/components/SuggestedReviewersList";
 import {
   useInboxReportArtefacts,
   useUpdateSuggestedReviewers,
@@ -31,7 +31,6 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
   const { data } = useInboxReportArtefacts(report.id);
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
-  const [addOpen, setAddOpen] = useState(false);
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
@@ -65,91 +64,92 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
   };
 
   return (
+    <ReportReviewersSectionView
+      report={report}
+      reviewers={reviewers}
+      disabled={isPending}
+      onRemove={removeReviewer}
+    />
+  );
+}
+
+export function ReportReviewersSectionView({
+  report,
+  reviewers,
+  disabled,
+  onRemove,
+}: {
+  report: SignalReport;
+  reviewers: SuggestedReviewer[];
+  disabled: boolean;
+  onRemove: (reviewer: SuggestedReviewer) => void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+
+  return (
     <DetailSection
       Icon={UsersThreeIcon}
-      title="Reviewers"
+      title="Suggested reviewers"
       collapsible
-      rightSlot={
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-gray-10 tabular-nums">
-            {reviewers.length}
-          </span>
-          <Popover open={addOpen} onOpenChange={setAddOpen}>
-            <PopoverTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="link-muted"
-                  size="xs"
-                  disabled={isPending}
-                  data-attr="inbox-report-add-reviewer"
-                >
-                  {isPending ? <Spinner /> : <PlusIcon size={12} />}
-                  Add
-                </Button>
-              }
-            />
-            <PopoverContent
-              align="end"
-              side="bottom"
-              sideOffset={6}
-              className="min-w-[280px] max-w-[320px] p-0"
-            >
-              <ReviewerSearchList
-                report={report}
-                surface="detail_pane"
-                enabled={addOpen}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-      }
     >
       {reviewers.length === 0 ? (
-        <p className="m-0 text-[12px] text-gray-10">No reviewers assigned.</p>
+        <p className="m-0 text-muted-foreground text-xs">
+          No suggested reviewers yet.
+        </p>
       ) : (
-        <div className="flex flex-col gap-4">
-          {reviewers.map((reviewer) => (
-            <div
-              key={reviewer.user?.uuid ?? reviewer.github_login}
-              className="flex min-w-0 items-start justify-between gap-2"
-            >
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  {reviewer.github_login && (
-                    <SuggestedReviewerAvatar
-                      githubLogin={reviewer.github_login}
-                      size="sm"
-                    />
-                  )}
-                  <span className="truncate font-medium text-[13px] text-gray-12">
-                    {suggestedReviewerDisplayName(reviewer)}
-                  </span>
-                </div>
-                {reviewer.relevant_commits.map((commit) => (
-                  <p
-                    key={commit.sha}
-                    className="m-0 text-[12px] text-gray-10 leading-relaxed"
-                  >
-                    {commit.reason}
-                  </p>
-                ))}
-              </div>
+        <SuggestedReviewersList
+          reviewers={reviewers}
+          disabled={disabled}
+          onRemove={onRemove}
+        />
+      )}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="About suggested reviewers"
+                className="rounded-sm p-0.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+              />
+            }
+          >
+            <InfoIcon size={12} />
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-80">
+            PostHog uses these suggestions to route the report. Add reviewers on
+            the pull request to request a GitHub review.
+          </TooltipContent>
+        </Tooltip>
+        <Popover open={addOpen} onOpenChange={setAddOpen}>
+          <PopoverTrigger
+            render={
               <Button
                 type="button"
-                variant="link-muted"
-                size="icon-xs"
-                aria-label={`Remove ${suggestedReviewerDisplayName(reviewer)}`}
-                disabled={isPending}
-                data-attr="inbox-report-remove-reviewer"
-                onClick={() => removeReviewer(reviewer)}
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                data-attr="inbox-report-add-reviewer"
               >
-                <XIcon size={12} />
+                {disabled ? <Spinner /> : <PlusIcon size={14} />}
+                Add Reviewer
               </Button>
-            </div>
-          ))}
-        </div>
-      )}
+            }
+          />
+          <PopoverContent
+            align="end"
+            side="bottom"
+            sideOffset={6}
+            className="min-w-[280px] max-w-[320px] p-0"
+          >
+            <ReviewerSearchList
+              report={report}
+              surface="detail_pane"
+              enabled={addOpen}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
     </DetailSection>
   );
 }

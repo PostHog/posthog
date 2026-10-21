@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { identifyInstanceInPostHog } from 'lib/utils/posthogIdentity'
 import { urls } from 'scenes/urls'
 
 import { PreflightStatus, Realm } from '~/types'
@@ -125,6 +126,7 @@ export const preflightLogic = kea<preflightLogicType>([
             null as PreflightStatus | null,
             {
                 loadPreflight: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
                     const response = await api.get<PreflightStatus>('_preflight/')
                     return response
                 },
@@ -401,10 +403,8 @@ export const preflightLogic = kea<preflightLogicType>([
                     commit_sha: appContext?.commit_sha,
                 })
 
-                if (values.preflight.site_url) {
-                    posthog.group('instance', values.preflight.site_url, {
-                        site_url: values.preflight.site_url,
-                    })
+                if (values.preflight.site_url && identifyInstanceInPostHog(posthog, values.preflight.site_url)) {
+                    posthog.reloadFeatureFlags()
                 }
             }
         },

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.blogger import (
     BloggerResumeConfig,
     blogger_source,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BloggerSource(ResumableSource[BloggerSourceConfig, BloggerResumeConfig]):
+    codebase_detection = detect(env=("^BLOGGER_",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.google.com/blogger/docs/3.0/reference/"
@@ -47,10 +48,10 @@ class BloggerSource(ResumableSource[BloggerSourceConfig, BloggerResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLOGGER,
+            name=ExternalDataSourceType.BLOGGER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Blogger",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: shipping in alpha behind the unreleased flag until it has had
             # an end-to-end sync verified against the live API with real credentials.
             caption="""Enter a Google API key and a Blogger blog ID to pull your Blogger content into the PostHog Data warehouse.

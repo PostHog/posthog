@@ -6,4 +6,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SingularSourceConfig(config.Config):
-    pass
+    api_key: str
+    dimensions: str | None = None
+    metrics: str | None = None
+    cohort_metrics: str | None = None
+    cohort_periods: str | None = None

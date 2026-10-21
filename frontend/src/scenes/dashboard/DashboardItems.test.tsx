@@ -46,8 +46,8 @@ jest.mock('kea-router', () => ({
     router: { __mock: 'router' },
 }))
 
-jest.mock('lib/hooks/useResizeObserver', () => ({
-    useResizeObserver: () => ({ width: 1200, ref: { current: null } }),
+jest.mock('products/dashboards/frontend/useDashboardContainerWidth', () => ({
+    useDashboardContainerWidth: () => ({ width: 1200, containerRef: { current: null } }),
 }))
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
@@ -89,6 +89,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
+        canEditDashboard?: boolean
         queryId?: string
         apiError?: Error & {
             status?: number
@@ -106,12 +107,26 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
                 data-tile-id={String(tile.id)}
                 data-show-resize-handles={String(showResizeHandles)}
                 data-api-errored={apiErrored ? 'true' : undefined}
+                data-can-edit-dashboard={props.canEditDashboard === false ? 'false' : undefined}
                 data-api-error-status={apiError?.status}
                 data-api-error-detail={apiError?.detail ?? undefined}
                 data-api-error-code={apiError?.code ?? undefined}
             />
         )
     },
+}))
+
+jest.mock('products/dashboards/frontend/components/DashboardInsightTile', () => ({
+    DashboardInsightTile: (props: Record<string, unknown>) => {
+        const { InsightCard } = jest.requireMock('lib/components/Cards/InsightCard')
+        return <InsightCard {...props} />
+    },
+}))
+
+jest.mock('products/dashboards/frontend/components/DashboardGridBackground', () => ({
+    DashboardGridBackground: ({ rowHeight, margin }: { rowHeight: number; margin: [number, number] }) => (
+        <div data-attr="grid-background" data-row-height={String(rowHeight)} data-margin={margin.join(',')} />
+    ),
 }))
 
 jest.mock('products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem', () => ({
@@ -300,6 +315,10 @@ describe('DashboardItems', () => {
             'data-show-resize-handles',
             'false'
         )
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
+            'data-can-edit-dashboard',
+            'false'
+        )
     })
 
     it.each([
@@ -402,7 +421,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: false,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -440,7 +458,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -493,7 +510,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -550,7 +566,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -569,12 +584,7 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
-        expect(mockInsightCard).toHaveBeenCalledWith(
-            expect.objectContaining({
-                refresh: expect.any(Function),
-                queryId: 'failed-query-id',
-            })
-        )
+        expect(mockInsightCard).toHaveBeenCalledWith(expect.objectContaining({ queryId: 'failed-query-id' }))
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'

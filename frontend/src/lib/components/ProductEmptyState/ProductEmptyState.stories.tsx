@@ -1,4 +1,8 @@
 import { Meta } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import type { Mocks } from '~/mocks/utils'
 
@@ -26,7 +30,6 @@ import { engineeringAnalyticsEmptyState } from 'products/engineering_analytics/f
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
-import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
@@ -41,8 +44,7 @@ import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkil
 import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
-import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
-import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { webAnalyticsEmptyState } from 'products/web_analytics/frontend/emptyState/webAnalyticsEmptyState'
 import { heatmapsEmptyState } from 'products/web_analytics/frontend/heatmaps/emptyState/heatmapsEmptyState'
 import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
@@ -80,6 +82,24 @@ export const MCPAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateS
     'needs-setup',
     { mocks: mcpSignalMocks(false) }
 )
+
+export const MCPAnalyticsNeedsSetupNarrow: ProductEmptyStateStory = productEmptyStateStory(
+    mcpAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: mcpSignalMocks(false), containerWidth: 520 }
+)
+
+export const MCPAnalyticsAgentPrompt: ProductEmptyStateStory = {
+    ...MCPAnalyticsNeedsSetup,
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, snapshotTargetSelector: 'body' },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await within(canvasElement).findByRole('button', { name: 'Install with your agent' })
+        await userEvent.click(trigger)
+        await screen.findByRole('dialog')
+    },
+}
 
 export const MCPAnalyticsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     mcpAnalyticsEmptyState,
@@ -165,16 +185,6 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyS
 
 export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
-})
-
-export const UserInterviewsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
-    userInterviewsEmptyState,
-    'needs-setup',
-    { mocks: { get: { '/api/projects/:team_id/user_interview_topics/': [200, emptyEntityList] } } }
-)
-
-export const LinksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(linksEmptyState, 'needs-setup', {
-    mocks: { get: { '/api/projects/:team_id/links/': [200, emptyEntityList] } },
 })
 
 export const ProductToursNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
@@ -318,6 +328,27 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
     { mocks: errorTrackingMocks }
 )
 
+// The `error-tracking` wizard subcommand is flag-gated: with the flag on the terminal card
+// is the only call to action and the autocapture opt-in leaves the screen.
+const errorTrackingNeedsSetupNewWizard = productEmptyStateStory(errorTrackingEmptyState, 'needs-setup', {
+    mocks: errorTrackingMocks,
+})
+export const ErrorTrackingNeedsSetupNewWizard: ProductEmptyStateStory = {
+    ...errorTrackingNeedsSetupNewWizard,
+    parameters: {
+        ...errorTrackingNeedsSetupNewWizard.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
+
+export const ErrorTrackingWaitingForDataNewWizard: ProductEmptyStateStory = {
+    ...ErrorTrackingWaitingForData,
+    parameters: {
+        ...ErrorTrackingWaitingForData.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
+
 // Logs detection asks the has-logs API on mount - answer "none yet".
 export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
     // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
@@ -358,19 +389,11 @@ export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyS
     { mocks: sessionReplayMocks }
 )
 
-// Web vitals detection asks event definitions on mount - answer "none yet".
-const webVitalsMocks = {
-    get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] },
-} as const
-
-export const WebVitalsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(webVitalsEmptyState, 'needs-setup', {
-    mocks: webVitalsMocks,
-})
-
-export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
-    webVitalsEmptyState,
-    'waiting-for-data',
-    { mocks: webVitalsMocks }
+// Web analytics detection asks event definitions on mount - answer "none yet".
+export const WebAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    webAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] } } }
 )
 
 // Alerts detection counts both alert kinds on mount - answer "none yet" to each.

@@ -347,4 +347,42 @@ describe('URL Routing', () => {
             expect(consumer).toBe(expected)
         })
     })
+
+    describe('excludeTools parsing', () => {
+        it.each(['linear__CreateIssue', `linear__${'a'.repeat(80)}`, 'linear__issues.create'])(
+            'preserves connected tool name %s',
+            (name) => {
+                const request = new Request(`https://example.com/mcp?exclude_tools=${encodeURIComponent(name)}`)
+                expect(parseRequestProperties(request, {}).excludeTools).toEqual([name])
+            }
+        )
+
+        it('parses x-posthog-exclude-tools and drops duplicates and invalid names', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-posthog-exclude-tools': 'docs-search, docs-search, nope!, DOCS-SEARCH',
+                },
+            })
+            expect(parseRequestProperties(request, {}).excludeTools).toEqual(['docs-search'])
+        })
+
+        it('parses exclude_tools query param', () => {
+            const request = new Request('https://example.com/mcp?exclude_tools=docs-search', {
+                headers: { Authorization: 'Bearer phx_test' },
+            })
+            expect(parseRequestProperties(request, {}).excludeTools).toEqual(['docs-search'])
+        })
+
+        it('caps excludeTools at 32 names', () => {
+            const names = Array.from({ length: 40 }, (_, i) => `tool-${i}`).join(',')
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-posthog-exclude-tools': names,
+                },
+            })
+            expect(parseRequestProperties(request, {}).excludeTools).toHaveLength(32)
+        })
+    })
 })

@@ -10,21 +10,16 @@ use axum::Json;
 use bytes::Bytes;
 use capture_logs::authorizer::Signal;
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, estimate_expanded_bytes, write_request_to_kafka_rows,
+    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows,
+    RemoteWriteEncoding,
 };
+use metrics::counter;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, instrument};
 
+use crate::histogram_assembly::fold_classic_histograms;
 use crate::service::MetricsService;
-
-/// How much larger than the (already decompression-capped) request body the
-/// expanded row set may be. Row building clones the series label map per
-/// sample and the whole batch becomes a single Kafka message, so a 2 wire-byte
-/// sample expands to hundreds of bytes — legitimate senders (Prometheus
-/// defaults to 2k samples per send, vmagent to 10k rows per block) stay far
-/// below this; only expansion-bomb payloads exceed it.
-const MAX_EXPANSION_FACTOR: u64 = 16;
 
 #[derive(Deserialize)]
 pub struct RemoteWriteQueryParams {
@@ -57,16 +52,21 @@ fn extract_token(
     query_token.filter(|t| !t.is_empty()).map(str::to_string)
 }
 
-/// Prometheus remote-write v1 ingestion endpoint.
+/// Prometheus remote-write v1 ingestion endpoint. Also accepts the
+/// VictoriaMetrics remote-write protocol (same protobuf, zstd body).
 ///
-/// Snappy-decodes the protobuf body, maps it to `KafkaMetricRow` records, and
+/// Decompresses the protobuf body, maps it to `KafkaMetricRow` records, and
 /// produces them through the shared `KafkaSink` so the rest of the pipeline is
 /// identical to OTLP ingestion. Response codes follow remote-write semantics:
-/// 204 on success, 400 on a permanent decode failure (sender drops the batch),
-/// 5xx on a transient produce failure (sender retries).
+/// 204 on success, 400 on a permanent decode failure (sender drops the batch;
+/// vmagent also falls back to snappy on 400), 5xx on a transient produce
+/// failure (sender retries).
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     user_agent = %headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_encoding = %headers.get("content-encoding")
         .and_then(|v| v.to_str().ok())
         .unwrap_or(""),
     content_length = %headers.get("content-length")
@@ -101,8 +101,15 @@ pub async fn export_prometheus_remote_write_http(
 
     tracing::Span::current().record("token", &token);
 
+    let encoding = RemoteWriteEncoding::from_headers(&headers);
+    counter!(
+        "capture_metrics_remote_write_requests",
+        "encoding" => encoding.as_str()
+    )
+    .increment(1);
+
     let (write_request, uncompressed_bytes) =
-        match decode_write_request(&body, service.max_request_body_size_bytes) {
+        match decode_write_request(&body, encoding, service.max_request_body_size_bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
                 error!("Failed to decode remote-write request: {e}");
@@ -113,10 +120,14 @@ pub async fn export_prometheus_remote_write_http(
             }
         };
 
+    // Row building clones the series label map per sample and the whole batch
+    // becomes a single Kafka message, so a 2 wire-byte sample expands to
+    // hundreds of bytes. The cap bounds the memory of one request; only
+    // expansion-bomb payloads and oversized blocks exceed it.
     // 400, not 5xx: a batch that expands past the limit will never fit, so the
     // sender must drop it rather than retry it forever.
     let expanded = estimate_expanded_bytes(&write_request);
-    let max_expanded = MAX_EXPANSION_FACTOR * service.max_request_body_size_bytes as u64;
+    let max_expanded = service.remote_write_max_expanded_bytes;
     if expanded > max_expanded {
         error!(
             "Rejecting remote-write request expanding to ~{expanded} bytes (limit {max_expanded})"
@@ -129,7 +140,9 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (mut rows, timestamps_overridden) = write_request_to_kafka_rows(write_request);
+    let (rows, timestamps_overridden) =
+        write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    let mut rows = fold_classic_histograms(rows, &write_request.metadata);
     service.series_label_gate.apply(&token, &mut rows);
     let row_count = rows.len();
 

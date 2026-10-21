@@ -1,7 +1,8 @@
 import os
 import json
 import socket
-from datetime import UTC, datetime
+from collections.abc import Iterator
+from datetime import UTC, datetime, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
@@ -13,6 +14,7 @@ from celery import current_task
 from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
 
@@ -38,6 +40,17 @@ SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
     "Number of scheduled change executions that were skipped due to delayed processing",
     ["interval"],
 )
+
+
+def _drf_error_codes(codes: object) -> Iterator[str]:
+    if isinstance(codes, str):
+        yield codes
+    elif isinstance(codes, dict):
+        for value in codes.values():
+            yield from _drf_error_codes(value)
+    elif isinstance(codes, list):
+        for value in codes:
+            yield from _drf_error_codes(value)
 
 
 def is_unrecoverable_error(exception: Exception) -> bool:
@@ -79,6 +92,10 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     if any(indicator in error_message for indicator in permanent_error_indicators):
         return True
 
+    # The flag API rejects a release condition on a missing or deleted cohort with this code.
+    if isinstance(exception, DRFValidationError) and "cohort_does_not_exist" in _drf_error_codes(exception.get_codes()):
+        return True
+
     return isinstance(exception, unrecoverable_types)
 
 
@@ -117,25 +134,26 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 
-UTC_ZONE_INFO = ZoneInfo("UTC")
-
-
-def resolve_schedule_timezone(tz_name: str | None) -> ZoneInfo:
+def resolve_schedule_timezone(tz_name: str | None) -> tzinfo:
     """
-    Resolve a stored timezone name to a ZoneInfo, falling back to UTC for NULL or invalid values.
+    Resolve a stored timezone name to a tzinfo, falling back to UTC for NULL or invalid values.
 
     Pre-resolving once per scheduled change keeps the catch-up loop off the exception path when
     a row carries a malformed timezone string.
+
+    ZoneInfo reads a TZif file from the system tzdata path. A name that no file matches raises
+    ZoneInfoNotFoundError, but a file that exists and is truncated or corrupt raises ValueError
+    instead. Both mean the timezone is unusable, so both fall back to UTC.
     """
     if not tz_name:
-        return UTC_ZONE_INFO
+        return UTC
     try:
         return ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError:
-        return UTC_ZONE_INFO
+    except (ZoneInfoNotFoundError, ValueError):
+        return UTC
 
 
-def compute_next_run_cron(cron_expr: str, current: datetime, tz: ZoneInfo = UTC_ZONE_INFO) -> datetime:
+def compute_next_run_cron(cron_expr: str, current: datetime, tz: tzinfo = UTC) -> datetime:
     """
     Compute the next scheduled run time from a cron expression.
 

@@ -7,9 +7,9 @@ import {
   ComboboxList,
   DropdownMenuSub,
   DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
 } from "@posthog/quill";
 import type { CanvasMultiSelectOption } from "@posthog/ui/features/canvas/components/canvasFilterSelection";
+import { FilterSubMenuTrigger } from "@posthog/ui/primitives/FilterMenu";
 import type { ReactElement, SyntheticEvent } from "react";
 
 const DEFAULT_OPTION_KEY = "__canvas_filter_default__";
@@ -61,19 +61,12 @@ export function CanvasFilterMultiSelectSubmenu({
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1" disabled={disabled}>
-        <span>{label}</span>
-        <span
-          title={summary}
-          className={
-            values.length === 0
-              ? "min-w-0 flex-1 truncate pl-4 text-right text-muted-foreground/80"
-              : "min-w-0 flex-1 truncate pl-4 text-right text-primary"
-          }
-        >
-          {summary}
-        </span>
-      </DropdownMenuSubTrigger>
+      <FilterSubMenuTrigger
+        label={label}
+        value={summary}
+        active={values.length > 0}
+        disabled={disabled}
+      />
       <DropdownMenuSubContent className="w-64 [&>div]:overflow-hidden [&>div]:p-0">
         <Combobox<CanvasMultiSelectOption, true>
           multiple

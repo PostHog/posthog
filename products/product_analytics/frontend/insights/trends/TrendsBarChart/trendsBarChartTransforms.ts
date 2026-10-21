@@ -17,8 +17,7 @@ export interface TrendsBarResultLike {
     days?: string[]
     compare?: boolean
     compare_label?: string | null
-    action?: { order?: number } | null
-    // Formula rows carry a top-level `order` instead of `action.order`.
+    // The series index, or the formula index on a formula row.
     order?: number | null
     breakdown_value?: unknown
     filter?: unknown
@@ -96,6 +95,7 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
+    hideAxes?: boolean
     // Explicit x-axis tick formatter — used by hosts (e.g. MCP) that have label strings but no
     // interval/timezone for the auto date formatter. Mirrors the line config.
     xAxisTickFormatter?: (value: string, index: number) => string | null
@@ -121,10 +121,12 @@ export function buildTrendsBarTimeSeriesConfig(
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
             tickFormatter: opts.xAxisTickFormatter,
+            hide: opts.hideAxes,
         },
         yAxis: {
             ...yAxis,
             label: normalizeAxisLabel(opts.yAxisLabel),
+            hide: opts.hideAxes,
         },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
@@ -204,7 +206,7 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
 
     // Stacked breakdowns share a band and genuinely stack, so they stay as N sparse series.
     const labels = visible.map((r) => {
-        const seriesId = r.action?.order ?? r.order ?? 0
+        const seriesId = r.order ?? 0
         return `${seriesId}${BAND_KEY_SEP}${r.compare_label ?? ''}`
     })
     const series = visible.map((r, index) => {

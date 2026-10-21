@@ -306,14 +306,12 @@ export function TaxonomicFilterMenu({
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
             })
-            // Legacy `taxonomic filter *` contract — emitted alongside the
-            // menu-specific events so the rebuild is comparable to the
-            // control/pill variants by feature-flag value.
             // Legacy's `groupType: activeTab` is omitted because the menu has no single active tab at close time.
             posthog.capture('taxonomic filter closed', {
                 surface: TAXONOMIC_FILTER_SURFACE,
                 dwellMs,
                 hadSelection: hadCommitRef.current,
+                categoryRailDocked: false,
             })
             lastMenuClosedAtMs = closedAt
             openedAtRef.current = null
@@ -801,21 +799,6 @@ export function TaxonomicFilterMenu({
                         data-attr="taxonomic-filter-menu-new"
                     >
                         New filter…
-                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
-                    </DropdownMenuItem>
-                )}
-                {recentEntries.length > 0 && (
-                    <>
-                        {!useInputTrigger && <DropdownMenuSeparator />}
-                        <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
-                            Recent
-                            <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
-                        </DropdownMenuItem>
-                    </>
-                )}
-                {pinnedEntries.length > 0 && (
-                    <DropdownMenuItem onClick={() => selectMenuOption('pinned', () => openCombobox('pinned'))}>
-                        Pinned
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}

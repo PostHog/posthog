@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DocusignSource(ResumableSource[DocusignSourceConfig, DocusignResumeConfig]):
+    codebase_detection = detect(
+        env=("^DOCUSIGN_",),
+        script_hosts=("js.docusign.com", "js-d.docusign.com"),
+        npm=("docusign-esign",),
+        pypi=("docusign-esign",),
+        cocoapods=("DocuSign", "docusign-native-ios-sdk"),
+        composer=("docusign/esign-client",),
+        maven=(
+            "com.docusign:docusign-esign-java",
+            "com.docusign:docusign-admin-java",
+            "com.docusign:docusign-click-java",
+            "com.docusign:docusign-maestro-java",
+            "com.docusign:docusign-monitor-java",
+            "com.docusign:docusign-rooms-java",
+            "com.docusign:docusign-webforms-java",
+        ),
+        rubygems=(
+            "docusign_esign",
+            "docusign_admin",
+            "docusign_click",
+            "docusign_maestro",
+            "docusign_monitor",
+            "docusign_rooms",
+            "docusign_webforms",
+            "docusignsdk",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2.1",)
@@ -63,15 +90,19 @@ class DocusignSource(ResumableSource[DocusignSourceConfig, DocusignResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DOCUSIGN,
+            name=ExternalDataSourceType.DOCUSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="DocuSign",
-            caption="""Connect your DocuSign account to pull envelopes, recipients, documents, templates, users, and folders into the PostHog Data warehouse.
+            caption="""Connect your DocuSign account to pull envelopes, recipients, documents, custom fields, form data, audit events, templates, bulk send batches and their envelopes, PowerForms and their form data, billing invoices, users, and folders into the PostHog Data warehouse.
 
-Create an integration key in [DocuSign Apps and Keys](https://apps.docusign.com/admin/apps-and-keys). JWT grant is the option to pick: add an RSA keypair to the key, grant consent once for the user you want to impersonate, and paste that user's API user ID. Production keys have to pass DocuSign's go-live review before they work outside the demo environment.""",
+Create an integration key in [DocuSign Apps and Keys](https://apps.docusign.com/admin/apps-and-keys). JWT grant is the option to pick: add an RSA keypair to the key, grant consent once for the user you want to impersonate, and paste that user's API user ID. Production keys have to pass DocuSign's go-live review before they work outside the demo environment.
+
+The form data, audit events, and envelope templates tables make one API request per envelope, which counts toward your DocuSign hourly API limit. Sync them incrementally. Form data also needs the "Allow sender to download form data" sending setting turned on.
+
+The bulk send batch envelopes and PowerForm form data tables make one API request per batch or PowerForm. PowerForm form data only includes PowerForms that the connected user sent or administers. The billing invoices table needs an account administrator.""",
             iconPath="/static/services/docusign.png",
             docsUrl="https://posthog.com/docs/cdp/sources/docusign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["esignature", "e-signature", "contracts", "agreements"],
             fields=cast(
                 list[FieldType],

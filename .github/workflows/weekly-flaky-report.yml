@@ -3,9 +3,11 @@ name: Weekly flaky test report
 # Posts the week's top flaky tests to #flakey-tests every Monday morning. PULL
 # model, sibling of eng-analytics-weekly-digest.yml: the script reads the
 # engineering_analytics product's flaky_tests endpoint and relays a channel
-# table plus per-team thread slices to Slack via the DevEx bot — it does not
-# re-derive the flake signal. Owner
-# attribution runs in the script through the tools/owners resolver, which is why
+# table to Slack via the DevEx bot — it does not re-derive the flake signal.
+# Each owning team's rows go to that team's channel when
+# vars.FLAKY_REPORT_TEAM_CHANNELS is 'true', and stay in the digest thread
+# otherwise. Owner
+# attribution runs in the script through the packages/owners-yaml resolver, which is why
 # the sparse checkout includes the ownership files.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
@@ -13,7 +15,7 @@ name: Weekly flaky test report
 #     warehouse source connected.
 #   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to
 #     engineering_analytics:read + query:read for that project (the script also
-#     reads the product's ci_failures view for rescue counts and job links).
+#     reads the product's ci_failures view for job links).
 #   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot.
 #
 # Trunk state is optional on top of that: with the TRUNK_* variables below unset, the report
@@ -34,7 +36,7 @@ permissions:
 
 jobs:
     report:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # Worst case mirrors the digest: 3 endpoint attempts x 150s abort plus 2 x 30s
         # backoffs (~8.5min), plus checkout and owner resolution.
         timeout-minutes: 12
@@ -50,7 +52,7 @@ jobs:
                       .github/scripts/weekly-flaky-report.mjs
                       .github/scripts/weekly-report-common.mjs
                       .nvmrc
-                      tools/owners
+                      packages/owners-yaml
                       owners.yaml
                       **/owners.yaml
                       **/product.yaml
@@ -70,14 +72,13 @@ jobs:
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   # Optional: pin a specific GitHub source if the project has more than one.
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
-                  # Optional: override the source-prefixed runs table name.
-                  ENG_ANALYTICS_RUNS_TABLE: ${{ vars.ENG_ANALYTICS_RUNS_TABLE }}
                   # The same switches the CI uploaders read, so the report can only claim a test is
                   # masked when Trunk is actually masking it. Unset means no Trunk state at all.
                   TRUNK_UPLOAD_ENABLED: ${{ vars.TRUNK_UPLOAD_ENABLED }}
                   TRUNK_QUARANTINE_ENABLED: ${{ vars.TRUNK_QUARANTINE_ENABLED }}
-                  # Optional: override the source-prefixed Trunk quarantine table name.
-                  TRUNK_QUARANTINE_TABLE: ${{ vars.TRUNK_QUARANTINE_TABLE }}
+                  # 'true' posts each team's rows to that team's channel and links the posts from the
+                  # digest thread. Any other value keeps the rows in the thread.
+                  FLAKY_REPORT_TEAM_CHANNELS: ${{ vars.FLAKY_REPORT_TEAM_CHANNELS }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
               run: node .github/scripts/weekly-flaky-report.mjs

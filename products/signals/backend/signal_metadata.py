@@ -8,7 +8,9 @@ keeps that import graph acyclic.
 """
 
 import re
+import json
 from dataclasses import dataclass
+from datetime import datetime
 
 from posthog.schema import EmbeddingModelName
 
@@ -17,8 +19,17 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
+
+# Cap on the signal rows one merge re-points from a source onto its survivor. The move neither
+# pages nor retries, so `report_merge` refuses a source above the cap rather than leaving the
+# remainder pointing at an archived report while the survivor's counters already include them.
+REASSIGN_SIGNAL_ROW_CAP = 5000
+
 
 # The embedding model whose document rows constitute the signal store; every signals
 # ClickHouse query filters on it.
@@ -137,7 +148,12 @@ class ReportSignalMeta:
     scout_name: str | None
 
 
-def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
+def fetch_source_products_for_reports(
+    team: Team,
+    report_ids: list[str],
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> dict[str, ReportSignalMeta]:
     """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
 
     Only includes non-deleted signals. Source products are returned in sorted order. `scout_name` is
@@ -193,6 +209,7 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
         team=team,
@@ -290,7 +307,12 @@ _LABEL_RE = re.compile(r"^[A-Za-z0-9#/_.-]{1,64}$")
 _URL_RE = re.compile(r"^https?://[^\s()<>\[\]]{1,500}$")
 
 
-def fetch_source_references_for_report(team: Team, report_id: str) -> list[SignalSourceReference]:
+def fetch_source_references_for_report(
+    team: Team,
+    report_id: str,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[SignalSourceReference]:
     """Return issue references (label + URL) for the report's non-deleted Linear/GitHub signals.
 
     Sources whose signals don't carry a stable human-facing URL (e.g. Zendesk's `url` extra is the
@@ -329,16 +351,22 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         WHERE NOT is_deleted
           AND report_id = {report_id}
           AND source_product IN ('linear', 'github')
+        ORDER BY source_product, url, html_url
+        LIMIT 1 BY source_product, url, html_url
+        LIMIT {row_cap}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchSourceReferencesForReport",
         query=ch_query,
         team=team,
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_id": ast.Constant(value=report_id),
+            # Headroom over the reference cap for rows the URL checks below drop.
+            "row_cap": ast.Constant(value=_SOURCE_REFERENCE_CAP * 10),
         },
     )
 
@@ -357,3 +385,152 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
 
     references.sort(key=lambda ref: (ref.source_product, ref.label, ref.url))
     return references[:_SOURCE_REFERENCE_CAP]
+
+
+# Enough ids to fill the capped link list plus one, so the caller can tell there are more.
+ORIGIN_ENTITY_ID_CAP = 6
+# One row per source product and scout, so a report can never return an unbounded result.
+_ORIGIN_SOURCE_ROW_CAP = 50
+
+
+@frozen
+class OriginSource:
+    """One source of a report's signals, without any of their content."""
+
+    source_product: str
+    # The authoring scout's skill slug, or "" for pipeline signals.
+    scout_name: str
+    first_seen: datetime
+    # At most ORIGIN_ENTITY_ID_CAP entity ids, sorted. A support ticket keeps its uuid, because its
+    # sequential ticket number would reveal the team's ticket volume.
+    entity_ids: tuple[str, ...]
+
+
+def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSource]:
+    """Summarize where a report's non-deleted signals came from, earliest source first.
+
+    Aggregates in ClickHouse, so the result stays small however many signals the report holds.
+    The signal `content` never leaves ClickHouse here, because the caller writes the result into
+    a public pull request.
+    """
+    ch_query = f"""
+        SELECT
+            source_product,
+            scout_name,
+            min(timestamp) as first_seen,
+            groupUniqArray({ORIGIN_ENTITY_ID_CAP})(entity_id) as entity_ids
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'source_product') as source_product,
+                JSONExtractString(metadata, 'extra', 'skill_name') as scout_name,
+                JSONExtractString(metadata, 'source_id') as entity_id,
+                timestamp
+            FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+            WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
+              AND NOT JSONExtractBool(metadata, 'deleted')
+        )
+        GROUP BY source_product, scout_name
+        ORDER BY first_seen ASC
+        LIMIT {_ORIGIN_SOURCE_ROW_CAP}
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchOriginSourcesForReport",
+        query=ch_query,
+        team=team,
+        context=_signals_query_context(team),
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "report_id": ast.Constant(value=report_id),
+        },
+    )
+    return [
+        OriginSource(
+            source_product=source_product or "",
+            scout_name=scout_name or "",
+            first_seen=first_seen,
+            entity_ids=tuple(sorted(entity_id for entity_id in entity_ids if entity_id)),
+        )
+        for source_product, scout_name, first_seen, entity_ids in result.results or []
+    ]
+
+
+def _signals_for_report_query(
+    *, include_deleted: bool = False, limit: int | None = None, newest_first: bool = False
+) -> str:
+    """Build a HogQL query that fetches signal rows for a single report.
+
+    Args:
+        include_deleted: When True the ``NOT deleted`` filter is omitted.
+            Used by soft-delete which intentionally re-processes already-deleted rows.
+        limit: Optional row cap appended as a LIMIT clause.
+        newest_first: Order by newest timestamp first, so a limit keeps the newest rows.
+    """
+    deleted_filter = "" if include_deleted else "\n          AND NOT JSONExtractBool(metadata, 'deleted')"
+    limit_clause = "" if limit is None else f"\n        LIMIT {limit}"
+
+    return f"""
+        SELECT
+            document_id,
+            content,
+            metadata,
+            timestamp,
+            latest_inserted_at
+        FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+        WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
+        ORDER BY timestamp {"DESC" if newest_first else "ASC"}{limit_clause}
+    """
+
+
+def _report_placeholders(report_id: str) -> dict:
+    return {
+        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+        "report_id": ast.Constant(value=report_id),
+    }
+
+
+def fetch_signals_for_report_sync(
+    team: Team,
+    report_id: str,
+    newest: int | None = None,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+) -> list[dict]:
+    """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
+
+    With `newest`, fetch only that many of the newest signals.
+    """
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        ch_user=ch_user,
+        workload=workload,
+        query_type="SignalsDebugFetchForReport",
+        query=_signals_for_report_query(limit=newest, newest_first=newest is not None),
+        team=team,
+        placeholders=_report_placeholders(report_id),
+        context=_signals_query_context(team),
+    )
+
+    signals_list = []
+    for row in result.results or []:
+        document_id, content, metadata_str, timestamp, _inserted_at = row
+        metadata = json.loads(metadata_str)
+        signals_list.append(
+            {
+                "signal_id": document_id,
+                "content": content,
+                "source_product": metadata.get("source_product", ""),
+                "source_type": metadata.get("source_type", ""),
+                "source_id": metadata.get("source_id", ""),
+                "weight": metadata.get("weight", 0.0),
+                "timestamp": timestamp,
+                "extra": metadata.get("extra", {}),
+                "match_metadata": metadata.get("match_metadata"),
+                "total_spend": metadata.get("total_spend"),
+                "spend_accounting_failed_stages": metadata.get("spend_accounting_failed_stages", []),
+            }
+        )
+
+    return signals_list

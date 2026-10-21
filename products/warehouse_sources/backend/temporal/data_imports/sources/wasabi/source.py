@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
+    codebase_detection = detect(env=("^WASABI_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.wasabi.com/apidocs/account-control-api"
 
@@ -114,14 +115,14 @@ class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WASABI,
+            name=ExternalDataSourceType.WASABI,
             category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="Wasabi",
             caption="""Import sub-account, usage, and invoice data from the Wasabi Account Control API (WACA) into the PostHog Data warehouse.
 
 WACA is available to Wasabi Control Accounts (partners managing sub-accounts). To get an API key, enable Wasabi Account Control API access on your Control Account — see [Wasabi's documentation](https://docs.wasabi.com/apidocs/account-control-api) for details.
 """,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/wasabi",
             iconPath="/static/services/wasabi.png",
             keywords=["waca", "wasabi account control"],

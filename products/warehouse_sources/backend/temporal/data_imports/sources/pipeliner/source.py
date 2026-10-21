@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PipelinerSource(ResumableSource[PipelinerSourceConfig, PipelinerResumeConfig]):
+    codebase_detection = detect(env=("^PIPELINER_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v100",)
     default_version = "v100"
@@ -54,11 +55,11 @@ class PipelinerSource(ResumableSource[PipelinerSourceConfig, PipelinerResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PIPELINER,
+            name=ExternalDataSourceType.PIPELINER,
             category=DataWarehouseSourceCategory.CRM,
             label="Pipeliner",
             keywords=["coevera", "pipeliner crm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Import data from your Pipeliner CRM (Coevera) team space into the PostHog Data warehouse.
 
 To connect, create an API application in Pipeliner under **Administration → Unit, Users & Roles → Applications**, then click **Show API Access** to reveal the space ID, service URL, and API credentials. The username and password are shown only once, so store them safely.

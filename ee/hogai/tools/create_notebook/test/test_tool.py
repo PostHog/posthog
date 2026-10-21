@@ -1,10 +1,18 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.schema import HumanMessage, MaxNotebookContext, MaxUIContext
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -39,27 +47,22 @@ class TestCreateNotebookTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("sql_v2 and widgets", True, True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("sql_v2 only", True, False, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("widgets only", False, True, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
-            ("neither enabled", False, False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+            ("sql_v2", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("legacy_sql", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
         ]
     )
     def test_description_offers_only_runnable_cell_tags(
-        self, _name: str, sql_v2_enabled: bool, widgets_enabled: bool, expected: str, unexpected: str
+        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
     ) -> None:
         with (
-            patch("products.notebooks.backend.widgets.settings", DEBUG=False, TEST=False),
             patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
-            patch("products.notebooks.backend.widgets.posthoganalytics.feature_enabled", return_value=widgets_enabled),
         ):
             tool = async_to_sync(CreateNotebookTool.create_tool_class)(team=self.team, user=self.user)
 
         assert expected in tool.description
         assert unexpected not in tool.description
-        assert ('<Widget title="' in tool.description) == widgets_enabled
-        if widgets_enabled:
-            assert "click Generate widget" in tool.description
+        assert '<Widget title="' in tool.description
+        assert "click Generate widget" in tool.description
 
     def test_returns_error_when_both_content_and_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(
@@ -164,6 +167,36 @@ class TestCreateNotebookTool(BaseTest):
         assert notebook.content is not None
         assert notebook.content["type"] == "doc"
 
+    @parameterized.expand([(False,), (True,)])
+    def test_inline_artifact_does_not_save_a_second_notebook(self, save_to_notebook: bool) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="Chart notes")
+        self.tool._state = AssistantState(
+            messages=[
+                HumanMessage(
+                    content="Add a chart section",
+                    ui_context=MaxUIContext(
+                        notebooks=[
+                            MaxNotebookContext(
+                                id=notebook.short_id,
+                                insertion_placeholder_block_id="inline-request",
+                                insertion_placeholder_marker="Thinking...",
+                            )
+                        ]
+                    ),
+                )
+            ]
+        )
+        _, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Chart notes",
+            content='# Chart notes\n\n<SQLV2 code="SELECT 1" />',
+            artifact_id=notebook.short_id,
+            save_to_notebook=save_to_notebook,
+        )
+        assert artifact is not None
+        assert Notebook.objects.filter(team=self.team).count() == 1
+        assert notebook.short_id in artifact.messages[1].content
+        assert "No separate notebook was saved" in artifact.messages[1].content
+
     def test_save_to_notebook_uses_artifact_short_id(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(
             title="Linked Notebook",
@@ -180,7 +213,11 @@ class TestCreateNotebookTool(BaseTest):
         assert agent_artifact is not None
         assert notebook.short_id == agent_artifact.short_id
 
-    def test_update_already_saved_notebook_auto_updates_db(self):
+    @parameterized.expand([("allowed", False), ("denied", True)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_update_already_saved_notebook_auto_updates_db(
+        self, _name: str, denied: bool, _feature_enabled: Mock
+    ) -> None:
         # First create and save
         _, create_artifact = async_to_sync(self.tool._arun_impl)(
             title="Original",
@@ -188,13 +225,46 @@ class TestCreateNotebookTool(BaseTest):
             save_to_notebook=True,
         )
         short_id = create_artifact.messages[1].content.split("short_id: ")[1].split(".")[0]
+        notebook = Notebook.objects.get(team=self.team, short_id=short_id)
+        next_content = "# Updated Content"
+        if denied:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.MEMBER
+            membership.save()
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="weekly_totals",
+                query={"kind": "HogQLQuery", "query": "SELECT 3 AS total"},
+                columns={"total": "Integer"},
+            )
+            AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+            SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+            next_content = (
+                '<Query nodeId="totals" query={{"kind":"HogQLQuery","query":"SELECT total FROM weekly_totals"}} />'
+            )
 
         # Now update without save_to_notebook -- should auto-update because already saved
-        _, update_artifact = async_to_sync(self.tool._arun_impl)(
+        result, update_artifact = async_to_sync(self.tool._arun_impl)(
             title="Updated",
-            content="# Updated Content",
+            content=next_content,
             artifact_id=short_id,
         )
+
+        if denied:
+            assert update_artifact is None
+            assert "weekly_totals" in result
+            assert "notebook was not changed" in result
+            original_content = notebook.content
+            original_version = notebook.version
+            notebook.refresh_from_db()
+            assert notebook.title == "Original"
+            assert notebook.content == original_content
+            assert notebook.version == original_version
+            return
 
         assert update_artifact is not None
         tool_call_message = update_artifact.messages[1]

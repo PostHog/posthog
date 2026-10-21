@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FreshsalesSource(ResumableSource[FreshsalesSourceConfig, FreshsalesResumeConfig]):
+    codebase_detection = detect(env=("^FRESHSALES_",))
+
     api_docs_url = "https://developers.freshworks.com/crm/api/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -50,7 +51,7 @@ class FreshsalesSource(ResumableSource[FreshsalesSourceConfig, FreshsalesResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FRESHSALES,
+            name=ExternalDataSourceType.FRESHSALES,
             category=DataWarehouseSourceCategory.CRM,
             label="Freshsales",
             caption="""Enter your Freshsales domain and API key to pull your Freshsales (Freshworks CRM) data into the PostHog Data warehouse.
@@ -62,7 +63,7 @@ Both are available under **Profile settings → API settings** in Freshsales.
 """,
             iconPath="/static/services/freshsales.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshsales",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

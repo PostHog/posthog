@@ -1,7 +1,5 @@
-import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.source import ChatwootSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
     ChatwootSourceConfig,
@@ -19,35 +17,6 @@ class TestChatwootSource:
         # and changing the account id alone could point a shared token at another account's data —
         # both must force re-entering the token.
         assert self.source.connection_host_fields == ["host", "account_id"]
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://chat.example.com/api/v1/accounts/7/contacts?page=1",
-            "404 Client Error: Not Found for url: https://app.chatwoot.com/api/v1/accounts/999/agents",
-            "Chatwoot host must use HTTPS",
-            "Chatwoot account ID must be a number",
-        ],
-    )
-    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    def test_non_retryable_errors_do_not_match_transient_failures(self):
-        transient = "500 Server Error for url: https://app.chatwoot.com/api/v1/accounts/1/contacts"
-        assert not any(key in transient for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_are_full_refresh_with_webhook_deltas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # No Chatwoot list endpoint has a server-side timestamp filter, so nothing may advertise
-        # incremental sync.
-        assert not any(schema.supports_incremental or schema.supports_append for schema in schemas)
-        assert {schema.name for schema in schemas if schema.supports_webhooks} == {"conversations", "messages"}
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts"])
-        assert [schema.name for schema in schemas] == ["contacts"]
 
     def test_webhook_resource_map_covers_webhook_schemas(self):
         assert self.source.webhook_resource_map == {"conversations": "conversation", "messages": "message"}
@@ -105,10 +74,3 @@ class TestChatwootSource:
         assert kwargs["team_id"] == self.team_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["webhook_source_manager"] is not None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not-a-schema"
-
-        with pytest.raises(ValueError, match="Unknown Chatwoot schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

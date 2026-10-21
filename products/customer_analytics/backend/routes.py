@@ -1,5 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
+from products.customer_analytics.backend.presentation.views import urls as external_api_urls
 from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
 from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
 from products.customer_analytics.backend.presentation.views.customer_tasks import CustomerTaskViewSet
@@ -13,6 +14,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountRelationshipViewSet,
     AccountTrackRuleViewSet,
     AccountViewSet,
+    AccountViewTemplateViewSet,
     CalendarSyncViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
@@ -24,6 +26,9 @@ from products.customer_analytics.backend.presentation.views.views import (
     FeatureRequestViewSet,
     UserCustomerAnalyticsConfigViewSet,
 )
+from products.customer_analytics.backend.presentation.views.workflow_customer_tasks import WorkflowCustomerTaskViewSet
+
+api_urlpatterns = external_api_urls.urlpatterns
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -112,6 +117,12 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_user_customer_analytics_config",
         ["team_id"],
     )
+    routers.projects.register(
+        r"account_views",
+        AccountViewTemplateViewSet,
+        "project_account_views",
+        ["team_id"],
+    )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])
     project_accounts_router.register(
         r"notebooks", AccountNotebookViewSet, "project_account_notebooks", ["team_id", "account_id"]
@@ -129,3 +140,9 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "account_id"],
     )
     routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])
+    routers.projects.register(
+        r"workflow_customer_tasks",
+        WorkflowCustomerTaskViewSet,
+        "project_workflow_customer_tasks",
+        ["team_id"],
+    )

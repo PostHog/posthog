@@ -12,6 +12,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebAnalyticsPreComputeStrategy,
@@ -30,7 +31,10 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import SESSION_ID_SET_FEATURE_FLAG_KEY
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
-from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import _breakdown_having_expr
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    _breakdown_having_expr,
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
 # assert parity on. VIEWPORT is exercised separately — the raw query compares
@@ -48,6 +52,13 @@ PARITY_BREAKDOWNS = [
     ("language", WebStatsBreakdown.LANGUAGE),
     ("exit_page", WebStatsBreakdown.EXIT_PAGE),
 ]
+
+# The span gate measures `date_to - date_from` in whole days, so these three
+# dates straddle MAX_PRECOMPUTE_DAYS exactly: 366 days from MAX_SPAN_DATE_FROM
+# and 367 from OVER_MAX_SPAN_DATE_FROM.
+SPAN_DATE_TO = "2024-01-07"
+MAX_SPAN_DATE_FROM = "2023-01-06"
+OVER_MAX_SPAN_DATE_FROM = "2023-01-05"
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -221,6 +232,95 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy == raw, f"lazy/raw mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_filtered_lazy_matches_raw(self):
+        # The one admitted session filter: `$channel_type` resolves inside the
+        # INSERT via the sessions virtual field, so a channel-filtered breakdown
+        # precomputes and must agree with the live path. The seed's google.com
+        # referrer classifies as Organic Search with no UTMs.
+        props = [SessionPropertyFilter(key="$channel_type", value="Organic Search", operator=PropertyOperator.EXACT)]
+        self._seed()
+
+        raw = self._metrics(self._run(self._build_query(properties=props)))
+
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(properties=props))
+        lazy = self._metrics(lazy_response)
+
+        assert self._job_count() > 0, "channel-filtered read should create precompute jobs"
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert lazy == raw, f"lazy/raw mismatch under channel filter: raw={raw}, lazy={lazy}"
+
+    @parameterized.expand(
+        [
+            (
+                "channel_filtered",
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+                False,
+            ),
+            ("unfiltered", [], False),
+            ("with_compare_period", [], True),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_year_long_range_stays_admitted(self, _name: str, props: list, compare: bool):
+        # Sits exactly on MAX_PRECOMPUTE_DAYS (366), so any narrower cap sends a
+        # "this year" tile back to the live path through DateRangeOverMax. The
+        # compare case pins the measured span to the current period: the previous
+        # period gets its own `ensure_web_stats_precomputed` call (parity covered
+        # by `test_lazy_matches_raw_with_compare`), so a gate measuring both would
+        # see ~732 days and reject.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=self._build_query(
+                properties=props, date_from=MAX_SPAN_DATE_FROM, date_to=SPAN_DATE_TO, compare=compare
+            ),
+        )
+        with self._enable_lazy():
+            assert can_use_stats_lazy_precompute(runner)
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_range_one_day_past_max_falls_through(self):
+        # One day wider than the case above, so the cap bites at 367 days.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=self._build_query(date_from=OVER_MAX_SPAN_DATE_FROM, date_to=SPAN_DATE_TO),
+        )
+        with self._enable_lazy():
+            assert not can_use_stats_lazy_precompute(runner)
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_uuid_session_mode_stays_rejected_with_channel_filter(self):
+        # The UUID join-mode bypass is overview-only (its channel template carries
+        # the UUID-safe session-id handling); the stats insert does not, so a
+        # channel filter must not smuggle uuid-mode teams past the rejection.
+        from posthog.schema import HogQLQueryModifiers, SessionsV2JoinMode
+
+        query = self._build_query(
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+        )
+        query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        with self._enable_lazy():
+            assert not can_use_stats_lazy_precompute(runner)
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_rewritten_first_pageview_channel_filter_stays_live(self):
+        # With first-pageview attribution on, the live path rewrites the channel
+        # filter to first-pageview semantics; the insert would apply raw session
+        # attribution, so the gate must refuse rather than serve diverging rows.
+        props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(properties=props))
+        with (
+            self._enable_lazy(),
+            patch.object(
+                WebStatsTableQueryRunner,
+                "rewritten_first_pageview_filters",
+                new_callable=lambda: property(lambda self: props),
+            ),
+        ):
+            assert not can_use_stats_lazy_precompute(runner)
+
     @parameterized.expand(PARITY_BREAKDOWNS)
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw_with_compare(self, _name: str, breakdown_by: WebStatsBreakdown):
@@ -366,20 +466,14 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0, "extra metrics are not precomputed — must fall through to raw"
 
-    @parameterized.expand(
-        [
-            ("page", WebStatsBreakdown.PAGE),
-            ("initial_page", WebStatsBreakdown.INITIAL_PAGE),
-            ("exit_click", WebStatsBreakdown.EXIT_CLICK),
-        ]
-    )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_high_cardinality_breakdown_falls_through(self, _name: str, breakdown_by: WebStatsBreakdown):
-        # Page/path breakdowns are intentionally excluded — handled by the
-        # dedicated paths lazy precompute. They fall through to raw here.
+    def test_high_cardinality_breakdown_falls_through(self):
+        # Pathname breakdowns (PAGE/INITIAL_PAGE) are owned by the paths lazy
+        # precompute — bounce or not — and are covered in its test suite.
+        # EXIT_CLICK belongs to no family and must stay on the raw path.
         self._seed()
         with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=breakdown_by))
+            self._run(self._build_query(breakdown_by=WebStatsBreakdown.EXIT_CLICK))
 
         assert self._job_count() == 0
 

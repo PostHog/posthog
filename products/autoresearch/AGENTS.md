@@ -8,7 +8,7 @@ The framing is Karpathy's `autoresearch` prompt pattern: an agent edits one thin
 Here the "one thing" is a feature set plus a model spec, the fixed eval is holdout AUC on a labeled training population, and the loop runs inside a Tasks sandbox.
 
 This directory holds the data model, the access gate, and the backend packages that have landed so far; each package has its own `AGENTS.md`.
-The training loop, inference, evaluation, the API, the MCP tools, and the frontend land in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464).
+The frontend lands in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464).
 
 ## Data model in one pass
 
@@ -17,7 +17,7 @@ AutoresearchPipeline          the standing question (target, population, horizon
  ├─ AutoresearchTrainingRun   one attempt to find a better model
  │   └─ AutoresearchIteration one experiment inside that attempt (kept / discarded)
  ├─ AutoresearchModel         a trained model, role = champion | challenger | archived
- ├─ AutoresearchRun           one execution of inference or validation
+ ├─ AutoresearchRun           one execution of inference, validation, or person property cleanup
  └─ AutoresearchSuggestion    a human- or agent-authored hypothesis for the next run to explore
 ```
 
@@ -38,6 +38,13 @@ Gated by the `autoresearch` feature flag (`backend/access.py`).
 Rollout is configured on the flag, and code only asks whether it is on.
 
 The real-agent training path additionally needs Tasks access, because it runs in a Tasks sandbox.
+
+## Training schedule
+
+Training never ends, but exploration comes first.
+The daily sweep starts research runs on scoring days until a run fails to promote a better model or 5 research runs have run, then one run every `research_interval_days` after the latest run (`backend/training/schedule.py`).
+Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
+`iteration_budget` and `iteration_budget_remaining` are deprecated: nothing scheduled reads them.
 
 ## Invariants that cross package boundaries
 

@@ -36,6 +36,7 @@ import structlog
 
 from posthog.hogql import ast
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
 
@@ -65,7 +66,7 @@ QUARANTINE_FILENAME = ".test_quarantine.json"
 
 _SCHEMA_VERSION = 1
 _DEFAULT_RUNNER = "pytest"
-# Matches DEFAULT_GRACE_DAYS in the quarantine contract: an expired entry stays
+# Matches GRACE_DAYS in the quarantine contract: an expired entry stays
 # inert for this long before `quarantine check` makes its removal mandatory.
 _GRACE_DAYS = 7
 _EXPIRING_SOON_DAYS = 7
@@ -512,7 +513,7 @@ def _resolve_write_target(
     integration_row = Integration.objects.filter(team=team, kind="github").first()
     if integration_row is None:
         raise QuarantineWriteError("Connect a GitHub integration with write access to quarantine tests from here.")
-    github = GitHubIntegration(integration_row)
+    github = GitHubIntegration(integration_row, source="ci_quarantine", priority=Priority.CRITICAL)
     installed_org = github.organization()
     if installed_org.lower() != owner.lower():
         raise QuarantineWriteError(

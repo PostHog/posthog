@@ -76,6 +76,9 @@ export interface WorkflowMetricCardProps {
     onClick?: () => void
     onClickTooltip?: string
     footer?: ReactNode
+    /** Shorter card, so a page with tables below it does not push them off screen. */
+    compact?: boolean
+    className?: string
 }
 
 // Collapse a response into the numbers the tile reads (per-index sums plus the grand total). A
@@ -105,6 +108,8 @@ export function WorkflowMetricCard({
     onClick,
     onClickTooltip,
     footer,
+    compact,
+    className,
 }: WorkflowMetricCardProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -161,17 +166,18 @@ export function WorkflowMetricCard({
 
     const cardClassName = cn(
         CARD_CHROME,
+        className,
         onClick &&
             'cursor-pointer transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
     )
 
     if (loading) {
         return (
-            <div className={CARD_CHROME}>
+            <div className={cn(CARD_CHROME, className)}>
                 <div className="flex flex-col px-3">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="mt-3 h-9 w-32" />
-                    <Skeleton className="mt-4 h-40 w-full" />
+                    <Skeleton className={compact ? 'mt-3 h-16 w-full' : 'mt-4 h-40 w-full'} />
                 </div>
             </div>
         )
@@ -230,8 +236,8 @@ export function WorkflowMetricCard({
                         </MetricTitle>
                         <MetricDelta />
                     </MetricHeader>
-                    <MetricValue className="mt-2" />
-                    <MetricSparkline className="-mx-3 mt-4" />
+                    <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
+                    <MetricSparkline className={compact ? '-mx-3 mt-2 h-16' : '-mx-3 mt-4'} />
                 </Metric>
                 {footer && (
                     // Stop clicks here from firing the tile's drill — the footer carries its own link.

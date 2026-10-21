@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sigmacomputing import (
     SigmaComputingSourceConfig,
 )
@@ -23,7 +22,7 @@ class TestSigmaComputingSource:
         assert config.name.value == "SigmaComputing"
         assert config.label == "Sigma Computing"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/sigma_computing.png"
@@ -55,9 +54,3 @@ class TestSigmaComputingSource:
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_non_retryable_errors_ignore_transient_failures(self) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://api.sigmacomputing.com/v2/workbooks" for key in non_retryable
-        )

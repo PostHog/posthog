@@ -7,6 +7,7 @@ import { PersonHogService } from '~/common/generated/personhog/personhog/service
 import { ConsistencyLevel, ReadOptionsSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { ConnectionWindowSessionManager } from './connection-window-session-manager'
 import { PersonHogGroupOperations } from './groups'
 import { PersonHogPersonOperations } from './persons'
 import { SessionStateMonitor } from './session-state-monitor'
@@ -185,6 +186,9 @@ export interface PersonHogClientConfig {
      */
     idleConnectionTimeoutMs?: number
 
+    initialStreamWindowBytes?: number
+    initialConnectionWindowBytes?: number
+
     // -- Attribution --
 
     /** Identifies the code path / feature area within this service (e.g., "ingestion/event-processing"). */
@@ -226,6 +230,18 @@ export class PersonHogClient {
     close(): void {
         this.stateMonitor?.close()
     }
+}
+
+export const MAX_HTTP2_WINDOW_BYTES = 2 ** 31 - 1
+
+function windowBytes(value: number | undefined, name: string): number | undefined {
+    if (value === undefined || value === 0) {
+        return undefined
+    }
+    if (!Number.isInteger(value) || value < 0 || value > MAX_HTTP2_WINDOW_BYTES) {
+        throw new Error(`${name} must be an integer between 0 and ${MAX_HTTP2_WINDOW_BYTES}, got ${value}`)
+    }
+    return value
 }
 
 /**
@@ -271,12 +287,18 @@ export function createPersonhogTransport(config: PersonHogClientConfig): {
             return await next(req)
         })
 
-        const sessionManager = new Http2SessionManager(`${scheme}://${config.addr}`, {
-            pingIntervalMs: config.pingIntervalMs ?? 30_000,
-            pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
-            pingIdleConnection: config.pingIdleConnection ?? true,
-            idleConnectionTimeoutMs: config.idleConnectionTimeoutMs,
-        })
+        const streamWindowBytes = windowBytes(config.initialStreamWindowBytes, 'initialStreamWindowBytes')
+        const connectionWindowBytes = windowBytes(config.initialConnectionWindowBytes, 'initialConnectionWindowBytes')
+        const sessionManager = new Http2SessionManager(
+            `${scheme}://${config.addr}`,
+            {
+                pingIntervalMs: config.pingIntervalMs ?? 30_000,
+                pingTimeoutMs: config.pingTimeoutMs ?? 5_000,
+                pingIdleConnection: config.pingIdleConnection ?? true,
+                idleConnectionTimeoutMs: config.idleConnectionTimeoutMs,
+            },
+            streamWindowBytes === undefined ? undefined : { settings: { initialWindowSize: streamWindowBytes } }
+        )
 
         const stateMonitor = new SessionStateMonitor(
             sessionManager,
@@ -289,7 +311,10 @@ export function createPersonhogTransport(config: PersonHogClientConfig): {
             defaultTimeoutMs: config.timeoutMs ?? 1_000,
             readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
             writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
-            sessionManager: stateMonitor,
+            sessionManager:
+                connectionWindowBytes === undefined
+                    ? stateMonitor
+                    : new ConnectionWindowSessionManager(stateMonitor, connectionWindowBytes),
             interceptors,
         })
         return { transport, stateMonitor }

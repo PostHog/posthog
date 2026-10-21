@@ -6,6 +6,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
+import { ReportChatLayout } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
@@ -50,49 +51,56 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   const prUrl = prRef ? report.implementation_pr_url : null;
 
   return (
-    <InboxDetailFrame
-      report={report}
-      backTo="/inbox/pulls"
-      backLabel="Back to pull requests"
-      fallbackTitle="Untitled pull request"
-      metaSuffix={
-        prUrl ? (
-          <>
-            <InboxMetaSeparator />
-            <ReportImplementationPrLink prUrl={prUrl} size="md" />
+    <ReportChatLayout report={report}>
+      <InboxDetailFrame
+        report={report}
+        fallbackTitle="Untitled pull request"
+        metaSuffix={
+          prUrl ? (
+            <>
+              <InboxMetaSeparator />
+              <ReportImplementationPrLink prUrl={prUrl} size="md" />
+              <ReportTrackerIssueLink report={report} />
+            </>
+          ) : (
             <ReportTrackerIssueLink report={report} />
-          </>
-        ) : (
-          <ReportTrackerIssueLink report={report} />
-        )
-      }
-      primaryAction={<ReportDetailActions report={report} prUrl={prUrl} />}
-      summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}
-      secondaryTab={
-        prUrl
-          ? {
-              label: (
-                <>
-                  Changed code
-                  <PrDiffStats prUrl={prUrl} hideWhileLoading />
-                </>
-              ),
-              content: <PrFilesChangedSection prUrl={prUrl} bare />,
-            }
-          : undefined
-      }
-      belowSummary={
-        prUrl && (
-          <>
-            <PrDecisionBlock prUrl={prUrl} />
-            <PrCommentsSection prUrl={prUrl} />
-          </>
-        )
-      }
-      footer={<ReportFeedbackFooter report={report} />}
-      evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-    >
-      <ReportReviewersSection report={report} />
-    </InboxDetailFrame>
+          )
+        }
+        primaryAction={
+          <ReportDetailActions
+            report={report}
+            prUrl={prUrl}
+            placement="header"
+          />
+        }
+        showDismiss={false}
+        summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}
+        secondaryTab={
+          prUrl
+            ? {
+                label: (
+                  <>
+                    Changed code
+                    <PrDiffStats prUrl={prUrl} hideWhileLoading />
+                  </>
+                ),
+                content: <PrFilesChangedSection prUrl={prUrl} bare />,
+              }
+            : undefined
+        }
+        belowSummary={
+          prUrl && (
+            <>
+              <PrDecisionBlock prUrl={prUrl} />
+              <PrCommentsSection prUrl={prUrl} />
+            </>
+          )
+        }
+        footer={<ReportFeedbackFooter report={report} />}
+        evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+      >
+        <ReportReviewersSection report={report} />
+      </InboxDetailFrame>
+    </ReportChatLayout>
   );
 }

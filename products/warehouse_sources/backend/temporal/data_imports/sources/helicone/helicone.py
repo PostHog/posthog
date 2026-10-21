@@ -11,10 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
+    EVAL_SCORES_ENDPOINT,
     HELICONE_ENDPOINTS,
     HELICONE_HOSTS,
     PROMPTS_ENDPOINT,
     PROMPTS_PAGE_SIZE,
+    PROPERTIES_ENDPOINT,
     REQUESTS_DEFAULT_LOOKBACK_DAYS,
     REQUESTS_ENDPOINT,
     REQUESTS_PAGE_SIZE,
@@ -65,7 +67,7 @@ def _format_timestamp(value: Any) -> str | None:
     return None
 
 
-def _extract_data(body: Any, url: str) -> list[dict[str, Any]]:
+def _extract_data(body: Any, url: str) -> list[Any]:
     """Unwrap Helicone's `{"data": [...], "error": null}` result union.
 
     The prompts endpoint documents a bare array response, so lists pass through as-is.
@@ -93,7 +95,21 @@ def _post(
     session: requests.Session, url: str, headers: dict[str, str], body: dict[str, Any], logger: FilteringBoundLogger
 ) -> Any:
     response = session.post(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+    return _parse_response(response, url, logger)
 
+
+@retry(
+    retry=retry_if_exception_type((HeliconeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=2, max=60),
+    reraise=True,
+)
+def _get(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    return _parse_response(response, url, logger)
+
+
+def _parse_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> Any:
     if response.status_code == 429 or response.status_code >= 500:
         raise HeliconeRetryableError(f"Helicone API error (retryable): status={response.status_code}, url={url}")
 
@@ -284,6 +300,33 @@ def _prompts_rows(
             break
 
 
+def _properties_rows(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{host}{HELICONE_ENDPOINTS[PROPERTIES_ENDPOINT].path}"
+    # Unpaginated: returns the org's distinct, non-hidden property keys as `{"property": key}` rows.
+    rows = _extract_data(_post(session, url, headers, {}, logger), url)
+    if rows:
+        yield rows
+
+
+def _eval_scores_rows(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{host}{HELICONE_ENDPOINTS[EVAL_SCORES_ENDPOINT].path}"
+    # Unpaginated: returns a bare list of distinct score names, so wrap each one into a row.
+    names = _extract_data(_get(session, url, headers, logger), url)
+    rows = [{"score": name} for name in names if isinstance(name, str)]
+    if rows:
+        yield rows
+
+
 def _get_rows(
     api_key: str,
     region: str,
@@ -319,6 +362,10 @@ def _get_rows(
         yield from _users_rows(session, host, headers, logger)
     elif endpoint == PROMPTS_ENDPOINT:
         yield from _prompts_rows(session, host, headers, logger, resumable_source_manager)
+    elif endpoint == PROPERTIES_ENDPOINT:
+        yield from _properties_rows(session, host, headers, logger)
+    elif endpoint == EVAL_SCORES_ENDPOINT:
+        yield from _eval_scores_rows(session, host, headers, logger)
     else:
         raise ValueError(f"Unknown Helicone endpoint: {endpoint}")
 

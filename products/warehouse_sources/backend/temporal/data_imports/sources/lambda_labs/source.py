@@ -2,15 +2,14 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeConfig]):
+    codebase_detection = detect(env=("^(LAMBDA_LABS|LAMBDALABS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://cloud.lambda.ai/api/v1/docs"
 
@@ -115,10 +116,10 @@ class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LAMBDA_LABS,
+            name=ExternalDataSourceType.LAMBDALABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Lambda",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Lambda API key to pull your Lambda (Lambda Labs) GPU cloud data into the PostHog Data warehouse.
 
 You can create an API key in the [API keys section](https://cloud.lambda.ai/api-keys) of your Lambda dashboard. The key has account-wide access.""",

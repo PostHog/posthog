@@ -3,22 +3,25 @@ import os
 import re
 import shutil
 import tempfile
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
+from django.utils.timezone import now
 
 from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
-from PIL import Image
+from PIL import ExifTags, Image
 from rest_framework import status
 
 from posthog.api.uploaded_media import FOUR_MEGABYTES
 from posthog.models import Team, UploadedMedia
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.uploaded_media import sniff_image
 from posthog.models.utils import UUIDT, generate_random_token_personal
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -33,10 +36,34 @@ MEDIA_ROOT = tempfile.mkdtemp()
 
 TEST_BUCKET = "Test-Uploads"
 
+SMALL_GIF_WIDTH = 1428
+SMALL_GIF_HEIGHT = 816
+
 
 def get_path_to(fixture_file: str) -> str:
     file_dir = os.path.dirname(__file__)
     return os.path.join(file_dir, "fixtures", fixture_file)
+
+
+class TestSniffImage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("upright", 1, (120, 80)),
+            ("rotated_a_quarter_turn", 6, (80, 120)),
+        ]
+    )
+    def test_reports_the_size_a_browser_displays(
+        self, _name: str, orientation: int, expected_size: tuple[int, int]
+    ) -> None:
+        exif = Image.Exif()
+        exif[ExifTags.Base.Orientation] = orientation
+        buffer = io.BytesIO()
+        Image.new("RGB", (120, 80)).save(buffer, format="JPEG", exif=exif)
+
+        sniffed = sniff_image(buffer.getvalue())
+
+        assert sniffed is not None
+        assert (sniffed.width, sniffed.height) == expected_size
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)
@@ -158,6 +185,19 @@ class TestMediaAPI(APIBaseTest):
                 format="multipart",
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_rejects_a_headerless_dib_even_though_pillow_reports_it_as_bmp(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), color="red").save(buffer, format="DIB")
+        fake_file = SimpleUploadedFile(name="logo.bmp", content=buffer.getvalue(), content_type="image/bmp")
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": fake_file},
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.count() == 0
 
     def test_download_sets_nosniff_and_strict_csp(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
@@ -289,6 +329,45 @@ class TestMediaAPI(APIBaseTest):
                 "Object storage must be available to allow media uploads.",
             )
 
+    @patch("posthog.models.uploaded_media.object_storage.delete")
+    @patch("posthog.models.uploaded_media.object_storage.write", side_effect=ObjectStorageError("write failed"))
+    def test_save_content_removes_media_after_a_failed_write(self, _write_object, delete_object) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=self.user,
+                file_name="example.png",
+                content_type="image/png",
+                content=b"image bytes",
+            )
+
+        assert media is None
+        assert not UploadedMedia.objects.exists()
+        delete_object.assert_called_once()
+
+    @patch(
+        "posthog.models.uploaded_media.object_storage.delete",
+        side_effect=ObjectStorageError("delete failed"),
+    )
+    @patch("posthog.models.uploaded_media.object_storage.write", side_effect=ObjectStorageError("write failed"))
+    def test_save_content_keeps_cleanup_metadata_when_object_deletion_fails(
+        self, _write_object, _delete_object
+    ) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=self.user,
+                file_name="example.png",
+                content_type="image/png",
+                content=b"image bytes",
+            )
+            pending_media = UploadedMedia.objects.get()
+            expected_location = UploadedMedia.build_media_location(self.team.id, pending_media.id)
+
+        assert media is None
+        assert pending_media.pending is True
+        assert pending_media.media_location == expected_location
+
 
 class TestMediaLibraryAPI(APIBaseTest):
     """The media library surface: purpose-scoped listing and the presigned upload flow."""
@@ -325,6 +404,15 @@ class TestMediaLibraryAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         assert UploadedMedia.objects.count() == 0
 
+    def test_media_urls_use_the_cdn_origin_when_one_is_configured(self) -> None:
+        media = self._create_media(purpose="email")
+
+        with self.settings(UPLOADED_MEDIA_PUBLIC_URL="https://media.example.com"):
+            response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.json()["results"][0]["url"] == f"https://media.example.com/uploaded_media/{media.id}"
+
     def test_list_returns_only_matching_purpose_for_own_team_newest_first(self) -> None:
         first = self._create_media(purpose="canvas", file_name="first.png")
         second = self._create_media(purpose="canvas", file_name="second.png")
@@ -350,6 +438,66 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert listed["url"] == f"http://localhost:8010/uploaded_media/{second.id}"
         assert listed["created_at"] is not None
 
+    def test_list_search_matches_part_of_the_name_ignoring_case(self) -> None:
+        match = self._create_media(purpose="email", file_name="Hero-Banner.png")
+        self._create_media(purpose="email", file_name="logo.png")
+        self._create_media(purpose="canvas", file_name="banner-for-a-canvas.png")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email&search=banner")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert [item["id"] for item in response.json()["results"]] == [str(match.id)]
+
+    def test_removing_an_image_hides_it_from_the_library_but_keeps_its_url_working(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                upload_response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image, "purpose": "email"},
+                    format="multipart",
+                )
+            media_id = upload_response.json()["id"]
+
+            delete_response = self.client.delete(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/")
+            assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+            assert list_response.json()["results"] == []
+
+            repeat_response = self.client.delete(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/")
+            assert repeat_response.status_code == status.HTTP_404_NOT_FOUND
+
+            self.client.logout()
+            download_response = self.client.get(f"/uploaded_media/{media_id}")
+            assert download_response.status_code == status.HTTP_200_OK
+
+    def test_removing_refuses_an_upload_that_is_not_in_a_library(self) -> None:
+        dashboard_image = self._create_media(purpose=None)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/uploaded_media/{dashboard_image.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        dashboard_image.refresh_from_db()
+        assert dashboard_image.archived_at is None
+
+    def test_list_pages_stay_stable_when_images_share_a_created_at(self) -> None:
+        # Ordering on a non-unique created_at alone leaves tied rows no fixed position, so a
+        # client walking offset pages can miss an image or receive one twice. The explicit ids
+        # are ascending, against the newest-first order, so insertion order cannot satisfy it.
+        ids = [UUID(f"0192f0f0-0000-7000-8000-00000000000{n}") for n in range(1, 5)]
+        for media_id in ids:
+            self._create_media(purpose="canvas", id=media_id)
+        # auto_now_add discards a created_at passed to create(), so force the tie afterwards.
+        UploadedMedia.objects.filter(id__in=ids).update(created_at=now())
+
+        paged_ids: list[str] = []
+        for offset in (0, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/uploaded_media/?purpose=canvas&limit=2&offset={offset}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            paged_ids.extend(item["id"] for item in response.json()["results"])
+
+        assert paged_ids == [str(media_id) for media_id in sorted(ids, reverse=True)]
+
     @parameterized.expand(
         [
             ("with_purpose", {"purpose": "email"}, 1),
@@ -369,6 +517,7 @@ class TestMediaLibraryAPI(APIBaseTest):
                     format="multipart",
                 )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            assert (response.json()["width"], response.json()["height"]) == (SMALL_GIF_WIDTH, SMALL_GIF_HEIGHT)
 
             list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
             self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
@@ -377,6 +526,7 @@ class TestMediaLibraryAPI(APIBaseTest):
             if expected_count:
                 assert results[0]["id"] == response.json()["id"]
                 assert results[0]["size_bytes"] == os.path.getsize(get_path_to("a-small-but-valid.gif"))
+                assert (results[0]["width"], results[0]["height"]) == (SMALL_GIF_WIDTH, SMALL_GIF_HEIGHT)
 
     def test_create_rejects_an_oversized_purpose_before_writing_anything(self) -> None:
         """purpose is a varchar(100) column. Without validating it up front, an oversized value
@@ -479,6 +629,7 @@ class TestMediaLibraryAPI(APIBaseTest):
             payload = response.json()
             assert payload["content_type"] == "image/gif"
             assert payload["size_bytes"] == len(gif_bytes)
+            assert (payload["width"], payload["height"]) == (SMALL_GIF_WIDTH, SMALL_GIF_HEIGHT)
             assert payload["url"] == f"http://localhost:8010/uploaded_media/{media_id}"
 
             media = UploadedMedia.objects.get(id=media_id)
@@ -616,18 +767,27 @@ class TestMediaLibraryAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media.id}/complete_upload/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
 
-    def test_start_upload_requires_uploaded_media_write_scope(self) -> None:
-        """Guards against start_upload/complete_upload silently missing from
-        scope_object_write_actions, which would let a read-only key upload images."""
+    @parameterized.expand(
+        [
+            ("start_upload", "post", "start_upload/", {"name": "logo.png", "purpose": "email"}),
+            ("remove", "delete", "{media_id}/", None),
+        ]
+    )
+    def test_library_writes_require_uploaded_media_write_scope(
+        self, _name: str, method: str, path: str, body: dict | None
+    ) -> None:
+        media = self._create_media(purpose="email")
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="read-only", user=self.user, secure_value=hash_key_value(value), scopes=["uploaded_media:read"]
         )
         self.client.logout()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
-            {"name": "logo.png", "purpose": "email"},
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/uploaded_media/{path.format(media_id=media.id)}",
+            body,
             headers={"Authorization": f"Bearer {value}"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        media.refresh_from_db()
+        assert media.archived_at is None

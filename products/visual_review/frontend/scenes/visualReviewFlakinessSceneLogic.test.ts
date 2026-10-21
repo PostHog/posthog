@@ -1,14 +1,33 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { FlakinessOverviewApi } from '../generated/api.schemas'
+import type { FlakinessOverviewApi, RepoApi } from '../generated/api.schemas'
+import { clearRepoIdCache } from '../lib/repoIds'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewFlakinessSceneLogic } from './visualReviewFlakinessSceneLogic'
 
 const REPO_ID = '00000000-0000-0000-0000-0000000000bb'
+const REPO_FULL_NAME = 'posthog/posthog'
 const FLAKINESS_URL = `/api/projects/:team_id/visual_review/repos/${REPO_ID}/flakiness/`
+const REPOS_URL = '/api/projects/:team_id/visual_review/repos/'
+const FLAKINESS_PAGE = urls.visualReviewFlakiness(...splitRepoFullName(REPO_FULL_NAME))
+
+const repo: RepoApi = {
+    id: REPO_ID,
+    team_id: 1,
+    repo_external_id: 1,
+    repo_full_name: REPO_FULL_NAME,
+    baseline_file_paths: {},
+    enable_pr_comments: true,
+    debt_digest_enabled: false,
+    created_at: '2026-01-01T00:00:00Z',
+}
+const reposList = { count: 1, next: null, previous: null, results: [repo] }
 
 const overview: FlakinessOverviewApi = {
     entries: [],
@@ -18,7 +37,6 @@ const overview: FlakinessOverviewApi = {
         broken: 18,
         unstable: 231,
         at_risk: 63,
-        noisy: 604,
         clean: 812,
         quarantined: 47,
         needs_decision: 12,
@@ -32,6 +50,10 @@ describe('visualReviewFlakinessSceneLogic', () => {
     let logic: ReturnType<typeof visualReviewFlakinessSceneLogic.build>
     let overviewRequests = 0
 
+    beforeEach(() => {
+        clearRepoIdCache()
+    })
+
     afterEach(() => {
         logic?.unmount()
     })
@@ -39,8 +61,8 @@ describe('visualReviewFlakinessSceneLogic', () => {
     describe('when the overview loads', () => {
         beforeEach(() => {
             initKeaTests()
-            useMocks({ get: { [FLAKINESS_URL]: overview } })
-            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            useMocks({ get: { [REPOS_URL]: reposList, [FLAKINESS_URL]: overview } })
+            logic = visualReviewFlakinessSceneLogic({ repoFullName: REPO_FULL_NAME })
             logic.mount()
         })
 
@@ -59,7 +81,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
                 broken: 18,
                 unstable: 231,
                 at_risk: 63,
-                quiet: 1416,
+                quiet: 812,
                 quarantined: 47,
             })
         })
@@ -106,8 +128,8 @@ describe('visualReviewFlakinessSceneLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            useMocks({ get: { [FLAKINESS_URL]: nothingNeedsADecision } })
-            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            useMocks({ get: { [REPOS_URL]: reposList, [FLAKINESS_URL]: nothingNeedsADecision } })
+            logic = visualReviewFlakinessSceneLogic({ repoFullName: REPO_FULL_NAME })
             logic.mount()
         })
 
@@ -125,23 +147,98 @@ describe('visualReviewFlakinessSceneLogic', () => {
         })
 
         it('leaves a preset the link asked for alone', async () => {
-            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'at_risk' })
+            router.actions.push(FLAKINESS_PAGE, {}, { preset: 'at_risk' })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.filters.preset).toBe('at_risk')
         })
 
         it('leaves the default preset alone when the link names it', async () => {
-            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'needs_decision' })
+            router.actions.push(FLAKINESS_PAGE, {}, { preset: 'needs_decision' })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.filters.preset).toBe('needs_decision')
+        })
+    })
+
+    describe('when a team arrives in the URL', () => {
+        const brokenEntry = (
+            identifier: string,
+            ownerTeam: string | null
+        ): FlakinessOverviewApi['entries'][number] => ({
+            identifier,
+            run_type: 'storybook',
+            browser: null,
+            thumbnail_hash: null,
+            width: null,
+            height: null,
+            variant_count: 0,
+            hard_count: 40,
+            soft_count: 0,
+            window_runs: 41,
+            hard_rate: 40 / 41,
+            soft_rate: 0,
+            last_flaked_at: '2026-06-10T09:00:00Z',
+            avg_diff_percentage: null,
+            worst_soft_diff_percentage: null,
+            headroom: null,
+            baseline_age_days: 3,
+            daily_hard_counts: [],
+            daily_soft_counts: [],
+            baseline_moved_day_index: null,
+            flakiness_state: 'broken',
+            is_quarantined: false,
+            needs_decision: false,
+            quarantine: null,
+            owner_team: ownerTeam,
+        })
+
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                get: {
+                    [REPOS_URL]: reposList,
+                    [FLAKINESS_URL]: {
+                        ...overview,
+                        entries: [
+                            brokenEntry('replay-player--default--light', 'team-replay'),
+                            brokenEntry('heatmaps-scene--default--light', 'team-web-analytics'),
+                            brokenEntry('settings-domains--default--light', 'unowned'),
+                            brokenEntry('playwright-login--default', null),
+                        ],
+                    },
+                },
+            })
+            logic = visualReviewFlakinessSceneLogic({ repoFullName: REPO_FULL_NAME })
+            logic.mount()
+        })
+
+        // A team's digest links here with its slug, and has to open on that team's rows.
+        it('shows only the rows that team owns', async () => {
+            router.actions.push(FLAKINESS_PAGE, {}, { teams: 'team-replay' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.teams).toEqual(['team-replay'])
+            expect(logic.values.filteredEntries.map((entry) => entry.identifier)).toEqual([
+                'replay-player--default--light',
+            ])
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
+        it('lists each known owner and leaves out rows with no known owner', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.facetGroups.team.map((bucket) => bucket.label).sort()).toEqual([
+                'No owner',
+                'team-replay',
+                'team-web-analytics',
+            ])
         })
     })
 
     describe('when the preset arrives in the URL', () => {
         beforeEach(() => {
             initKeaTests()
-            useMocks({ get: { [FLAKINESS_URL]: overview } })
-            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            useMocks({ get: { [REPOS_URL]: reposList, [FLAKINESS_URL]: overview } })
+            logic = visualReviewFlakinessSceneLogic({ repoFullName: REPO_FULL_NAME })
             logic.mount()
         })
 
@@ -156,7 +253,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
             ['broken', 'broken'],
             ['nonsense', 'needs_decision'],
         ])('resolves %s to the %s preset', async (hashValue, expected) => {
-            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: hashValue })
+            router.actions.push(FLAKINESS_PAGE, {}, { preset: hashValue })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.filters.preset).toBe(expected)
         })
@@ -168,6 +265,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
             overviewRequests = 0
             useMocks({
                 get: {
+                    [REPOS_URL]: reposList,
                     [FLAKINESS_URL]: () => {
                         overviewRequests += 1
                         return overview
@@ -175,7 +273,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
                 },
                 post: { '/api/projects/:team_id/visual_review/repos/:id/quarantine/:runType/': { ok: true } },
             })
-            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic = visualReviewFlakinessSceneLogic({ repoFullName: REPO_FULL_NAME })
             logic.mount()
         })
 
@@ -195,6 +293,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
         // could read before the sibling committed and land last, replacing the
         // fresh response with a half-applied one.
         it('reloads once, after the last write settles', async () => {
+            await expectLogic(logic).toFinishAllListeners()
             overviewRequests = 0
             await expectLogic(logic, () => {
                 logic.actions.quarantineIdentifier('story--dark', 'storybook', 'flaky', null, null)
@@ -209,8 +308,10 @@ describe('visualReviewFlakinessSceneLogic', () => {
     describe('when the overview fails to load', () => {
         beforeEach(() => {
             initKeaTests()
-            useMocks({ get: { [FLAKINESS_URL]: () => [500, { detail: 'Upstream timed out' }] } })
-            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            useMocks({
+                get: { [REPOS_URL]: reposList, [FLAKINESS_URL]: () => [500, { detail: 'Upstream timed out' }] },
+            })
+            logic = visualReviewFlakinessSceneLogic({ repoFullName: REPO_FULL_NAME })
             logic.mount()
         })
 

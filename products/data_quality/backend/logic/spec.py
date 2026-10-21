@@ -11,9 +11,9 @@ Adding anomaly detection or unit tests later means adding a spec, not migrating 
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from ..facade.enums import CheckType
+from ..facade.enums import CheckType, SubjectType
 from .contracts import CheckPlan, SubjectRef
 from .errors import CheckConfigError
 
@@ -22,6 +22,15 @@ class CheckConfig(BaseModel):
     """Base for every check type's config. Unknown keys are a mistake worth reporting, not ignoring."""
 
     model_config = ConfigDict(extra="forbid")
+
+    lookback_hours: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Only examine rows from the last N hours, by the subject's time column. Optional, and "
+            "only for a subject that has one. Without it the check reads the whole table."
+        ),
+    )
 
 
 class NoConfig(CheckConfig):
@@ -39,6 +48,10 @@ class CheckTypeSpec(ABC):
     config_model: ClassVar[type[CheckConfig]]
     requires_column: ClassVar[bool]
     description: ClassVar[str]
+    subject_types: ClassVar[frozenset[SubjectType]] = frozenset(
+        {SubjectType.TABLE, SubjectType.VIEW, SubjectType.POSTHOG_TABLE}
+    )
+    reads_beyond_subject: ClassVar[bool] = False
 
     @property
     def json_schema(self) -> dict[str, Any]:
@@ -73,13 +86,19 @@ class CheckTypeSpec(ABC):
         """The second subject this check needs resolved before it can compile, if any."""
         return None
 
-    def referenced_table_names(self, config: CheckConfig) -> list[str]:
+    def referenced_table_names(self, config: CheckConfig, subject: SubjectRef | None = None) -> list[str]:
         """Warehouse names this check reads directly, besides its subject and related subject.
 
         Only ``custom_sql`` needs this -- its query names arbitrary tables. Every structured type
         reaches exactly its subject plus, via ``related_subject_ref``, one other, so the default is
         empty. Used to authorize every subject a check reads, since the worker executes with team
-        scope only."""
+        scope only.
+
+        ``subject`` is the resolved subject when the caller has one. Custom SQL over a metric binds
+        the metric query into its AST, so only a resolved subject reveals the tables it reaches;
+        every other type ignores it and answers from config alone. Raises ``CheckConfigError`` when
+        the references cannot be established.
+        """
         return []
 
     @abstractmethod

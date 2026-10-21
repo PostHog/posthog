@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign import (
     ActiveCampaignResumeConfig,
     active_campaign_source,
@@ -31,6 +30,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCampaignResumeConfig]):
+    codebase_detection = detect(
+        env=("^ACTIVECAMPAIGN_", "^ACTIVE_CAMPAIGN_"),
+        script_hosts=("prism.app-us1.com", "diffuser-cdn.app-us1.com"),
+        npm=("activecampaign",),
+        composer=("activecampaign/api-php",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v3",)
@@ -49,7 +55,7 @@ class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCam
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ACTIVE_CAMPAIGN,
+            name=ExternalDataSourceType.ACTIVECAMPAIGN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="ActiveCampaign",
             releaseStatus=ReleaseStatus.GA,

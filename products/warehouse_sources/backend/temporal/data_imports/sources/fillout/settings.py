@@ -23,7 +23,7 @@ SUBMISSION_TIME_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class FilloutEndpointConfig:
     name: str
     path: str
@@ -31,9 +31,15 @@ class FilloutEndpointConfig:
     default_incremental_field: str | None = None
     partition_key: str | None = None
     page_size: int = SUBMISSIONS_PAGE_SIZE
-    sort_mode: Literal["asc", "desc"] = "asc"
+    sort_mode: Literal["asc", "desc"] | None = "asc"
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
+    # JSONPath to the rows in the response. Fillout returns bare objects/arrays on every
+    # endpoint except submissions, which wraps its rows in `responses`.
+    data_selector: str = "$"
+    # Only `/forms/{formId}/submissions` takes `limit`/`offset`; the other endpoints return
+    # their whole result in one response and reject a page-size param.
+    paginated: bool = False
 
 
 FILLOUT_ENDPOINTS: dict[str, FilloutEndpointConfig] = {
@@ -46,6 +52,25 @@ FILLOUT_ENDPOINTS: dict[str, FilloutEndpointConfig] = {
         primary_key="formId",
         page_size=SUBMISSIONS_PAGE_SIZE,
         sort_mode="asc",
+    ),
+    "form_metadata": FilloutEndpointConfig(
+        name="form_metadata",
+        path="/forms/{form_id}",
+        # The response is the form's question/calculation/parameter catalog with no timestamp
+        # of any kind, so there is nothing to filter or partition on — full refresh.
+        incremental_fields=[],
+        partition_key=None,
+        # One row per form. `id` repeats the form's public id, but the parent-injected
+        # `form_id` is guaranteed present and matches the join column `submissions` carries.
+        primary_key="form_id",
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="forms",
+            resolve_param="form_id",
+            resolve_field="formId",
+            include_from_parent=["formId"],
+            parent_field_renames={"formId": "form_id"},
+        ),
     ),
     "submissions": FilloutEndpointConfig(
         name="submissions",
@@ -60,9 +85,11 @@ FILLOUT_ENDPOINTS: dict[str, FilloutEndpointConfig] = {
         # the key to keep it unique table-wide.
         primary_key=["form_id", "submissionId"],
         page_size=SUBMISSIONS_PAGE_SIZE,
-        # We request `sort=asc`, so rows arrive oldest-first and the pipeline's ascending
-        # incremental watermark bookkeeping is correct.
-        sort_mode="asc",
+        data_selector="responses",
+        paginated=True,
+        # `sort=asc` orders the rows of one form only. The run reads one form after another, so
+        # `submissionTime` starts again for each form and the run has no order.
+        sort_mode=None,
         fanout=DependentEndpointConfig(
             parent_name="forms",
             resolve_param="form_id",

@@ -424,10 +424,11 @@ class SelectSetQueryType(Type):
         return self.types[0].resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectViewType(BaseTableType):
     view_name: str
     alias: str
+    table: Table | None = None
     select_query_type: SelectQueryType | SelectSetQueryType
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
@@ -438,6 +439,8 @@ class SelectViewType(BaseTableType):
             return False
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
+        if self.table is not None:
+            return self.table
         if context.database is None:
             raise ResolutionError("Database must be set for queries with views")
         return context.database.get_table(self.view_name)
@@ -1033,7 +1036,7 @@ class Lambda(Expr):
     expr: Expr | Block
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class Constant(Expr):
     value: Any
     # When True, the SQL printer routes this constant through
@@ -1041,11 +1044,10 @@ class Constant(Expr):
     # ``_sensitive`` suffix and ``substitute_params_for_display`` redacts the
     # value to ``[HIDDEN]``
     is_sensitive: bool | None = None
-    # Internal ClickHouse-printer hint, not part of the logical AST. Set True only by the physical pass, only for its
-    # fixed scrubbing sentinels (the nullIf ''/'null' literals, the quote-trim regex, the 'true'/'false' the property
-    # group stores booleans as), to render them inline instead of as a bound parameter — matching the inline string the
-    # `json_extract_trim_quotes` helper emits. The printer enforces a fixed allowlist (`INLINE_SENTINEL_LITERALS`), so it
-    # can never inline arbitrary text. Unset (None) by default, like `type`, so the "skip None" AST serializers (Hog
+    # Internal ClickHouse-printer hint. Set True only on fixed scrubbing sentinels (the nullIf ''/'null' literals, the
+    # quote-trim regex, the 'true'/'false' the property group stores booleans as), to render them inline instead of as a
+    # bound parameter — matching the inline string the `json_extract_trim_quotes` helper emits. The printer enforces a
+    # fixed allowlist (`INLINE_SENTINEL_LITERALS`), so it can never inline arbitrary text. Unset (None) by default, like `type`, so the "skip None" AST serializers (Hog
     # compilers, `pretty_dataclasses` snapshots) leave it out.
     inline_sentinel: bool | None = None
 

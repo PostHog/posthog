@@ -271,4 +271,51 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunTerminal).toBe(false);
     expect(state.isInitializing).toBe(true);
   });
+
+  it.each([
+    {
+      name: "run that failed before the agent booted",
+      runStatus: "failed" as TaskRunStatus,
+      runErrorMessage:
+        "Link a GitHub account with repo access before running user-authored cloud tasks.",
+      expected: true,
+    },
+    {
+      name: "failed run that stopped for another reason",
+      runStatus: "failed" as TaskRunStatus,
+      runErrorMessage: "The sandbox ran out of memory.",
+      expected: false,
+    },
+    {
+      name: "run still in progress",
+      runStatus: "in_progress" as TaskRunStatus,
+      runErrorMessage: "github_authorization_required",
+      expected: false,
+    },
+  ])(
+    "classifies a GitHub connection failure on a $name",
+    ({ runStatus, runErrorMessage, expected }) => {
+      const task = makeTask(runStatus);
+      if (task.latest_run) task.latest_run.error_message = runErrorMessage;
+
+      const state = deriveSessionViewState(undefined, task, null, true);
+
+      expect(state.hasError).toBe(false);
+      expect(state.githubConnectionRequired).toBe(expected);
+    },
+  );
+
+  it("classifies a GitHub connection failure reported by the live session", () => {
+    const session = makeSession("failed");
+    session.cloudErrorMessage = "github_authorization_required";
+
+    const state = deriveSessionViewState(
+      session,
+      makeTask("failed"),
+      null,
+      true,
+    );
+
+    expect(state.githubConnectionRequired).toBe(true);
+  });
 });

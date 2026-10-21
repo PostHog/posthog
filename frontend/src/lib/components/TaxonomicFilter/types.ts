@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
@@ -126,7 +127,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter
+    filter?: EntityFilter | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -139,6 +140,7 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     /**
@@ -152,6 +154,13 @@ export interface TaxonomicFilterProps {
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
+    /**
+     * Mark every cohort row with what feature flags can do with it. Set it only where that is the
+     * question the picker is asking, which today is a feature flag's release conditions. The same
+     * cohort groups back every other picker in the app, and a row reading "No flag targeting" in an
+     * insight breakdown describes nothing the reader is choosing.
+     */
+    showCohortFlagTargeting?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
@@ -228,6 +237,7 @@ export type DefinitionPopoverRendererProps = {
     group: TaxonomicFilterGroup
     defaultView: JSX.Element
 }
+/** Return `defaultView` itself for an item the renderer does not handle. The popover compares it by reference. */
 export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
@@ -265,6 +275,8 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** A small tag after the item's name, for a per-item state a reader should see before selecting it. */
+    getTag?: (instance: any) => ReactNode
     /** Determines if an item should be disabled (unselectable) */
     getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number
@@ -275,6 +287,8 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    shouldSearch?: (query: string) => boolean
+    searchQueryHint?: string
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
     /** Synthetic results surfaced inline when the search query matches a keyword.
@@ -367,6 +381,27 @@ export enum TaxonomicFilterGroupType {
     Empty = 'empty',
 }
 
+/**
+ * Value shortcut groups that stay searched and keep feeding the All list, but are not offered as categories.
+ * Their items are found through All and search, so a separate category only adds a place to come up empty.
+ */
+export const SEARCH_ONLY_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.EmailAddresses,
+    TaxonomicFilterGroupType.AutocaptureEvents,
+    TaxonomicFilterGroupType.PageviewEvents,
+    TaxonomicFilterGroupType.ScreenEvents,
+])
+
+/** The categories to offer: everything except search-only groups, unless that leaves no real category. */
+export function withoutSearchOnlyGroups<T>(
+    items: T[],
+    groupTypeOf: (item: T) => TaxonomicFilterGroupType,
+    isMetaGroupType: (groupType: TaxonomicFilterGroupType) => boolean
+): T[] {
+    const kept = items.filter((item) => !SEARCH_ONLY_GROUP_TYPES.has(groupTypeOf(item)))
+    return kept.some((item) => !isMetaGroupType(groupTypeOf(item))) ? kept : items
+}
+
 export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.SuggestedFilters,
@@ -436,15 +471,3 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
-
-export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
-
-export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
-
-export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
-    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
-}
-
-export function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}

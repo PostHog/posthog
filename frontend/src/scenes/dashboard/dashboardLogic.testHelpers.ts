@@ -1,16 +1,15 @@
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter } from '~/queries/schema/schema-general'
-import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, DashboardType, InsightModel } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
-const dashboardJson = getQueryBasedDashboard(_dashboardJson as any as DashboardType)!
+const dashboardJson = _dashboardJson as any as DashboardType
 
 export function insightOnDashboard(
     insightId: number,
     dashboardsRelation: number[],
-    insight: Partial<QueryBasedInsightModel> = {}
-): QueryBasedInsightModel {
+    insight: Partial<InsightModel> = {}
+): InsightModel {
     const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
     let tile = dashboardJson.tiles[0]
     if (tiles.length) {
@@ -21,17 +20,13 @@ export function insightOnDashboard(
     }
     return {
         ...tile.insight,
-        dashboards: dashboardsRelation,
         dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
         query: { ...tile.insight.query, ...insight.query, kind: (tile.insight.query?.kind || insight.query?.kind)! },
     }
 }
 
 let tileId = 0
-export const tileFromInsight = (
-    insight: QueryBasedInsightModel,
-    id: number = tileId++
-): DashboardTile<QueryBasedInsightModel> => ({
+export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
     id: id,
     layouts: {},
     color: null,
@@ -40,9 +35,9 @@ export const tileFromInsight = (
 
 export const dashboardResult = (
     dashboardId: number,
-    tiles: DashboardTile<QueryBasedInsightModel>[],
+    tiles: DashboardTile[],
     filters: Partial<DashboardFilter> = {}
-): DashboardType<QueryBasedInsightModel> => {
+): DashboardType => {
     return {
         ...dashboardJson,
         filters: { ...dashboardJson.filters, ...filters },

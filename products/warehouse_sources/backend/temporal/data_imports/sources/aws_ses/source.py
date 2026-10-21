@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import (
     AwsSesResumeConfig,
     aws_ses_source,
@@ -37,6 +36,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
+    # A bare /^AWS_/ would fire on every AWS project, so we match only
+    # the SES-specific prefix.
+    codebase_detection = detect(
+        env=("^AWS_SES_",),
+        npm=("@aws-sdk/client-ses", "@aws-sdk/client-sesv2"),
+        cargo=("aws-sdk-ses", "aws-sdk-sesv2"),
+        go=("github.com/aws/aws-sdk-go-v2/service/ses", "github.com/aws/aws-sdk-go-v2/service/sesv2"),
+        maven=(
+            "software.amazon.awssdk:ses",
+            "software.amazon.awssdk:sesv2",
+            "com.amazonaws:aws-java-sdk-ses",
+            "com.amazonaws:aws-java-sdk-sesv2",
+        ),
+        rubygems=("aws-sdk-ses", "aws-sdk-sesv2"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -59,6 +74,11 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             "Amazon SES request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "Amazon SES request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
             "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity, ses:ListSuppressedDestinations, ses:ListEmailTemplates, ses:GetEmailTemplate, ses:ListContactLists, ses:GetContactList, ses:ListDedicatedIpPools, ses:GetDedicatedIpPool, ses:GetDedicatedIps, ses:ListCustomVerificationEmailTemplates, ses:GetCustomVerificationEmailTemplate and ses:ListMultiRegionEndpoints to the IAM user or role.",
+            # No retry turns a 400 into rows. `None` keeps the raised message, which names the
+            # table; a fixed string here could not say which of the ten tables AWS rejected.
+            # A stale pagination token also surfaces as a 400, so the walk restarts itself once
+            # before one can reach this map.
+            "Amazon SES request failed: BadRequestException": None,
             "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
             "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }
@@ -133,7 +153,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWS_SES,
+            name=ExternalDataSourceType.AWSSES,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Amazon SES",
             caption="""Sync your Amazon SES account data into the PostHog Data warehouse.
@@ -143,7 +163,7 @@ Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets
 SES data is regional, so connect one source per AWS Region you send email from. This source syncs account-level data. Per-message send, bounce, and complaint events are only available through SES event destinations, not the SES API.""",
             iconPath="/static/services/aws_ses.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-ses",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "ses", "simple email service", "email"],
             fields=cast(
                 list[FieldType],

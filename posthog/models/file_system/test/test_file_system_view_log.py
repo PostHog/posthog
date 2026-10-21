@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Protocol, cast
 
 import time_machine
@@ -104,6 +104,16 @@ class TestFileSystemViewLog(TestCase):
             logs.first().viewed_at if logs.first() else None,  # type: ignore
             datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
         )
+
+    def test_view_log_keeps_one_entry_per_project_day_for_the_last_five_weeks(self) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        for moment in ("2024-02-01T09:00:00Z", "2024-02-01T17:00:00Z", "2024-02-20T09:00:00Z", "2024-03-11T03:00:00Z"):
+            with time_machine.travel(moment, tick=False):
+                log_file_system_view(user=self.user, obj=self._representation(), team_id=self.team.id)
+
+        log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
+        self.assertEqual(log.view_days, [date(2024, 2, 20), date(2024, 3, 10)])
 
     def _representation(self, *, surface: str = "web", ref: str = "ref-1") -> FileSystemRepresentation:
         return FileSystemRepresentation(base_folder="", type="doc", ref=ref, name="", href="", meta={}, surface=surface)

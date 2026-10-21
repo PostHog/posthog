@@ -14,17 +14,17 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { getDisplay, isDataTableNode, isInsightVizNode, isMetricInsightQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
+import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
+import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
+
 export function ExportedInsight({
-    insight: legacyInsight,
+    insight: exportedInsight,
     themes,
     exportOptions: { whitelabel, noHeader, legend, detailed: detailedResults },
 }: {
@@ -34,10 +34,12 @@ export function ExportedInsight({
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
-    const insight = getQueryBasedInsightModel(legacyInsight, 'exported_insight')
-    // getQueryBasedInsightModel returns the caller's query object by reference — clone it so the
-    // export-only tweaks below (legend settings, table editing controls) can't leak into a shared model.
-    insight.query = insight.query ? structuredClone(insight.query) : insight.query
+    // Copy the insight and clone its query, because the export-only tweaks below (legend settings,
+    // table editing controls) write to them and must not leak into the caller's insight.
+    const insight: InsightModel = {
+        ...exportedInsight,
+        query: exportedInsight.query ? structuredClone(exportedInsight.query) : exportedInsight.query,
+    }
 
     if (isDataTableNode(insight.query)) {
         // don't show editing controls when exporting/sharing

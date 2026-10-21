@@ -19,22 +19,12 @@ hogli devbox:doctor              # read-only health check: tailnet access, reach
 hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box and get its exit code
 ```
 
-`devbox:doctor` is the first thing to run when a devbox command misbehaves — it names the likely cause (most often the Tailscale ACL grant) instead of failing cryptically.
+`devbox:doctor` is the first thing to run when a devbox command misbehaves. It names the likely cause, most often the wrong tailnet, instead of failing cryptically.
 
 ## Common scenarios
 
 **Connecting your IDE** —
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
-
-**Running a background agent task** —
-Spin up a fresh devbox that runs a coding agent against a prompt, without taking over your current session:
-
-```bash
-hogli devbox:task "fix CI on PR #1234"
-cat prompt.txt | hogli devbox:task       # or pipe the prompt via stdin
-```
-
-See the upstream [Coder Tasks docs](https://coder.com/docs/ai-coder/tasks) for the execution model.
 
 **Running the dev stack in detached mode** —
 Start the PostHog dev stack in the background without an interactive terminal:
@@ -113,13 +103,14 @@ Clear specific saved settings with `devbox:config:rm`:
 ```bash
 hogli devbox:config:rm git-identity   # clear saved Git name/email
 hogli devbox:config:rm git-signing    # remove Git signing key from Coder user secrets
-hogli devbox:config:rm dotfiles       # clear dotfiles URI (also pushes empty parameter to existing workspaces)
+hogli devbox:config:rm dotfiles       # clear dotfiles URI for new workspaces
 hogli devbox:config:rm claude         # remove Claude OAuth token from Coder user secrets
 hogli devbox:config:rm region          # clear saved region preference (new workspaces use the built-in default)
 hogli devbox:config:rm --all          # clear everything
 ```
 
-Clearing dotfiles also pushes an empty `dotfiles_uri` parameter to all existing workspaces so they stop re-cloning the old repo on next boot.
+Saved settings apply to workspaces hogli creates.
+The Coder CLI keeps a parameter's last-build value even when hogli passes a new one, so to change a setting on an existing workspace, edit its parameters in the Coder dashboard.
 
 ## Available commands
 
@@ -127,7 +118,7 @@ Run `hogli devbox` to see all available commands, and `hogli <command> --help` f
 
 Region selection is available for `devbox:start` via `--region` (`us-east-1` or `eu-central-1`, default `us-east-1`). The region is set once at creation and cannot be changed. Workspaces in `eu-central-1` get an `-eu` name suffix (e.g. `devbox-alice-eu`). `devbox:list` and `devbox:status` show which region a workspace is in.
 
-`devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a mutable workspace parameter (`auto_start_app`), so it stays in effect for future starts until flipped with `--no-start-app`. The flag is applied at creation or when starting a stopped devbox; on a running or transitioning devbox it is not applied (hogli prints a note) — re-run it once the devbox is stopped. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
+`devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a workspace parameter (`auto_start_app`), so it stays in effect for future starts. The flag applies only when hogli creates the devbox; on an existing devbox hogli refuses it, and the parameter can be changed in the Coder dashboard. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
 
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
@@ -144,12 +135,12 @@ hogli devbox:secret:set NAME --file PATH           # set secret value from file
 hogli devbox:secret:rm NAME                        # delete a secret
 ```
 
-Common secrets include `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, and `OP_SERVICE_ACCOUNT_TOKEN`.
+Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
-- Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it. `devbox:task` warns when the secret is unset.
+- Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it.
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.

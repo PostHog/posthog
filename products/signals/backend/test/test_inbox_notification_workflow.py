@@ -8,9 +8,11 @@ from django.test import override_settings
 from django.utils import timezone
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
@@ -124,6 +126,8 @@ class _Recorder:
         self._states = states
         self.state_calls = 0
         self.dispatch_calls = 0
+        self.github_calls = 0
+        self.github_fails = False
 
     def next_state(self) -> InboxNotificationState:
         state = self._states[min(self.state_calls, len(self._states) - 1)]
@@ -141,12 +145,20 @@ async def _run_workflow(recorder: _Recorder) -> int:
         recorder.dispatch_calls += 1
         return 1
 
+    @activity.defn(name="send_report_github_comments_activity")
+    async def fake_github(_input: InboxNotificationInput) -> int:
+        assert recorder.dispatch_calls == 1
+        recorder.github_calls += 1
+        if recorder.github_fails:
+            raise ApplicationError("GitHub unavailable", non_retryable=True)
+        return 1
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[SignalReportInboxNotificationWorkflow],
-            activities=[fake_state, fake_dispatch],
+            activities=[fake_state, fake_dispatch, fake_github],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(
@@ -209,10 +221,6 @@ async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls)
 
 @pytest.mark.django_db
 def test_send_stamps_the_report_and_refuses_a_second_send(team):
-    """One report, one card. A report re-researches whenever a new signal carries it to its next
-    bucket, and every settle starts this workflow again, so the second send must be refused. The
-    support write-back still runs on both, because its note is per ticket rather than per report: a
-    ticket that joins the report after its card has had no note yet and still needs one."""
     report = _make_report(team)
     with (
         patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
@@ -227,6 +235,39 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
     assert writeback.call_count == 2
     report.refresh_from_db()
     assert report.inbox_notified_at is not None
+
+
+@pytest.mark.django_db
+def test_send_retries_transient_clickhouse_failure_before_claiming_report(team):
+    report = _make_report(team)
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+            side_effect=[ClickHouseAtCapacity(), []],
+        ) as fetch,
+        patch("products.signals.backend.temporal.inbox_notification._fetch_signals_for_notification.retry.sleep"),
+        patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
+        patch(
+            "products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications", return_value=1
+        ) as dispatch,
+    ):
+        assert _send_report_inbox_notifications(team.id, str(report.id)) == 1
+
+    assert fetch.call_count == 2
+    dispatch.assert_called_once()
+    report.refresh_from_db()
+    assert report.inbox_notified_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", [NO_TASK, ALREADY_NOTIFIED])
+@pytest.mark.parametrize("github_fails", [False, True])
+async def test_github_writeback_runs_after_dispatch_and_cannot_fail_the_notification(state, github_fails):
+    recorder = _Recorder([state])
+    recorder.github_fails = github_fails
+    assert await _run_workflow(recorder) == 1
+    assert recorder.dispatch_calls == 1
+    assert recorder.github_calls == 1
 
 
 @pytest.mark.django_db

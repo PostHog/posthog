@@ -1,0 +1,1013 @@
+// The Today palette names the quill tokens the layout uses. Quill defines its tokens only inside
+// [data-quill], and a custom property resolves where it is declared, so every [data-quill] root that uses
+// the palette declares it again. Each token falls back for the app layout behind the rail: the paper to the
+// app token quill's background is matched to, and the rest to their former literal values.
+// Colours with no quill counterpart (body text, input borders, the button, the accents) stay literal.
+.Today,
+.Today__page,
+.TodayAppLayout,
+.TodayHoverMark__popup,
+.TodayImplementMenu {
+    --today-ink: var(--foreground, #151515);
+    --today-muted: var(--muted-foreground, #8d8d88);
+    --today-faint: var(--subtle-foreground, #a3a39e);
+
+    // `--color-bg-primary` cannot be the first choice: inside [data-quill], quill-bridge rebinds it to the brand color.
+    --today-paper: var(--background, var(--color-bg-primary));
+    --today-line: var(--border, #e5e5e0);
+    --today-card: var(--card, #fff);
+    --today-soft: var(--muted, #efefeb);
+    --today-body-text: #454541;
+    --today-input-border: #deded8;
+    --today-focus-border: #a7a7a0;
+    --today-button: #151515;
+    --today-button-text: #fff;
+    --today-ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --today-ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
+    --today-ease-nudge: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --today-card-shadow: 0 1px 2px #00000008, 0 12px 32px -24px #00000059;
+    --today-marker: #f54e00;
+    --today-key-clause: rgb(29 74 255 / 75%);
+    --today-risk: #d6453a;
+
+    [theme='dark'] & {
+        --today-ink: var(--foreground, #f1f1ee);
+        --today-muted: var(--muted-foreground, #a6a6a0);
+        --today-faint: var(--subtle-foreground, #82827c);
+        --today-line: var(--border, #2c2c2a);
+        --today-card: var(--card, #1f1f1d);
+        --today-soft: var(--muted, #262624);
+        --today-body-text: #d4d4ce;
+        --today-input-border: #353532;
+        --today-focus-border: #5c5c57;
+        --today-button: #f1f1ee;
+        --today-button-text: #151515;
+        --today-marker: #ff8a4c;
+        --today-key-clause: rgb(138 164 255 / 85%);
+        --today-risk: #ff7b6e;
+    }
+}
+
+.Today {
+    font-family: var(--font-sans);
+    color: var(--today-ink);
+    background: var(--today-paper);
+    -webkit-font-smoothing: antialiased;
+}
+
+html[data-today-transition]::view-transition-old(root),
+html[data-today-transition]::view-transition-new(root) {
+    animation-duration: 200ms;
+    animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+// In the base layer, so layered component styles (quill) win over it; an unlayered rule beats any layer.
+@layer base {
+    :where(.Today) button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
+}
+
+:where(.Today) :focus-visible {
+    outline: 2px solid var(--today-ink);
+    outline-offset: 3px;
+}
+
+// Text fields show focus on their container's border instead.
+:where(.Today) :is(input, textarea):focus-visible {
+    outline: none;
+}
+
+.TodayHome,
+.TodayReport {
+    width: min(720px, 100% - 144px);
+    padding: 94px 0 140px;
+    margin: 0 auto;
+
+    @container main-content (max-width: 900px) {
+        width: min(100% - 72px, 700px);
+    }
+
+    @container main-content (max-width: 600px) {
+        width: calc(100% - 40px);
+        padding: 20px 0 64px;
+    }
+}
+
+.TodayHome {
+    padding-block: 40px 60px;
+
+    @container main-content (max-width: 600px) {
+        padding-block: 16px 24px;
+    }
+}
+
+.TodayHome__body {
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+    margin-top: 28px;
+
+    @container main-content (max-width: 600px) {
+        gap: 28px;
+        margin-top: 20px;
+    }
+}
+
+.TodayHome__list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.TodayHome__heading {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--today-muted);
+    letter-spacing: 0.01em;
+}
+
+.TodayHome__headingCount {
+    color: var(--today-faint);
+}
+
+.TodayHome__headingLink {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    font-size: 13px;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+        text-decoration: underline;
+    }
+}
+
+.TodayHome__headingChevron {
+    transition: transform 200ms var(--today-ease);
+
+    [data-panel-open] > & {
+        transform: rotate(180deg);
+    }
+}
+
+.TodayJumpList__more,
+.TodayRow__detail {
+    height: var(--collapsible-panel-height);
+    overflow: hidden;
+    transition:
+        height 200ms var(--today-ease),
+        opacity 200ms var(--today-ease);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+        height: 0;
+        opacity: 0;
+    }
+}
+
+.TodayJumpList__more {
+    margin: 0 -12px;
+
+    > .TodayJumpList {
+        margin: 0;
+    }
+}
+
+.TodayPulse {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    gap: 16px 32px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+
+    @container main-content (max-width: 600px) {
+        display: flex;
+        gap: 8px;
+        padding: 0 20px;
+        margin: 0 -20px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-padding-inline: 20px;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
+}
+
+.TodayPulse__metric {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+
+    @container main-content (max-width: 600px) {
+        flex: 0 0 clamp(152px, 46%, 200px);
+        min-width: min-content;
+        padding: 10px 12px 8px;
+        scroll-snap-align: start;
+        background: var(--today-card);
+        border: 1px solid var(--today-line);
+        border-radius: 10px;
+    }
+}
+
+.TodayPulse__name {
+    overflow: hidden;
+    font-size: 13px;
+    color: var(--today-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    @container main-content (max-width: 600px) {
+        contain: inline-size;
+    }
+}
+
+.TodayPulse__trigger {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    outline: none;
+}
+
+.TodayPulse__link {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    color: inherit;
+
+    &:hover .TodayPulse__name {
+        color: var(--today-ink);
+        text-decoration: underline;
+    }
+}
+
+.TodayPulse__trigger,
+.TodayPulse__link {
+    @container main-content (max-width: 600px) {
+        flex: 1;
+    }
+}
+
+.TodayPulse__row {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    min-width: 0;
+
+    @container main-content (max-width: 600px) {
+        flex-wrap: wrap;
+        row-gap: 0;
+        margin-bottom: 6px;
+    }
+}
+
+.TodayPulse__value {
+    font-size: 19px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    color: var(--today-ink);
+    letter-spacing: -0.01em;
+}
+
+.TodayChange {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-muted);
+}
+
+.TodayPulse__spark {
+    display: block;
+    width: 100%;
+    max-width: 160px;
+    height: 22px;
+    margin-top: 4px;
+
+    @container main-content (max-width: 600px) {
+        max-width: none;
+        height: 24px;
+        margin-top: auto;
+    }
+}
+
+.TodayHome__headingRow {
+    display: flex;
+    gap: 16px;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.TodayHome__note {
+    margin: 0;
+    font-size: 15px;
+    color: var(--today-muted);
+}
+
+.TodayHome__noteLink {
+    color: var(--today-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--today-line);
+    text-underline-offset: 3px;
+
+    &:hover {
+        text-decoration-color: currentColor;
+    }
+}
+
+.TodayRows {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    margin: 0 -12px;
+    list-style: none;
+}
+
+.TodayRow {
+    --quill-icon-stack-ring: var(--today-paper);
+
+    position: relative;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    column-gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: background-color 0.12s var(--today-ease);
+
+    &[data-interactive]:hover,
+    &[data-expanded] {
+        --quill-icon-stack-ring: var(--today-soft);
+
+        background: var(--today-soft);
+    }
+
+    &[data-interactive]:hover .TodayRow__arrow {
+        opacity: 1;
+        transform: none;
+    }
+
+    &[data-interactive]:hover .TodayRow__chevron,
+    &[data-expanded] .TodayRow__chevron {
+        opacity: 1;
+    }
+
+    &[data-expanded] .TodayRow__chevron {
+        transform: rotate(180deg);
+    }
+
+    &:hover .TodayRow__actions,
+    &:focus-within .TodayRow__actions {
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    &[data-done] .TodayRow__title {
+        color: var(--today-muted);
+    }
+
+    &[data-done] .TodayRow__icons {
+        filter: grayscale(1);
+        opacity: 0.45;
+    }
+
+    &[data-done] .TodayRow__label {
+        color: inherit;
+    }
+
+    @container main-content (max-width: 600px) {
+        padding-block: 8px;
+    }
+}
+
+.TodayRow__icons {
+    margin-top: -2px;
+    margin-left: -3px;
+}
+
+.TodayRow__iconSkeleton {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+}
+
+.TodayRow__title {
+    display: block;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 22px;
+    color: var(--today-ink);
+    text-wrap: pretty;
+}
+
+.TodayRow__link,
+.TodayJumpRow__link {
+    &::after {
+        position: absolute;
+        inset: 0;
+        content: '';
+        border-radius: 8px;
+    }
+
+    &:focus-visible {
+        outline: none;
+
+        &::after {
+            outline: 2px solid var(--today-focus-border);
+            outline-offset: -2px;
+        }
+    }
+}
+
+.TodayReportHeader__icon {
+    --icon-stack-size: 22px;
+    --quill-icon-stack-ring: var(--today-paper);
+}
+
+.TodayRow__label {
+    font-variant-numeric: tabular-nums;
+
+    &[data-tone='risk'] {
+        font-weight: 500;
+        color: var(--today-risk);
+    }
+}
+
+.TodayRow__meta {
+    margin: 2px 0 0;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--today-muted);
+    text-wrap: pretty;
+}
+
+.TodayRow__end {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    align-self: center;
+}
+
+.TodayRow__actions {
+    position: absolute;
+    top: 50%;
+    right: 34px;
+    z-index: 1;
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    padding-left: 24px;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--today-soft) 20px);
+    opacity: 0;
+    transition: opacity 0.12s var(--today-ease);
+    transform: translateY(-50%);
+}
+
+.TodayRow__toggle {
+    padding: 0;
+    margin: 0;
+    font-family: inherit;
+    text-align: left;
+    appearance: none;
+    cursor: pointer;
+    background: none;
+    border: 0;
+}
+
+.TodayRow__chevron {
+    width: 14px;
+    height: 14px;
+    color: var(--today-muted);
+    opacity: 0;
+    transition:
+        opacity 0.12s var(--today-ease),
+        transform 0.2s var(--today-ease);
+}
+
+.TodayRow__detail {
+    position: relative;
+    z-index: 1;
+    grid-column: 2 / -1;
+    margin: 0 -3px -3px 0;
+}
+
+.TodayRow__detailBody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 8px 3px 3px 0;
+}
+
+.TodayRow__detailLead {
+    max-width: 62ch;
+    margin: 0;
+    font-size: 14px;
+    line-height: 21px;
+    color: var(--today-body-text);
+    text-wrap: pretty;
+}
+
+.TodayRow__detailFooter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.TodayRow__detailFacts {
+    min-width: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--today-muted);
+}
+
+.TodayRow__detailPr {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    color: var(--today-ink);
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+
+.TodayRow__detailActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    align-items: center;
+}
+
+.TodayRow__undo {
+    position: relative;
+    z-index: 1;
+}
+
+.TodayRow__arrow {
+    width: 14px;
+    height: 14px;
+    color: var(--today-muted);
+    opacity: 0;
+    transition:
+        opacity 0.12s var(--today-ease),
+        transform 0.12s var(--today-ease);
+    transform: translateX(-3px);
+
+    @media (hover: none) {
+        display: none;
+    }
+}
+
+.TodayRows__footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.TodayRows__inbox {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--today-muted);
+    transition: color 0.12s var(--today-ease);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodayRows__more {
+    display: grid;
+    grid-template-columns: 26px auto;
+    gap: 12px;
+    align-items: center;
+    align-self: flex-start;
+    height: auto;
+    padding: 6px 12px;
+    margin: 0 -12px;
+    font-size: 14px;
+    font-weight: inherit;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodayRows__moreIcon {
+    justify-self: center;
+    width: 16px;
+    height: 16px;
+}
+
+.TodayReportNav {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    height: 28px;
+    margin: -58px 0 30px;
+    font-size: 13px;
+    color: var(--today-muted);
+
+    @container main-content (max-width: 600px) {
+        margin: 0 0 16px;
+    }
+}
+
+.TodayReportNav__back {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--today-muted);
+    transition: color 0.12s var(--today-ease);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodayReportNav__steps {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.TodayReportNav__count {
+    margin-right: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.TodayHome__meta {
+    margin: 0;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--today-muted);
+}
+
+.TodayHome__intro {
+    margin-top: 8px;
+    color: var(--today-faint);
+
+    @container main-content (max-width: 600px) {
+        margin-top: 0;
+    }
+}
+
+.TodayHome__greeting {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.TodayJumpList {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 0;
+    margin: 0 -12px;
+    list-style: none;
+
+    &--explore {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    @container main-content (max-width: 700px) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    @container main-content (max-width: 480px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.TodayJumpRow {
+    --quill-icon-stack-ring: var(--today-paper);
+
+    position: relative;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    min-width: 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: background-color 0.12s var(--today-ease);
+
+    .TodayJumpList:not(.TodayJumpList--explore) > & {
+        @container main-content (max-width: 480px) {
+            align-items: center;
+            padding-block: 6px;
+        }
+    }
+
+    &:hover {
+        --quill-icon-stack-ring: var(--today-soft);
+
+        background: var(--today-soft);
+    }
+}
+
+.TodayJumpRow__link {
+    display: block;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--today-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.TodayJumpList:not(.TodayJumpList--explore) :has(> .TodayJumpRow__link) {
+    @container main-content (max-width: 480px) {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        justify-content: space-between;
+    }
+}
+
+.TodayJumpRow__meta {
+    display: block;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--today-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    .TodayJumpList:not(.TodayJumpList--explore) & {
+        @container main-content (max-width: 480px) {
+            flex-shrink: 0;
+        }
+    }
+}
+
+.TodayJumpRow__icon {
+    --icon-stack-size: 22px;
+
+    margin-top: 1px;
+    margin-left: -1px;
+}
+
+.TodayHoverMark {
+    cursor: default;
+    outline: none;
+}
+
+.TodayHoverMark__popup {
+    position: relative;
+
+    &::after {
+        position: absolute;
+        top: calc(100% + 1px);
+        right: -8px;
+        left: -8px;
+        height: 32px;
+        pointer-events: none;
+        content: '';
+        background: linear-gradient(var(--today-paper), transparent);
+    }
+}
+
+.TodayHoverMark__card {
+    background: var(--today-card);
+    border-color: var(--today-line);
+    box-shadow:
+        0 0 0 8px var(--today-paper),
+        0 1px 2px #00000008,
+        0 6px 16px -8px #00000024;
+
+    [theme='dark'] & {
+        background: #242422;
+        border-color: #5c5c55;
+        box-shadow:
+            0 0 0 8px var(--today-paper),
+            0 10px 28px -10px #000000b3;
+    }
+
+    blockquote {
+        border-inline-start-color: color-mix(in sRGB, currentColor 22%, transparent);
+    }
+}
+
+.TodayReportArticle {
+    > *,
+    [data-attr='today-report-abstract'] {
+        transition: opacity 0.15s;
+    }
+
+    &:has(.TodayHoverMark[data-popup-open]) {
+        > :not(:has(.TodayHoverMark[data-popup-open])),
+        [data-attr='today-report-abstract']:not(:has(.TodayHoverMark[data-popup-open])) {
+            filter: grayscale(1);
+            opacity: 0.06;
+        }
+    }
+}
+
+.TodayFigureMark {
+    position: relative;
+    display: inline-block;
+    margin-inline: 0.04em;
+    white-space: nowrap;
+
+    &:first-child {
+        margin-inline-start: 0;
+    }
+}
+
+.TodayFigureMark__circle {
+    position: absolute;
+    top: -0.12em;
+    left: -0.26em;
+    z-index: -1;
+    width: calc(100% + 0.52em);
+    height: calc(100% + 0.24em);
+    overflow: visible;
+    pointer-events: none;
+
+    path {
+        fill: none;
+        stroke: var(--today-marker);
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.8px;
+        transition: stroke-dashoffset 0.18s ease-in;
+        vector-effect: non-scaling-stroke;
+    }
+}
+
+.TodayFigureMark:hover,
+.TodayFigureMark:focus-visible,
+.TodayFigureMark[data-popup-open] {
+    .TodayPenMark__stroke {
+        opacity: 0;
+    }
+
+    .TodayFigureMark__circle path {
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 0.5s var(--today-ease);
+    }
+}
+
+.TodayKeyClauseMark {
+    padding-bottom: 0.12em;
+    background-image: linear-gradient(var(--today-key-clause), var(--today-key-clause));
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 100% 1.5px;
+    transition: background-size 0.15s var(--today-ease);
+    animation: TodayKeyClauseMark__sweep 0.7s var(--today-ease-in-out) 0.5s both;
+
+    &:hover,
+    &:focus-visible,
+    &[data-popup-open] {
+        background-size: 100% 2.5px;
+    }
+}
+
+@keyframes TodayKeyClauseMark__sweep {
+    from {
+        background-size: 0% 1.5px;
+    }
+}
+
+.TodayPenMark__stroke {
+    position: absolute;
+    bottom: -0.18em;
+    left: -0.04em;
+    width: calc(100% + 0.16em);
+    height: 0.38em;
+    overflow: visible;
+    pointer-events: none;
+    transition: opacity 0.15s;
+
+    path {
+        fill: none;
+        stroke: var(--today-marker);
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        stroke-linecap: round;
+        stroke-width: 3.8;
+        animation: TodayPenMark__draw 0.42s cubic-bezier(0.55, 0.1, 0.35, 1) var(--today-mark-delay, 0ms) forwards;
+    }
+
+    path + path {
+        opacity: 0.5;
+        stroke-width: 2.6;
+        animation-duration: 0.3s;
+        animation-delay: calc(var(--today-mark-delay, 0ms) + 0.36s);
+    }
+}
+
+@keyframes TodayPenMark__draw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.TodayImplementMenu.TodayImplementMenu {
+    background: var(--today-card);
+    border: 1px solid var(--today-line);
+    box-shadow:
+        0 1px 2px #0000000f,
+        0 12px 32px -8px #00000038;
+
+    [role='separator'] {
+        background-color: var(--today-line);
+    }
+
+    [theme='dark'] & {
+        background: #242422;
+        border-color: #5c5c55;
+        box-shadow: 0 12px 32px -8px #000000c0;
+
+        [role='separator'] {
+            background-color: #3c3c38;
+        }
+    }
+}
+
+.TodayEvidenceDetail {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: TodayEvidenceDetail__open 0.22s var(--today-ease);
+}
+
+@keyframes TodayEvidenceDetail__open {
+    from {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+}
+
+.TodayEvidenceDetail__text {
+    color: color-mix(in sRGB, var(--foreground) 72%, transparent);
+}
+
+.TodayCodeExcerpt {
+    background: var(--today-card);
+    border-color: var(--today-line);
+
+    &__header {
+        border-bottom: 1px solid var(--today-line);
+    }
+
+    &__body {
+        color: color-mix(in sRGB, currentColor 78%, transparent);
+    }
+
+    &__line {
+        padding-inline-start: 2ch;
+        text-indent: -2ch;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayPenMark__stroke path {
+        stroke-dashoffset: 0;
+        animation: none;
+    }
+
+    .TodayFigureMark .TodayFigureMark__circle path,
+    .TodayFigureMark:hover .TodayFigureMark__circle path,
+    .TodayFigureMark:focus-visible .TodayFigureMark__circle path,
+    .TodayFigureMark[data-popup-open] .TodayFigureMark__circle path {
+        transition: none;
+    }
+}
+
+// Keyframes
+
+@media (prefers-reduced-motion: reduce) {
+    .Today *,
+    .Today *::before,
+    .Today *::after {
+        transition: none !important;
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

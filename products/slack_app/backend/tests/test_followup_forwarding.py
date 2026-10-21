@@ -4,7 +4,7 @@ from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -14,14 +14,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-from posthog.temporal.ai.slack_app import (
-    PostHogCodeSlackMentionWorkflowInputs,
-    create_posthog_code_task_for_repo_activity,
-    enforce_posthog_code_billing_quota_activity,
-    forward_posthog_code_followup_activity,
-)
-from posthog.temporal.ai.slack_app.activities.task_creation import _build_terminal_recovery_prompt
-from posthog.temporal.ai.slack_app.helpers import safe_react
 
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -32,6 +24,14 @@ from products.slack_app.backend.services.slack_messages import (
     encode_slack_file_refs,
     parse_slack_file_refs,
 )
+from products.slack_app.backend.temporal import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    create_posthog_code_task_for_repo_activity,
+    enforce_posthog_code_billing_quota_activity,
+    forward_posthog_code_followup_activity,
+)
+from products.slack_app.backend.temporal.activities.task_creation import _build_terminal_recovery_prompt
+from products.slack_app.backend.temporal.helpers import safe_react
 
 
 def _make_inputs(
@@ -239,7 +239,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
         # Mention-dispatch debug pointer persisted on the new run.
         # No explicit envelope event_id → falls back to "<channel>:<ts>".
-        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        assert (
+            task.latest_run.state["slack_mention_workflow_id"] == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
+        )
 
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
@@ -253,6 +255,96 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
+
+    @parameterized.expand(
+        [
+            ("report_notification_thread", True, None),
+            ("mapping_failure", True, "mapping"),
+            ("association_failure", True, "association"),
+            ("ordinary_thread", False, None),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_task_from_a_report_notification_thread_lands_on_the_report(
+        self, _name, from_report_thread, failure_stage, mock_slack_cls, _mock_execute_workflow
+    ):
+        from products.signals.backend.models import (
+            SignalReport,
+            SignalReportAction,
+            SignalReportArtefact,
+            SignalReportSlackThread,
+        )
+        from products.signals.backend.slack_report_threads import record_report_slack_thread
+
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="R", summary="S", total_weight=1.0
+        )
+        if from_report_thread:
+            record_report_slack_thread(
+                slack_workspace_id=self.integration.integration_id,
+                team_id=self.team.id,
+                report_id=str(report.id),
+                integration_id=self.integration.id,
+                channel="C123",
+                thread_ts="1234.5678",
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+            )
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        args = (
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [SlackThreadMessage(user="U_ALICE", text="look into this")],
+            None,
+        )
+        if failure_stage:
+            failure_target = (
+                patch.object(
+                    SlackThreadTaskMapping.objects, "update_or_create", side_effect=RuntimeError("mapping unavailable")
+                )
+                if failure_stage == "mapping"
+                else patch.object(SignalReportAction, "record", side_effect=RuntimeError("action unavailable"))
+            )
+            with failure_target:
+                with self.assertRaises(RuntimeError):
+                    create_posthog_code_task_for_repo_activity(*args)
+            orphan = self.Task.objects.get(team=self.team)
+            assert orphan.signal_report_id is None
+            assert not SignalReportArtefact.objects.filter(report_id=report.id).exists()
+        create_posthog_code_task_for_repo_activity(*args)
+        create_posthog_code_task_for_repo_activity(*args)
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        task = mapping.task
+        assert task.origin_product == self.Task.OriginProduct.SLACK
+        assert task.signal_report_id == (report.id if from_report_thread else None)
+        work_log = SignalReportArtefact.objects.filter(
+            report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task.id
+        )
+        assert work_log.count() == int(from_report_thread)
+        from products.signals.backend.scout_harness.inactivity import _engaged_report_ids
+
+        assert (
+            str(report.id) in _engaged_report_ids(self.team.id, {str(report.id)}, report.created_at)
+        ) is from_report_thread
+        if from_report_thread:
+            action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
+            assert action.user_id == self.user.id
+            assert action.count == 1
+            assert work_log.get().created_by_id is None
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -282,7 +374,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         with (
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"log bytes"),
             patch("posthog.storage.object_storage.write") as mock_write,
             patch("posthog.storage.object_storage.tag"),
         ):
@@ -354,7 +446,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         ]
 
         with (
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"png bytes"),
             patch("posthog.storage.object_storage.write"),
             patch("posthog.storage.object_storage.tag"),
         ):
@@ -455,7 +547,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         task = self.Task.objects.get(team=self.team)
-        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:Ev01234567"
+        assert task.latest_run.state["slack_mention_workflow_id"] == "slack-app-mention-processing-T_SLACK:Ev01234567"
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -625,9 +717,36 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     # below cover the surrounding activity wiring: Slack permalink, mapping, workflow
     # start, quota blocking, etc.
 
+    @parameterized.expand(
+        [
+            (
+                "text_on_the_event",
+                {"channel": "C123", "ts": "1234.5678", "user": "U_GEORGIY", "text": "<@BOT> do something"},
+                "do something",
+            ),
+            # A Slack workflow, or a client that posts rich text, leaves `text` empty and
+            # carries the words in `blocks`. Reading `text` alone hands the agent the
+            # "Task from Slack" fallback and loses the ask.
+            (
+                "words_only_in_blocks",
+                {
+                    "channel": "C123",
+                    "ts": "1234.5678",
+                    "user": "U_GEORGIY",
+                    "text": "",
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "<@BOT> look at the error spike"}}
+                    ],
+                },
+                "look at the error spike",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_description_is_wired_to_slack_thread_context_helper(self, mock_slack_cls, mock_execute_workflow):
+    def test_description_is_wired_to_slack_thread_context_helper(
+        self, _name, event, expected_prompt, mock_slack_cls, mock_execute_workflow
+    ):
         # Smoke-test that the activity calls into the helper and persists the result —
         # the helper's behaviour is exhaustively tested elsewhere; here we just ensure
         # the wrapper tag survives the round-trip through Task.create_and_run.
@@ -645,10 +764,10 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "1234.5678",
             "U_GEORGIY",
             self.user.id,
-            inputs.event,
+            event,
             [
                 SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="preamble", ts="1.000"),
-                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text=expected_prompt, ts="1234.5678"),
             ],
             None,
         )
@@ -656,7 +775,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.description.startswith("<slack_thread_context>")
         assert "</slack_thread_context>" in task.description
-        assert task.description.endswith("do something")
+        assert task.description.endswith(expected_prompt)
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -798,7 +917,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("initial_prompt_override") == "do something"
 
         # Resume path also annotates the new run with the mention-dispatch pointer.
-        assert new_run.state.get("slack_mention_workflow_id") == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        assert new_run.state.get("slack_mention_workflow_id") == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
 
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
@@ -830,7 +949,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         with (
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"resume data"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"resume data"),
             patch("posthog.storage.object_storage.write"),
             patch("posthog.storage.object_storage.tag"),
         ):
@@ -1024,6 +1143,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
         signal_kwargs = mock_signal.call_args.kwargs
         assert signal_kwargs["content"] == "Bob: please retry the build"
+        # Reply suggestions get the person's own words, without the speaker prefix the agent needs.
+        assert signal_kwargs["person_message"] == "please retry the build"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
         # No "Only the person who started" denial; the message went through.
@@ -1215,8 +1336,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["artifact_ids"] == []
         assert signal_kwargs["actor_user_id"] == self.user.id
         assert signal_kwargs["message_id"] is not None
-        # The message is queued on the workflow, so the :eyes: reaction stays up — it
-        # is not swapped to :hedgehog: until the task genuinely completes.
+        # The message is queued on the workflow, so the :eyes: reaction stays up.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )
@@ -1251,7 +1371,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         with (
             patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
             patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"log bytes"),
             patch("products.slack_app.backend.services.slack_messages.collect_thread_messages", return_value=[]),
             patch("posthog.storage.object_storage.write") as mock_write,
             patch("posthog.storage.object_storage.tag"),
@@ -1306,7 +1426,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         with (
             patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
             patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"png bytes"),
             patch(
                 "products.slack_app.backend.services.slack_messages.collect_thread_messages",
                 return_value=thread_messages,
@@ -1447,21 +1567,21 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 
-class TestEventLevelDedupe(TestCase):
+class TestEventLevelDedupe(SimpleTestCase):
     """Verify that the workflow ID format supports event-level deduplication."""
 
     def test_same_event_id_produces_same_workflow_id(self):
         slack_team_id = "T_SLACK"
         event_id = "Ev123456"
         event_id_or_fallback = event_id
-        wf_id_1 = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-        wf_id_2 = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
+        wf_id_1 = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
+        wf_id_2 = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
         assert wf_id_1 == wf_id_2
 
     def test_different_event_ids_produce_different_workflow_ids(self):
         slack_team_id = "T_SLACK"
-        wf_id_1 = f"posthog-code-mention-{slack_team_id}:Ev111"
-        wf_id_2 = f"posthog-code-mention-{slack_team_id}:Ev222"
+        wf_id_1 = f"slack-app-mention-processing-{slack_team_id}:Ev111"
+        wf_id_2 = f"slack-app-mention-processing-{slack_team_id}:Ev222"
         assert wf_id_1 != wf_id_2
 
     def test_fallback_uses_channel_and_ts(self):
@@ -1470,8 +1590,8 @@ class TestEventLevelDedupe(TestCase):
         channel = "C123"
         ts = "1234.5678"
         event_id_or_fallback = event_id if event_id else f"{channel}:{ts}"
-        wf_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-        assert wf_id == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        wf_id = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
+        assert wf_id == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
 
 
 class TestSafeReact(UnitTestCase):

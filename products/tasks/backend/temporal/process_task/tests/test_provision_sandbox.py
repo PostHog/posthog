@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pytest
@@ -7,8 +7,13 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from products.tasks.backend.constants import TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG
-from products.tasks.backend.exceptions import SandboxNetworkPolicyError
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError
+from products.tasks.backend.logic.services.sandbox import (
+    ExecutionResult,
+    SandboxConfig,
+    SandboxTemplate,
+    needs_full_history,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -18,12 +23,20 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     _apply_modal_network_policy,
     _build_environment_variables,
     _build_sandbox_tags,
+    _effective_sandbox_template,
     _is_blobless_signals_clone_enabled,
+    _requested_sandbox_template,
     _to_modal_domain_allowlist,
     checkout_branch_in_sandbox,
 )
 
 _PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_sandbox"
+
+
+@pytest.fixture(autouse=True)
+def mock_gateway_accounting() -> Iterator[None]:
+    with patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"):
+        yield
 
 
 def _context(**overrides) -> TaskProcessingContext:
@@ -68,21 +81,43 @@ def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
 _WORKFLOW_ID = "review-pr:42:posthog/posthog:7-sandbox"
 
 
-def _build_tags(*args, **kwargs):
+def _build_tags(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    use_vm_sandbox: bool,
+    *,
+    workflow_id: str | None = _WORKFLOW_ID,
+) -> dict[str, str]:
     with patch(f"{_PROVISION}.activity") as mock_activity:
-        mock_activity.info.return_value = MagicMock(workflow_id=_WORKFLOW_ID)
-        return _build_sandbox_tags(*args, **kwargs)
+        mock_activity.info.return_value = MagicMock(workflow_id=workflow_id)
+        return _build_sandbox_tags(ctx, prepared, use_vm_sandbox)
 
 
-def test_build_sandbox_tags_includes_all_identifiers():
-    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=False)
+@pytest.mark.parametrize(
+    ("workflow_prefix", "expected_label"),
+    [
+        ("task-processing", "task-processing"),
+        ("review-pr:42:example/demo:7:validation-c3", "review-pr-42-example-demo-7-validation-c3"),
+        ("scheduled.daily_report", "scheduled.daily_report"),
+        ("review-pr:42:example/" + "r" * 80 + ":7:validation", "review-pr-42-example-" + "r" * 42),
+    ],
+)
+def test_build_sandbox_tags_includes_all_identifiers(workflow_prefix: str, expected_label: str) -> None:
+    task_id = "00000000-0000-4000-8000-000000000001"
+    run_id = "00000000-0000-4000-8000-000000000002"
+    tags = _build_tags(
+        _context(task_id=task_id, run_id=run_id),
+        _prepared(),
+        use_vm_sandbox=False,
+        workflow_id=f"{workflow_prefix}-{task_id}-{run_id}",
+    )
 
     assert tags == {
-        "task_id": "task-123",
-        "task_run_id": "run-456",
+        "task_id": task_id,
+        "task_run_id": run_id,
         "origin_product": "error_tracking",
         "team_id": "42",
-        "workflow_id": _WORKFLOW_ID,
+        "workflow_label": expected_label,
         "image_source": "base_image",
         "sandbox_runtime": "gvisor",
     }
@@ -103,9 +138,10 @@ def test_build_sandbox_tags_reflects_image_source(image_source):
 
 
 def test_build_sandbox_tags_drops_none_values():
-    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False, workflow_id=None)
 
     assert "origin_product" not in tags
+    assert "workflow_label" not in tags
     assert all(isinstance(value, str) for value in tags.values())
 
 
@@ -114,7 +150,10 @@ def test_build_sandbox_tags_drops_none_values():
     [
         (Task.OriginProduct.SIGNAL_REPORT, True, True),
         (Task.OriginProduct.SIGNAL_REPORT, False, False),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, True),
+        (Task.OriginProduct.SIGNALS_SCOUT, False, False),
         (Task.OriginProduct.ERROR_TRACKING, True, False),
+        (Task.OriginProduct.USER_CREATED, True, False),
     ],
 )
 def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_product, flag_result, expected):
@@ -122,7 +161,7 @@ def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_prod
 
     assert _is_blobless_signals_clone_enabled(_context(origin_product=origin_product)) is expected
 
-    if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+    if needs_full_history(origin_product):
         feature_enabled.assert_called_once_with(
             TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
             distinct_id="distinct-id",
@@ -469,3 +508,30 @@ def test_build_environment_variables_forwards_run_context_to_token_minting(_api,
         out = _build_environment_variables(ctx, task, "", "access-token")
     env.assert_called_once_with(ctx, task)
     assert out["AI_GATEWAY_TOKEN"] == "phe"
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(None, SandboxTemplate.DEFAULT_BASE), ("autoresearch_base", SandboxTemplate.AUTORESEARCH_BASE)],
+)
+def test_requested_sandbox_template_resolves_what_a_task_may_ask_for(value, expected):
+    assert _requested_sandbox_template(value) == expected
+
+
+@pytest.mark.parametrize("value", ["vm_base", "streamlit_base", "not-a-template"])
+def test_requested_sandbox_template_rejects_what_cannot_host_the_agent(value):
+    with pytest.raises(TaskInvalidStateError):
+        _requested_sandbox_template(value)
+
+
+def test_effective_sandbox_template_only_swaps_the_default_for_the_vm_image():
+    assert (
+        _effective_sandbox_template(use_vm_sandbox=True, requested=SandboxTemplate.DEFAULT_BASE)
+        == SandboxTemplate.VM_BASE
+    )
+    assert (
+        _effective_sandbox_template(use_vm_sandbox=False, requested=SandboxTemplate.AUTORESEARCH_BASE)
+        == SandboxTemplate.AUTORESEARCH_BASE
+    )
+    with pytest.raises(TaskInvalidStateError):
+        _effective_sandbox_template(use_vm_sandbox=True, requested=SandboxTemplate.AUTORESEARCH_BASE)

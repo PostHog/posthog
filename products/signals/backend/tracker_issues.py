@@ -13,14 +13,13 @@ import re
 from datetime import timedelta
 from typing import Any
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
@@ -31,7 +30,10 @@ from posthog.models.integration import (
     external_issue_url,
 )
 
+from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
+from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
 logger = structlog.get_logger(__name__)
 
@@ -117,7 +119,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
         }
         if label:
             config["labels"] = [label]
-        github = GitHubIntegration(target.integration)
+        github = GitHubIntegration(target.integration, source="signals_tracker_issues", priority=Priority.CRITICAL)
         context = dict(github.create_issue(config))
         repository = str(context["repository"])
         context["repository"] = repository if "/" in repository else f"{github.organization()}/{repository}"
@@ -218,7 +220,7 @@ def create_tracker_issue_for_report(
         if tracker is None:
             return SignalReportTrackerIssue.objects.for_team(team_id).filter(report_id=report_id).first()
 
-        report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+        report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         try:
             external_context = _create_provider_issue(
                 target,
@@ -297,44 +299,25 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         if tracker is None or tracker.pr_linked_at is not None:
             return False
 
-        parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return False
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
-        if github is None:
-            logger.info("signals.tracker_issue_link_no_integration", report_id=report_id, pr_url=pr_url)
-            return False
-
-        pull_request = github.get_pull_request(parsed.repository, parsed.number)
-        if not pull_request.get("success"):
-            logger.warning(
-                "signals.tracker_issue_link_pr_fetch_failed",
-                report_id=report_id,
-                pr_url=pr_url,
-                error=pull_request.get("error"),
-            )
-            return False
-
-        body = pull_request.get("body") or ""
         marker = f"{PR_BODY_MARKER}:{report_id} -->"
-        if marker not in body:
-            reference = _pr_body_reference(tracker, pr_repository=parsed.repository)
+
+        def add_reference(body: str, repository: str) -> str | None:
+            if marker in body:
+                return body
+            reference = _pr_body_reference(tracker, pr_repository=repository)
             if reference is None:
-                return False
-            outcome = github.update_pull_request_body(
-                parsed.repository,
-                parsed.number,
-                f"{body.rstrip()}\n\n{marker}\n{reference}\n",
-                expected_etag=pull_request.get("etag"),
-            )
-            if not outcome.get("success"):
-                logger.warning(
-                    "signals.tracker_issue_link_pr_update_failed",
-                    report_id=report_id,
-                    pr_url=pr_url,
-                    error=outcome.get("error"),
-                )
-                return False
+                return None
+            return f"{body.rstrip()}\n\n{marker}\n{reference}\n"
+
+        outcome = edit_pull_request_body(
+            team_id=team_id,
+            report_id=report_id,
+            pr_url=pr_url,
+            edit=add_reference,
+            log_event="signals.tracker_issue_link",
+        )
+        if outcome != BodyEditOutcome.WRITTEN:
+            return False
 
         if tracker.provider == Integration.IntegrationKind.LINEAR and tracker.integration is not None:
             # Best-effort: the description reference already links the two, and this attachment
@@ -354,6 +337,41 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         return False
 
 
+def _close_notice(*, report_link: str, actor_mention: str | None) -> str:
+    """What the issue says about its own close.
+
+    One wording covers every close, because the ``completed`` flag alone cannot name the verb: an
+    uncompleted close is a dismissal, a delete, or a resolve that needed no pull request. The
+    report page holds the detail, and the mention names the person GitHub cannot — the close goes
+    out under the team's GitHub App.
+    """
+    if actor_mention:
+        return f"🔕 {actor_mention} closed the {report_link} in PostHog, so this issue is closed too."
+    return f"🔕 The {report_link} was closed in PostHog, so this issue is closed too."
+
+
+def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str, actor_mention: str | None) -> None:
+    """Best-effort note on the issue naming who closed the report. Only GitHub takes one today.
+
+    Explain first, close second, as the implementation pull request does. A failed comment must
+    not stop the close: an issue left open would grow the backlog this close exists to prevent,
+    while a missing comment costs only the attribution.
+    """
+    if tracker.provider != Integration.IntegrationKind.GITHUB or tracker.integration is None:
+        return
+    context = tracker.external_context or {}
+    try:
+        GitHubIntegration(
+            tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
+        ).comment_on_issue(
+            context["repository"],
+            int(context["number"]),
+            _close_notice(report_link=report_link, actor_mention=actor_mention),
+        )
+    except Exception:
+        logger.warning("signals.tracker_issue_close_comment_failed", tracker_id=str(tracker.id), exc_info=True)
+
+
 def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool) -> None:
     integration = tracker.integration
     if integration is None:
@@ -361,7 +379,9 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
     context = tracker.external_context or {}
 
     if tracker.provider == Integration.IntegrationKind.GITHUB:
-        GitHubIntegration(integration).close_issue(context["repository"], int(context["number"]), completed=completed)
+        GitHubIntegration(integration, source="signals_tracker_issues", priority=Priority.CRITICAL).close_issue(
+            context["repository"], int(context["number"]), completed=completed
+        )
     elif tracker.provider == Integration.IntegrationKind.GITLAB:
         GitLabIntegration(integration).close_issue(int(context["issue_id"]))
     elif tracker.provider == Integration.IntegrationKind.LINEAR:
@@ -372,7 +392,9 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")
 
 
-def close_tracker_issue_for_report(*, team_id: int, report_id: str, completed: bool = False) -> bool:
+def close_tracker_issue_for_report(
+    *, team_id: int, report_id: str, completed: bool = False, actor_user_id: int | None = None
+) -> bool:
     """Close the report's tracker issue once the report is dismissed or completed. Never raises.
 
     A dismissed report will not produce a pull request, so its work item is finished. Leaving it
@@ -388,6 +410,12 @@ def close_tracker_issue_for_report(*, team_id: int, report_id: str, completed: b
         if tracker is None or tracker.closed_at is not None:
             return False
 
+        report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
+        _comment_before_close(
+            tracker,
+            report_link=f"[linked PostHog report]({report_url})",
+            actor_mention=github_mention_for_user(actor_user_id),
+        )
         _close_provider_issue(tracker, completed=completed)
         tracker.closed_at = timezone.now()
         tracker.save(update_fields=["closed_at", "updated_at"])

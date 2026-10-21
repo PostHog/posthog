@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.bigmailer import (
     AUTH_ERROR_MESSAGE,
     BigMailerResumeConfig,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigMailerSource(ResumableSource[BigMailerSourceConfig, BigMailerResumeConfig]):
+    codebase_detection = detect(env=("^(BIG_MAILER|BIGMAILER)_",))
+
     api_docs_url = "https://docs.bigmailer.io/"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
@@ -50,10 +51,10 @@ class BigMailerSource(ResumableSource[BigMailerSourceConfig, BigMailerResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_MAILER,
+            name=ExternalDataSourceType.BIGMAILER,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="BigMailer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden from the connector catalog while the source is validated end-to-end; flip this
             # off (delete the line) to make it connectable.
             caption="""Enter your BigMailer API key to sync your BigMailer data into the PostHog Data warehouse.

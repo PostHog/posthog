@@ -3,10 +3,14 @@ import contextlib
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils.dateparse import parse_datetime
+
+import requests
 
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -14,17 +18,31 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.review_requests import reviewing_team_ids
 from products.stamphog.backend.logic.audiences import ResolvedAudience
-from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogInstallation,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
+    STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX,
     _parse_pr_url,
     _upsert_pull_request,
     process_inbox_pr_review,
     process_installation_event,
     process_pull_request_event,
 )
-from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
+from products.stamphog.backend.tasks.trigger_label import (
+    TRIGGER_LABEL_COLOR,
+    TRIGGER_LABEL_DESCRIPTION,
+    create_trigger_label,
+)
+from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, _generate_app_private_key
+from products.stamphog.backend.tests.fakes import FakeResponse
 from products.tasks.backend.facade.contracts import SignalImplementationRunDTO
 
 REPO = "acme/widgets"
@@ -139,7 +157,9 @@ def _run_task(
 @pytest.fixture
 def repo_config(team):
     with team_scope(team.id):
-        return StamphogRepoConfig.objects.create(team_id=team.id, repository=REPO, installation_id=INSTALLATION_ID)
+        return StamphogRepoConfig.objects.create(
+            team_id=team.id, repository=REPO, installation_id=INSTALLATION_ID, review_mode=ReviewMode.ALL
+        )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -372,21 +392,48 @@ def test_review_mode_gates_events(team, repo_config, review_mode, payload_kwargs
         mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "retrigger_updated_at,redeliver,expect_label_removed",
+    [
+        ("2026-10-15T14:03:30Z", False, True),
+        ("2026-10-15T14:00:20Z", False, True),
+        ("2026-10-15T14:00:10Z", False, False),
+        ("2026-10-15T14:00:20Z", True, False),
+    ],
+    ids=["fresh_relabel", "same_second_relabel", "stale_delivery", "late_redelivery"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_labeled_rereview_cooldown_skips_rapid_retrigger(team, repo_config):
+def test_labeled_rereview_cooldown_skips_rapid_retrigger(
+    team, repo_config, retrigger_updated_at: str, redeliver: bool, expect_label_removed: bool
+):
     # Removing and re-adding the trigger label within the cooldown must not queue a second sandbox +
     # LLM run — the cheap re-review spam the cooldown exists for.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save()
 
-    payload = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")
-    _run_task(payload, "delivery-label-1", team.id)
-    mock_execute = _run_task(payload, "delivery-label-2", team.id)
+    def labeled(updated_at: str) -> dict:
+        return _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog", updated_at=updated_at)
+
+    first_delivery = f"delivery-label-1-{uuid.uuid4()}"
+    with time_machine.travel("2026-10-15T14:00:20Z", tick=False):
+        first = _run_task(labeled("2026-10-15T14:00:20Z"), first_delivery, team.id)
+    retrigger_delivery = first_delivery if redeliver else f"delivery-label-2-{uuid.uuid4()}"
+    cache.delete(f"{STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX}{retrigger_delivery}")
+    with time_machine.travel("2026-10-15T14:03:30Z", tick=False):
+        mock_execute = _run_task(labeled(retrigger_updated_at), retrigger_delivery, team.id)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1
     mock_execute.assert_not_called()
+    first.github.remove_pr_label.assert_not_called()
+    if not expect_label_removed:
+        mock_execute.github.remove_pr_label.assert_not_called()
+        mock_execute.github.upsert_sticky_comment.assert_not_called()
+        return
+    mock_execute.github.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    _, _, body = mock_execute.github.upsert_sticky_comment.call_args.args
+    assert "14:11 UTC (in about 8 minutes)" in body
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -679,52 +726,38 @@ def _installation_payload(
     return payload
 
 
+def _record_installation(team_id: int, repositories: list[str]) -> StamphogInstallation:
+    with team_scope(team_id):
+        return StamphogInstallation.objects.create(
+            team_id=team_id, installation_id=INSTALLATION_ID, repositories=repositories, connected_by_user_id=4242
+        )
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team, repo_config):
-    # A repo added to the installation after the initial sync must appear in the toggle list without a
-    # manual re-sync — as a disabled row, since enabling reviews stays a human decision. An already
-    # registered repo is left untouched (no duplicate, no settings reset).
-    with team_scope(team.id):
-        # Webhooks carry no PostHog identity, so the new row must inherit the connecting user
-        # (the review-credential principal) from its synced sibling.
-        StamphogRepoConfig.objects.filter(id=repo_config.id).update(connected_by_user_id=4242)
-    payload = _installation_payload(action="added", added=["acme/new-repo", REPO])
-    process_installation_event(payload, "delivery-inst-added")
+def test_installation_repos_added_leave_the_snapshot_alone(team, repo_config):
+    # The webhook carries no user, so no member proved access to the new repo. An outside collaborator
+    # who connected the installation would otherwise be offered every private repo installed later.
+    installation = _record_installation(team.id, [REPO])
 
-    with team_scope(team.id):
-        new_row = StamphogRepoConfig.objects.get(repository="acme/new-repo")
-        assert new_row.enabled is False
-        assert new_row.digest_enabled is False
-        assert new_row.installation_id == INSTALLATION_ID
-        assert new_row.connected_by_user_id == 4242
-        repo_config.refresh_from_db()
-        assert repo_config.enabled is True  # existing row untouched
-        assert StamphogRepoConfig.objects.count() == 2
+    process_installation_event(_installation_payload(action="added", added=["acme/new-repo"]), "delivery-inst-added")
 
-    # One batch audit row per repo the delivery actually added: the per-row receiver is silenced for
-    # the loop, and the skipped repo writes nothing. No PostHog user is behind a webhook.
-    created = list(ActivityLog.objects.filter(detail__trigger__job_id="delivery-inst-added"))
-    assert [log.item_id for log in created] == [str(new_row.id)]
-    for log in created:
-        assert log.scope == "StamphogRepoConfig"
-        assert log.activity == "created"
-        assert log.user is None
-        assert log.is_system is True
-        assert log.detail is not None
-        assert log.detail["name"] == "acme/new-repo"
+    installation.refresh_from_db()
+    assert installation.repositories == [REPO]
+    assert not StamphogRepoConfig.objects.unscoped().filter(repository="acme/new-repo").exists()
 
 
 @pytest.mark.parametrize(
-    "payload_kwargs,expect_disabled",
+    "payload_kwargs,expect_disabled,expected_snapshot",
     [
-        ({"action": "removed", "removed": [REPO]}, True),
-        ({"action": "deleted"}, True),
-        ({"action": "suspend"}, False),
+        ({"action": "removed", "removed": [REPO]}, True, ["acme/other"]),
+        # An uninstall deletes the record, so nothing is offered for adding under a dead installation.
+        ({"action": "deleted"}, True, None),
+        ({"action": "suspend"}, False, ["acme/other", REPO]),
     ],
     ids=["repo_removed_disables_row", "uninstall_disables_all_rows", "other_installation_action_ignored"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs, expect_disabled):
+def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs, expect_disabled, expected_snapshot):
     # Removed repos and a full uninstall tombstone the configs (disabled, rows and history kept);
     # other installation actions are acked and ignored. In-flight runs must be superseded too —
     # workflows never re-check `enabled`, so a run already in the sandbox would otherwise still
@@ -741,6 +774,7 @@ def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs,
         terminal = ReviewRun.objects.create(
             team_id=team.id, pull_request=pull_request, head_sha="sha-0", status=ReviewRunStatus.COMPLETED
         )
+    _record_installation(team.id, ["acme/other", REPO])
 
     process_installation_event(_installation_payload(**payload_kwargs), f"delivery-inst-{payload_kwargs['action']}")
 
@@ -753,6 +787,8 @@ def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs,
     expected_in_flight = ReviewRunStatus.SUPERSEDED if expect_disabled else ReviewRunStatus.REVIEWING
     assert in_flight.status == expected_in_flight
     assert terminal.status == ReviewRunStatus.COMPLETED
+    snapshots = list(StamphogInstallation.objects.unscoped().values_list("repositories", flat=True))
+    assert snapshots == ([] if expected_snapshot is None else [expected_snapshot])
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -768,6 +804,30 @@ def test_installation_event_for_unbound_installation_is_a_noop(team, repo_config
 def _make_second_team(organization) -> Team:
     project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
     return Team.objects.create(id=project.id, project=project, organization=organization)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "enabled,connected_by_user_id,expected_reviewing",
+    [(True, 1, True), (False, 1, False), (True, None, False)],
+    ids=["enabled_and_synced", "disabled", "never_synced"],
+)
+def test_reviewing_team_ids_applies_the_manual_request_rule(team, enabled, connected_by_user_id, expected_reviewing):
+    other_team = _make_second_team(team.organization)
+    environment = Team.objects.create(organization=team.organization, parent_team=team, name="env")
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.create(
+            team_id=team.id,
+            repository=REPO,
+            installation_id=INSTALLATION_ID,
+            enabled=enabled,
+            connected_by_user_id=connected_by_user_id,
+        )
+
+    # An environment reviews where its project does.
+    assert reviewing_team_ids(REPO.upper(), [environment.id, team.id, other_team.id]) == (
+        [environment.id, team.id] if expected_reviewing else []
+    )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -813,23 +873,6 @@ def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
         assert log.detail is not None
         enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
         assert (enabled_change["before"], enabled_change["after"]) == (True, False)
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_repos_added_skips_when_installation_spans_multiple_teams(team, repo_config):
-    # Ambiguous ownership: two teams share the installation, so auto-binding a newly added repo could
-    # attach it to a team its adder never intended. The webhook add is skipped and left to the
-    # authenticated sync flow — no row is created for either team.
-    second_team = _make_second_team(team.organization)
-    with team_scope(second_team.id):
-        StamphogRepoConfig.objects.create(
-            team_id=second_team.id, repository="acme/other", installation_id=INSTALLATION_ID
-        )
-
-    payload = _installation_payload(action="added", added=["acme/brand-new"])
-    process_installation_event(payload, "delivery-multi-add")
-
-    assert StamphogRepoConfig.objects.unscoped().filter(repository="acme/brand-new").exists() is False
 
 
 def _selfdriving_payload(**overrides: Any) -> dict[str, Any]:
@@ -1324,27 +1367,32 @@ def _approved_run(team_id: int) -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "same_diff,expect_retained",
-    [(True, True), (False, False)],
-    ids=["identical_diff_retains", "changed_diff_dismisses"],
+    "same_diff,clean_base_merge,expect_retained",
+    [(True, False, True), (False, False, False), (False, True, True)],
+    ids=["identical_diff_retains", "changed_diff_dismisses", "clean_base_merge_retains"],
 )
-def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, same_diff, expect_retained):
+def test_push_retains_the_approval_only_when_the_diff_is_identical(
+    team, repo_config, same_diff, clean_base_merge, expect_retained
+):
     # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
     # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
     # is content that the approval no longer covers, and that case keeps the stale-approval
-    # invariant intact.
+    # invariant intact, unless the push is a proven clean merge of the base branch.
     #
     # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
-    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}", team.id)
+    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}-{clean_base_merge}", team.id)
     _approved_run(team.id)
 
-    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+    with (
+        patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
+        patch("products.stamphog.backend.tasks.tasks.base_merge_is_clean", return_value=clean_base_merge),
+    ):
         mock_execute = _run_task(
             _pr_payload(action="synchronize", head_sha="sha-2"),
-            f"delivery-retention-push-{same_diff}",
+            f"delivery-retention-push-{same_diff}-{clean_base_merge}",
             team.id,
             compare_diffs=[_APPROVED, current_diff],
         )
@@ -1492,3 +1540,42 @@ def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, exp
     assert client.upsert_sticky_comment.called is expect_comment
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
+
+
+@pytest.mark.parametrize(
+    "review_mode,enabled,github_answer,expect_post",
+    [
+        pytest.param(ReviewMode.LABEL, True, FakeResponse(201), True, id="created"),
+        pytest.param(ReviewMode.LABEL, True, FakeResponse(422), True, id="already_exists"),
+        pytest.param(ReviewMode.LABEL, True, FakeResponse(403), True, id="not_permitted"),
+        pytest.param(ReviewMode.LABEL, True, requests.ConnectionError("down"), True, id="network_error"),
+        pytest.param(ReviewMode.ALL, True, FakeResponse(201), False, id="all_mode"),
+        pytest.param(ReviewMode.LABEL, False, FakeResponse(201), False, id="paused"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_create_trigger_label_never_raises(team, repo_config, review_mode, enabled, github_answer, expect_post):
+    StamphogRepoConfig.objects.unscoped().filter(id=repo_config.id).update(
+        review_mode=review_mode, enabled=enabled, trigger_label="review-me"
+    )
+    calls: list[tuple[str, str, Any]] = []
+
+    def fake_request(method: str, url: str, **kwargs: Any) -> FakeResponse:
+        if url.endswith("/access_tokens"):
+            return FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+        calls.append((method, url, kwargs.get("json")))
+        if isinstance(github_answer, Exception):
+            raise github_answer
+        return github_answer
+
+    _GH = "products.stamphog.backend.logic.github_client"
+    with (
+        override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+        patch(f"{_GH}.github_request", fake_request),
+        patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+        patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+    ):
+        create_trigger_label(team.id, str(repo_config.id))
+
+    expected_body = {"name": "review-me", "color": TRIGGER_LABEL_COLOR, "description": TRIGGER_LABEL_DESCRIPTION}
+    assert calls == ([("POST", f"https://api.github.com/repos/{REPO}/labels", expected_body)] if expect_post else [])

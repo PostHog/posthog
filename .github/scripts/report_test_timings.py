@@ -6,11 +6,11 @@
 #   "opentelemetry-api~=1.27",
 #   "opentelemetry-sdk~=1.27",
 #   "opentelemetry-exporter-otlp-proto-http~=1.27",
-#   "posthog-owners",
+#   "owners-yaml",
 # ]
 #
 # [tool.uv.sources]
-# posthog-owners = { path = "../../tools/owners" }
+# owners-yaml = { path = "../../packages/owners-yaml" }
 # ///
 """Emit OTLP traces from CI JUnit XML artifacts.
 
@@ -65,7 +65,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
-from posthog_owners import OwnersResolver, first_team_owner
+from owners_yaml import OwnersResolver, first_team_owner
 
 logger = logging.getLogger("report_test_timings")
 
@@ -106,6 +106,7 @@ class TestCase:
     file: str  # normalized repo-relative test file; '' when no checked-in file can be found
     file_source: Literal["junit", "inferred", "missing"]
     selector: str  # runnable runner-specific selector; '' when the file cannot be found
+    runner_name: str = ""  # GitHub runner that executed the test, not the trace-export job's runner
 
 
 @dataclass(frozen=True)
@@ -571,6 +572,7 @@ def parse_shard(
                     end=datetime.min,
                     outcome=outcome,
                     attempts=attempts,
+                    runner_name=parse_testsuite_properties(tc).get("posthog.runner_name", ""),
                 )
             )
         file_durations.append(file_testcase_seconds)
@@ -728,6 +730,9 @@ def get_pull_request_number() -> int | None:
 
 
 def get_run_url() -> str:
+    if depot_url := os.environ.get("DEPOT_JOB_URL"):
+        match = re.match(r"^(https://depot\.dev/orgs/[^/?]+/workflows/[a-z0-9]+)(?=/|[?#]|$)", depot_url)
+        return match[1] if match else ""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     if not repo or not run_id:
@@ -740,6 +745,13 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     """Resource attributes attached to every span — pre-aggregation context for the run."""
     keys = ("WORKFLOW", "RUN_ID", "RUN_NUMBER", "RUN_ATTEMPT", "REF", "SHA", "ACTOR", "REPOSITORY")
     attrs: dict[str, str | int] = {f"ci.{k.lower()}": os.environ.get(f"GITHUB_{k}", "") for k in keys}
+    run_url = get_run_url()
+    attrs["ci.engine"] = "depot_ci" if os.environ.get("DEPOT_JOB_URL") else "github_actions"
+    if attrs["ci.engine"] == "depot_ci":
+        if run_url:
+            attrs["ci.native_workflow_run_id"] = run_url.rsplit("/", 1)[1]
+    else:
+        attrs["ci.native_workflow_run_id"] = os.environ.get("GITHUB_RUN_ID", "")
     attrs["ci.event_name"] = os.environ.get("GITHUB_EVENT_NAME", "")
     attrs["ci.head_ref"] = os.environ.get("GITHUB_HEAD_REF", "")
     attrs["ci.base_ref"] = os.environ.get("GITHUB_BASE_REF", "")
@@ -749,16 +761,17 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     pr_number = get_pull_request_number()
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number
-    attrs["ci.run_url"] = get_run_url()
+    attrs["ci.run_url"] = run_url
     return {k: v for k, v in attrs.items() if v != ""}
 
 
 # ---------- OTLP export ----------
 
 
-def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str) -> int:
-    """One trace ID per (run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
-    digest = hashlib.sha256(f"{run_id}:{run_attempt}:{job_key}".encode()).digest()
+def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str, *, ci_engine: str = "github_actions") -> int:
+    """One trace ID per (engine, run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
+    namespace = "" if ci_engine == "github_actions" else f"{ci_engine}:"
+    digest = hashlib.sha256(f"{namespace}{run_id}:{run_attempt}:{job_key}".encode()).digest()
     return int.from_bytes(digest[:16], "big")  # OTLP trace IDs are 128-bit (16 bytes).
 
 
@@ -802,7 +815,7 @@ def owner_team_lookup() -> Callable[[str], str]:
 
     Resolution is capture-time on purpose: a test is attributed to whoever owned it when it
     ran. Ownership is best-effort next to the timings themselves, so every failure — a resolver
-    that can't load (a base checkout predating `tools/owners`) or one file that won't resolve —
+    that can't load (a base checkout predating `packages/owners-yaml`) or one file that won't resolve —
     degrades to no stamp, leaving those spans in the reader's `unowned` bucket rather than
     losing the emit.
     """
@@ -856,7 +869,12 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str, runner: Runner =
     for shard in shards:
         # Mutate the shared generator before each job so its root span (and the test
         # children that inherit the active parent's trace ID) form a distinct trace.
-        id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
+        id_generator.trace_id = deterministic_trace_id(
+            str(resource.attributes.get("ci.native_workflow_run_id") or run_id),
+            run_attempt,
+            job_trace_key(shard.info),
+            ci_engine=str(resource.attributes["ci.engine"]),
+        )
         _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of, runner)
 
     provider.shutdown()
@@ -902,6 +920,8 @@ def _emit_shard_span(
             test_span.set_attribute("test.job_key", job_trace_key(info))
             test_span.set_attribute("test.outcome", test.outcome)
             test_span.set_attribute("test.attempts", test.attempts)
+            if test.runner_name:
+                test_span.set_attribute("test.runner_name", test.runner_name)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
             if test.file:

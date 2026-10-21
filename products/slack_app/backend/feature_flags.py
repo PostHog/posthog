@@ -37,16 +37,19 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
+
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 
 logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_MARKDOWN_FLAG = "slack-app-markdown"
+SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
+SLACK_APP_REPLY_SUGGESTIONS_FLAG = "slack-app-reply-suggestions"
+SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -125,19 +128,35 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_markdown_enabled(integration: Integration) -> bool:
-    """Gate for delivering an agent answer as a Slack ``markdown`` block instead of converting
-    it to ``mrkdwn`` first. Posts through the ``chat:write`` the mention flow already requires,
-    so this is the flag alone.
+def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+    """Gate for the in-thread project picker. With the gate closed, a mention that could go
+    to more than one project gets the text hint."""
+    return _workspace_flag_enabled(
+        SLACK_APP_PROJECT_PICKER_FLAG,
+        integration,
+        failure_log_key="slack_app_project_picker_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
 
-    Keyed on the Slack workspace rather than the person: how an answer is formatted is a
-    property of the thread everybody reads, not of whoever asked, and a run's answer can be
-    posted for a reader the run was not created by.
+
+def is_slack_app_reply_suggestions_enabled(integration: Integration) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_REPLY_SUGGESTIONS_FLAG,
+        integration,
+        failure_log_key="slack_app_reply_suggestions_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
+    """Gate for answering top-level channel messages nobody tagged the app in.
+
+    Keyed on the workspace, not the author, because the webhook checks it before it resolves
+    who wrote the message. Roll it out with an organization condition.
     """
     return _workspace_flag_enabled(
-        SLACK_APP_MARKDOWN_FLAG,
+        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
-        failure_log_key="slack_app_markdown_feature_flag_check_failed",
+        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
     )
 
 

@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonDialog,
     LemonInput,
     LemonTable,
     LemonTableColumn,
@@ -20,11 +20,13 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { MetricTypeTag } from 'scenes/experiments/MetricsView/shared/MetricTypeTag'
+import { openDeleteSharedMetricDialog } from 'scenes/experiments/SharedMetrics/deleteSharedMetricDialog'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { PAGE_SIZE, sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
 import { isLegacySharedMetric } from 'scenes/experiments/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -40,6 +42,24 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
         useValues(sharedMetricsLogic)
     const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
+    const { currentProjectId } = useValues(teamLogic)
+    const [deleteCheckMetricId, setDeleteCheckMetricId] = useState<number | null>(null)
+
+    const handleDelete = async (sharedMetricId: number): Promise<void> => {
+        if (deleteCheckMetricId !== null) {
+            return
+        }
+        setDeleteCheckMetricId(sharedMetricId)
+        try {
+            await openDeleteSharedMetricDialog({
+                projectId: currentProjectId,
+                sharedMetricId,
+                onDelete: () => deleteSharedMetric(sharedMetricId),
+            })
+        } finally {
+            setDeleteCheckMetricId(null)
+        }
+    }
 
     const startCount = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
     const endCount = page * PAGE_SIZE < count ? page * PAGE_SIZE : count
@@ -57,7 +77,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                 {stringWithWBR(sharedMetric.name, 17)}
                                 {isLegacySharedMetric(sharedMetric) && (
                                     <Tooltip
-                                        title="This metric uses the legacy engine, so some features and improvements may be missing."
+                                        title="This metric uses the legacy engine, so it can no longer be edited."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
                                     >
                                         <LemonTag type="warning" className="ml-1">
@@ -125,6 +145,11 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                     fullWidth
                                     size="small"
                                     icon={<IconCopy />}
+                                    disabledReason={
+                                        isLegacySharedMetric(sharedMetric)
+                                            ? 'Legacy shared metrics can no longer be duplicated'
+                                            : undefined
+                                    }
                                     onClick={() => {
                                         router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
                                     }}
@@ -136,27 +161,8 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                     size="small"
                                     icon={<IconTrash />}
                                     status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete this metric?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action cannot be undone.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                onClick: () => deleteSharedMetric(sharedMetric.id),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
+                                    loading={deleteCheckMetricId === sharedMetric.id}
+                                    onClick={() => void handleDelete(sharedMetric.id)}
                                 >
                                     Delete
                                 </LemonButton>

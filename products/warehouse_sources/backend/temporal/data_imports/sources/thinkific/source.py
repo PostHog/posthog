@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThinkificSource(ResumableSource[ThinkificSourceConfig, ThinkificResumeConfig]):
+    codebase_detection = detect(env=("^THINKIFIC_",))
+
     api_docs_url = "https://developers.thinkific.com/api/api-documentation"
 
     @property
@@ -48,7 +49,7 @@ class ThinkificSource(ResumableSource[ThinkificSourceConfig, ThinkificResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.THINKIFIC,
+            name=ExternalDataSourceType.THINKIFIC,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Thinkific",
             caption="""Enter your Thinkific API key and account subdomain to pull your Thinkific course, enrollment, and order data into the PostHog Data warehouse.
@@ -57,7 +58,7 @@ You can create an API key under **Settings → Code & analytics → API** in you
             iconPath="/static/services/thinkific.png",
             docsUrl="https://posthog.com/docs/cdp/sources/thinkific",
             keywords=["lms", "elearning", "e-learning", "courses"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -5,10 +5,8 @@
         <title>Session replay player</title>
         <style>
         /*
-          Copied from PlayerFrame.scss and PlayerFrameLLMHighlight.scss. These rules style the
-          rrweb wrapper, which under REPLAY_PLAYER_OWN_DOCUMENT lives in this document rather than
-          the app's, so the app's stylesheet can no longer reach them. Both copies stay until the
-          flag is removed, at which point the app's copy goes and this one remains.
+          These rules style the rrweb wrapper, which lives in this document rather than the app's,
+          so the app's stylesheet cannot reach them.
         */
         html, body {
             width: 100%;
@@ -108,10 +106,6 @@
             pointer-events: none;
         }
 
-        /*
-          The click highlight was conditional on a `.PlayerFrame--llm-highlight` class on the app-side
-          container. The app sets that class unconditionally, so the rules apply unconditionally here.
-        */
         .PlayerFrame__content .replayer-mouse.active::after {
             /* Duration scales with playback speed; the app sets the property on this document. */
             animation: PlayerFrame__click--llm-highlight var(--player-frame-click-duration, 0.333s) ease-in-out 1;

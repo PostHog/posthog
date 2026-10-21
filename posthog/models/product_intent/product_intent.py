@@ -27,7 +27,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 
@@ -268,8 +267,10 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             return False
 
     def has_activated_workflows(self) -> bool:
+        from products.workflows.backend.facade.api import has_active_workflows  # noqa: PLC0415
+
         # At least one workflow needs to be active (not just drafted)
-        return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
+        return has_active_workflows(team_id=self.team_id)
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
@@ -314,7 +315,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         is_onboarding: bool = False,
     ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
-        from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.file_system.starred_products import star_products_from_intent
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -357,7 +358,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             )
 
             try:
-                UserProductList.create_from_product_intent(product_intent, user)
+                if created:
+                    star_products_from_intent(product_intent, user)
             except Exception as e:
                 capture_exception(
                     e, additional_properties={"product_type": product_type, "context": context, "user_id": user.id}

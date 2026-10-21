@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
     BREX_API_VERSION_V1,
     BREX_API_VERSION_V2,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
+    codebase_detection = detect(env=("^BREX_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.brex.com/changelog"
 
@@ -68,17 +69,17 @@ class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BREX,
+            name=ExternalDataSourceType.BREX,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Brex",
             caption="""Enter your Brex API user token to pull your Brex data into the PostHog Data warehouse.
 
-You can create a token in your [Brex dashboard](https://dashboard.brex.com/settings/developer) under Settings → Developer. Grant read access to the data you want to sync: Transactions and Accounts (card and cash transactions), Expenses, Team (users, departments, locations), Payments (vendors), and Budgets.
+You can create a token in your [Brex dashboard](https://dashboard.brex.com/settings/developer) under Settings → Developer. Grant read access to the data you want to sync: Transactions and Accounts (card and cash transactions, card and cash accounts), Expenses, Team (users, departments, locations, titles, cost centers, cards), Payments (vendors, transfers), Budgets (budgets, budget programs, spend limits), and Fields (custom fields and their values).
 
 Note: Brex tokens expire after 90 days without API activity, so a token that hasn't been used recently may need to be regenerated.""",
             iconPath="/static/services/brex.png",
             docsUrl="https://posthog.com/docs/cdp/sources/brex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

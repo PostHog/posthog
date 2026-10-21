@@ -10,8 +10,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 
@@ -52,6 +54,45 @@ class TestNotificationsAPI(BaseTest):
         assert len(resp.json()["results"]) == 1
         assert resp.json()["results"][0]["title"] == "Test notification"
         assert resp.json()["results"][0]["read"] is False
+
+    def test_catalog_notification_disappears_after_access_revocation(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.event.resource_type = "data_catalog"
+        self.event.save(update_fields=["resource_type"])
+        url = f"/api/environments/{self.team.id}/notifications/"
+        assert [event["id"] for event in self.client.get(url).json()["results"]] == [str(self.event.id)]
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level="none",
+        )
+        cache.clear()
+        assert self.client.get(url).json()["results"] == []
+        assert self.client.get(url + "unread_count/").json()["count"] == 0
+
+    def test_notification_from_a_project_the_user_cannot_open_is_hidden(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        private_team = Team.objects.create(organization=self.organization, name="Private")
+        private_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=private_team,
+            notification_type="workflow_suggestion",
+            title="Secret workflow",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        url = f"/api/environments/{self.team.id}/notifications/"
+        assert {e["id"] for e in self.client.get(url).json()["results"]} == {str(self.event.id), str(private_event.id)}
+        AccessControl.objects.create(
+            team=private_team, resource="project", resource_id=str(private_team.id), access_level="none"
+        )
+        cache.clear()
+        assert [e["id"] for e in self.client.get(url).json()["results"]] == [str(self.event.id)]
+        assert self.client.get(url + "unread_count/").json()["count"] == 1
 
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")

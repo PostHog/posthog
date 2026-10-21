@@ -10,7 +10,6 @@ import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetri
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -33,7 +32,6 @@ export function SharedMetricModal({
         filterTags,
         searchTerm,
         sharedMetricsResponseLoading,
-        isLoadingAllSharedMetrics,
         hasAnyCompatibleSharedMetrics,
         selectedMetricIds,
     } = useValues(sharedMetricModalLogic)
@@ -107,7 +105,7 @@ export function SharedMetricModal({
             }
         >
             <div className="deprecated-space-y-2">
-                {hasAnyCompatibleSharedMetrics || sharedMetricsResponseLoading ? (
+                {hasAnyCompatibleSharedMetrics ? (
                     <>
                         {savedMetrics.length > 0 && (
                             <LemonBanner type="info">
@@ -128,7 +126,7 @@ export function SharedMetricModal({
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                loading={isLoadingAllSharedMetrics}
+                                loading={sharedMetricsResponseLoading}
                                 disabledReason={
                                     displayedSelectableIds.length === 0 ? 'No metrics to select' : undefined
                                 }
@@ -163,7 +161,9 @@ export function SharedMetricModal({
                                         type="secondary"
                                         active={filterTags.includes(tag)}
                                         // Wait for every page so clicking a tag selects all of its metrics.
-                                        disabledReason={isLoadingAllSharedMetrics ? 'Loading all metrics…' : undefined}
+                                        disabledReason={
+                                            sharedMetricsResponseLoading ? 'Loading all metrics…' : undefined
+                                        }
                                         onClick={() => {
                                             // Toggle this tag: selects (and shows) every metric carrying it, across
                                             // all pages — or deselects them if it was already active.
@@ -238,17 +238,12 @@ export function SharedMetricModal({
                                 {
                                     title: 'Type',
                                     key: 'type',
-                                    render: (_, metric: SharedMetric) => {
-                                        if (metric.query.kind === NodeKind.ExperimentMetric) {
-                                            return metric.query.metric_type
-                                        }
-                                        return metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel'
-                                    },
+                                    render: (_, metric: SharedMetric) => metric.query.metric_type,
                                 },
                             ]}
                             footer={
                                 <div className="flex flex-col items-center gap-2 m-2">
-                                    {isLoadingAllSharedMetrics && displayedMetrics.length > 0 && (
+                                    {sharedMetricsResponseLoading && displayedMetrics.length > 0 && (
                                         <span className="text-secondary text-xs">Loading all metrics…</span>
                                     )}
                                     <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">

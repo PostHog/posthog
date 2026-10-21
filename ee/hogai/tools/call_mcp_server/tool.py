@@ -24,6 +24,7 @@ from .installations import (
     _get_cached_tools,
     _get_installations,
     _get_tool_approval_states,
+    _get_unlisted_tool_state,
     _mark_needs_reauth_sync,
     _refresh_token_sync,
 )
@@ -148,7 +149,15 @@ class CallMCPServerTool(MaxTool):
 
     async def _resolve_approval_state(self, server_url: str, tool_name: str) -> str:
         states = await self._get_approval_states(server_url)
-        return states.get(tool_name, _APPROVAL_DEFAULT)
+        if tool_name in states:
+            return states[tool_name]
+        inst = self._get_installation(server_url)
+        gateway_server_id = inst.get("gateway_server_id")
+        state = await database_sync_to_async(_get_unlisted_tool_state)(
+            str(inst["id"]), self._team.id, gateway_server_id, self._user, tool_name
+        )
+        states[tool_name] = state
+        return state
 
     async def is_dangerous_operation(
         self, *, server_url: str, tool_name: str, arguments: dict | None = None, **_kwargs
@@ -341,7 +350,7 @@ class CallMCPServerTool(MaxTool):
 
         inst["sensitive_configuration"] = updated
         self._installations_by_url[server_url] = inst
-        self._server_headers[server_url] = {"Authorization": f"Bearer {updated['access_token']}"}
+        self._server_headers.setdefault(server_url, {}).update({"Authorization": f"Bearer {updated['access_token']}"})
 
     def _get_installation(self, server_url: str) -> dict:
         inst = self._installations_by_url.get(server_url)

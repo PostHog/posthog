@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ from hogli_commands.test_runner import (
     _resolve_to_repo_relative,
     _run_changed,
     _run_grouped,
+    _warn_if_dev_stack_is_down,
     detect_test_type,
 )
 from parameterized import parameterized
@@ -58,12 +61,6 @@ class TestDetectTestType:
         assert config.test_type == "python"
         assert config.command == ["pytest", "-s", "posthog/api/test/test_user.py::TestUserAPI::test_retrieve"]
 
-    def test_python_eval_uses_special_config(self) -> None:
-        config = detect_test_type("ee/hogai/eval/eval_router.py")
-        assert config.test_type == "python-eval"
-        assert config.command == ["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", "ee/hogai/eval/eval_router.py"]
-        assert "REDIS_URL" in config.env
-
     # -- Jest tests: these hit real package.json files on disk --
 
     @parameterized.expand(
@@ -100,6 +97,11 @@ class TestDetectTestType:
                 "products/desktop/packages/ui",
                 "src/shell/logCapture.test.ts",
             ),
+            (
+                "packages/agent/packages/agent/src/utils/gateway.test.ts",
+                "packages/agent/packages/agent",
+                "src/utils/gateway.test.ts",
+            ),
         ]
     )
     def test_desktop_test_file_routes_to_package_vitest(self, file_path: str, pkg_dir: str, rel: str) -> None:
@@ -134,6 +136,8 @@ class TestDetectTestType:
             ),
             ("products/desktop", ["pnpm", "--dir", "products/desktop", "test"]),
             ("products/desktop/packages", ["pnpm", "--dir", "products/desktop", "test"]),
+            ("packages/agent", ["pnpm", "--dir", "packages/agent", "test"]),
+            ("packages/agent/packages", ["pnpm", "--dir", "packages/agent", "test"]),
         ]
     )
     def test_desktop_directories_route_to_vitest_or_turbo(self, dir_path: str, expected_command: list[str]) -> None:
@@ -351,12 +355,32 @@ class TestResolveToRepoRelative:
             assert result == "posthog/test_foo.py::TestBar"
 
 
+@pytest.fixture
+def source_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for rel in (
+        "posthog/api/comments.py",
+        "posthog/api/test/test_comments.py",
+        "frontend/src/scenes/dashboard/DashboardHeader.tsx",
+        "frontend/src/scenes/dashboard/DashboardHeader.test.tsx",
+        "livestream/events/filter.go",
+        "livestream/events/filter_test.go",
+        "tools/hogli-commands/hogli_commands/test_runner.py",
+        "tools/hogli-commands/hogli_commands/tests/test_test_runner.py",
+    ):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).touch()
+    for rel in ("rust/capture/src/api.rs", "rust/capture/src/v1/util.rs"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("#[cfg(test)]\nmod tests {}\n")
+    monkeypatch.setattr("hogli_commands.test_runner.REPO_ROOT", tmp_path)
+
+
 class TestIsTestFile:
     @parameterized.expand(
         [
             ("posthog/api/test/test_user.py", True),
-            ("ee/hogai/eval/eval_router.py", True),
-            ("ee/hogai/eval_router.py", False),
+            ("products/posthog_ai/evals/sql/eval_sql.py", False),
+            ("products/posthog_ai/eval_harness/test/test_discovery.py", True),
             ("posthog/eval_something.py", False),
             ("ee/hogai/router.py", False),
             ("posthog/models/team.py", False),
@@ -379,6 +403,7 @@ class TestIsTestFile:
             ("rust/capture/src/v1/util.rs",),
         ]
     )
+    @pytest.mark.usefixtures("source_tree")
     def test_rs_inline_cfg_test_detected_with_batch(self, path: str) -> None:
         rs_cfg_test = _batch_find_rs_cfg_test("rust/capture/src")
         assert _is_test_file(path, rs_cfg_test=rs_cfg_test)
@@ -402,6 +427,7 @@ class TestGetChangedFiles:
         assert _get_changed_files() == ["tools/hogli-commands/hogli_commands/test_runner.py"]
 
 
+@pytest.mark.usefixtures("source_tree")
 class TestFindTestFilesForSource:
     @parameterized.expand(
         [
@@ -467,6 +493,7 @@ class TestRunChanged:
 
     @patch("hogli_commands.test_runner._run")
     @patch("hogli_commands.test_runner._get_changed_files")
+    @pytest.mark.usefixtures("source_tree")
     def test_discovers_tests_for_changed_source_files(self, mock_changed, mock_run) -> None:
         mock_changed.return_value = ["posthog/api/comments.py"]
         _run_changed([])
@@ -547,7 +574,8 @@ class TestRunGrouped:
 
 class TestCliPassthrough:
     @patch("hogli_commands.test_runner._run")
-    def test_hogli_test_passes_unknown_options_to_runner(self, mock_run: MagicMock) -> None:
+    def test_hogli_test_passes_unknown_options_to_runner(self, mock_run: MagicMock, monkeypatch) -> None:
+        monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
         result = runner.invoke(
             cli,
             [
@@ -624,3 +652,30 @@ class TestScopedRunHints:
         _hint_scoped_run("posthog/api/test")
 
         assert ("hogli test --changed" in capsys.readouterr().out) is hinted
+
+    @parameterized.expand(
+        [
+            ("database_down_on_a_baked_image_warns", ["pytest", "a.py"], True, True, False, True),
+            ("seeded_database_ready_is_quiet", ["pytest", "a.py"], True, True, True, False),
+            ("outside_a_sandbox_is_quiet", ["pytest", "a.py"], False, True, False, False),
+            ("unbaked_image_is_quiet", ["pytest", "a.py"], True, False, False, False),
+            ("non_pytest_runner_is_quiet", ["pnpm", "exec", "jest", "a.test.ts"], True, True, False, False),
+        ],
+    )
+    def test_a_down_dev_stack_is_only_reported_where_the_advice_applies(
+        self, _name: str, command, in_sandbox, baked_image, database_ready, warned
+    ):
+        stdout = io.StringIO()
+        with pytest.MonkeyPatch.context() as monkeypatch, contextlib.redirect_stdout(stdout):
+            if in_sandbox:
+                monkeypatch.setenv("POSTHOG_TASK_RUN_ID", "run-1")
+            else:
+                monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+            monkeypatch.setattr("hogli_commands.test_runner._seeded_test_database_ready", lambda: database_ready)
+            monkeypatch.setattr(
+                "hogli_commands.test_runner._DEV_STACK_BAKE_MANIFEST", MagicMock(exists=lambda: baked_image)
+            )
+
+            _warn_if_dev_stack_is_down(command)
+
+        assert ("bootstrap-dev-stack" in stdout.getvalue()) is warned

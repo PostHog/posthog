@@ -68,6 +68,7 @@ class PrepareReportContextOutput:
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
     true_is_failure: bool = False
+    output_config: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @frozen
@@ -85,6 +86,7 @@ class RunEvalReportAgentInput:
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
     true_is_failure: bool = False
+    output_config: dict[str, Any] = dataclasses.field(default_factory=dict)
     trace_id: str = ""
     session_id: str = ""
 

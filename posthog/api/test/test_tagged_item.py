@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from django.db.models.signals import post_save
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -33,15 +34,25 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.json()["tags"], ["random"])
         self.assertEqual(Tag.objects.all().count(), 1)
 
-    def test_create_with_tags(self):
+    def test_create_with_tags(self) -> None:
+        created_tag_names: list[str] = []
+
+        def record_tag_creation(instance: Tag, created: bool, **kwargs: object) -> None:
+            if created:
+                created_tag_names.append(instance.name)
+
+        post_save.connect(record_tag_creation, sender=Tag)
+        self.addCleanup(post_save.disconnect, record_tag_creation, sender=Tag)
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "Default", "pinned": "true", "tags": ["random", "hello"]},
+            {"name": "Default", "pinned": "true", "tags": [" Random ", "hello", "random"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
         self.assertEqual(Tag.objects.all().count(), 2)
+        self.assertEqual(created_tag_names, ["hello", "random"])
 
     def test_update_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -322,7 +333,7 @@ class TestBulkUpdateTags(APIBaseTest):
         assert data["updated"][0]["id"] == dashboard.id
         assert len(data["skipped"]) == 1
         assert data["skipped"][0]["id"] == missing_id
-        assert data["skipped"][0]["reason"] == "Not found"
+        assert data["skipped"][0]["reason"] == "Not found or no edit access"
 
     def test_tags_are_normalized_via_tagify(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dash")
@@ -408,7 +419,7 @@ class TestBulkUpdateTags(APIBaseTest):
         data = response.json()
         assert data["updated"] == []
         assert len(data["skipped"]) == 1
-        assert data["skipped"][0]["reason"] == "Not found"
+        assert data["skipped"][0]["reason"] == "Not found or no edit access"
         other_dashboard.refresh_from_db()
         actual_tags = list(other_dashboard.tagged_items.values_list("tag__name", flat=True))
         assert actual_tags == ["other-tag"]

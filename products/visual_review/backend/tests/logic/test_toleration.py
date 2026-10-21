@@ -9,6 +9,7 @@ from django.utils import timezone
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ActorType, RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, repos, runs, toleration
+from products.visual_review.backend.logic.run_queries import SnapshotKey
 from products.visual_review.backend.models import ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -116,26 +117,33 @@ class TestToleratedHashes:
         with pytest.raises(ValueError, match="Can only mark CHANGED"):
             toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
 
-    def test_tolerated_hash_shortcircuits_classification(self, repo, user, mocker):
-        from products.visual_review.backend.models import ToleratedHash
+    @pytest.mark.parametrize(
+        "rows,expected_baseline_hash",
+        [
+            ([("old_hash", "new_hash")], "old_hash"),
+            # The baseline flipped to the render that was tolerated, and the run rendered the old baseline.
+            ([("new_hash", "old_hash")], "new_hash"),
+            ([("new_hash", "old_hash"), ("old_hash", "new_hash")], "old_hash"),
+        ],
+    )
+    def test_tolerated_hash_shortcircuits_classification(self, repo, user, mocker, rows, expected_baseline_hash):
+        for baseline_hash, alternate_hash in rows:
+            ToleratedHash.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                identifier="Button",
+                baseline_hash=baseline_hash,
+                alternate_hash=alternate_hash,
+                reason="auto_threshold",
+            )
 
-        # Create a tolerated hash entry
-        ToleratedHash.objects.create(
-            repo=repo,
-            team_id=repo.team_id,
-            identifier="Button",
-            baseline_hash="old_hash",
-            alternate_hash="new_hash",
-            reason="auto_threshold",
-        )
-
-        # Run with the same hashes — should be classified UNCHANGED via cache
         run = self._create_completed_run(repo, mocker)
         snapshot = run.snapshots.first()
 
         assert snapshot.result == SnapshotResult.UNCHANGED
         assert snapshot.classification_reason == "tolerated_hash"
         assert snapshot.tolerated_hash_match is not None
+        assert snapshot.tolerated_hash_match.baseline_hash == expected_baseline_hash
 
     def test_tolerated_hash_expires_on_baseline_change(self, repo, user, mocker):
         from products.visual_review.backend.models import ToleratedHash
@@ -157,6 +165,38 @@ class TestToleratedHashes:
         assert snapshot.result == SnapshotResult.CHANGED
         assert snapshot.classification_reason == ""
         assert snapshot.tolerated_hash_match is None
+
+    @pytest.mark.parametrize(
+        "rows,expected",
+        [
+            ([("old_hash", "human", None), ("old_hash", "agent", None)], 2),
+            ([("old_hash", "human", None), ("old_hash", "agent", None), ("old_hash", "human", None)], 3),
+            # Recorded against a baseline that has since moved. The classifier can never match
+            # these again, so counting them would report a pile-up nobody can act on.
+            ([("old_hash", "human", None), ("superseded", "human", None)], 1),
+            ([("old_hash", "human", None), ("old_hash", "human", -1)], 1),
+            # Sub-threshold jitter the diff pipeline minted, not a decision anybody made.
+            ([("old_hash", "human", None), ("old_hash", "auto_threshold", None)], 1),
+            ([("old_hash", "auto_threshold", None)], 0),
+        ],
+    )
+    def test_counts_accepted_variants_of_the_current_baseline(self, repo, mocker, rows, expected):
+        self._create_completed_run(repo, mocker)
+        now = timezone.now()
+        for index, (baseline_hash, reason, expiry_days) in enumerate(rows):
+            ToleratedHash.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                identifier="Button",
+                baseline_hash=baseline_hash,
+                alternate_hash=f"variant_{index}",
+                reason=reason,
+                expires_at=None if expiry_days is None else now + timedelta(days=expiry_days),
+            )
+
+        counts = toleration.count_active_variants_against_current_baseline(repo.id, now=now)
+
+        assert counts.get(SnapshotKey(run_type=RunType.STORYBOOK, identifier="Button"), 0) == expected
 
     def test_get_tolerated_hashes_for_identifier(self, repo):
         from products.visual_review.backend.models import ToleratedHash

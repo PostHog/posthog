@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
+import type { BatchResolverResumeOutcome } from '~/cdp/services/hogflows/batch-resolver-resume'
+import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
@@ -192,6 +195,12 @@ export interface CyclotronV2JobProducer {
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
+    resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
+    resumeParkedBatchResolver(options: {
+        teamId: number
+        functionId: string
+        batchJobId: string
+    }): Promise<BatchResolverResumeOutcome>
     disconnect(): Promise<void>
 }
 

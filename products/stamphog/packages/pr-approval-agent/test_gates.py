@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import yaml
 import gates
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
@@ -16,7 +17,7 @@ from gates import (
     is_size_exempt,
     substantive_size,
 )
-from policy import OwnershipSource
+from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_policy, repo_root
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -108,6 +109,30 @@ from policy import OwnershipSource
             ["common/esbuilder/tsconfig.json"],
             id="tsconfig-not-deps",
         ),
+        pytest.param(
+            ["frontend/src/lib/api.ts"],
+            id="busy-api-client-not-guardrail",
+        ),
+        pytest.param(
+            ["tach.toml"],
+            id="busy-tach-config-not-guardrail",
+        ),
+        pytest.param(
+            ["products/model_crossing_uses_baseline.txt"],
+            id="busy-crossings-baseline-not-guardrail",
+        ),
+        pytest.param(
+            ["posthog/test/repo_invariants/setup_receivers_baseline.txt"],
+            id="busy-receivers-baseline-not-guardrail",
+        ),
+        pytest.param(
+            ["posthog/egress/slack/client.py"],
+            id="egress-domain-not-guardrail",
+        ),
+        pytest.param(
+            ["tools/release/feature-product.yaml"],
+            id="product-yaml-suffix-not-manifest",
+        ),
     ],
 )
 def test_no_false_positive(files: list[str]) -> None:
@@ -177,8 +202,23 @@ def test_no_false_positive(files: list[str]) -> None:
         ),
         pytest.param(
             [".github/workflows/ci.yml"],
-            "infra_cicd",
+            "ci_workflows",
             id="github-workflow",
+        ),
+        pytest.param(
+            [".depot/workflows/ci-backend.yml"],
+            "ci_workflows",
+            id="depot-workflow",
+        ),
+        pytest.param(
+            [".github/workflows/ci-security.yaml"],
+            "infra_cicd",
+            id="security-owned-workflow",
+        ),
+        pytest.param(
+            [".depot/workflows/ci-security.yaml"],
+            "infra_cicd",
+            id="security-owned-depot-workflow",
         ),
         pytest.param(
             ["bin/deploy-hobby"],
@@ -235,6 +275,36 @@ def test_no_false_positive(files: list[str]) -> None:
             "deps_toolchain",
             id="manifest-with-lockfile",
         ),
+        pytest.param(
+            [".semgrep/rules/devex/url-naming.yaml"],
+            "devex_guardrails",
+            id="devex-semgrep-rule",
+        ),
+        pytest.param(
+            ["frontend/src/lib/api-ratchet-baseline.txt"],
+            "devex_guardrails",
+            id="api-ratchet-baseline",
+        ),
+        pytest.param(
+            ["posthog/egress/AGENTS.md"],
+            "devex_guardrails",
+            id="egress-agents-md-matches-lowercased",
+        ),
+        pytest.param(
+            ["posthog/ingress/verify/hmac.py"],
+            "devex_guardrails",
+            id="ingress-shared-verify",
+        ),
+        pytest.param(
+            ["posthog/test/repo_invariants/test_startup_import_budget.py"],
+            "devex_guardrails",
+            id="startup-budget-invariant-test",
+        ),
+        pytest.param(
+            ["tools/hogli-commands/hogli_commands/product/isolation.py"],
+            "devex_guardrails",
+            id="isolation-lint",
+        ),
     ],
 )
 def test_true_positive(files: list[str], expected_category: str) -> None:
@@ -262,6 +332,82 @@ def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
     # Titles flag for LLM scrutiny but never deny — a title-only keyword
     # must not put the PR in T2-never (56-83% of those merged unchanged).
     assert detect_title_scrutiny_flags(subject) == expected_flags
+
+
+@pytest.fixture
+def deny_exceptions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    raw = merge_policy(
+        yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text()),
+        yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text()),
+    )
+    raw["deny"]["billing"]["match"]["any"][0] = "Billing"
+    raw["deny_exceptions"] = {
+        "billing": [
+            {
+                "keyword": "BILLING",
+                "path_prefixes": ["APPS/", "argocd/", "shared/", "state/", "charts/"],
+                "extensions": [".YAML", ".yml"],
+            },
+            {"keyword": "billing", "path_prefixes": ["apps/billing.v2/"], "extensions": [".tar.gz"]},
+        ],
+        "infra_cicd": [{"path_prefixes": [".github/"]}],
+        "auth": [{"keyword": "permission", "path_prefixes": ["apps/billing.v2/"], "extensions": [".yaml"]}],
+    }
+    policy_path = tmp_path / "policy.yml"
+    policy_path.write_text(yaml.safe_dump(raw))
+    policy = load_policy(
+        policy_path, lockfile_names=gates._ALL_LOCKFILE_NAMES, ownership_formats=gates.OWNERSHIP_FORMAT_LOCATORS
+    )
+    monkeypatch.setattr(gates, "DENY_PATTERNS", gates._compile_patterns(policy.deny_pattern_defs()))
+    monkeypatch.setattr(
+        gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(policy.deny_pattern_defs(), policy.deny_exceptions)
+    )
+
+
+@pytest.mark.parametrize(
+    "files, expected",
+    [
+        pytest.param(["apps/billing/values.yaml"], [], id="billing-yaml"),
+        pytest.param(["ARGocd/BILLING/VALUES.YML"], [], id="case-insensitive"),
+        pytest.param(["shared/billing.yaml", "state/billing.yml", "charts/billing/values.yaml"], [], id="all-prefixes"),
+        pytest.param(["apps/payment-billing/values.yaml"], ["billing"], id="payment-in-same-path"),
+        pytest.param(["apps/stripe-billing/values.yaml"], ["billing"], id="stripe-in-same-path"),
+        pytest.param(["apps/invoice-billing/values.yaml"], ["billing"], id="invoice-in-same-path"),
+        pytest.param(["apps/pricing-billing/values.yaml"], ["billing"], id="pricing-in-same-path"),
+        pytest.param(["apps/billing/values.json"], ["billing"], id="wrong-extension"),
+        pytest.param(["apps/billing/values.yaml.py"], ["billing"], id="lookalike-extension"),
+        pytest.param(["apps-other/billing/values.yaml"], ["billing"], id="lookalike-prefix"),
+        pytest.param(["src/apps/billing/values.yaml"], ["billing"], id="nested-prefix"),
+        pytest.param(["apps/billing.v2/values.tar.gz"], [], id="compound-suffix-and-literal-dot-prefix"),
+        pytest.param(["apps/billing-v2/values.tar.gz"], ["billing"], id="dot-prefix-is-literal"),
+        pytest.param(["apps/billing.v2/values.tar.gz.py"], ["billing"], id="compound-suffix-is-terminal"),
+        pytest.param(["apps/billing.v2/permission.yaml"], [], id="path-only-keyword-exception"),
+        pytest.param(["apps/billing.v2/permission-auth.yaml"], ["auth"], id="path-only-keeps-other-auth-pattern"),
+        pytest.param(["apps/billing/permission.yaml"], ["auth"], id="path-only-keeps-other-scopes"),
+        pytest.param(["apps/billing/values.yaml", "src/billing.py"], ["billing"], id="non-exempt-file"),
+        pytest.param(["apps/billing/auth.yaml"], ["auth"], id="auth-stays-protected"),
+        pytest.param(["apps/billing/secret.yaml"], ["crypto_secrets"], id="secrets-stay-protected"),
+        pytest.param(["apps/billing/openapi.yaml"], ["public_api"], id="api-stays-protected"),
+        pytest.param(["apps/billing/migrations/change.yaml"], ["migrations"], id="migrations-stay-protected"),
+        pytest.param(["apps/billing/owners.yaml"], ["stamphog_policy"], id="policy-stays-protected"),
+        pytest.param([".github/helm/check.py"], [], id="category-exception-without-extension"),
+        pytest.param([".github/pr-deploy"], [], id="category-path-pattern"),
+        pytest.param([".github-other/helm/check.py"], ["infra_cicd"], id="category-prefix-lookalike"),
+        pytest.param([".github/helm/check.py", "terraform/main.tf"], ["infra_cicd"], id="category-mixed-files"),
+        pytest.param([".github/workflows/codeql.yml"], ["ci_workflows"], id="other-category-same-file"),
+    ],
+)
+def test_deny_exceptions_are_per_pattern_and_per_file(deny_exceptions, files: list[str], expected: list[str]) -> None:
+    assert detect_deny_categories(files) == expected
+
+
+def test_disabling_deny_exceptions_keeps_ignored_files(deny_exceptions) -> None:
+    files = ["apps/billing/values.yaml", "posthog/migrations/0999_add_column.py"]
+    ignored = {"posthog/migrations/0999_add_column.py"}
+
+    assert detect_deny_categories(files, ignored_files=ignored) == []
+    assert detect_deny_categories(files, ignored_files=ignored, apply_exceptions=False) == ["billing"]
+    assert detect_title_scrutiny_flags("fix: billing helm auth") == ["auth", "billing", "infra_cicd"]
 
 
 # ── Deny-list bypass via ignored_files ───────────────────────────
@@ -363,6 +509,18 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("services/mcp/src/api/generated_helpers.ts", False, id="generated-underscore-counted"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
         pytest.param("frontend/src/types.gen.ts", True, id="dot-gen-suffix"),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/0009_snapshot.json",
+            True,
+            id="drizzle-snapshot",
+        ),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/_journal.json",
+            False,
+            id="drizzle-journal-counted",
+        ),
+        pytest.param("frontend/src/meta/0001_snapshot.ts", False, id="snapshot-named-code-counted"),
+        pytest.param("config/meta/0001_snapshot.json", False, id="snapshot-outside-migrations-counted"),
         pytest.param("pnpm-lock.yaml", False, id="lockfile-yaml-counted"),
         pytest.param("uv.lock", True, id="lockfile-lock-ext"),
         pytest.param("posthog/api/insight.py", False, id="python-code"),
@@ -527,6 +685,7 @@ def test_resolver_owner_normalization(
     expected_individuals: list[str],
     expected_owned: int,
 ) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text(owners_yaml)
@@ -541,6 +700,7 @@ def test_resolver_owner_normalization(
 
 
 def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n  - team-b\n")
@@ -561,6 +721,7 @@ def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_p
     # changes anywhere in the repo, so a team owning only those was not touched by the change. The
     # match names one directory shape on purpose: AGENTS.md rules out a general harmless-file rule,
     # and a bare `generated/` match would catch hand-editable code elsewhere in the tree.
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n")
@@ -590,5 +751,30 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
     # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
-    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parent / "owners"
-    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parents[3] / "tools" / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners-yaml"
+    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parent / "owners"
+
+
+@pytest.mark.parametrize(
+    "engine_file, resolver_dir",
+    [
+        pytest.param(
+            "root/products/stamphog/packages/pr-approval-agent/gates.py",
+            "root/packages/owners-yaml",
+            id="monorepo",
+        ),
+        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", id="sandbox-and-vendored"),
+    ],
+)
+def test_the_owners_package_is_found_in_both_engine_layouts(
+    tmp_path: Path, engine_file: str, resolver_dir: str
+) -> None:
+    expected = tmp_path / resolver_dir
+    (expected / "owners_yaml").mkdir(parents=True)
+    engine_path = tmp_path / engine_file
+    engine_path.parent.mkdir(parents=True)
+    engine_path.touch()
+
+    found = [candidate for candidate in gates._owners_pkg_candidates(engine_path) if candidate.is_dir()]
+
+    assert found == [expected.resolve()]

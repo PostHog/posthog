@@ -77,6 +77,8 @@ describe('metricsLogic', () => {
         initKeaTests()
         logic = metricsLogic()
         logic.mount()
+        expect(dataCatalogMetricsList).not.toHaveBeenCalled()
+        void logic.values.allMetrics
         await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
     })
 

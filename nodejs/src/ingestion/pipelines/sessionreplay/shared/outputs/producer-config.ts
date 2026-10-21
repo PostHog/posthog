@@ -66,7 +66,7 @@ export function getDefaultKafkaSessionreplayProducerEnvConfig(): KafkaSessionrep
 
 /**
  * ML_IMAGE_SCRUB producer — same replay cluster, but a dedicated client instance so the
- * image-scrub lane's heavy, best-effort payloads (original image bytes, up to 32 MB per source
+ * image-scrub lane's heavy, best-effort payloads (original image bytes, up to 64 MiB per source
  * message) buffer in their own librdkafka queue. A scrub-topic slowdown then fails fast inside
  * this producer (failed produces are swallowed by design — a dangling ref reads as a placeholder)
  * instead of filling the shared SESSIONREPLAY queue and starving DLQ/overflow/metadata produces.
@@ -108,7 +108,7 @@ export function getDefaultKafkaMlImageScrubProducerEnvConfig(): KafkaMlImageScru
         // of accumulating in the mirror process.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '10000',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '131072',
-        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: `${20 * 1024 * 1024 + 64 * 1024}`,
+        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: `${40 * 1024 * 1024 + 64 * 1024}`,
         // Short local delivery timeout (librdkafka defaults to 300s): the lane is best-effort and
         // its ack promises join the mirror's pre-commit side-effect drain, so a scrub-topic
         // slowdown must fail deliveries fast (dangling ref = placeholder) rather than stall the
@@ -159,7 +159,7 @@ export function getDefaultKafkaMlImageFetchProducerEnvConfig(): KafkaMlImageFetc
         // This holds one maximum image response or roughly 60 maximum frontier records.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '50000',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '32768',
-        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: `${20 * 1024 * 1024 + 64 * 1024}`,
+        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: `${40 * 1024 * 1024 + 64 * 1024}`,
         // The same short local timeout as the scrub lane, and for the same reason: these ack
         // promises join the mirror's pre-commit side-effect drain, so a slow topic must fail fast
         // rather than hold the mirror's offset commits toward max.poll.interval.ms.

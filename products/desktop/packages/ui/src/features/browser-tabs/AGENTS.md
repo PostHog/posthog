@@ -153,8 +153,15 @@ differ. Desktop ships first.
   partition.
 
 ### Drag to reorder
-- Pills are `@dnd-kit/react` sortables (x-axis–locked, full-opacity preview),
-  split into two sortable groups so a drag can't cross the pinned boundary.
+- Pills are `@dnd-kit/react` sortables (full-opacity preview), split into two
+  sortable groups so a drag can't cross the pinned boundary. The `DetachFromStrip`
+  modifier (`tabDetach.ts`) holds the pill in the row until the pointer has
+  moved `DETACH_DISTANCE` (one pill height, as Chrome does) up or down; then
+  the pill follows the pointer in both axes and snaps back into the row if the
+  pointer returns. `BrowserTabsDndProvider` mirrors that threshold into
+  `tabReorderStore.detached` on `dragmove` (measured from the pointer at
+  dragstart, because dnd-kit's event snapshot has no `position.delta`), and
+  `dragover` skips the reorder while detached.
 - The in-flight preview lives in a **transient view store** (`tabReorderStore`),
   never in the domain snapshot mirror: `dragover` reorders the previewed
   *stored* order **within the dragged tab's pin group only** (`reorderWithinGroup`
@@ -268,6 +275,11 @@ retarget its originating background tab as described below. `railHistoryStore`
   `useActiveSession()`, never `params.taskId`, or a tab sitting on an open
   session reads "New tab". That selection lives in the URL precisely so a tab
   can name it and restore it — don't move it back into a store.
+- **A canvas is not always a path param either.** `/canvases` keeps the open
+  canvas in its *search* (`?canvas=`), so the strip folds that id together with
+  `params.dashboardId` into one `routeCanvasId`. The identity, the label and the
+  name lookup all read that value. Without it the page has no label of its own
+  and the tab keeps the name of the page you came from.
 - **A saved search names its own tab.** `/feeds/$feedId` is the tab; picking a
   result reads that task into the pane without leaving the search, so the strip
   drops the active session there and labels the tab with the search's name.
@@ -304,44 +316,36 @@ retarget its originating background tab as described below. `railHistoryStore`
 - Full back/forward integration across the real router belongs in an E2E
   (Playwright) spec, not a unit test.
 
-## Split view (parked — how to approach it)
+## Tiled tabs (split view)
 
-A working prototype (July 2026, since removed — recoverable from git history)
-let a pill be dragged off the strip onto right/bottom drop zones over the
-content area, splitting the scene into a resizable two-pane
-`react-resizable-panels` group. What we learned, for whoever picks it up:
+Tabs can share the content pane side by side or in a grid.
+The feature lives in `features/tab-tiling/`; this section keeps the model and the UX in step with the code.
 
-- **The constraint:** one TanStack Router = one location = one `<Outlet>`.
-  Two panes can't both be routes. Three ways out, in order of preference:
-  1. **Router-less target pane** (what the prototype did): the secondary pane
-     renders the tab's target directly by id. `WebsiteDashboard` already takes
-     `dashboardId` as a prop and `TaskDetail` takes a `task` (replicate the
-     cache-first fetch from `routes/_shell/spaces/$channelId/tasks/$taskId.tsx`) —
-     both mount standalone today. **Channel views (inbox/artifacts/…) are the
-     blocker**: they read route params/loaders throughout, so they need a
-     props-parameterization pass before they can render in a pane. That
-     refactor is most of the remaining work.
-  2. **Second router over memory history** — renders any route, but needs a
-     chrome-less root and confuses the tab-strip navigation effect
-     (`decideTabNavigation` assumes one router).
-  3. **Tear-off to a second OS window** — the tabs data model already supports
-     it (`browser_windows`, secondary-window close semantics in
-     `closeTab`/`closeTabs`); Electron-only.
-- **Wiring that already exists and stays:** `BrowserTabsDndProvider` wraps the
-  channels chrome, so drop zones over the content area just register
-  `useDroppable` targets in the same scope; pill drag data is
-  `{ type: "browser-tab", tabId }`. The prototype's pieces were a persisted
-  `splitViewStore` (identity + direction + transient `isDraggingTab`), a
-  `TabSplitLayout` wrapper around the outlet box in `__root.tsx`, and a
-  split-zone branch in the provider's `dragend`.
-- **UX decisions already settled:** zones are right 35% / bottom 35%
-  (non-overlapping), a second drop replaces the split, a blank tab is
-  rejected, the split persists across relaunch, and a header X closes it.
-- **Open questions for the real version:** should the split pane get its own
-  tab strip (it probably wants the panels feature's tree model instead of a
-  single-pane store); how does the active-tab highlight relate to the
-  secondary pane; and whether in-pane navigation should be possible at all
-  without a router.
+### The model (`tileTree.ts`)
+- A **group** is a tree. Leaves are tab ids; inner nodes split their children along one axis (`horizontal` = side by side, `vertical` = stacked) and carry optional `sizes` in percent.
+- `tileTab` places a tab on an edge of the tile that shows another tab. A drop on the axis the parent already splits on adds a sibling, so three tabs in a row stay one flat split. A tab that was tiled elsewhere leaves its old group first. A group stops accepting drops at `MAX_TILES_PER_GROUP` (4).
+- `untileTab` removes a leaf, collapses a split left with one child, and dissolves a group left with one tile. `pruneGroups` applies that to every tab missing from the live snapshot.
+- Groups, the focused tile per group (`activeByGroup`) and the split names are **view state** in `tileLayoutStore` (zustand `persist` to localStorage). Every group has a name: `Split N` until someone renames it. The tree transforms are unit-tested in `tileTree.test.ts`.
+
+### Rendering (`TileLayout.tsx`)
+- Every tile renders its tab through `TileTabContent`, and stays mounted whichever tile is focused. A task tab mounts `TaskDetail`, a canvas tab mounts `WebsiteDashboard`, and any other tab mounts its page in its own TanStack router over a memory history seeded at the tab's href (`TileRouter`). The root route renders only its outlet inside a tile (`useInTile`), and a navigation inside a tile writes the new href back onto the tab.
+- **Focusing a tile is not a navigation.** The route, the history and the side nav stay where they are; `useFocusTab` records the tile in `activeByGroup`, and `useActiveTabId` resolves the focused member of the route's group. A tab switch into another group still navigates.
+- A plain navigation made while a split is on screen lands in the focused tile, not in the tab that owns the route (`navigationOwner` in `BrowserTabStrip`).
+- Each tile has a `ChromeBar` header: the tab's grip, icon and title, an X that removes the tile from the split, and on a task its `TaskHeaderActions`. The header is plain until dragged; only the drag ghost takes the pill styling.
+- `useSetHeaderContent` writes nothing from inside a tile, so the pane-wide header never names one tile's page above several tiles. `TaskDetail` keeps its hotkeys only in the focused tile (`useInUnfocusedTile`).
+
+### Moving tiles
+- The tile header is a `@dnd-kit/react` draggable (`tile-tab`). Dropping it on another tile's edge moves it there. Dropping it on the strip pulls it out as its own tab; while the ghost is over the strip, the tab previews as a pill in the slot it would take (`tabReorderStore.previewOrder` while `dragSource` is `tile`).
+- Session and canvas rows in the sidebar are native HTML5 drags (they already drop onto Command Center). `TileDropZones` accept them too: the drop opens the task or canvas as a background tab and tiles it beside the target (`tileDrop.ts`).
+- The dragged tile shows no zones on itself, and a full group disables its zones.
+
+### The split in the strip
+- `collapseSplits` (`displayOrder.ts`) keeps one pill per group in the slot of its first member (the **anchor**); the other members leave the strip.
+- The pill is a normal pill: a split icon, the group's name, the hover close. Its tooltip lists the name and the tabs inside, the one on screen in full color. Click it to return to the split on the focused tile. `Rename split` in its menu edits the name inline; `Separate all tabs` dissolves the group.
+- The X, middle-click and `Close split` close every tab of the split. Cmd/Ctrl+W closes the focused tile only.
+
+### Analytics
+- `Browser tab tiled` (`edge`, `source`: strip, tile or sidebar, `tile_count`), `Browser tab untiled` (`tile_count`), `Browser tab tile focused` (`tile_count`), `Browser tab split renamed` (`tile_count`).
 
 ## Known rough edges / follow-ups
 

@@ -1,4 +1,10 @@
-import { DotsThreeIcon, LinkIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+  DotsThreeIcon,
+  LinkIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   Badge,
@@ -14,6 +20,11 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasPreviewFrame } from "@posthog/ui/features/canvas/components/CanvasPreviewFrame";
+import {
+  ActivityPresenceAvatar,
+  canvasAuthor,
+} from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
@@ -23,15 +34,23 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { Box, Flex, Grid } from "@radix-ui/themes";
+import { Box, Flex } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { memo, useState } from "react";
 
 // A channel's dashboards index: a grid of cards, each showing a scaled-down
 // live preview. Clicking a card opens the full dashboard.
-export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
+export function WebsiteDashboardsIndex({
+  channelId,
+  variant = "page",
+}: {
+  channelId: string;
+  variant?: "page" | "work";
+}) {
   const { dashboards, isLoading } = useDashboards(channelId);
+  const isWork = variant === "work";
 
   // templateId -> display name, for the per-card badge ("Freeform (React)", …).
   // Falls back to the raw id for any template not in the registry.
@@ -63,20 +82,72 @@ export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
     );
   }
 
+  const card = (d: DashboardRecord) => (
+    <DashboardCard
+      key={d.id}
+      channelId={channelId}
+      summary={d}
+      templateLabel={templateLabels.get(d.templateId) ?? d.templateId}
+      canPin={isWork}
+      compactMeta={isWork}
+    />
+  );
+
+  if (!isWork) {
+    return (
+      <div className="scroll-mask-4 h-full overflow-auto bg-gray-1">
+        <div className="p-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            {dashboards.map(card)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pinned = dashboards
+    .filter((d) => d.pinnedAt != null)
+    .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0));
+  const rest = dashboards.filter((d) => d.pinnedAt == null);
+  const countLabel =
+    dashboards.length === 1 ? "1 canvas" : `${dashboards.length} canvases`;
+
   return (
     <div className="scroll-mask-4 h-full overflow-auto bg-gray-1">
-      <Box className="p-5">
-        <Grid columns={{ initial: "1", sm: "2", md: "3" }} gap="4">
-          {dashboards.map((d) => (
-            <DashboardCard
-              key={d.id}
-              channelId={channelId}
-              summary={d}
-              templateLabel={templateLabels.get(d.templateId) ?? d.templateId}
-            />
-          ))}
-        </Grid>
-      </Box>
+      <div className="px-6 py-5">
+        <div className="mb-3 flex items-center justify-between">
+          <Text size="xs" variant="muted">
+            {countLabel}
+          </Text>
+          <NewCanvasMenu channelId={channelId} />
+        </div>
+        {pinned.length > 0 && (
+          <>
+            <Text
+              size="xxs"
+              variant="muted"
+              className="mb-2 block font-medium uppercase tracking-wider"
+            >
+              Pinned
+            </Text>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+              {pinned.map(card)}
+            </div>
+            {rest.length > 0 && (
+              <Text
+                size="xxs"
+                variant="muted"
+                className="mt-5 mb-2 block font-medium uppercase tracking-wider"
+              >
+                All
+              </Text>
+            )}
+          </>
+        )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+          {rest.map(card)}
+        </div>
+      </div>
     </div>
   );
 }
@@ -85,10 +156,14 @@ const DashboardCard = memo(function DashboardCard({
   channelId,
   summary,
   templateLabel,
+  canPin = false,
+  compactMeta = false,
 }: {
   channelId: string;
   summary: DashboardRecord;
   templateLabel: string;
+  canPin?: boolean;
+  compactMeta?: boolean;
 }) {
   // Inside its delete-undo window the card stays in the grid (Undo puts it
   // straight back) but is dimmed and inert.
@@ -115,22 +190,37 @@ const DashboardCard = memo(function DashboardCard({
         }
       >
         <Card className="gap-0 overflow-hidden p-0">
-          <PreviewFrame />
-          <CardContent className="flex flex-col gap-0.5 p-3">
-            <Flex align="center" justify="between" gap="2">
-              <Text size="sm" weight="medium" className="truncate">
+          <PreviewFrame dashboardId={summary.id} />
+          <CardContent className="flex flex-col gap-1 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <Text size="sm" weight="medium" className="min-w-0 truncate">
                 {summary.name}
               </Text>
-              <Badge>{templateLabel}</Badge>
-            </Flex>
-            <Text size="xxs" variant="muted">
-              Updated {formatRelativeTimeShort(summary.updatedAt)}
-            </Text>
 
-            <Text size="xxs" variant="muted">
-              Created by{" "}
-              {summary.createdBy ? `${summary.createdBy}` : "Unknown"}
-            </Text>
+              <ActivityPresenceAvatar
+                user={canvasAuthor(summary)}
+                label="on this canvas"
+                activityAt={summary.updatedAt}
+              />
+              {!compactMeta && <Badge>{templateLabel}</Badge>}
+            </div>
+            {compactMeta ? (
+              <Text size="xxs" variant="muted" className="truncate">
+                {templateLabel} · updated{" "}
+                {formatRelativeTimeShort(summary.updatedAt)}
+                {summary.createdBy ? ` · ${summary.createdBy}` : ""}
+              </Text>
+            ) : (
+              <>
+                <Text size="xxs" variant="muted">
+                  Updated {formatRelativeTimeShort(summary.updatedAt)}
+                </Text>
+                <Text size="xxs" variant="muted">
+                  Created by{" "}
+                  {summary.createdBy ? `${summary.createdBy}` : "Unknown"}
+                </Text>
+              </>
+            )}
           </CardContent>
         </Card>
       </Link>
@@ -140,19 +230,17 @@ const DashboardCard = memo(function DashboardCard({
         id={summary.id}
         name={summary.name}
         channelId={channelId}
+        pinned={canPin ? summary.pinnedAt != null : undefined}
       />
     </Box>
   );
 });
 
-// The card's preview frame. Canvas records no longer carry source code — the
-// rendered output is the published build's artifact, wired up separately — so
-// the grid shows a stable placeholder frame instead of a live per-card render.
-function PreviewFrame() {
+function PreviewFrame({ dashboardId }: { dashboardId: string }) {
   return (
-    <Box className="relative h-44 overflow-hidden border-border border-b bg-muted">
-      <PreviewPlaceholder label="Canvas preview" />
-    </Box>
+    <div className="relative h-44 overflow-hidden border-border border-b bg-muted">
+      <CanvasPreviewFrame dashboardId={dashboardId} className="h-full w-full" />
+    </div>
   );
 }
 
@@ -160,13 +248,21 @@ function DashboardCardMenu({
   id,
   name,
   channelId,
+  pinned,
 }: {
   id: string;
   name: string;
   channelId: string;
+  pinned?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const { invalidateDashboards } = useDashboardMutations();
+  const { invalidateDashboards, setPinned } = useDashboardMutations();
+
+  const onTogglePin = () => {
+    setPinned(id, !pinned).catch(() => {
+      toast.error("Couldn't update pin");
+    });
+  };
 
   const onDelete = () => {
     deleteCanvasWithUndo({
@@ -206,6 +302,16 @@ function DashboardCardMenu({
             <LinkIcon size={14} />
             Copy link
           </DropdownMenuItem>
+          {pinned !== undefined && (
+            <DropdownMenuItem onClick={onTogglePin}>
+              {pinned ? (
+                <PushPinSlashIcon size={14} />
+              ) : (
+                <PushPinIcon size={14} />
+              )}
+              {pinned ? "Unpin" : "Pin"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem variant="destructive" onClick={onDelete}>
             <TrashIcon size={14} />
             Delete
@@ -213,19 +319,5 @@ function DashboardCardMenu({
         </DropdownMenuContent>
       </DropdownMenu>
     </Box>
-  );
-}
-
-function PreviewPlaceholder({ label }: { label: string }) {
-  return (
-    <Flex
-      align="center"
-      justify="center"
-      className="absolute inset-0 text-center"
-    >
-      <Text size="xs" variant="muted">
-        {label}
-      </Text>
-    </Flex>
   );
 }

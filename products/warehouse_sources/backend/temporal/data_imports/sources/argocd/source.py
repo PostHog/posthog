@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.argocd import (
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
+    codebase_detection = detect(env=("^ARGOCD_",), go=("github.com/argoproj/argo-cd",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -43,12 +44,12 @@ class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ARGOCD,
+            name=ExternalDataSourceType.ARGOCD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Argo CD",
             keywords=["argo", "gitops", "kubernetes", "deployments"],
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync applications, deployment history, projects, repositories, and clusters from your Argo CD server, e.g. to track deployment frequency and rollback rates.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Sync applications, deployment history, events, managed resources, commit metadata, projects, repositories, and clusters from your Argo CD server, e.g. to track deployment frequency and configuration drift.
 
 Generate an API token with `argocd account generate-token`. The account needs the `apiKey` capability enabled and read access to the resources you want to sync, for example:
 - `applications, get`

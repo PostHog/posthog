@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TrustPilotSource(ResumableSource[TrustPilotSourceConfig, TrustpilotResumeConfig]):
+    codebase_detection = detect(env=("^(TRUST_PILOT|TRUSTPILOT)_",), script_hosts=("widget.trustpilot.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -54,10 +55,10 @@ class TrustPilotSource(ResumableSource[TrustPilotSourceConfig, TrustpilotResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TRUST_PILOT,
+            name=ExternalDataSourceType.TRUSTPILOT,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Trustpilot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Trustpilot API key and secret to sync your business unit, service reviews and product reviews into the PostHog data warehouse.
 
 Create an API application in your Trustpilot Business account to get the key (client ID) and secret (client secret). See the [Trustpilot developer docs](https://developers.trustpilot.com/) for details. Set the business unit to your website domain as it appears on your Trustpilot profile, or to your business unit ID.""",

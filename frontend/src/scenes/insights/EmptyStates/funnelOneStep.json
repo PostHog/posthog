@@ -3,25 +3,31 @@
     "short_id": "bfuAVPN3",
     "name": null,
     "derived_name": "Pageview user conversion rate",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "FunnelsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "$pageview",
+                    "name": "$pageview"
+                }
+            ],
+            "interval": "day",
+            "funnelsFilter": {
+                "funnelVizType": "steps"
             }
-        ],
-        "actions": [],
-        "display": "FunnelViz",
-        "insight": "FUNNELS",
-        "interval": "day",
-        "exclusions": [],
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "funnel_viz_type": "steps"
+        }
     },
     "filters_hash": "cache_862d873ccc37114b631227eb606bb2e2",
     "order": null,

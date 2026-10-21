@@ -27,6 +27,7 @@ from products.growth.backend.temporal.signup_enrichment.reenrichment import (
 )
 
 _MODULE = "products.growth.backend.temporal.signup_enrichment.reenrichment"
+_EVALUATED_AT = dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC)
 
 
 def _now() -> dt.datetime:
@@ -54,8 +55,11 @@ class TestReenrichmentSelection(BaseTest):
         last_attempted_days_ago: int | None = 31,
         first_fetch_days_ago: int = 40,
         signup_role: str | None = None,
+        work_email: bool | None = True,
     ) -> None:
-        data: dict = {"icp_fit_status": status, "work_email": True}
+        data: dict = {"icp_fit_status": status}
+        if work_email is not None:
+            data["work_email"] = work_email
         if signup_role:
             data["signup_role"] = signup_role
         if last_attempted_days_ago is not None:
@@ -100,12 +104,18 @@ class TestReenrichmentSelection(BaseTest):
         never_attempted_but_freshly_fetched = self._org_with_member("e@fresh.example")
         self._prime(never_attempted_but_freshly_fetched, last_attempted_days_ago=None, first_fetch_days_ago=1)
 
+        not_work_email = self._org_with_member("f@cleared.example")
+        self._prime(not_work_email, status="not_found", work_email=False)
+
+        missing_work_email = self._org_with_member("g@unrecorded.example")
+        self._prime(missing_work_email, last_attempted_days_ago=32, first_fetch_days_ago=40, work_email=None)
+
         due = self._org_with_member("d@due.example")
         self._prime(due, last_attempted_days_ago=31, first_fetch_days_ago=40)
 
         candidates = self._select()
 
-        assert [c["organization_id"] for c in candidates] == [str(due.id)]
+        assert [c["organization_id"] for c in candidates] == [str(missing_work_email.id), str(due.id)]
 
     def test_cap_takes_the_least_recently_attempted_org_first(self):
         newer = self._org_with_member("newer@cap.example")
@@ -218,6 +228,7 @@ class TestReenrichOrganizationActivity(BaseTest):
         outcome = EnrichmentOutcome(
             provider_fields=EnrichmentFields(company_type="STARTUP"),
             fit=IcpFitResult(status="scored", score=48),
+            fit_evaluated_at=_EVALUATED_AT,
             enrichment_status="NOT_FOUND",
         )
         result, pha_client, enrich = self._run(outcome)
@@ -230,12 +241,14 @@ class TestReenrichOrganizationActivity(BaseTest):
             "days_since_first_fetch": None,
         }
         assert enrich.await_args is not None
-        assert enrich.await_args.kwargs["is_recheck"] is True
-        assert enrich.await_args.kwargs["role_at_organization"] == "engineering"
+        assert enrich.await_args.kwargs["ctx"].is_recheck is True
+        assert enrich.await_args.kwargs["ctx"].role_at_organization == "engineering"
         event = pha_client.capture.call_args
         assert event.kwargs["event"] == "icp_reenrichment_completed"
         assert event.kwargs["properties"]["icp_fit_status"] == "scored"
         assert event.kwargs["properties"]["matched"] is True
+        assert event.kwargs["properties"]["icp_fit_evaluation_kind"] == "sweep"
+        assert event.kwargs["properties"]["icp_fit_evaluated_at"] == _EVALUATED_AT.isoformat()
         assert event.kwargs["properties"]["harmonic_enrichment_status"] == "NOT_FOUND"
         pha_client.shutdown.assert_called_once()
 
@@ -251,6 +264,16 @@ class TestReenrichOrganizationActivity(BaseTest):
             "days_since_first_fetch": None,
         }
         assert pha_client.capture.call_args.kwargs["properties"]["icp_fit_status"] == "not_found"
+
+    def test_a_degraded_fit_evaluation_leaves_the_event_provenance_empty(self):
+        outcome = EnrichmentOutcome(provider_fields=EnrichmentFields(company_type="STARTUP"), fit=None)
+
+        _, pha_client, _ = self._run(outcome)
+
+        properties = pha_client.capture.call_args.kwargs["properties"]
+        assert properties["icp_fit_status"] is None
+        assert properties["icp_fit_evaluated_at"] is None
+        assert properties["icp_fit_evaluation_kind"] is None
 
     def test_event_carries_previous_status_attempt_number_and_profile_age(self):
         OrganizationEnrichment.objects.create(

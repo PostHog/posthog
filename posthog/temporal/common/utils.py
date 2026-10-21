@@ -1,9 +1,11 @@
 import time
+import asyncio
 import inspect
 import threading
 from collections.abc import Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from functools import wraps
+from functools import partial, wraps
 from typing import Any, ParamSpec, TypeVar, cast
 
 import django.db
@@ -12,8 +14,52 @@ from django.conf import settings
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.heartbeat_sync import heartbeat_through_loop
+
 P = ParamSpec("P")
 T = TypeVar("T")
+
+ASYNCIFY_SLOW_THRESHOLD_SECONDS = 1.0
+
+_asyncify_executor: ThreadPoolExecutor | None = None
+
+
+def configure_asyncify_executor(max_workers: int) -> ThreadPoolExecutor:
+    """Give `@asyncify` activities a thread pool sized to the worker's activity slots.
+
+    Without an explicit executor, ``sync_to_async(thread_sensitive=False)`` runs on the event
+    loop's default executor, which CPython caps at ``min(32, os.cpu_count() + 4)`` threads. That
+    cap is independent of, and usually below, the worker's ``max_concurrent_activities``, so
+    asyncified activities queue for a thread while their slots sit idle. One family of activities
+    blocking on a slow dependency then starves every other activity in the process.
+
+    Call this once at worker startup. Processes that never call it keep the previous behaviour.
+    """
+    global _asyncify_executor
+
+    # Non-daemon threads, so a replaced pool would keep the process alive with nothing to run.
+    if _asyncify_executor is not None:
+        _asyncify_executor.shutdown(wait=False)
+
+    _asyncify_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncify")
+    return _asyncify_executor
+
+
+def shutdown_asyncify_executor() -> None:
+    """Release the pool created by `configure_asyncify_executor`, and fall back to the loop default."""
+    global _asyncify_executor
+
+    if _asyncify_executor is None:
+        return
+
+    _asyncify_executor.shutdown(wait=False)
+    _asyncify_executor = None
+
+
+def get_asyncify_executor() -> ThreadPoolExecutor | None:
+    """Return the pool `@asyncify` submits to, or `None` to fall back to the loop's default."""
+    return _asyncify_executor
 
 
 def close_stale_db_connections() -> None:
@@ -57,6 +103,46 @@ def make_sync_retryable_with_exponential_backoff(
     return inner
 
 
+def _log_slow_thread_call(call: Callable[[], T], name: str, submit_time: float) -> Callable[[], T]:
+    """Wrap a thread-pool call so a slow thread wait or execution logs an `asyncify_slow` warning."""
+
+    def instrumented() -> T:
+        start_time = time.monotonic()
+        try:
+            return call()
+        finally:
+            now = time.monotonic()
+            thread_wait = start_time - submit_time
+            execution_time = now - start_time
+            if activity.in_activity() and max(thread_wait, execution_time) >= ASYNCIFY_SLOW_THRESHOLD_SECONDS:
+                # The structlog chain has no ExtraAdder, so stdlib `extra=` fields never reach the log.
+                activity.logger.warning(
+                    f"asyncify_slow function={name} "
+                    f"thread_wait_seconds={thread_wait:.3f} execution_seconds={execution_time:.3f} "
+                    f"thread_name={threading.current_thread().name}"
+                )
+
+    return instrumented
+
+
+def on_asyncify_pool(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
+    """Run a blocking call from an async activity on the pool `@asyncify` uses, sized to the worker's slots.
+
+    Use it for ``await`` steps inside an async activity. ``database_sync_to_async(..., thread_sensitive=False)``
+    without an executor runs on the event loop's default pool instead, which CPython caps at the node's
+    CPU count + 4, so slots above that cap wait for a thread. The pool is read on each call, so a
+    module-level ``@on_asyncify_pool`` still picks up the pool the worker configures at startup.
+    """
+
+    @wraps(fn)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        name = getattr(fn, "__name__", type(fn).__name__)
+        instrumented = _log_slow_thread_call(partial(fn, *args, **kwargs), name, time.monotonic())
+        return await database_sync_to_async_pool(instrumented, executor=get_asyncify_executor())()
+
+    return wrapper
+
+
 def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
     """Decorator to convert a sync function using sync_to_async - this preserves type hints for Temporal's serialization while allowing sync Django ORM code.
 
@@ -77,29 +163,15 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 
     @wraps(fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        submit_time = time.monotonic()
+        instrumented = _log_slow_thread_call(partial(fn, *args, **kwargs), fn.__name__, time.monotonic())
 
-        def instrumented() -> T:
-            start_time = time.monotonic()
-            try:
-                return fn(*args, **kwargs)
-            finally:
-                now = time.monotonic()
-                thread_wait = start_time - submit_time
-                execution_time = now - start_time
-                if activity.in_activity():
-                    activity.logger.warning(
-                        "asyncify_slow",
-                        extra={
-                            "function": fn.__name__,
-                            "thread_wait_seconds": round(thread_wait, 3),
-                            "execution_seconds": round(execution_time, 3),
-                            "thread_name": threading.current_thread().name,
-                            "activity_id": activity.info().activity_id,
-                        },
-                    )
-
-        return await sync_to_async(thread_sensitive=False)(close_db_connections(instrumented))()
+        run_on_thread = sync_to_async(thread_sensitive=False, executor=get_asyncify_executor())(
+            close_db_connections(instrumented)
+        )
+        if not activity.in_activity():
+            return await run_on_thread()
+        with heartbeat_through_loop(asyncio.get_running_loop()):
+            return await run_on_thread()
 
     return wrapper
 

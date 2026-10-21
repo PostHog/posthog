@@ -1,9 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { delay, HttpResponse } from 'msw'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -23,20 +28,28 @@ const CREATED_BY: Task['created_by'] = {
     email: 'lottie@posthog.com',
 }
 
-function mockRun(taskId: string, status: TaskRunStatus, createdAt: string, completedAt: string | null): TaskRun {
+function mockRun(
+    taskId: string,
+    status: TaskRunStatus,
+    createdAt: string,
+    completedAt: string | null,
+    environment: TaskRunEnvironment = TaskRunEnvironment.CLOUD
+): TaskRun {
     return {
         id: `run-${taskId}`,
         task: taskId,
         stage: null,
         branch: status === TaskRunStatus.COMPLETED ? 'posthog/task-branch' : null,
         status,
-        environment: TaskRunEnvironment.CLOUD,
+        environment,
         runtime_adapter: null,
         model: null,
         reasoning_effort: null,
         log_url: null,
         error_message: null,
         output: null,
+        task_summary: null,
+        task_tags: [],
         state: {},
         artifacts: [],
         created_at: createdAt,
@@ -44,6 +57,8 @@ function mockRun(taskId: string, status: TaskRunStatus, createdAt: string, compl
         completed_at: completedAt,
     }
 }
+
+const TASK_1_RUN = mockRun('task-1', TaskRunStatus.COMPLETED, '2024-01-15T09:30:00Z', '2024-01-15T09:48:00Z')
 
 const TASKS: Task[] = [
     {
@@ -59,7 +74,7 @@ const TASKS: Task[] = [
         signal_report: null,
         json_schema: null,
         internal: false,
-        latest_run: mockRun('task-1', TaskRunStatus.COMPLETED, '2024-01-15T09:30:00Z', '2024-01-15T09:48:00Z'),
+        latest_run: TASK_1_RUN,
         created_at: '2024-01-15T09:25:00Z',
         updated_at: '2024-01-15T09:48:00Z',
         created_by: CREATED_BY,
@@ -77,7 +92,13 @@ const TASKS: Task[] = [
         signal_report: null,
         json_schema: null,
         internal: false,
-        latest_run: mockRun('task-2', TaskRunStatus.COMPLETED, '2024-01-15T11:40:00Z', '2024-01-15T11:52:00Z'),
+        latest_run: mockRun(
+            'task-2',
+            TaskRunStatus.COMPLETED,
+            '2024-01-15T11:40:00Z',
+            '2024-01-15T11:52:00Z',
+            TaskRunEnvironment.LOCAL
+        ),
         created_at: '2024-01-15T11:38:00Z',
         updated_at: '2024-01-15T11:40:00Z',
         created_by: CREATED_BY,
@@ -102,6 +123,110 @@ const TASKS: Task[] = [
     },
 ]
 
+const PI_TASK_RUN = mockRun('task-4', TaskRunStatus.COMPLETED, '2024-01-15T10:05:00Z', '2024-01-15T10:12:00Z')
+
+const PI_TASK: Task = {
+    id: 'task-4',
+    task_number: 4,
+    slug: 'TASK-4',
+    title: 'Rename the export button label',
+    description: 'Change the export button label to sentence case.',
+    origin_product: OriginProduct.USER_CREATED,
+    runtime: TaskRuntimeEnumApi.Pi,
+    repository: 'PostHog/posthog',
+    github_integration: 1,
+    signal_report: null,
+    json_schema: null,
+    internal: false,
+    latest_run: PI_TASK_RUN,
+    created_at: '2024-01-15T10:00:00Z',
+    updated_at: '2024-01-15T10:12:00Z',
+    created_by: CREATED_BY,
+}
+
+const piLogEntry = (eventId: string, event: Record<string, unknown>): Record<string, unknown> => ({
+    type: 'pi_event',
+    timestamp: '2024-01-15T10:06:00Z',
+    event_id: `pi-boot-${eventId}`,
+    event,
+})
+
+const PI_TASK_LOG = [
+    { type: 'pi_run_started', timestamp: '2024-01-15T10:05:30Z', taskId: 'task-4', runId: 'run-task-4' },
+    piLogEntry('1', {
+        type: 'user_message',
+        id: 'pi-user-1',
+        timestamp: 1,
+        content: [{ type: 'text', text: 'Change the export button label to sentence case.' }],
+    }),
+    piLogEntry('2', {
+        type: 'assistant_thought_chunk',
+        timestamp: 2,
+        content: { type: 'text', text: 'Find the button label first.' },
+    }),
+    piLogEntry('3', {
+        type: 'tool_call_started',
+        timestamp: 3,
+        toolCall: {
+            id: 'pi-tool-read',
+            name: 'read',
+            title: 'read',
+            kind: 'read',
+            status: 'pending',
+            rawInput: { path: 'frontend/src/scenes/insights/ExportButton.tsx' },
+            locations: [{ path: 'frontend/src/scenes/insights/ExportButton.tsx' }],
+        },
+    }),
+    piLogEntry('4', { type: 'tool_call_updated', timestamp: 4, toolCall: { id: 'pi-tool-read', status: 'completed' } }),
+    piLogEntry('5', {
+        type: 'tool_call_started',
+        timestamp: 5,
+        toolCall: {
+            id: 'pi-tool-edit',
+            name: 'edit',
+            title: 'edit',
+            kind: 'edit',
+            status: 'pending',
+            rawInput: { path: 'frontend/src/scenes/insights/ExportButton.tsx' },
+        },
+    }),
+    piLogEntry('6', {
+        type: 'tool_call_updated',
+        timestamp: 6,
+        toolCall: {
+            id: 'pi-tool-edit',
+            status: 'completed',
+            content: [
+                {
+                    type: 'diff',
+                    path: 'frontend/src/scenes/insights/ExportButton.tsx',
+                    oldText: '<LemonButton>Export As CSV</LemonButton>',
+                    newText: '<LemonButton>Export as CSV</LemonButton>',
+                },
+            ],
+        },
+    }),
+    piLogEntry('7', {
+        type: 'tool_call_started',
+        timestamp: 7,
+        toolCall: {
+            id: 'pi-tool-bash',
+            name: 'bash',
+            title: 'bash',
+            kind: 'execute',
+            status: 'pending',
+            rawInput: { command: 'pnpm --filter=@posthog/frontend format' },
+        },
+    }),
+    piLogEntry('8', { type: 'tool_call_updated', timestamp: 8, toolCall: { id: 'pi-tool-bash', status: 'completed' } }),
+    piLogEntry('9', {
+        type: 'assistant_message_chunk',
+        timestamp: 9,
+        content: { type: 'text', text: 'The export button now reads "Export as CSV".' },
+    }),
+    piLogEntry('10', { type: 'turn_completed', timestamp: 10, stopReason: 'end_turn' }),
+]
+
 const listResponse = (results: Task[]): Record<string, unknown> => ({
     count: results.length,
     next: null,
@@ -119,6 +244,42 @@ const GITHUB_INTEGRATION = {
     created_at: '2024-01-01T00:00:00Z',
 }
 
+const CONVERSATIONS = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        {
+            id: 'conversation-1',
+            status: 'idle',
+            title: 'Summarize weekly signups',
+            created_at: '2024-01-15T10:00:00Z',
+            updated_at: '2024-01-15T10:15:00Z',
+            user: CREATED_BY,
+        },
+        {
+            id: 'conversation-2',
+            status: 'idle',
+            title: 'Compare conversion by channel',
+            created_at: '2024-01-14T14:00:00Z',
+            updated_at: '2024-01-14T14:20:00Z',
+            user: CREATED_BY,
+        },
+    ],
+}
+
+function UnifiedNavigationStory({ viewMode = 'new' }: { viewMode?: 'new' | 'legacy' }): JSX.Element {
+    const { setNavExperimentTab } = useActions(panelLayoutLogic)
+    const { setPhaiViewMode } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        setNavExperimentTab('chat')
+        setPhaiViewMode(viewMode)
+    }, [setNavExperimentTab, setPhaiViewMode, viewMode])
+
+    return <App />
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Tasks',
@@ -128,6 +289,8 @@ const meta: Meta = {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/': listResponse(TASKS),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: ['PostHog/posthog'] },
+                // nosemgrep: no-environments-api-urls-frontend -- Storybook mock for the shared AI navigation.
+                '/api/environments/:team_id/conversations/': CONVERSATIONS,
                 // Exact ids (not `:id`) so they never shadow the `repositories` action route.
                 '/api/projects/:team_id/tasks/task-3/': TASKS[2],
                 '/api/projects/:team_id/tasks/task-3/runs/': { count: 0, next: null, previous: null, results: [] },
@@ -147,13 +310,94 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-// Two-column layout: list on the left, the new-task composer on the right.
-export const ListWithComposer: Story = {}
+export const Composer: Story = {}
 
-// New-task route — same two columns, composer is the focused right pane.
+export const UnifiedNavigation: Story = {
+    render: () => <UnifiedNavigationStory />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        pageUrl: urls.ai(),
+    },
+}
+
+export const AiTaskSelected: Story = {
+    render: () => <UnifiedNavigationStory viewMode="legacy" />,
+    parameters: {
+        pageUrl: urls.aiTask('task-3'),
+    },
+}
+
+export const CloudTaskSelected: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-1'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': TASKS[0],
+                '/api/projects/:team_id/tasks/task-1/runs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [TASK_1_RUN],
+                },
+                '/api/projects/:team_id/tasks/task-1/runs/run-task-1/': TASK_1_RUN,
+                '/api/projects/:team_id/tasks/task-1/runs/run-task-1/logs': () =>
+                    new HttpResponse(
+                        JSON.stringify({
+                            type: 'notification',
+                            notification: {
+                                method: 'session/update',
+                                params: {
+                                    update: {
+                                        sessionUpdate: 'agent_message',
+                                        messageId: 'task-1-msg',
+                                        content: {
+                                            type: 'text',
+                                            text: 'Added a CSV export to the retention graph insight menu.',
+                                        },
+                                    },
+                                },
+                            },
+                        })
+                    ),
+            },
+        }),
+    ],
+}
+
+export const PiTaskSelected: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-4'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-4/': PI_TASK,
+                '/api/projects/:team_id/tasks/task-4/runs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [PI_TASK_RUN],
+                },
+                '/api/projects/:team_id/tasks/task-4/runs/run-task-4/': PI_TASK_RUN,
+                '/api/projects/:team_id/tasks/task-4/runs/run-task-4/logs': () =>
+                    new HttpResponse(PI_TASK_LOG.map((entry) => JSON.stringify(entry)).join('\n')),
+            },
+        }),
+    ],
+}
+
 export const NewTask: Story = {
     parameters: {
         pageUrl: taskNewUrl(),
+    },
+}
+
+export const NewTaskQuill: Story = {
+    parameters: {
+        pageUrl: taskNewUrl(),
+        featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_QUILL],
     },
 }
 
@@ -184,15 +428,14 @@ export const NewTaskWithRepository: Story = {
     ],
 }
 
-// A task is selected: the row is highlighted and its detail fills the right column.
 export const TaskSelected: Story = {
     parameters: {
         pageUrl: taskDetailUrl('task-3'),
     },
 }
 
-// The tasks request never resolves, so the list column shows its loading skeletons.
 export const Loading: Story = {
+    render: () => <UnifiedNavigationStory />,
     parameters: {
         testOptions: { waitForLoadersToDisappear: false },
     },
@@ -210,8 +453,8 @@ export const Loading: Story = {
     ],
 }
 
-// The tasks list endpoint fails with no cached tasks — the column shows an error + retry, not "No tasks yet".
 export const ListLoadError: Story = {
+    render: () => <UnifiedNavigationStory />,
     decorators: [
         mswDecorator({
             get: {
@@ -312,8 +555,8 @@ export const TaskRunNotFound: Story = {
     ],
 }
 
-// No tasks yet — the list shows its empty state alongside the composer.
 export const Empty: Story = {
+    render: () => <UnifiedNavigationStory />,
     decorators: [
         mswDecorator({
             get: {
@@ -334,8 +577,7 @@ const MOBILE_PARAMETERS = {
     testOptions: { viewport: MOBILE_VIEWPORT },
 }
 
-// Mobile: the list fills the screen in its own scroll container, with a floating "New task" button.
-export const MobileList: Story = {
+export const MobileComposer: Story = {
     parameters: MOBILE_PARAMETERS,
 }
 
@@ -347,7 +589,6 @@ export const MobileNewTask: Story = {
     },
 }
 
-// Mobile: a selected task's detail fills the screen (its back button returns to the list).
 export const MobileTaskSelected: Story = {
     parameters: {
         ...MOBILE_PARAMETERS,

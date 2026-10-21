@@ -334,7 +334,8 @@ def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:
     # JSON-encode for an unambiguous preimage: joining with a separator collides
     # when distinct_ids themselves contain it (["a|b", "c"] vs ["a", "b|c"]).
     digest = hashlib.sha256(json.dumps(sorted(distinct_ids)).encode()).hexdigest()[:32]
-    return _make_cache_key("resolved_groups", str(team_id), digest)
+    # Bump the version suffix when the cached $groups shape changes: the 12-hour TTL outlives a deploy.
+    return _make_cache_key("resolved_groups_v2", str(team_id), digest)
 
 
 def get_cached_resolved_groups(team_id: int, distinct_ids: list[str]) -> dict | None:

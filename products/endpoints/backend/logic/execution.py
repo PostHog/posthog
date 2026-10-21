@@ -24,7 +24,6 @@ from asgiref.sync import async_to_sync
 from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -39,11 +38,13 @@ from posthog.schema import (
     RefreshType,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
 from posthog.api.services.query import process_query_model
+from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
@@ -52,6 +53,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     is_api_key_access_method,
     tag_queries,
+    tags_context,
 )
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -75,6 +77,7 @@ from products.endpoints.backend.insight_transformers import MaterializedSeriesMi
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
+from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORTED
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
@@ -362,6 +365,8 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         offset: int | None = None,
     ) -> None:
+        if (version.query.get("modifiers") or {}).get("useNewEventsCluster"):
+            raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
         strategy = strategy_for(endpoint, version, self.team)
 
         is_materialized = bool(version.is_materialized and version.saved_query)
@@ -643,11 +648,11 @@ class EndpointExecutionService(PydanticModelMixin):
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
-        except ClickHouseAtCapacity:
+        except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
             logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
-            raise EndpointAtCapacity()
+            raise EndpointAtCapacity(wait=e.wait) from e
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
@@ -800,50 +805,51 @@ class EndpointExecutionService(PydanticModelMixin):
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": materialized_at.isoformat() if materialized_at else None,
             }
-            tag_queries(
+            with tags_context(
                 workload=Workload.ENDPOINTS,
                 warehouse_query=True,
                 endpoint_version=version.version,
-            )
+            ):
+                # Compute dynamic cache TTL: time remaining until data_freshness window expires
+                cache_ttl = None
+                if materialized_at and version.data_freshness_seconds:
+                    remaining = (
+                        materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                    ).total_seconds()
+                    if remaining <= 0:
+                        logger.warning(
+                            "endpoint_materialization_behind_sla",
+                            endpoint_name=endpoint.name,
+                            team_id=self.team.pk,
+                            data_freshness_seconds=version.data_freshness_seconds,
+                            last_run_at=materialized_at.isoformat(),
+                            remaining_seconds=remaining,
+                        )
+                        tag_queries(endpoint_materialization_behind=True)
+                    cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
 
-            # Compute dynamic cache TTL: time remaining until data_freshness window expires
-            cache_ttl = None
-            if materialized_at and version.data_freshness_seconds:
-                remaining = (
-                    materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
-                ).total_seconds()
-                if remaining <= 0:
-                    logger.warning(
-                        "endpoint_materialization_behind_sla",
-                        endpoint_name=endpoint.name,
-                        team_id=self.team.pk,
-                        data_freshness_seconds=version.data_freshness_seconds,
-                        last_run_at=materialized_at.isoformat(),
-                        remaining_seconds=remaining,
-                    )
-                    tag_queries(endpoint_materialization_behind=True)
-                cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
-
-            result = self._execute_query_and_respond(
-                query_request_data,
-                data.client_query_id,
-                cache_age_seconds=cache_ttl,
-                extra_result_fields=extra_fields,
-                debug=debug,
-                headers=deprecation_headers,
-                pagination=pagination,
-            )
-
-            if self._is_cache_stale(result, materialized_at):
-                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
                     query_request_data,
                     data.client_query_id,
+                    cache_age_seconds=cache_ttl,
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
                     pagination=pagination,
+                    limit_context=strategy.materialized_limit_context,
                 )
+
+                if self._is_cache_stale(result, materialized_at):
+                    query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                    result = self._execute_query_and_respond(
+                        query_request_data,
+                        data.client_query_id,
+                        extra_result_fields=extra_fields,
+                        debug=debug,
+                        headers=deprecation_headers,
+                        pagination=pagination,
+                        limit_context=strategy.materialized_limit_context,
+                    )
 
             if isinstance(result.data, dict):
                 strategy.clean_response_sentinels(result.data)
@@ -944,6 +950,8 @@ class EndpointExecutionService(PydanticModelMixin):
         offset: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
+        if is_api_key_access_method(get_query_tag_value("access_method")):
+            tag_queries(api_queries_budgeted=True)
         strategy: EndpointQueryStrategy | None = None
         try:
             strategy = strategy_for(endpoint, version, self.team)
@@ -1040,6 +1048,7 @@ class EndpointExecutionService(PydanticModelMixin):
         debug: bool = False,
         headers: dict[str, str] | None = None,
         pagination: EndpointPagination | None = None,
+        limit_context: LimitContext | None = None,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -1055,6 +1064,7 @@ class EndpointExecutionService(PydanticModelMixin):
             self.team,
             query,
             variables_override=variables_override,
+            limit_context=limit_context,
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, self.request.user),
@@ -1086,7 +1096,8 @@ class EndpointExecutionService(PydanticModelMixin):
         if pagination and "results" in result:
             pagination.process_results(result)
         elif "results" in result:
-            result["hasMore"] = False
+            # The query runner truncates unpaginated results at its default limit and sets hasMore itself.
+            result["hasMore"] = bool(result.get("hasMore"))
 
         if "results" in result:
             result = {"results": result.pop("results"), **result}

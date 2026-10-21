@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup import (
     ClickUpResumeConfig,
     clickup_source,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
+    codebase_detection = detect(env=("^CLICKUP_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2",)
@@ -57,15 +59,15 @@ class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLICK_UP,
+            name=ExternalDataSourceType.CLICKUP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="ClickUp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ClickUp personal API token to pull your ClickUp data into the PostHog Data warehouse.
 
 You can generate a personal token (starts with `pk_`) under **Settings → Apps** in ClickUp.
 
-The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`.
+The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`. You can paste the full URL.
 """,
             iconPath="/static/services/clickup.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/clickup",
@@ -114,8 +116,15 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only tasks exposes an incremental field; ClickUp endpoints are all full-refresh, never append.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
+        # Only tasks and time entries expose a server-side timestamp filter; the rest are
+        # full-refresh, and none of them are append-only.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULTS,
+        )
 
     def validate_credentials(
         self,

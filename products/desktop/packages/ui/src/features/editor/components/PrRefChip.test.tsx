@@ -18,7 +18,7 @@ describe("PrRefChip", () => {
   const href = "https://github.com/PostHog/posthog/pull/23985";
 
   async function hoverChip(): Promise<void> {
-    const link = screen.getByText("PostHog/posthog#23985").closest("a");
+    const link = screen.getByText("#23985").closest("a");
     expect(link).not.toBeNull();
     await userEvent.hover(link as HTMLAnchorElement);
   }

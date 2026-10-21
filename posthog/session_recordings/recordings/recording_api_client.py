@@ -1,3 +1,4 @@
+import base64
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,8 +7,15 @@ from django.conf import settings
 import aiohttp
 import structlog
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
-from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    RecordingApiConfigurationError,
+    RecordingDeletedError,
+)
+from posthog.session_recordings.recordings.recording_api_jwt import (
+    recording_api_auth_headers,
+    recording_api_jwt_enabled,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +96,28 @@ class RecordingApiClient:
             )
             raise
 
+    async def encrypt_blocks(
+        self, session_id: str, team_id: int, blocks: list[bytes], retention_days: int
+    ) -> list[bytes]:
+        """Encrypt compressed blocks with the session's key, minting it on first call.
+
+        Raises RecordingDeletedError if the session's key was shredded.
+        """
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/encrypt"
+        body = {
+            "blocks": [base64.b64encode(block).decode("ascii") for block in blocks],
+            "retention_days": retention_days,
+        }
+        async with self.session.post(url, json=body, headers=recording_api_auth_headers(team_id, "write")) as response:
+            if response.status == 410:
+                data = await response.json()
+                raise RecordingDeletedError(
+                    "Recording has been deleted", deleted_at=data.get("deleted_at"), deleted_by=data.get("deleted_by")
+                )
+            response.raise_for_status()
+            data = await response.json()
+        return [base64.b64decode(block) for block in data["blocks"]]
+
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """
         Delete recordings via the Recording API.
@@ -127,7 +157,13 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
             content = await client.fetch_block(key, start, end, session_id, team_id, decompress=True)
     """
     if not settings.RECORDING_API_URL:
-        raise RuntimeError("RECORDING_API_URL is not configured")
+        raise RecordingApiConfigurationError("RECORDING_API_URL is not configured")
+
+    # Without a credential every request is sent unauthenticated and comes back 401, which the tolerant
+    # handlers flatten into an empty listing exactly as a missing URL used to. The delete-recordings
+    # activity already treats both settings as the same permanent fault.
+    if not settings.INTERNAL_API_SECRET and not recording_api_jwt_enabled():
+        raise RecordingApiConfigurationError("Neither INTERNAL_API_SECRET nor RECORDING_API_JWT_SECRET is configured")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.

@@ -1,5 +1,5 @@
-import type { TaskContextInput } from "@posthog/agent/pi/task-system-prompt";
 import type { PiThinkingLevel } from "@posthog/agent/pi/types";
+import type { TaskContextInput } from "@posthog/shared/task-context";
 
 export interface PiRunInput {
   taskContext: TaskContextInput;

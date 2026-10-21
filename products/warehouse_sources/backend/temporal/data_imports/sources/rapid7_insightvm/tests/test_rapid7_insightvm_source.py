@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rapid7insightvm import (
     Rapid7InsightvmSourceConfig,
 )
@@ -24,7 +23,7 @@ class TestRapid7InsightvmSource:
         # Guards against the scaffold's `unreleasedSource=True` (which hides the connector entirely)
         # regressing back in — a finished source must be visible.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — must opt in so the public docs render the table list.

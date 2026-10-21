@@ -2,7 +2,7 @@
 
 Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. More info is available in the `querying-posthog-data` skill.
 
-Do not assume that data exists. Use the SQL tool proactively to find the right data.
+Do not assume that data exists. Use `read-data-schema` to verify events and properties. For SQL tables, use `system.information_schema` as described below. Schema discovery does not determine which tool should run the analysis.
 
 #### Search types
 
@@ -96,14 +96,29 @@ Everything else starts with that workflow.
 
 #### Schema discovery (information_schema)
 
-Don't guess table or column names — they differ per entity and drift over time. Discover the live schema for **every** data group above (system, captured, and data-warehouse tables) by querying `system.information_schema` via `execute-sql`. It exposes four self-describing virtual tables — every column below is selectable:
+Don't guess table or column names — they differ per entity and drift over time. Discover the live schema for **every** data group above (system, captured, and data-warehouse tables) by querying `system.information_schema` via `execute-sql`. Four virtual tables carry the schema itself, and each one holds a different set of fields — project a field on the surface that owns it, or the query fails:
 
-- `tables` — table_catalog, table_schema, table_name, table_type, description, row_count. table_type is one of system, data_warehouse, view, posthog (built-in analytics tables like events / persons), or information_schema.
-- `columns` — table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description.
-- `relationships` — source_table, source_column, target_table, target_column, relationship_kind, via.
-- `data_types` — type_name, description.
+- `tables` — one row per table. Fields: table_catalog, table_schema, table_name, table_type, description, row_count, certification. table_type is one of system, data_warehouse, view, posthog (built-in analytics tables like events / persons), or information_schema. `certification` is the settled trust mark (`certified` / `deprecated`) and lives **only** here, not on `columns`.
+- `columns` — one row per column. Fields: table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description, null_fraction, min_value, max_value. The last three are profiling statistics and are filled in for data-warehouse columns only.
+- `relationships` — one row per joinable relationship. Fields: source_table, source_column, target_table, target_column, relationship_kind, via, confidence, reasoning.
+- `data_types` — one row per HogQL type. Fields: type_name, description.
 
-It describes itself, so the full column set is always discoverable: `SELECT column_name, data_type FROM system.information_schema.columns WHERE table_name = 'system.information_schema.columns'`.
+`certification` on `tables` and `confidence` / `reasoning` on `relationships` come from the data catalog. The project catalog, which is what `execute-sql` reads by default, always carries all three. A caller without data catalog access still selects them, and every value reads NULL. A NULL there never means a wrong field name.
+
+The two surfaces differ in what else a NULL means. On `tables`, `certification` reads NULL for a table nobody marked. On `relationships`, `confidence` and `reasoning` hold the review evidence of an accepted relationship proposal. Only a data warehouse join that still matches its proposal carries that evidence. Every built-in join and every field traverser reads NULL for both fields, even on a project with full catalog access. A NULL there means no review evidence, not a broken join: read `source_column` and `target_column`, and use the join.
+
+The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`. The project serves the three data-quality surfaces only while data quality checks are on for it.
+
+A direct connection queried with `connectionId` is the runtime that drops surfaces. It serves `tables`, `columns`, and `data_types` only, and its `tables` has no `certification`. Leave `certification` out of a `connectionId` query. Do not read `relationships` there before a join, because the surface is absent and the query fails on an unknown table.
+
+Every surface describes itself, so its live field set is always discoverable — ask the catalog instead of trusting the lists above:
+
+```sql
+SELECT column_name, data_type
+FROM system.information_schema.columns
+WHERE table_name = 'system.information_schema.tables'
+ORDER BY ordinal_position
+```
 
 **List tables** — filter `table_type` to target a group (`system`, `data_warehouse`, `view`, `posthog`):
 
@@ -117,12 +132,12 @@ ORDER BY table_name
 **Find a table by what its docs say** — names are often opaque (especially data-warehouse tables), so search the `description` text instead of guessing names. The documentation lives in `system.information_schema.tables.description` (the catalog) — not on the `system.data_warehouse_tables` entity, which only holds connection metadata:
 
 ```sql
-SELECT table_name, description
+SELECT table_name, description, certification
 FROM system.information_schema.tables
 WHERE table_type = 'data_warehouse' AND description ILIKE '%canonical mrr%'
 ```
 
-Column docs are searchable the same way via `information_schema.columns.description`. Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
+Column docs are searchable the same way via `system.information_schema.columns.description` (the `system.` prefix is required — a bare `information_schema.columns` is an unknown table). Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
 
 **Inspect a table's columns:**
 
@@ -132,7 +147,7 @@ FROM system.information_schema.columns
 WHERE table_name = 'events'
 ```
 
-This works for `system.*` entity tables too — query them by full name, e.g. `WHERE table_name = 'system.insights'`. Their column sets differ per entity, so confirm columns before projecting them.
+This works for `system.*` entity tables too — query them by full name, e.g. `WHERE table_name = 'system.insights'`. Their column sets differ per entity and from REST/tool response fields, so confirm columns before projecting them. If a required field is absent, use a tool that exposes it or explain the limitation; do not remove the filter or substitute a different field just to make the query succeed.
 
 **Discover how a table joins to others:**
 
@@ -206,13 +221,30 @@ This prevents wasted API calls and gives users immediate feedback when the data 
 
 ##### Progressive exploration
 
-For unfamiliar or potentially large datasets, probe cheaply before running the expensive aggregation. Widen only if the cheap step looks reasonable:
+For unfamiliar or potentially large datasets, use a short timestamp window to check the data and intended query shape before widening it:
 
 1. **Count first** — `SELECT count() FROM events WHERE timestamp >= now() - INTERVAL 1 DAY AND event = 'foo'`. Confirms the data exists and gives a sense of volume.
 2. **Small sample** — inspect a handful of rows (`LIMIT 10`) to verify property shapes and values match expectations.
-3. **Full query** — run the real aggregation with a time range and `LIMIT`, having confirmed it won't scan needlessly or return empty.
+3. **Aggregation**: test the intended aggregation over that short window before widening it. Keep `LIMIT` to bound the output.
 
-This is faster than discovering an empty result or a mis-shaped property after the full aggregation, and it costs less.
+Counts and samples check volume and property shapes; they do not prove a join or aggregation will fit in memory.
+`LIMIT` bounds returned rows. Joins and aggregations can still process the full input before applying it.
+
+##### Recovering from memory failures
+
+Follow the error's advice: wait and retry once when it reports temporary server capacity.
+The `memory_limit` category alone cannot distinguish server pressure from a per-query limit.
+
+If the error says the query itself ran out of memory, shorten the time range in `WHERE` and test one adjusted query before running more windows.
+Avoid parallel retries of the same failing query shape. Even a query filtered by time or person can be too large.
+If the smaller window still fails, reduce join inputs or grouping cardinality only where that preserves the requested calculation.
+
+When splitting a requested range, use non-overlapping windows such as `timestamp >= start AND timestamp < end` with the same filters.
+Split only when each window can be computed independently without changing the calculation.
+Combine complete counts and sums by adding them, and compute averages from totals and counts.
+Do not sum distinct counts or combine per-window quantiles, funnels, or retention results as if they covered the full range.
+Rows cut off by `LIMIT` or truncation are incomplete.
+Track which windows succeeded and disclose missing windows or reduced scope; do not present partial coverage as the full answer.
 
 ##### Skipping index
 
@@ -349,6 +381,7 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 
 ##### Other rules
 
+- Use explicit `AS` and descriptive column aliases: `min(timestamp) AS first_seen_at` instead of `min(timestamp) first`. Some short names, such as `fn`, are reserved even after `AS`; use a descriptive name or backtick-quote the alias and its references.
 - WHERE clause must come after all JOINs
 - No semicolons at end of queries
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.browser_use import (
     BrowserUseResumeConfig,
     browser_use_source,
@@ -38,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeConfig]):
+    codebase_detection = detect(
+        env=("^(BROWSER_USE|BROWSERUSE)_",), npm=("browser-use-sdk",), pypi=("browser-use", "browser-use-sdk")
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # v3 was the experimental agent API; v4 is the current default. The two serve different table
     # sets (v4 drops the workspaces list and session_messages, adds runs, and reshapes sessions),
@@ -53,10 +56,10 @@ class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BROWSER_USE,
+            name=ExternalDataSourceType.BROWSERUSE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browser Use",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Browser Use API key to automatically pull your Browser Use Cloud data into the PostHog Data warehouse.
 
 You can create a non-expiring API key at [cloud.browser-use.com/settings](https://cloud.browser-use.com/settings).""",

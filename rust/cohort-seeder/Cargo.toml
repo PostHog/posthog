@@ -19,6 +19,7 @@ path = "src/bin/reconcile_dispatch.rs"
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 clap = { workspace = true }

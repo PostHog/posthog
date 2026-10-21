@@ -7,3 +7,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class AviationstackSourceConfig(config.Config):
     access_key: str
+    flights_future_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    airport_iata_codes: str | None = None

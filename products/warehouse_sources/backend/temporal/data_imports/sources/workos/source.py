@@ -1,19 +1,18 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -53,6 +52,27 @@ class WorkOSSource(
     ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig],
     WebhookSource[WorkOSSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^WORKOS_", "^NEXT_PUBLIC_WORKOS_REDIRECT_URI$"),
+        npm=(
+            "@workos-inc/node",
+            "@workos-inc/authkit-nextjs",
+            "@workos-inc/authkit-react",
+            "@workos-inc/authkit-js",
+            "@workos-inc/authkit-remix",
+            "@workos-inc/authkit-react-router",
+            "@workos-inc/widgets",
+        ),
+        pypi=("workos",),
+        cargo=("workos",),
+        composer=("workos/workos-php", "workos/workos-php-laravel"),
+        go=("github.com/workos/workos-go",),
+        hex=("workos",),
+        maven=("com.workos:workos", "com.workos:workos-android"),
+        rubygems=("workos",),
+        swiftpm=("github.com/workos/workos-ios",),
+    )
+
     api_docs_url = "https://workos.com/docs/reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -74,7 +94,7 @@ class WorkOSSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WORK_OS,
+            name=ExternalDataSourceType.WORKOS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="WorkOS",
             releaseStatus=ReleaseStatus.GA,

@@ -795,10 +795,15 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
+            // The cohort lookup counters are dropped too. A run that aborted after its last
+            // lookup attempt would otherwise restart with no retries left, and the leftover
+            // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
                 resumeResult: _resumeResult,
+                cohortLookupAttempts: _cohortLookupAttempts,
+                cohortLookupFailed: _cohortLookupFailed,
                 ...restoredCurrentAction
             } = persistedState.currentAction ?? {}
 
@@ -808,6 +813,8 @@ export class RerunPaginatorService {
                 ...invocation.state!,
                 event: eventForFilter,
                 actionStepCount: persistedState.actionStepCount ?? 0,
+                // Absence must override the new-run default so legacy replays keep their original task keys.
+                customerTaskIdempotencyVersion: persistedState.customerTaskIdempotencyVersion,
                 variables: persistedState.variables ?? {},
                 // Restore where the flow had progressed to. The executor resumes
                 // from `currentAction` (via ensureCurrentAction); without it the

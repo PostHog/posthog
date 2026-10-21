@@ -32,12 +32,6 @@ concurrency:
 permissions:
     contents: read
 
-env:
-    # pnpm reads npm_config_*; a cold install fetches every package, so ride out blips.
-    npm_config_fetch_retries: 3
-    npm_config_fetch_retry_mintimeout: 10000
-    npm_config_fetch_retry_maxtimeout: 60000
-
 jobs:
     write:
         name: Write pnpm store (${{ matrix.runner }})
@@ -48,7 +42,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                runner: [ubuntu-latest, depot-ubuntu-24.04]
+                runner: [ubuntu-24.04, depot-ubuntu-24.04]
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

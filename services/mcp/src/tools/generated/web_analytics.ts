@@ -31,6 +31,8 @@ const heatmapsEvents = (): ToolBase<ReturnType<typeof HeatmapsEventsSchema>, Sch
                 limit: params.limit,
                 offset: params.offset,
                 points: params.points,
+                timestamp_from: params.timestamp_from,
+                timestamp_to: params.timestamp_to,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -68,6 +70,8 @@ const heatmapsList = (): ToolBase<
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
                 offset: params.offset,
+                timestamp_from: params.timestamp_from,
+                timestamp_to: params.timestamp_to,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -396,31 +400,6 @@ const CompareFilter = z.object({
 
 const integer = z.coerce.number().int()
 
-const ActionConversionGoal = z.object({
-    actionId: integer,
-})
-
-const CustomEventConversionGoal = z.object({
-    customEventName: z.string(),
-})
-
-const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
-
-const AssistantDateRange = z.object({
-    date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
-})
-
-const AssistantDurationRange = z.object({
-    date_from: z
-        .string()
-        .describe(
-            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
-        ),
-})
-
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
-
 const PropertyOperator = z.enum([
     'exact',
     'is_not',
@@ -448,6 +427,7 @@ const PropertyOperator = z.enum([
     'in',
     'not_in',
     'is_cleaned_path_exact',
+    'is_cleaned_path_not_exact',
     'flag_evaluates_to',
     'semver_eq',
     'semver_neq',
@@ -508,6 +488,39 @@ const WebAnalyticsPropertyFilter = z.union([
 
 const WebAnalyticsPropertyFilters = z.array(WebAnalyticsPropertyFilter)
 
+const ActionConversionGoal = z.object({
+    actionId: integer,
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const AssistantDateRange = z.object({
+    date_from: z.string().describe('ISO8601 date string.'),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
+})
+
+const AssistantDurationRange = z.object({
+    date_from: z
+        .string()
+        .describe(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+})
+
+const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
+
 const AssistantWebOverviewQuery = z.object({
     compareFilter: CompareFilter.describe(
         'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
@@ -564,6 +577,7 @@ const WebStatsBreakdown = z.enum([
     'FirstPageviewUTMContent',
     'FirstPageviewUTMSourceMediumCampaign',
     'Browser',
+    'InAppBrowser',
     'OS',
     'Viewport',
     'DeviceType',

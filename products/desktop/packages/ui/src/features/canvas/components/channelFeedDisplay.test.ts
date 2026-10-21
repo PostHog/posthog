@@ -1,73 +1,62 @@
-import type { SignalReport, Task } from "@posthog/shared/domain-types";
-import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { describe, expect, it } from "vitest";
-import {
-  feedEntryMatchesKind,
-  mergeFeedEntries,
-  stripContextBlocks,
-} from "./channelFeedDisplay";
+import { buildFeedSections, type FeedEntry } from "./channelFeedDisplay";
 
-function task(id: string, createdAt: string): Task {
-  return { id, created_at: createdAt } as Task;
+function task(id: string, repository: string | null): FeedEntry {
+  return {
+    kind: "task",
+    id,
+    createdAt: "2026-09-18T10:00:00Z",
+    task: { id, repository } as FeedEntry extends { task: infer T } ? T : never,
+  } as FeedEntry;
 }
 
-function report(id: string, createdAt: string): SignalReport {
-  return { id, created_at: createdAt } as SignalReport;
-}
-
-function system(id: string, createdAt: string): ChannelFeedSystemMessage {
-  return { id, createdAt } as ChannelFeedSystemMessage;
-}
-
-describe("channelFeedDisplay", () => {
-  it("interleaves reports with tasks and system rows newest-first", () => {
-    const entries = mergeFeedEntries(
-      [task("t1", "2026-01-02T00:00:00Z")],
-      [system("s1", "2026-01-01T00:00:00Z")],
-      [report("r1", "2026-01-03T00:00:00Z")],
+describe("buildFeedSections", () => {
+  it("gives a group one section however often the list returns to it", () => {
+    const sections = buildFeedSections(
+      [
+        task("a", "posthog/posthog"),
+        task("b", null),
+        task("c", "posthog/posthog"),
+        task("d", "posthog/charts"),
+        task("e", null),
+      ],
+      {
+        labelOf: (entry) =>
+          entry.kind === "task"
+            ? (entry.task.repository ?? "No repository")
+            : "No repository",
+      },
     );
-    expect(entries.map((e) => e.id)).toEqual(["r1", "t1", "s1"]);
+
+    expect(sections.map((s) => s.label)).toEqual([
+      "posthog/posthog",
+      "No repository",
+      "posthog/charts",
+    ]);
+    expect(sections[0].entries.map((e) => e.id)).toEqual(["a", "c"]);
+    expect(sections[1].entries.map((e) => e.id)).toEqual(["b", "e"]);
   });
 
-  it("keeps a tied task above its announcement with reports present", () => {
-    const entries = mergeFeedEntries(
-      [task("t1", "2026-01-01T00:00:00Z")],
-      [system("s1", "2026-01-01T00:00:00Z")],
-      [report("r1", "2026-01-01T00:00:00Z")],
+  it("keeps sections apart when a key separates two equal labels", () => {
+    const sections = buildFeedSections(
+      [task("a", null), task("b", null), task("c", null)],
+      {
+        labelOf: () => "SEP 18",
+        keyOf: (entry) => (entry.id === "b" ? "y" : "x"),
+      },
     );
-    expect(entries[0].id).toBe("t1");
+
+    expect(sections.map((s) => s.key)).toEqual(["x", "y"]);
+    expect(sections[0].entries.map((e) => e.id)).toEqual(["a", "c"]);
   });
 
-  it.each([
-    ["all", ["task", "report", "system"]],
-    ["sessions", ["task", "system"]],
-    ["reports", ["report"]],
-  ] as const)("kind filter %s keeps only %j", (filter, expectedKinds) => {
-    const entries = mergeFeedEntries(
-      [task("t1", "2026-01-03T00:00:00Z")],
-      [system("s1", "2026-01-01T00:00:00Z")],
-      [report("r1", "2026-01-02T00:00:00Z")],
-    );
-    const kept = entries
-      .filter((entry) => feedEntryMatchesKind(entry, filter))
-      .map((entry) => entry.kind);
-    expect(kept).toEqual(expectedKinds);
-  });
+  it("runs an unlabelled list together as one section", () => {
+    const sections = buildFeedSections([task("a", null), task("b", null)], {
+      labelOf: () => null,
+    });
 
-  it.each([
-    {
-      name: "a channel context block",
-      text: '<channel_context channel="growth">body</channel_context>\n\nfix the bug',
-    },
-    {
-      name: "PostHog app context blocks",
-      text: "<posthog_trusted_context>\n- act with tools\n</posthog_trusted_context>\n<posthog_untrusted_context>\n- dashboard 1\n</posthog_untrusted_context>\n\nfix the bug",
-    },
-    {
-      name: "a truncated channel context block",
-      text: 'fix the bug\n<channel_context channel="growth">\nprivate context',
-    },
-  ])("strips $name from the feed text", ({ text }) => {
-    expect(stripContextBlocks(text)).toBe("fix the bug");
+    expect(sections).toHaveLength(1);
+    expect(sections[0].label).toBeNull();
+    expect(sections[0].entries).toHaveLength(2);
   });
 });

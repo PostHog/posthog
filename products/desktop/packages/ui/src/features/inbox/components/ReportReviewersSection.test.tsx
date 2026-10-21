@@ -34,8 +34,20 @@ describe("ReportReviewersSection", () => {
   it("keeps the reviewer controls available before the first assignment", () => {
     render(<ReportReviewersSection report={report} />);
 
-    expect(screen.getByText("Reviewers")).toBeInTheDocument();
-    expect(screen.getByText("No reviewers assigned.")).toBeInTheDocument();
-    expect(screen.getByText("Add")).toBeInTheDocument();
+    expect(screen.getByText("Suggested reviewers")).toBeInTheDocument();
+    const emptyMessage = screen.getByText("No suggested reviewers yet.");
+    const addButton = screen.getByRole("button", { name: "Add Reviewer" });
+    expect(emptyMessage).toBeInTheDocument();
+    expect(
+      emptyMessage.compareDocumentPosition(addButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Suggested reviewers").closest("header"),
+    ).not.toContainElement(addButton);
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "About suggested reviewers" }),
+    ).toBeInTheDocument();
   });
 });

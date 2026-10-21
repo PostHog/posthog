@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -28,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.companycam
 from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
     CompanycamSourceConfig,
@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeConfig]):
+    codebase_detection = detect(env=("^COMPANYCAM_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -70,7 +72,7 @@ class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,
@@ -109,13 +111,13 @@ class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COMPANYCAM,
+            name=ExternalDataSourceType.COMPANYCAM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="CompanyCam",
             caption="Sync projects, photos, videos, and team data from your CompanyCam account. "
             "Generate an API key from your [CompanyCam account settings](https://docs.companycam.com/reference/authentication).",
             docsUrl="https://posthog.com/docs/cdp/sources/companycam",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             iconPath="/static/services/companycam.png",
             fields=cast(
                 list[FieldType],

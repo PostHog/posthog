@@ -51,7 +51,7 @@ on:
 jobs:
     load-matrix:
         name: load image matrix
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         permissions:
             contents: read
@@ -142,6 +142,14 @@ jobs:
               with:
                   images: ghcr.io/posthog/posthog/${{ matrix.image }}
                   tags: ${{ inputs.tag-rules }}
+                  labels: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
+                  annotations: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
 
             - name: Set up Docker Buildx
               id: buildx
@@ -252,7 +260,7 @@ jobs:
     collect:
         name: collect digests
         needs: [load-matrix, build]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         permissions:
             contents: read

@@ -7,4 +7,9 @@ isolation boundary.
 
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun, TeamDataQualityConfig
 
-__all__ = ["DataQualityCheck", "DataQualityCheckRun", "DataQualitySuiteRun", "TeamDataQualityConfig"]
+__all__ = [
+    "DataQualityCheck",
+    "DataQualityCheckRun",
+    "DataQualitySuiteRun",
+    "TeamDataQualityConfig",
+]

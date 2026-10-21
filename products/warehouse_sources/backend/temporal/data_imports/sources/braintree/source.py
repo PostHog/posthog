@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,12 +10,12 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
     BraintreeResumeConfig,
     braintree_source,
     validate_credentials as validate_braintree_credentials,
@@ -43,14 +43,35 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConfig]):
+    codebase_detection = detect(
+        env=("^BRAINTREE_",),
+        script_hosts=("js.braintreegateway.com",),
+        npm=("braintree", "braintree-web", "braintree-web-drop-in"),
+        pypi=("braintree",),
+        cocoapods=("Braintree", "BraintreeDropIn", "BraintreeVisaCheckout"),
+        composer=("braintree/braintree_php", "braintree/braintreehttp"),
+        go=("github.com/braintree-go/braintree-go",),
+        maven=(
+            "com.braintreepayments.gateway:braintree-java",
+            "com.braintreepayments.api:drop-in",
+            "com.braintreepayments.api:braintree",
+            "com.braintreepayments.api:braintree-api",
+            "com.braintreepayments.api:braintree-core",
+            "com.braintreepayments.api:braintree-models",
+        ),
+        rubygems=("braintree",),
+        swiftpm=("github.com/braintree/braintree_ios", "github.com/braintree/braintree-ios-drop-in"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (
         BRAINTREE_VERSION_2019_01_01,
         BRAINTREE_VERSION_2026_07_14,
         BRAINTREE_VERSION_2026_08_04,
         BRAINTREE_VERSION_2026_08_13,
+        BRAINTREE_VERSION_2026_10_06,
     )
-    default_version = BRAINTREE_VERSION_2026_08_13
+    default_version = BRAINTREE_VERSION_2026_10_06
     api_docs_url = "https://graphql.braintreepayments.com/"
 
     @property
@@ -74,7 +95,7 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BRAINTREE,
+            name=ExternalDataSourceType.BRAINTREE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Braintree",
             caption="""Enter your Braintree API keys to pull your payments data into the PostHog Data warehouse.
@@ -82,7 +103,7 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
 You can find your public and private keys in the [Braintree control panel](https://www.braintreegateway.com/) under Settings > API Keys. Sandbox and production use separate keys — make sure the environment matches.""",
             iconPath="/static/services/braintree.png",
             docsUrl="https://posthog.com/docs/cdp/sources/braintree",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

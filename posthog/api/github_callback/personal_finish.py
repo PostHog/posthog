@@ -20,6 +20,7 @@ from posthog.api.github_callback.types import (
     is_valid_github_installation_id,
 )
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.user_integration import (
@@ -81,6 +82,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=discover_token,
                     flow=FlowKind.OAUTH_DISCOVER,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),
@@ -133,6 +136,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 headers={"Authorization": f"Bearer {authorization.access_token}"},
                 params={"per_page": 100},
                 timeout=10,
+                priority=Priority.CRITICAL,
             )
             if response.status_code != 200:
                 logger.warning("github_link: failed to list user installations", status_code=response.status_code)
@@ -152,6 +156,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=token,
                     flow=FlowKind.PERSONAL_INSTALL,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),
@@ -195,7 +201,12 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 logger.warning("github_link: failed to fetch installation info", exc_info=True)
             return _error(exc.code)
 
-        user_github_integration_from_installation(user, installation_access, authorization)
+        user_github_integration_from_installation(
+            user,
+            installation_access,
+            authorization,
+            originating_organization_id=authorize_state.originating_organization_id,
+        )
 
     if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])

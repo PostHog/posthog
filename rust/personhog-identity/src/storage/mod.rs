@@ -18,10 +18,17 @@ pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 pub trait IdentityStorage: Send + Sync {
     /// Batch-resolve (team_id, distinct_id) keys to persons on the primary.
     /// Returns a map keyed by (team_id, distinct_id); unresolved keys are absent.
+    /// Persons carry identity only (no properties): the leader owns those.
     async fn resolve_distinct_ids(
         &self,
         keys: &[(i64, String)],
     ) -> StorageResult<HashMap<(i64, String), Person>>;
+
+    /// Person ids from live distinct id rows, without reading the person table.
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), i64>>;
 
     /// Expand person ids to their live distinct id rows on the primary.
     /// With a per-person limit, identified ids survive the cut and the

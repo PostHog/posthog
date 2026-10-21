@@ -11,6 +11,8 @@ from django.db.models import F, Q, QuerySet
 from django.utils.timezone import now
 
 from posthog.helpers.dashboard_templates import (
+    FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+    FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
     FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
@@ -27,13 +29,13 @@ from posthog.utils import friendly_time
 from products.alerts.backend.facade.api import insight_ids_with_alerts
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import dashboard_ids_with_subscriptions, insight_ids_with_subscriptions
 from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_DESCRIPTION_PREFIX,
     USAGE_DASHBOARD_NAME_PREFIX,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions, insight_ids_with_subscriptions
 
 # Tags each activity-log entry so a sweep's deletions are distinguishable from a user's.
 _JOB_TYPE = "delete_feature_flag_usage_insights"
@@ -45,7 +47,7 @@ def _classifier_q() -> Q:
     Keys on name and description, not on `is_sample`: every dashboard template sets that, so on its
     own it would also match billing/usage and onboarding insights. Callers wanting a second signal
     add it on top of this (see `_delete_orphaned`).
-    Names come from constants in posthog/helpers/dashboard_templates.py, which is what creates them.
+    Names come from constants in posthog/helpers/dashboard_templates.py.
     Descriptions interpolate the flag key, so those are matched by fragment instead.
     """
     return (
@@ -56,7 +58,10 @@ def _classifier_q() -> Q:
         )
         | Q(name=FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME)
         | Q(name=FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME)
-        | Q(description__startswith="Shows the number of", description__contains="calls made on feature flag")
+        | Q(
+            description__startswith=FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
+            description__contains=FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+        )
         | Q(description__startswith="Shows the total number of times this feature was viewed")
     )
 

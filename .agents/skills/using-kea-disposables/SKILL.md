@@ -1,11 +1,13 @@
 ---
 name: using-kea-disposables
-description: 'Use when adding timers (`setInterval`, `setTimeout`), event listeners (`window.addEventListener`, `document.addEventListener`, `MediaQueryList.addEventListener`), or any other resource that needs cleanup inside a kea logic. Every logic has `cache.disposables.add(setup, key?, options?)` and `cache.disposables.dispose(key)` available via the globally registered `disposablesPlugin` (`frontend/src/kea-disposables.ts`). Replaces the bare `cache.foo = setInterval(...)` + `beforeUnmount: clearInterval(cache.foo)` pattern and auto-pauses background work when the tab is hidden.'
+description: 'Use when adding timers (`setInterval`, `setTimeout`), event listeners (`window.addEventListener`, `document.addEventListener`, `MediaQueryList.addEventListener`), or any other resource that needs cleanup inside a kea logic. Every logic has `cache.disposables.add(setup, key?, options?)` and `cache.disposables.dispose(key)` available via the globally registered `disposablesPlugin` from the `kea-disposables` package. Replaces the bare `cache.foo = setInterval(...)` + `beforeUnmount: clearInterval(cache.foo)` pattern and auto-pauses background work when the tab is hidden.'
 ---
 
 # Using kea disposables
 
-Every kea logic in this repo has `cache.disposables` injected by the local `disposablesPlugin` (`frontend/src/kea-disposables.ts`, registered globally in `frontend/src/initKea.ts`). Reach for it whenever you create a resource that needs explicit teardown — the plugin runs cleanup on unmount and automatically pauses background work when the tab is hidden.
+Every kea logic in this repo has `cache.disposables` injected by `disposablesPlugin` from the [`kea-disposables`](https://github.com/PostHog/kea-disposables) package, registered globally in `frontend/src/initKea.ts` and in `frontend/src/toolbar/index.tsx`. Reach for it whenever you create a resource that needs explicit teardown — the plugin runs cleanup on unmount and automatically pauses background work when the tab is hidden.
+
+The package is maintained outside this repo, so a change to the plugin itself belongs there, not here. Types come from the package too: `import type { DisposablesManager } from 'kea-disposables'`.
 
 **Do not add a `beforeUnmount` for cleanup.** The plugin runs the cleanup function you return from `setup` automatically when the logic unmounts (and re-runs setup/cleanup around tab visibility changes). If you find yourself writing a `beforeUnmount` whose only job is to `clearInterval` / `clearTimeout` / `removeEventListener` something registered earlier in the same logic, register that resource through `cache.disposables.add(...)` instead and delete the `beforeUnmount`. Reserve `beforeUnmount` for teardown that _isn't_ a resource you control (e.g. flushing state, persisting to localStorage, calling a third-party `dispose()`).
 
@@ -39,6 +41,23 @@ afterMount(({ actions, cache }) => {
     })
 }),
 ```
+
+For a resource that lives exactly as long as the logic, the `disposables` builder replaces that `afterMount`:
+
+```ts
+import { disposables } from 'kea-disposables'
+
+disposables(({ actions }) => ({
+    pollTimer: () => {
+        const id = window.setInterval(() => actions.loadCurrentTeam(), POLL_INTERVAL_MS)
+        return () => clearInterval(id)
+    },
+})),
+```
+
+The object keys are ordinary disposable keys, so `dispose('pollTimer')` still stops it early.
+Pass `{ setup, options }` instead of a bare function to set `pauseOnPageHidden`.
+Anything conditional, or re-armed from a listener, still wants `cache.disposables.add(...)`.
 
 ## Choosing a key
 
@@ -88,8 +107,9 @@ The next mount puts a fresh manager on the cache, so a continuation left over fr
 Capture what the continuation needs while the logic is alive when that matters.
 
 Do not guard a timer callback with `isDisposed` alone if it reads `values`.
-The flag only moves on unmount, and replacing the kea context (which storybook does on every story mount) drops the logic from the store without unmounting it, so the cleanup never runs.
-Compare `getContext()` against the context the resource was set up in — see `frontend/src/scenes/notebooks/Notebook/notebookKernelInfoLogic.ts`.
+The flag only moves on unmount, and replacing the kea context (which storybook does on every story mount) drops the logic from the store without unmounting it, so `isDisposed` stays `false` on a logic that no longer has a store.
+The plugin does run every cleanup when the old context closes, so the resource itself goes away.
+A callback that already fired, or one whose cleanup cannot stop it (an in-flight request resolving), still needs its own guard: compare `getContext()` against the context the resource was set up in — see `frontend/src/scenes/notebooks/Notebook/notebookKernelInfoLogic.ts`.
 
 ## Examples in the codebase
 

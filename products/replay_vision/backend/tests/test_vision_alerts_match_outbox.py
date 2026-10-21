@@ -39,7 +39,7 @@ from products.replay_vision.backend.temporal.vision_alerts.activities import (
     _cleanup_history,
     _drain_matches,
 )
-from products.replay_vision.backend.temporal.vision_alerts.constants import MATCH_SUMMARY_LINES
+from products.replay_vision.backend.temporal.vision_alerts.constants import MATCH_SUMMARY_LINES, MATCH_SUMMARY_MAX_CHARS
 from products.replay_vision.backend.temporal.vision_alerts.match_hook import selection_matches
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -84,7 +84,7 @@ class TestVisionAlertMatchOutbox(BaseTest):
             model_output=MonitorOutput(
                 scanner_type=ScannerType.MONITOR,
                 verdict=verdict,
-                reasoning="checkout broke",
+                reasoning="checkout broke & stalled",
                 confidence=0.9,
             )
         )
@@ -170,7 +170,9 @@ class TestVisionAlertMatchOutbox(BaseTest):
         props = produce.call_args.kwargs["properties"]
         assert props["matched_count"] == 3
         assert len(props["observation_ids"]) == 3
-        assert props["summary"].count("verdict=yes") == 3
+        # Slack reads mrkdwn, webhook consumers read JSON, so only one copy is entity-escaped.
+        assert props["summary"].count("verdict=yes: checkout broke &amp; stalled") == 3
+        assert props["summary_text"].count("verdict=yes: checkout broke & stalled") == 3
         assert produce.call_args.kwargs["uuid"] is not None
         assert not VisionAlertMatch.all_teams.filter(alert_id=alert.id, delivered_at__isnull=True).exists()
 
@@ -218,6 +220,55 @@ class TestVisionAlertMatchOutbox(BaseTest):
         assert output.alerts_notified == 0
         assert produce.call_count == 0
         assert VisionAlertMatch.all_teams.filter(delivered_at__isnull=True).count() == 4
+
+    def test_summary_stays_inside_the_slack_block_budget(self) -> None:
+        alert = self._make_match_alert(selection={})
+        for _ in range(MATCH_SUMMARY_LINES):
+            observation = self._make_pending_observation()
+            self._succeed(observation)
+            # A long title plus long multi-line prose: the worst line a summarizer can produce.
+            ReplayObservation.objects.filter(id=observation.id).update(
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": ScannerType.SUMMARIZER,
+                        "title": "t" * 400,
+                        "summary": "- the user retried\n" + "s" * 800,
+                    }
+                }
+            )
+
+        output, produce = self._drain(delivered=True)
+        assert output.matches_delivered == MATCH_SUMMARY_LINES
+        summary = produce.call_args.kwargs["properties"]["summary"]
+        assert len(summary) <= MATCH_SUMMARY_MAX_CHARS
+        lines = summary.split("\n")
+        shown = len(lines) - 1
+        # The budget dropped lines the line cap alone would have kept, and the tail counts them.
+        # The prose is folded to one line per match, or this accounting would not add up.
+        assert shown < MATCH_SUMMARY_LINES
+        assert lines[-1] == f"- and {MATCH_SUMMARY_LINES - shown} more"
+        assert not VisionAlertMatch.all_teams.filter(alert_id=alert.id, delivered_at__isnull=True).exists()
+
+    def test_multiline_summarizer_title_stays_one_row(self) -> None:
+        self._make_match_alert(selection={})
+        observation = self._make_pending_observation()
+        self._succeed(observation)
+        # The descriptor half carries the summarizer's own title, and the schema caps its length but
+        # accepts a newline. Unfolded, that newline opens a second Slack list row for one observation.
+        ReplayObservation.objects.filter(id=observation.id).update(
+            scanner_result={
+                "model_output": {
+                    "scanner_type": ScannerType.SUMMARIZER,
+                    "title": "Checkout stalled\n- forged row",
+                    "summary": "the user retried twice",
+                }
+            }
+        )
+
+        _, produce = self._drain(delivered=True)
+        summary = produce.call_args.kwargs["properties"]["summary"]
+        assert "\n" not in summary
+        assert summary.endswith("Checkout stalled. forged row: the user retried twice")
 
     def test_summary_caps_lines_but_stamps_all_rows(self) -> None:
         alert = self._make_match_alert(selection={})

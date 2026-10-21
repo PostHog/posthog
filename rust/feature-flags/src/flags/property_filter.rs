@@ -1,13 +1,10 @@
-use fancy_regex::RegexBuilder;
 use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_models::FeatureFlagId;
-use crate::properties::property_matching::{
-    lookup_key_for, to_string_representation, REGEX_BACKTRACK_LIMIT,
-};
+use crate::properties::property_matching::{lookup_key_for, to_string_representation};
 use crate::properties::property_models::{
     CompiledRegex, OperatorType, PropertyFilter, PropertyType,
 };
@@ -103,15 +100,7 @@ impl PropertyFilter {
             Some(v) => to_string_representation(v),
             None => return,
         };
-        self.compiled_regex = Some(
-            match RegexBuilder::new(&pattern_str)
-                .backtrack_limit(REGEX_BACKTRACK_LIMIT)
-                .build()
-            {
-                Ok(re) => CompiledRegex::Compiled(re),
-                Err(_) => CompiledRegex::InvalidPattern,
-            },
-        );
+        self.compiled_regex = Some(CompiledRegex::new(&pattern_str));
     }
 }
 

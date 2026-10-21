@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 BUGHERD_BASE_URL = "https://www.bugherd.com"
 
-# Tasks is the only endpoint that fans out from Projects today.
 PROJECT_ID_FANOUT = DependentEndpointConfig(
     parent_name="Projects",
     resolve_param="project_id",
@@ -18,8 +17,41 @@ PROJECT_ID_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "project_id"},
 )
 
+USER_ID_FANOUT = DependentEndpointConfig(
+    parent_name="Users",
+    resolve_param="user_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "user_id"},
+)
 
-@dataclass
+
+@dataclass(frozen=True)
+class BugherdChainedFanoutConfig:
+    """A second-level fan-out whose child path binds several ids from one parent row.
+
+    `build_dependent_resource` resolves a single path param from a single parent, so it
+    cannot express `/projects/{project_id}/tasks/{task_id}/comments.json`, where both ids
+    come from the same Tasks row. `parent_name` names an endpoint that is itself a fan-out
+    child, so the built resource chain is Projects -> Tasks -> child.
+    """
+
+    parent_name: str
+    # Child path param -> the field on the parent row it binds to.
+    resolve_fields: dict[str, str]
+    include_from_parent: list[str]
+    parent_field_renames: dict[str, str]
+
+
+TASK_ID_FANOUT = BugherdChainedFanoutConfig(
+    parent_name="Tasks",
+    resolve_fields={"project_id": "project_id", "task_id": "id"},
+    include_from_parent=["id", "project_id"],
+    parent_field_renames={"id": "task_id", "project_id": "project_id"},
+)
+
+
+@dataclass(frozen=True)
 class BugherdEndpointConfig:
     name: str
     path: str
@@ -27,8 +59,8 @@ class BugherdEndpointConfig:
     primary_key: str | list[str] = "id"
     # BugHerd list endpoints return a fixed ~100 rows/page with no client-configurable
     # size param, so `page_size` is unused (kept only to satisfy the fan-out helper's
-    # structural typing) and `paginated=False` is only for the single-object Organization
-    # endpoint.
+    # structural typing). `paginated=False` is for endpoints that return their whole
+    # collection in one response and document no `page` param.
     page_size: int = 100
     paginated: bool = True
     partition_key: str | None = None
@@ -39,6 +71,7 @@ class BugherdEndpointConfig:
     incremental_query_params: dict[str, str] = field(default_factory=dict)
     sort_mode: Literal["asc", "desc"] = "asc"
     fanout: DependentEndpointConfig | None = None
+    chained_fanout: BugherdChainedFanoutConfig | None = None
 
 
 BUGHERD_ENDPOINTS: dict[str, BugherdEndpointConfig] = {
@@ -55,6 +88,19 @@ BUGHERD_ENDPOINTS: dict[str, BugherdEndpointConfig] = {
     "Users": BugherdEndpointConfig(
         name="Users",
         path="/api_v2/users.json",
+        data_selector="users",
+    ),
+    # The same User objects as `Users`, split by seat type: team members versus guests.
+    # The User schema carries no member/guest flag, so these lists are the only place
+    # the distinction appears.
+    "Members": BugherdEndpointConfig(
+        name="Members",
+        path="/api_v2/users/members.json",
+        data_selector="users",
+    ),
+    "Guests": BugherdEndpointConfig(
+        name="Guests",
+        path="/api_v2/users/guests.json",
         data_selector="users",
     ),
     "Projects": BugherdEndpointConfig(
@@ -84,6 +130,76 @@ BUGHERD_ENDPOINTS: dict[str, BugherdEndpointConfig] = {
         # on every page regardless of ordering; an unconfirmed sort only risks uneven
         # batching, not a corrupted watermark.
         fanout=PROJECT_ID_FANOUT,
+    ),
+    # Closed-out tasks live behind their own endpoint and never appear in `Tasks`, so
+    # without this table completed work is missing entirely. It takes no `updated_since`
+    # or `created_since` filter, hence full refresh.
+    "ArchivedTasks": BugherdEndpointConfig(
+        name="ArchivedTasks",
+        path="/api_v2/projects/{project_id}/tasks/archive.json",
+        data_selector="tasks",
+        partition_key="created_at",
+        fanout=PROJECT_ID_FANOUT,
+    ),
+    # The unsorted feedback inbox -- backlog tasks not yet promoted to the board. Also
+    # takes no timestamp filter.
+    "FeedbackTasks": BugherdEndpointConfig(
+        name="FeedbackTasks",
+        path="/api_v2/projects/{project_id}/tasks/feedback.json",
+        data_selector="tasks",
+        partition_key="created_at",
+        fanout=PROJECT_ID_FANOUT,
+    ),
+    # Built-in and custom kanban columns, which resolve a task's `column_id`/`status_id`
+    # to a board position. A project has a handful of columns and the endpoint documents
+    # no `page` param, so it returns the whole collection in one response.
+    "Columns": BugherdEndpointConfig(
+        name="Columns",
+        path="/api_v2/projects/{project_id}/columns.json",
+        data_selector="columns",
+        # Built-in columns (backlog, todo, doing, done) exist in every project and BugHerd
+        # documents no global uniqueness for column IDs, so scope the key by project.
+        primary_key=["project_id", "id"],
+        paginated=False,
+        fanout=PROJECT_ID_FANOUT,
+    ),
+    # The task discussion thread, and the only per-task event grain BugHerd exposes. The
+    # endpoint carries no timestamp filter, and bounding the Tasks walk by `updated_since`
+    # instead would assume a new comment bumps its task's `updated_at` -- which BugHerd
+    # does not document (it fires `comment` and `task_update` as separate webhook events).
+    # So full refresh, which re-walks every task each sync.
+    "TaskComments": BugherdEndpointConfig(
+        name="TaskComments",
+        path="/api_v2/projects/{project_id}/tasks/{task_id}/comments.json",
+        data_selector="comments",
+        # The delete route addresses a comment by project and task as well as comment ID,
+        # so treat the ID as task-scoped rather than global.
+        primary_key=["task_id", "id"],
+        partition_key="created_at",
+        chained_fanout=TASK_ID_FANOUT,
+    ),
+    # Screenshots and files on a task. Like comments, the endpoint has no timestamp
+    # filter, so full refresh.
+    "TaskAttachments": BugherdEndpointConfig(
+        name="TaskAttachments",
+        path="/api_v2/projects/{project_id}/tasks/{task_id}/attachments.json",
+        data_selector="attachments",
+        # Addressed by project, task and attachment ID, so the ID is task-scoped.
+        primary_key=["task_id", "id"],
+        partition_key="created_at",
+        chained_fanout=TASK_ID_FANOUT,
+    ),
+    # The user-to-project membership join: one row per project a user belongs to. Each
+    # row is a full Project object, so `id` is the project ID. The `created_since`
+    # filter only reports projects created after the watermark, which would miss a user
+    # added to an older project, so this stays full refresh.
+    "UserProjects": BugherdEndpointConfig(
+        name="UserProjects",
+        path="/api_v2/users/{user_id}/projects.json",
+        data_selector="projects",
+        primary_key=["user_id", "id"],
+        partition_key="created_at",
+        fanout=USER_ID_FANOUT,
     ),
 }
 

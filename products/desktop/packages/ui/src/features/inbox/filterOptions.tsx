@@ -19,6 +19,11 @@ import type {
   SourceProduct,
 } from "@posthog/shared/types";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
+import {
+  DEFAULT_INBOX_REPORT_STATE_FILTER,
+  type InboxReportStateFilter,
+} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import type { FilterOption } from "@posthog/ui/primitives/FilterMenu";
 import type { ReactNode } from "react";
 
 export type InboxSortField = Extract<
@@ -26,7 +31,7 @@ export type InboxSortField = Extract<
   "priority" | "created_at" | "total_weight"
 >;
 
-type InboxSortOption = {
+export type InboxSortOption = {
   label: string;
   field: InboxSortField;
   direction: "asc" | "desc";
@@ -115,6 +120,66 @@ export const INBOX_SOURCE_OPTIONS: InboxSourceOption[] = [
     };
   }),
 ];
+
+export const INBOX_REPORT_STATE_OPTIONS: readonly FilterOption<InboxReportStateFilter>[] =
+  [
+    { value: "review_and_merge", label: "Review and merge" },
+    { value: "needs_decision", label: "Needs decision" },
+    { value: "resolved", label: "Resolved" },
+    { value: "dismissed", label: "Dismissed" },
+  ];
+
+/** The priority list as menu rows: the priority names itself, in its colour. */
+export const INBOX_PRIORITY_MENU_OPTIONS: readonly FilterOption<SignalReportPriority>[] =
+  INBOX_PRIORITY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.value,
+    icon: (
+      <span
+        aria-hidden
+        className="size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: option.accent }}
+      />
+    ),
+  }));
+
+/** The sort list as menu rows, keyed by field and direction together. */
+export const INBOX_SORT_MENU_OPTIONS: readonly FilterOption<string>[] =
+  INBOX_SORT_OPTIONS.map((option) => ({
+    value: inboxSortOptionKey(option.field, option.direction),
+    label: option.label,
+    icon: option.icon,
+  }));
+
+export function inboxSortOptionFromKey(
+  key: string,
+): InboxSortOption | undefined {
+  return INBOX_SORT_OPTIONS.find(
+    (option) => inboxSortOptionKey(option.field, option.direction) === key,
+  );
+}
+
+export function inboxReportStateFilterLabel(
+  selected: readonly InboxReportStateFilter[],
+): string {
+  if (selected.length === 0) return "All statuses";
+  if (selected.length === 1) {
+    return (
+      INBOX_REPORT_STATE_OPTIONS.find((option) => option.value === selected[0])
+        ?.label ?? "1 status"
+    );
+  }
+  return `${selected.length} statuses`;
+}
+
+export function isDefaultInboxReportStateFilter(
+  selected: readonly InboxReportStateFilter[],
+): boolean {
+  return (
+    selected.length === DEFAULT_INBOX_REPORT_STATE_FILTER.length &&
+    selected.every((value) => DEFAULT_INBOX_REPORT_STATE_FILTER.includes(value))
+  );
+}
 
 export function inboxSortOptionKey(
   field: InboxSortField,

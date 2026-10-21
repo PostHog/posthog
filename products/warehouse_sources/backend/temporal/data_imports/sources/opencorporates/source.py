@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpencorporatesSource(ResumableSource[OpencorporatesSourceConfig, OpencorporatesResumeConfig]):
+    codebase_detection = detect(env=("^OPENCORPORATES_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v0.4",)
@@ -50,10 +51,10 @@ class OpencorporatesSource(ResumableSource[OpencorporatesSourceConfig, Opencorpo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPENCORPORATES,
+            name=ExternalDataSourceType.OPENCORPORATES,
             category=DataWarehouseSourceCategory.CRM,
             label="OpenCorporates",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenCorporates API token and a search term to pull matching company and officer records into the PostHog Data warehouse.
 
 Get an API token from [OpenCorporates](https://opencorporates.com/api_accounts/new). The free open-data tier is limited to around 50 requests a day and 200 a month, so scope your search with a jurisdiction to stay within it.""",

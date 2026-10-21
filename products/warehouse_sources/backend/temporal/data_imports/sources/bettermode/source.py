@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.bettermode import (
     BettermodeResumeConfig,
     bettermode_source,
@@ -26,16 +25,41 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
     BettermodeSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Fan-out endpoints cost one request per parent, so the schema picker says what a sync scales with.
+_SCHEMA_DESCRIPTIONS: dict[str, str] = {
+    "replies": (
+        "Fetches direct replies of every post that has replies (one request per post), "
+        "so syncs scale with the number of posts in the community"
+    ),
+    "space_members": (
+        "Fetches the members of every space (one request per space), so syncs scale with the "
+        "number of spaces in the community"
+    ),
+    "space_post_types": (
+        "Fetches the post types enabled in every space (one request per space), so syncs scale "
+        "with the number of spaces in the community"
+    ),
+    "post_reaction_participants": (
+        "Fetches the members who left each reaction on every post that has reactions (one request "
+        "per post and reaction), so syncs scale with the number of reacted posts in the community"
+    ),
+}
+
 
 @SourceRegistry.register
 class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeConfig]):
+    codebase_detection = detect(env=("^BETTERMODE_",), npm=("@tribeplatform/gql-client", "@tribeplatform/react-sdk"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,11 +76,11 @@ class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BETTERMODE,
+            name=ExternalDataSourceType.BETTERMODE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Bettermode",
             keywords=["tribe", "community"],
-            caption="""Connect your Bettermode (formerly Tribe) community to pull members, spaces, posts, replies, tags, and moderation items into the PostHog Data warehouse.
+            caption="""Connect your Bettermode (formerly Tribe) community to pull members, spaces, space members, posts, replies, post reaction participants, post types, tags, collections, roles, and moderation items into the PostHog Data warehouse.
 
 Create an app in the [Bettermode developer portal](https://developers.bettermode.com/), then copy its client ID and client secret. The app must be **published and installed on your community** before tokens can be issued.
 
@@ -65,7 +89,7 @@ Your network ID is your community's unique ID, shown in the developer portal for
 If your community is hosted in the EU (eu-central-1), select the EU region so requests go to Bettermode's EU endpoint.""",
             iconPath="/static/services/bettermode.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bettermode",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -132,30 +156,7 @@ If your community is hosted in the EU (eu-central-1), select the EU region so re
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _description(endpoint: str) -> str | None:
-            if endpoint == "replies":
-                return (
-                    "Fetches direct replies of every post that has replies (one request per post), "
-                    "so syncs scale with the number of posts in the community"
-                )
-            return None
-
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=_description(endpoint),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=_SCHEMA_DESCRIPTIONS)
 
     def validate_credentials(
         self,

@@ -1,4 +1,5 @@
-from typing import Any, Optional, TypedDict
+import random
+from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
@@ -83,10 +84,30 @@ class DatabaseSchemaUnavailable(APIException):
 
 
 class ClickHouseAtCapacity(APIException):
+    wait: int
     status_code = 503
+    default_code = "clickhouse_at_capacity"
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
+
+    def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
+        super().__init__(detail=detail, code=code)
+        # Spread retries across requests while keeping a minimum recovery window.
+        self.wait = random.randint(5, 20)
+
+
+class QueryRanConcurrently(APIException):
+    """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
+    leader failed in a way that cannot be shared, died, or held its lock past the limit."""
+
+    status_code = 503
+    default_code = "query_ran_concurrently"
+    default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
+
+
+# Failures that clear on their own. A caller that reads one of these codes should wait and run the same query again.
+TRANSIENT_QUERY_ERROR_CODES = frozenset({ClickHouseAtCapacity.default_code, QueryRanConcurrently.default_code})
 
 
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
@@ -135,6 +156,27 @@ class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
     default_detail = (
         "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
     )
+
+
+class FieldedValidationError(Protocol):
+    """A framework-free validation error, as a product's internals raise it."""
+
+    message: str
+    field: str | None
+
+
+def as_drf_validation_error(error: FieldedValidationError) -> ValidationError:
+    """The DRF equivalent of a framework-free validation error, keyed by field when it names one."""
+    if error.field:
+        return ValidationError({error.field: [error.message]})
+    return ValidationError(error.message)
+
+
+def first_error_message(detail: Any) -> str:
+    """The first message in a DRF error detail, which nests messages in dicts and lists."""
+    while isinstance(detail, (dict, list)) and detail:
+        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
+    return str(detail)
 
 
 class ExceptionContext(TypedDict):

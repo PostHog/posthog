@@ -1,5 +1,5 @@
 import hashlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
@@ -14,9 +14,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     ANALYTICS_PATH_PREFIX,
     ANTHROPIC_ENDPOINTS,
     ENDPOINT_RETIRED_ERROR,
+    RBAC_GROUPS_PATH,
+    RBAC_ROLES_PATH,
     USAGE_GROUP_BY_FALLBACKS,
     AnalyticsWindowKind,
     AnthropicEndpointConfig,
+    FanOutConfig,
     PaginationType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ApiKeyAuthConfig,
     ClientConfig,
@@ -51,6 +55,9 @@ MAX_RETRY_ATTEMPTS = 8
 # sync never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
+# The waits of the report attempts above add up to about 1,100 seconds, which is more than the
+# shared client's default budget for one request.
+REPORT_RETRY_BUDGET_SECONDS = 1200.0
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -65,6 +72,18 @@ ANALYTICS_ACCESS_MISSING = (
     "This table comes from the Claude Enterprise Analytics API, which this key can't reach. It needs "
     "a Claude Enterprise key with the read:analytics scope, created in claude.ai organization "
     "settings by your primary owner."
+)
+# Shown against the Claude Enterprise group and custom role tables in the schema picker when the
+# configured key cannot reach them. The two families take different scopes, so they get their own
+# probes and their own messages.
+RBAC_GROUP_ACCESS_MISSING = (
+    "This table comes from the Claude Enterprise user management API, which this key can't reach. It "
+    "needs an Admin API key with the read:rbac_groups scope, created in claude.ai organization "
+    "settings for all your linked organizations."
+)
+RBAC_ROLE_ACCESS_MISSING = (
+    "This table comes from the Claude Enterprise user management API, which this key can't reach. It "
+    "needs an Admin API key with the read:members scope, created in claude.ai organization settings."
 )
 
 
@@ -234,21 +253,40 @@ def _format_rfc3339(value: Any) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def validate_credentials(api_key: str) -> bool:
+INVALID_ADMIN_KEY_MESSAGE = (
+    "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the "
+    "Anthropic Console, then reconnect."
+)
+STANDARD_KEY_MESSAGE = (
+    "This is a standard Anthropic API key. Create an Admin API key (prefixed sk-ant-admin) in the "
+    "Anthropic Console, then reconnect."
+)
+VALIDATION_UNREACHABLE_MESSAGE = (
+    "PostHog couldn't reach Anthropic to check your Admin API key. Wait a few minutes, then try again."
+)
+
+
+def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{ANTHROPIC_BASE_URL}/v1/organizations/users?limit=1",
         headers={"x-api-key": api_key, **_version_headers()},
         ok_statuses=(200, 403),
     )
-    return ok
+    if ok:
+        return True, None
+    if status is None or status == 429 or status >= 500:
+        return False, VALIDATION_UNREACHABLE_MESSAGE
+    if api_key.strip().startswith("sk-ant-api"):
+        return False, STANDARD_KEY_MESSAGE
+    return False, INVALID_ADMIN_KEY_MESSAGE
 
 
-def check_analytics_access(api_key: str) -> Optional[str]:
-    """Report whether the configured key can read the Claude Enterprise Analytics API.
+def _check_path_access(api_key: str, path: str, missing_reason: str) -> Optional[str]:
+    """Report whether the configured key can read a path that needs access beyond the Admin API key.
 
     Returns None when it can, or the reason to show against the tables that need it. Only a real
     denial counts as missing access: a throttle, a server error, or a network failure leaves those
@@ -257,14 +295,28 @@ def check_analytics_access(api_key: str) -> Optional[str]:
     """
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{ANTHROPIC_BASE_URL}{ANALYTICS_PATH_PREFIX}users?limit=1",
+        f"{ANTHROPIC_BASE_URL}{path}",
         headers={"x-api-key": api_key, **_version_headers()},
     )
     # 404 as well as 403: an organization that is not on a Claude Enterprise plan does not serve
     # these routes at all.
     if status in (403, 404):
-        return ANALYTICS_ACCESS_MISSING
+        return missing_reason
     return None
+
+
+def check_analytics_access(api_key: str) -> Optional[str]:
+    return _check_path_access(api_key, f"{ANALYTICS_PATH_PREFIX}users?limit=1", ANALYTICS_ACCESS_MISSING)
+
+
+def check_rbac_group_access(api_key: str) -> Optional[str]:
+    return _check_path_access(api_key, f"{RBAC_GROUPS_PATH}?limit=1", RBAC_GROUP_ACCESS_MISSING)
+
+
+def check_rbac_role_access(api_key: str) -> Optional[str]:
+    # The custom role reads take their own scope, so a key that reaches the group tables can still
+    # be denied here.
+    return _check_path_access(api_key, f"{RBAC_ROLES_PATH}?limit=1", RBAC_ROLE_ACCESS_MISSING)
 
 
 def _flatten_created_by(item: dict[str, Any]) -> dict[str, Any]:
@@ -538,14 +590,18 @@ def _analytics_resume_day(resume: Optional[AnthropicResumeConfig]) -> Optional[d
 
 
 def _analytics_params(config: AnthropicEndpointConfig, window: AnalyticsWindow) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": config.limit}
     if window.end is None:
-        params["date"] = window.start.isoformat()
-        return params
-    params["starting_at"] = _format_rfc3339(window.start)
-    params["ending_at"] = _format_rfc3339(window.end)
-    params["bucket_width"] = config.bucket_width
-    return params
+        return {"limit": config.limit, "date": window.start.isoformat()}
+    if config.analytics_window == AnalyticsWindowKind.DATE_RANGE:
+        # Calendar dates rather than RFC 3339 instants, and no `limit`: the summaries endpoint
+        # answers a whole range in one response and rejects pagination parameters.
+        return {"starting_date": window.start.isoformat(), "ending_date": window.end.isoformat()}
+    return {
+        "limit": config.limit,
+        "starting_at": _format_rfc3339(window.start),
+        "ending_at": _format_rfc3339(window.end),
+        "bucket_width": config.bucket_width,
+    }
 
 
 def _iter_analytics_windows(
@@ -598,6 +654,71 @@ def _flatten_analytics_user_activity(day: date, item: dict[str, Any]) -> dict[st
             row[key] = value
     row["id"] = _row_id(row["date"], row["user_id"])
     return row
+
+
+def _flatten_analytics_entity_usage(name_field: str, day: date, item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, entity) for the connector, plugin and skill adoption breakdowns.
+
+    Each record carries no day of its own, so the day the request asked for is stamped on. The
+    nested per-product metric blocks are flattened the same way the activity record's are, so a new
+    product's metrics arrive as columns with no change here.
+    """
+    row: dict[str, Any] = {"date": _format_rfc3339(day)}
+    for key, value in item.items():
+        if isinstance(value, dict):
+            # `chat_metrics` becomes `chat_distinct_conversation_skill_used_count`, and
+            # `office_metrics.excel` becomes `office_excel_distinct_session_skill_used_count`.
+            _flatten_metrics(key.removesuffix("_metrics"), value, row)
+        else:
+            row[key] = value
+    row["id"] = _row_id(row["date"], row.get(name_field))
+    return row
+
+
+# Endpoints whose rows carry no day, mapped to the flattener that stamps the requested day onto each
+# row. `analytics_row_map` binds the day before handing the mapper to the resource.
+_ANALYTICS_DAY_ROW_MAPS: dict[str, Callable[[date, dict[str, Any]], dict[str, Any]]] = {
+    "analytics_user_activity": _flatten_analytics_user_activity,
+    "analytics_connector_usage": partial(_flatten_analytics_entity_usage, "connector_name"),
+    "analytics_plugin_usage": partial(_flatten_analytics_entity_usage, "plugin_name"),
+    "analytics_skill_usage": partial(_flatten_analytics_entity_usage, "skill_name"),
+}
+
+
+def _flatten_rbac_role_permission(item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (role, action, resource) grant.
+
+    `resource` is a tagged union whose `type` decides which identifier fields it carries, so every
+    identifier gets a column of its own and the ones a given tag does not use stay null. A blanket
+    `capability_access_all` or `capability_access_all_ga` action arrives as one row rather than
+    expanded per feature, so a query that tallies a role's grants has to treat it as covering every
+    product feature its variant describes.
+    """
+    resource = item.get("resource") or {}
+    role_id = item.get("role_id")
+    action = item.get("action")
+    resource_type = resource.get("type")
+    organization_id = resource.get("organization_id")
+    connector_id = resource.get("connector_id")
+    tool_name = resource.get("tool_name")
+    scope = resource.get("scope")
+    return {
+        "id": _row_id(role_id, action, resource_type, organization_id, connector_id, tool_name, scope),
+        "role_id": role_id,
+        "action": action,
+        "resource_type": resource_type,
+        "organization_id": organization_id,
+        "connector_id": connector_id,
+        "tool_name": tool_name,
+        "scope": scope,
+    }
+
+
+# Row mapping applied to a fan-out child after the parent id is stamped on. A child with no entry
+# needs nothing beyond the stamp.
+_FAN_OUT_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "rbac_role_permissions": _flatten_rbac_role_permission,
+}
 
 
 def _analytics_actor_columns(item: dict[str, Any]) -> dict[str, Any]:
@@ -654,15 +775,18 @@ def _flatten_analytics_user_usage(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _stamp_workspace_id(row: dict[str, Any]) -> dict[str, Any]:
-    # The member object already carries workspace_id, but fall back to the parent workspace's id
-    # (injected by the fan-out as `_workspaces_id`) so the composite primary key is always populated.
-    parent_id = row.pop("_workspaces_id", None)
-    row["workspace_id"] = row.get("workspace_id") or parent_id
+def _stamp_parent_id(fan_out: FanOutConfig, row: dict[str, Any]) -> dict[str, Any]:
+    # The fan-out injects the parent's id as `_<parent>_id`. Fall back to it so the primary key is
+    # always populated: the member objects carry their own parent id, but a role permission object
+    # carries no role id at all.
+    parent_id = row.pop(f"_{fan_out.parent}_id", None)
+    row[fan_out.id_column] = row.get(fan_out.id_column) or parent_id
     return row
 
 
-def _entity_paginator() -> AnthropicCursorPaginator:
+def _list_paginator(config: AnthropicEndpointConfig) -> AnthropicCursorPaginator:
+    if config.pagination == PaginationType.PAGE_TOKEN:
+        return AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
     return AnthropicCursorPaginator(cursor_path="last_id", cursor_param="after_id")
 
 
@@ -714,7 +838,7 @@ def anthropic_source(
         # schema and pauses its schedule instead of retrying a KeyError forever.
         raise ValueError(f"{ENDPOINT_RETIRED_ERROR}: {endpoint}")
     # Set only where the rows come from something other than iterating `resource` once.
-    items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
+    items: Optional[Callable[[], Iterable[list[dict[str, Any]]]]] = None
 
     # The report endpoints page the rate-limited Admin API; the entity lists do not. Give the reports
     # a wider retry budget so it can outlast the organization rate-limit window.
@@ -727,6 +851,7 @@ def anthropic_source(
     }
     if is_report_endpoint:
         client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
+        client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -747,10 +872,13 @@ def anthropic_source(
 
         def analytics_row_map(
             window: AnalyticsWindow,
-        ) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+        ) -> Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]:
             if config.analytics_window == AnalyticsWindowKind.DATE:
-                # The engagement record carries no day, so bind the day this request asks for.
-                return partial(_flatten_analytics_user_activity, window.start)
+                # These records carry no day, so bind the day this request asks for.
+                return partial(_ANALYTICS_DAY_ROW_MAPS[endpoint], window.start)
+            if config.analytics_window == AnalyticsWindowKind.DATE_RANGE:
+                # A summary row is already flat and carries its own `starting_at`.
+                return None
             return _flatten_analytics_user_cost if endpoint == "analytics_user_cost" else _flatten_analytics_user_usage
 
         def save_analytics_checkpoint(next_start: date) -> None:
@@ -764,7 +892,7 @@ def anthropic_source(
                 "endpoint": {
                     "path": config.path,
                     "params": _analytics_params(config, window),
-                    "data_selector": "data",
+                    "data_selector": config.data_selector,
                     "paginator": AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page"),
                 },
                 "data_map": analytics_row_map(window),
@@ -828,21 +956,29 @@ def anthropic_source(
             resume_hook=save_day_checkpoint,
             initial_paginator_state=initial_day_state,
         )
-    elif config.fan_out_over_workspaces:
-        # No org-wide member list exists; enumerate every workspace (archived included, since they
-        # are still referenced by historical usage/cost rows) and fetch its /members per workspace.
-        workspaces_config = ANTHROPIC_ENDPOINTS["workspaces"]
+    elif config.fan_out is not None:
+        # Anthropic serves no org-wide list for this sub-resource, so enumerate the parent endpoint
+        # and fetch the sub-resource once per parent row. The workspaces parent includes archived
+        # workspaces (see its extra_params), since historical usage and cost rows still name them.
+        fan_out = config.fan_out
+        parent_config = ANTHROPIC_ENDPOINTS[fan_out.parent]
+        child_row_map = _FAN_OUT_ROW_MAPS.get(endpoint)
+
+        def fan_out_data_map(row: dict[str, Any]) -> dict[str, Any]:
+            stamped = _stamp_parent_id(fan_out, row)
+            return child_row_map(stamped) if child_row_map else stamped
+
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": None,
             "resources": [
                 {
-                    "name": "workspaces",
+                    "name": fan_out.parent,
                     "endpoint": {
-                        "path": workspaces_config.path,
-                        "params": {"limit": ENTITY_PAGE_SIZE, **workspaces_config.extra_params},
-                        "data_selector": "data",
-                        "paginator": _entity_paginator(),
+                        "path": parent_config.path,
+                        "params": {"limit": ENTITY_PAGE_SIZE, **parent_config.extra_params},
+                        "data_selector": parent_config.data_selector,
+                        "paginator": _list_paginator(parent_config),
                     },
                 },
                 {
@@ -851,24 +987,29 @@ def anthropic_source(
                         "path": config.path,
                         "params": {
                             "limit": ENTITY_PAGE_SIZE,
-                            "workspace_id": {"type": "resolve", "resource": "workspaces", "field": "id"},
+                            fan_out.path_param: {"type": "resolve", "resource": fan_out.parent, "field": "id"},
                         },
-                        "data_selector": "data",
-                        "paginator": _entity_paginator(),
-                        # A workspace that does not serve this sub-resource (or was archived between
-                        # enumeration and the child fetch) answers 404 — skip it rather than fail the
-                        # whole schema. 429/5xx are retried by the client before hooks run, and any
-                        # other 4xx still raises.
-                        "response_actions": [{"status_code": 404, "action": "ignore"}],
+                        "data_selector": config.data_selector,
+                        "paginator": _list_paginator(config),
+                        # A parent that does not serve this sub-resource, or that was archived or
+                        # deleted between enumeration and the child fetch, answers 404 or 400 (the
+                        # organization's Default Workspace, for one, "has no member list of its own"
+                        # and answers 400 for workspace_members). Skip that parent instead of failing
+                        # the whole schema. 429/5xx are retried by the client before hooks run, and
+                        # any other 4xx still raises.
+                        "response_actions": [
+                            {"status_code": 404, "action": "ignore"},
+                            {"status_code": 400, "action": "ignore"},
+                        ],
                     },
                     "include_from_parent": ["id"],
-                    "data_map": _stamp_workspace_id,
+                    "data_map": fan_out_data_map,
                 },
             ],
         }
 
-        # Only a framework-shaped checkpoint can seed the fan-out; a legacy (cursor, workspace_id)
-        # state restarts the fan-out fresh — the overlap merge dedupes on the composite key.
+        # Only a framework-shaped checkpoint can seed the fan-out. A legacy (cursor, workspace_id)
+        # state restarts the fan-out fresh, and the overlap merge dedupes on the composite key.
         initial_fanout_state = resume.fanout_state if resume is not None else None
 
         def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -897,9 +1038,8 @@ def anthropic_source(
             initial_paginator_state = {"cursor": resume.cursor}
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist only while a next page remains; the checkpoint is saved AFTER a page is
-            # yielded, pointing at the next page, so a crash resumes from a page whose predecessors
-            # were all yielded — the overlap merge dedupes on the primary key.
+            # Persist only while a next page remains. The checkpoint points at the next page, so a
+            # crash resumes from a page whose predecessors were all yielded.
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
 
@@ -923,14 +1063,14 @@ def anthropic_source(
                 paginator: BasePaginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
             else:
                 params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
-                paginator = _entity_paginator()
+                paginator = _list_paginator(config)
 
             endpoint_resource: EndpointResource = {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "data",
+                    "data_selector": config.data_selector,
                     "paginator": paginator,
                 },
                 "data_map": data_map,
@@ -951,7 +1091,18 @@ def anthropic_source(
 
         if endpoint == "usage_report":
             resource = build_resource(USAGE_GROUP_BY_FALLBACKS[0], initial_paginator_state)
-            items = partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state)
+            # The fallback loop hands each page on unchanged and holds no rows. As a `Resource` it
+            # keeps the framework's checkpoints, so a run that waits on a rate limit can hand off.
+            narrowing = Resource(
+                partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state),
+                name=endpoint,
+                hints=resource._hints,
+            )
+
+            def narrowed_items() -> Iterable[list[dict[str, Any]]]:
+                return narrowing
+
+            items = narrowed_items
         else:
             resource = build_resource(config.group_by, initial_paginator_state)
 

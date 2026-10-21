@@ -1,4 +1,5 @@
 import re
+import json
 import datetime as dt
 from collections.abc import Iterator
 from typing import Any
@@ -78,13 +79,13 @@ def _api_fault_message(response: requests.Response) -> str | None:
     return None
 
 
-def _request(
+def _request_payload(
     session: requests.Session,
     api_key: str,
     method: str,
     params: dict[str, str] | None = None,
     timeout: int = REQUEST_TIMEOUT_SECONDS,
-) -> list[dict[str, Any]]:
+) -> Any:
     try:
         response = session.get(
             f"{BASE_URL}/{method}",
@@ -115,8 +116,18 @@ def _request(
     except ValueError:
         raise BingWebmasterToolsError(f"Bing Webmaster Tools {method} returned a non-JSON response")
 
-    # Successful responses wrap the result list in WCF's `d` envelope: `{"d": [...]}`.
-    data = payload.get("d") if isinstance(payload, dict) else None
+    # Successful responses wrap the result in WCF's `d` envelope: `{"d": [...]}`.
+    return payload.get("d") if isinstance(payload, dict) else None
+
+
+def _request(
+    session: requests.Session,
+    api_key: str,
+    method: str,
+    params: dict[str, str] | None = None,
+    timeout: int = REQUEST_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    data = _request_payload(session, api_key, method, params, timeout)
     if not isinstance(data, list):
         raise BingWebmasterToolsError(f"Bing Webmaster Tools {method} returned an unexpected response shape")
     return [item for item in data if isinstance(item, dict)]
@@ -128,23 +139,20 @@ def _site_key(url: str) -> str:
     return url.strip().rstrip("/").lower()
 
 
-def suggest_verified_site(filter_url: str, verified: list[str]) -> str | None:
-    """The verified site a bare-hostname filter entry most likely meant, else None.
+def verified_sites_for_host(filter_url: str, verified: list[str]) -> list[str]:
+    """The verified sites a bare-hostname filter entry could mean, in the order Bing lists them.
 
     Bing lists every site with a scheme (e.g. ``https://example.com/``), so an entry that omits the
     scheme (``example.com``) matches nothing on the scheme-sensitive site key even when that host is
-    verified. When the entry is a bare hostname, point at the verified site sharing that host so the
-    "not verified" error can name the exact value to paste instead of dead-ending."""
+    verified. Returns empty for an entry that already carries a scheme, since that one is matched
+    exactly."""
     stripped = filter_url.strip()
     if not stripped or "://" in stripped:
-        return None
+        return []
     host = stripped.strip("/").lower()
     if not host:
-        return None
-    for url in verified:
-        if urlparse(url).netloc.lower() == host:
-            return url
-    return None
+        return []
+    return [url for url in verified if urlparse(url).netloc.lower() == host]
 
 
 def parse_site_urls(raw: str | None) -> list[str]:
@@ -182,17 +190,26 @@ def select_site_urls(sites: list[dict[str, Any]], site_url_filters: list[str]) -
     for filter_url in site_url_filters:
         matched = by_key.get(_site_key(filter_url))
         if matched is None:
+            # A bare hostname misses the scheme-sensitive key even when Bing verified that exact
+            # host. Resolve it when the host names one verified site; leave it missing when it
+            # names several, rather than guessing which scheme the user meant.
+            candidates = verified_sites_for_host(filter_url, verified)
+            matched = candidates[0] if len(candidates) == 1 else None
+        if matched is None:
             missing.append(filter_url)
-        else:
+        elif matched not in selected:
+            # Two spellings of the same site (e.g. "example.com" and "https://example.com/")
+            # resolve to one registered URL; syncing it twice would seed duplicate primary keys.
             selected.append(matched)
     if missing:
-        suggestions = {
-            entry: match for entry in missing if (match := suggest_verified_site(entry, verified)) is not None
-        }
+        ambiguous = {entry: candidates for entry in missing if (candidates := verified_sites_for_host(entry, verified))}
         hint = ""
-        if suggestions:
-            pairs = "; ".join(f"'{entered}' is verified as '{match}'" for entered, match in suggestions.items())
-            hint = f"Bing lists sites with their full URL, so {pairs}. "
+        if ambiguous:
+            pairs = "; ".join(
+                f"'{entered}' matches {' and '.join(repr(url) for url in candidates)}"
+                for entered, candidates in ambiguous.items()
+            )
+            hint = f"Bing lists sites with their full URL, and {pairs}. "
         raise ValueError(
             f"These site URLs are not verified sites on the connected account: {', '.join(missing)}. "
             f"{hint}"
@@ -208,6 +225,12 @@ def _site_row(site: dict[str, Any]) -> dict[str, Any]:
     return {"url": site.get("Url"), "is_verified": bool(site.get("IsVerified", False))}
 
 
+def _normalized_row(item: dict[str, Any], site_url: str) -> dict[str, Any]:
+    row = {NamingConvention.normalize_identifier(key): value for key, value in item.items() if key != "__type"}
+    row["site_url"] = site_url
+    return row
+
+
 def _stats_row(item: dict[str, Any], site_url: str) -> dict[str, Any] | None:
     """Turn one API stats object into a row: snake_case keys, parsed date, stamped site URL.
 
@@ -217,13 +240,83 @@ def _stats_row(item: dict[str, Any], site_url: str) -> dict[str, Any] | None:
     should fail loudly, while a present-but-malformed value skips the row so a null key never flows
     into the merge.
     """
-    row = {NamingConvention.normalize_identifier(key): value for key, value in item.items() if key != "__type"}
+    row = _normalized_row(item, site_url)
     date = parse_wcf_date(row["date"])
     if date is None:
         return None
     row["date"] = date
-    row["site_url"] = site_url
     return row
+
+
+def _stats_rows(
+    items: list[dict[str, Any]], site_url: str, endpoint: str, logger: FilteringBoundLogger
+) -> list[dict[str, Any]]:
+    rows = []
+    dropped = 0
+    for item in items:
+        row = _stats_row(item, site_url)
+        if row is None:
+            dropped += 1
+        else:
+            rows.append(row)
+    if dropped:
+        logger.warning(
+            "Dropped Bing Webmaster Tools rows with unparseable dates",
+            endpoint=endpoint,
+            site_url=site_url,
+            dropped=dropped,
+        )
+    return rows
+
+
+def _url_rows(items: list[dict[str, Any]], site_url: str) -> list[dict[str, Any]]:
+    # `url` is part of the primary key, so entries without one are skipped.
+    return [_normalized_row(item, site_url) for item in items if item.get("Url")]
+
+
+def _page_query_stats_batches(
+    session: requests.Session, api_key: str, site_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out GetPageQueryStats over the site's top pages, as listed by GetPageStats."""
+    page_stats = _request(session, api_key, "GetPageStats", {"siteUrl": site_url})
+    pages = list(dict.fromkeys(page for item in page_stats if isinstance(page := item.get("Query"), str) and page))
+    for page in pages:
+        # The JSON endpoint documents `page` as a quoted JSON string literal, unlike `siteUrl`.
+        try:
+            items = _request(session, api_key, "GetPageQueryStats", {"siteUrl": site_url, "page": json.dumps(page)})
+        except BingWebmasterToolsError as exc:
+            # GetPageStats and GetPageQueryStats can disagree about which of a site's pages are
+            # valid: Bing rejects some pages GetPageStats itself just listed. Skip that one page
+            # rather than losing every other page's stats to a page Bing won't serve.
+            # `_request_payload` appends the fault message verbatim (observed as the API's own
+            # "ERROR!!! InvalidUrl" wording), so anchor on the suffix rather than a bare substring
+            # match that could also catch an unrelated fault mentioning a URL.
+            if not str(exc).endswith("InvalidUrl"):
+                raise
+            logger.warning("Bing Webmaster Tools rejected a page as invalid", site_url=site_url, page=page)
+            continue
+        rows = _stats_rows(items, site_url, "page_query_stats", logger)
+        for row in rows:
+            row["page"] = page
+        if rows:
+            yield rows
+
+
+def _link_count_batches(session: requests.Session, api_key: str, site_url: str) -> Iterator[list[dict[str, Any]]]:
+    """Walk GetLinkCounts, which pages through `{"Links": [...], "TotalPages": n}` with a zero-based `page`."""
+    page = 0
+    while True:
+        data = _request_payload(session, api_key, "GetLinkCounts", {"siteUrl": site_url, "page": str(page)})
+        links = data.get("Links") if isinstance(data, dict) else None
+        if not isinstance(links, list):
+            raise BingWebmasterToolsError("Bing Webmaster Tools GetLinkCounts returned an unexpected response shape")
+        rows = _url_rows([link for link in links if isinstance(link, dict)], site_url)
+        if rows:
+            yield rows
+        page += 1
+        total_pages = data.get("TotalPages")
+        if not links or not isinstance(total_pages, int) or page >= total_pages:
+            return
 
 
 def get_rows(
@@ -245,22 +338,18 @@ def get_rows(
         return
 
     for site_url in select_site_urls(sites, parse_site_urls(site_urls_raw)):
+        if config.method == "GetPageQueryStats":
+            yield from _page_query_stats_batches(session, api_key, site_url, logger)
+            continue
+        if config.method == "GetLinkCounts":
+            yield from _link_count_batches(session, api_key, site_url)
+            continue
+
         items = _request(session, api_key, config.method, {"siteUrl": site_url})
-        rows = []
-        dropped = 0
-        for item in items:
-            row = _stats_row(item, site_url)
-            if row is None:
-                dropped += 1
-            else:
-                rows.append(row)
-        if dropped:
-            logger.warning(
-                "Dropped Bing Webmaster Tools rows with unparseable dates",
-                endpoint=endpoint,
-                site_url=site_url,
-                dropped=dropped,
-            )
+        if config.incremental_fields:
+            rows = _stats_rows(items, site_url, endpoint, logger)
+        else:
+            rows = _url_rows(items, site_url)
         if rows:
             yield rows
 
@@ -310,7 +399,7 @@ def bing_webmaster_tools_source(
 ) -> SourceResponse:
     config = ENDPOINT_CONFIGS[endpoint]
 
-    if not config.per_site:
+    if not config.incremental_fields:
         return SourceResponse(
             name=endpoint,
             items=lambda: get_rows(api_key=api_key, endpoint=endpoint, site_urls_raw=site_urls_raw, logger=logger),

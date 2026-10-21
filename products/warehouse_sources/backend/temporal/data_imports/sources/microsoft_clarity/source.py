@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MicrosoftClaritySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
+    BASE_URL,
+    INSIGHTS_PATH,
+    TOKEN_INVALID_ERROR,
+    TOKEN_WRONG_PROJECT_ERROR,
     microsoft_clarity_source,
     validate_credentials as validate_clarity_credentials,
 )
@@ -48,6 +51,16 @@ def _dimension_options() -> list[SourceFieldSelectConfigOption]:
 
 @SourceRegistry.register
 class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
+    codebase_detection = detect(
+        env=("^(MICROSOFT_CLARITY|MICROSOFTCLARITY)_",),
+        script_hosts=("www.clarity.ms",),
+        npm=("@microsoft/clarity", "@microsoft/react-native-clarity", "react-native-clarity"),
+        cocoapods=("Clarity",),
+        maven=("com.microsoft.clarity:clarity", "com.microsoft.clarity:clarity-compose"),
+        pub=("clarity_flutter",),
+        swiftpm=("github.com/microsoft/clarity-apps",),
+    )
+
     lists_tables_without_credentials = True  # static, single endpoint — safe for public docs
     api_docs_url = "https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api"
 
@@ -58,9 +71,29 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "400 Client Error": "Microsoft Clarity rejected the request. Check the reporting window and breakdown dimensions on this source and reconnect.",
-            "401 Client Error": "Your Microsoft Clarity API token is invalid or expired. Generate a new token in Clarity under Settings -> Data Export and reconnect.",
-            "403 Client Error": "This Microsoft Clarity API token is not authorized for this project.",
+            "401 Client Error": TOKEN_INVALID_ERROR,
+            "403 Client Error": TOKEN_WRONG_PROJECT_ERROR,
             "429 Client Error": "The Microsoft Clarity daily quota (10 requests per project) has been used up. Try again after the quota resets.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` calls `make_tracked_session` directly rather than through the shared REST
+        # engine, so `DEFAULT_RETRY` already retries a dropped connection or read timeout before
+        # re-raising once that budget is exhausted. urllib3 wraps that as "... Max retries exceeded
+        # with url: ..." regardless of the underlying cause. Temporal then retries the whole
+        # activity, so the failure is transient and self-recovering, not a bug to report.
+        #
+        # `microsoft_clarity_source` also calls `response.raise_for_status()` directly rather than
+        # through the shared REST engine, so a 5xx that survives `DEFAULT_RETRY`'s in-process
+        # retries isn't wrapped as RESTClientRetryableError either — it's still a transient Clarity
+        # outage. Match status, reason and the endpoint's base URL, not the query string, since
+        # numOfDays/dimension vary per sync.
+        return {
+            "Max retries exceeded with url",
+            f"500 Server Error: Internal Server Error for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"502 Server Error: Bad Gateway for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"503 Server Error: Service Unavailable for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"504 Server Error: Gateway Timeout for url: {BASE_URL}{INSIGHTS_PATH}",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -102,10 +135,10 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MICROSOFT_CLARITY,
+            name=ExternalDataSourceType.MICROSOFTCLARITY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Microsoft Clarity",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Generate an API token in your Clarity project under **Settings -> Data Export -> Generate new API token**, then paste it below.
 
 Microsoft Clarity's export API allows a maximum of 10 requests per project per day and only returns the last 1-3 days of data (no historical backfill), so PostHog syncs a rolling snapshot on each run rather than pulling full history.""",

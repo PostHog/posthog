@@ -14,6 +14,9 @@ export const NODE_LAYER_GAP = 75
 // This also raises the ceiling on the initial fitView, which is bounded by the instance's minZoom.
 export const MIN_ZOOM = 0.1
 
+// React Flow's default ceiling, named so the fit zoom math can clamp to the same bound.
+export const MAX_ZOOM = 2
+
 // Below this, a node's description renders as an illegible smudge (it's 0.3rem at zoom 1), so we drop
 // it and leave the node as a labelled block for reading the overall shape of the workflow.
 export const LOW_DETAIL_ZOOM = 0.4

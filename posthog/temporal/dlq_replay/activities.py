@@ -80,7 +80,6 @@ async def get_topic_partitions(inputs: GetTopicPartitionsInputs) -> list[int]:
         bootstrap_servers=profile.hosts,
         security_protocol=profile.security_protocol or "PLAINTEXT",
         ssl_context=ssl_context,
-        api_version="2.5.0",
     )
 
     await consumer.start()
@@ -130,7 +129,6 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
         ssl_context=ssl_context,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
-        api_version="2.5.0",
     )
 
     # Replay must preserve per-message headers, which confluent-kafka's AIOProducer
@@ -143,7 +141,6 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
         security_protocol=target_profile.security_protocol or "PLAINTEXT",
         ssl_context=target_ssl_context,
         acks="all",
-        api_version="2.5.0",
     )
 
     messages_replayed = 0

@@ -16,6 +16,7 @@ from ..message_formatter import (
     format_output_messages,
     format_single_tool_call,
     format_tool_calls,
+    has_message_content,
     safe_extract_text,
     sanitize_surrogates,
     truncate_content,
@@ -217,9 +218,16 @@ class TestExtractTextContent:
         assert "World" in result
         assert "function" not in result
 
-    def test_extract_from_tool_use_block(self):
+    @parameterized.expand(
+        [
+            ("without_partial_json", {}),
+            ("dict_partial_json", {"partial_json": {"city": "Paris"}}),
+            ("int_partial_json", {"partial_json": 5}),
+        ]
+    )
+    def test_extract_from_tool_use_block(self, _name, extra_fields):
         """Should format tool_use blocks as function calls."""
-        content = [{"type": "tool_use", "name": "get_weather"}]
+        content = [{"type": "tool_use", "name": "get_weather", **extra_fields}]
         result = extract_text_content(content)
         assert "get_weather()" in result
 
@@ -514,6 +522,43 @@ class TestEdgeCases:
         # Empty string should be treated as no input
         assert len(lines) == 0
 
+    def test_malformed_message_does_not_stop_the_render(self):
+        messages = [
+            {"role": "assistant", "content": "first", "tool_calls": 5},
+            {"role": "user", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "first" in result
+        assert "second" in result
+
+    @parameterized.expand(
+        [
+            ("dict", {"kind": "oops"}),
+            ("list", ["oops"]),
+            ("int", 5),
+        ]
+    )
+    def test_large_malformed_block_keeps_the_blocks_after_it(self, _name, block_type):
+        content = [
+            {"type": block_type, "text": "A" * 1200},
+            {"type": "text", "text": "keep me"},
+        ]
+        result = extract_text_content(content)
+        assert "A" * 1200 in result
+        assert "keep me" in result
+
+    @parameterized.expand(
+        [
+            ("dict", {"a": 1}),
+            ("list", ["a"]),
+            ("int", 5),
+        ]
+    )
+    def test_non_string_item_type_keeps_its_payload(self, _name, item_type):
+        item = {"type": item_type, "name": "search", "arguments": '{"q":"x"}', "status": "completed"}
+        assert 'search(q="x")' in "\n".join(format_input_messages([item]))
+        assert 'search(q="x")' in "\n".join(format_output_messages(None, [item]))
+
 
 class TestResponsesApiItems:
     @parameterized.expand(
@@ -714,6 +759,69 @@ class TestResponsesApiItems:
         result = "\n".join(format_input_messages(messages))
         assert "Run the scout" in result
         assert "[INPUT_TEXT]" not in result
+
+
+class TestMessageContent:
+    @pytest.mark.parametrize(
+        "messages,expected",
+        [
+            ([{"role": "user", "content": " " * 2000}], False),
+            ([{"role": "user", "content": [{"type": "text", "text": "\n"}]}], False),
+            ([{"role": "user", "parts": []}], False),
+            ([{"role": "assistant", "parts": [{"type": "text", "content": " "}]}], False),
+            ([{"role": "user", "content": ""}, {"role": "assistant", "content": "4"}], True),
+            ([{"role": "assistant", "tool_calls": [{"function": {"name": "get_weather", "arguments": {}}}]}], True),
+            ([{"role": "assistant", "parts": [{"type": "text", "content": "4"}]}], True),
+            ([{"role": "assistant", "parts": [{"type": "tool_call", "name": "get_weather", "arguments": {}}]}], True),
+            ([{"role": "tool", "parts": [{"type": "tool_call_response", "response": {"temp_c": 0}}]}], True),
+            ([{"role": "user", "parts": [{"type": "blob", "modality": "image"}]}], True),
+        ],
+    )
+    def test_ignores_empty_bodies_but_keeps_renderable_content(
+        self, messages: list[dict[str, object]], expected: bool
+    ) -> None:
+        assert has_message_content(messages) is expected
+
+
+class TestOtelPartsMessages:
+    @parameterized.expand(
+        [
+            (
+                "input",
+                format_input_messages,
+                [
+                    {"role": "user", "parts": [{"type": "text", "content": "What is the weather in Paris?"}]},
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {"type": "tool_call", "id": "call_1", "name": "get_weather", "arguments": {"city": "Paris"}}
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "parts": [{"type": "tool_call_response", "id": "call_1", "response": {"temp_c": 21}}],
+                    },
+                ],
+                ["What is the weather in Paris?", 'get_weather(city="Paris")', '"temp_c": 21'],
+            ),
+            (
+                "output",
+                lambda messages: format_output_messages(None, messages),
+                [
+                    {
+                        "role": "assistant",
+                        "parts": [{"type": "text", "content": "It is 21C in Paris."}],
+                        "finish_reason": "stop",
+                    }
+                ],
+                ["[1] ASSISTANT", "It is 21C in Paris."],
+            ),
+        ]
+    )
+    def test_renders_text_held_in_parts(self, _name, render, messages, expected):
+        result = "\n".join(render(messages))
+        for fragment in expected:
+            assert fragment in result
 
 
 class TestSanitizeSurrogates:

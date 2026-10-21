@@ -1001,6 +1001,17 @@ export function formatScoutScheduleShort(config: ScoutScheduleFields): string {
 }
 
 /**
+ * Whether the schedule picks hours of the day, and so needs the project timezone said next to it.
+ * A stepped hour field counts, because it anchors on midnight in the project timezone.
+ */
+export function scoutScheduleNamesClockTime(
+  config: ScoutScheduleFields,
+): boolean {
+  const hours = config.run_cron_schedule?.trim().split(/\s+/)[1];
+  return hours !== undefined && hours !== "*";
+}
+
+/**
  * Enabled scouts first, then the ones the system switched off (they need a
  * human to switch them back on, so they lead the off-block), then the rest
  * alphabetically.

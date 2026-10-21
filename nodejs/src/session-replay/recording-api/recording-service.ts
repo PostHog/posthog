@@ -3,14 +3,16 @@ import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { isCloud } from '~/common/utils/env-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
+import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingBlock, RecordingDecryptor, RecordingEncryptor, SessionKeyDeletedError } from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -21,10 +23,15 @@ export interface GetBlockParams {
     decompress?: boolean
 }
 
-export type GetBlockResult =
-    | { ok: true; data: Buffer }
-    | { ok: false; error: 'not_found' }
-    | { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
+
+export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
+
+export type EncryptBlocksResult =
+    | { ok: true; blocks: Buffer[] }
+    | { ok: false; error: 'recording_exists' }
+    | { ok: false; error: 'key_unavailable' }
+    | RecordingDeletedResult
 
 export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number; deletedBy: string }
@@ -48,8 +55,47 @@ export class RecordingService {
         private metadataStore?: SessionMetadataStore,
         private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: ClickHouseClient
+        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential },
+        private encryptor?: RecordingEncryptor
     ) {}
+
+    // Lets a caller write a copied recording without its own access to KMS or the key table.
+    async encryptBlocks(
+        sessionId: string,
+        teamId: number,
+        blocks: Buffer[],
+        retentionDays: number
+    ): Promise<EncryptBlocksResult> {
+        const encryptor = this.encryptor
+        if (!encryptor) {
+            throw new Error('Encryptor not initialized')
+        }
+        // Encrypting only for sessions with no stored recording keeps this route from touching ingested data,
+        // and stops a new key from breaking the plaintext blocks of a pre-encryption recording.
+        if (await this.recordingExists(sessionId, teamId)) {
+            return { ok: false, error: 'recording_exists' }
+        }
+        let sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        if (sessionKey.sessionState === 'cleartext') {
+            sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
+        }
+        // A lost race on the conditional key write can read back no key, and encrypting with it returns plaintext.
+        if (sessionKey.sessionState === 'cleartext' && isCloud()) {
+            return { ok: false, error: 'key_unavailable' }
+        }
+        if (sessionKey.sessionState === 'deleted') {
+            return {
+                ok: false,
+                error: 'deleted',
+                deletedAt: sessionKey.deletedAt,
+                deletedBy: sessionKey.deletedBy ?? '',
+            }
+        }
+        return {
+            ok: true,
+            blocks: blocks.map((block) => encryptor.encryptBlockWithKey(sessionId, teamId, block, sessionKey).data),
+        }
+    }
 
     validateS3Key(key: string): boolean {
         const pattern = `^${this.s3Prefix}/(${ValidRetentionPeriods.join('|')})/\\d+-[0-9a-f]{16}$`
@@ -163,17 +209,52 @@ export class RecordingService {
         }
     }
 
+    private async recordingExists(sessionId: string, teamId: number): Promise<boolean> {
+        if (!this.clickhouse) {
+            throw new Error('ClickHouse client not initialized')
+        }
+        const { client, credential } = this.clickhouse
+        // No retention or is_deleted filter: an expired or deleted recording still has blocks a new key would break.
+        const result = await client.query({
+            query: `/* team_id:${teamId} query_type:recording_api_recording_exists */ SELECT 1
+                FROM session_replay_events
+                PREWHERE team_id = {team_id:Int32} AND session_id = {session_id:String}
+                LIMIT 1
+            `,
+            query_params: { team_id: teamId, session_id: sessionId },
+            format: 'JSONEachRow',
+            auth: await credential.auth(),
+            clickhouse_settings: {
+                log_comment: JSON.stringify({
+                    team_id: teamId,
+                    product: 'replay',
+                    kind: 'node',
+                    query_type: 'recording_api_recording_exists',
+                    service_name: 'recording-api',
+                    container_hostname: process.env.HOSTNAME || 'unknown',
+                }),
+                max_execution_time: 30,
+                // The lookup has no date bound, so cap it to keep it from starving playback listings on the shared pool.
+                max_threads: 4,
+                max_bytes_to_read: '10000000000',
+            },
+        })
+        const rows = await result.json()
+        return rows.length > 0
+    }
+
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {
         if (!this.clickhouse) {
             throw new Error('ClickHouse client not initialized')
         }
+        const { client, credential } = this.clickhouse
 
         const startTime = performance.now()
 
         logger.debug('[RecordingService] listBlocks request', { teamId, sessionId })
 
         try {
-            const result = await this.clickhouse.query({
+            const result = await client.query({
                 query: `/* team_id:${teamId} query_type:recording_api_list_blocks */ SELECT
                         min(min_first_timestamp) as start_time,
                         groupArrayArray(block_first_timestamps) as block_first_timestamps,
@@ -196,6 +277,7 @@ export class RecordingService {
                     session_id: sessionId,
                 },
                 format: 'JSONEachRow',
+                auth: await credential.auth(),
                 clickhouse_settings: {
                     date_time_output_format: 'iso',
                     log_comment: JSON.stringify({
@@ -321,6 +403,10 @@ export class RecordingService {
 
         await this.propagateDeletion(
             deleted.map((r) => r.sessionId),
+            // A shred that already happened still gets its derived data cleaned up. Cleanup is
+            // best-effort, so without this a failed pass is never retried: the next delete of the
+            // same recording reports already_deleted and skips it.
+            [...deleted, ...alreadyDeleted].map((r) => r.sessionId),
             teamId,
             deletedBy
         )
@@ -353,13 +439,18 @@ export class RecordingService {
      * Failures are non-fatal — the key shred already makes the recording unplayable (410).
      * Stale metadata from failed propagation is harmless but won't be automatically cleaned up.
      */
-    private async propagateDeletion(sessionIds: string[], teamId: number, deletedBy: string): Promise<void> {
-        if (sessionIds.length === 0) {
+    private async propagateDeletion(
+        sessionIds: string[],
+        cleanupSessionIds: string[],
+        teamId: number,
+        deletedBy: string
+    ): Promise<void> {
+        if (sessionIds.length === 0 && cleanupSessionIds.length === 0) {
             return
         }
         const [kafka, postgres, activity] = await Promise.allSettled([
             this.emitDeletionEvents(sessionIds, teamId),
-            this.deletePostgresRecords(sessionIds, teamId),
+            this.deletePostgresRecords(cleanupSessionIds, teamId),
             this.logActivity(sessionIds, teamId, deletedBy),
         ])
         if (kafka.status === 'rejected') {
@@ -399,7 +490,13 @@ export class RecordingService {
             return
         }
 
-        const tables = ['ee_single_session_summary', 'posthog_exportedrecording', 'posthog_comment'] as const
+        const tables = [
+            'ee_single_session_summary',
+            'posthog_exportedrecording',
+            'posthog_comment',
+            'replay_vision_replayobservation',
+            'posthog_exportedasset',
+        ] as const
         const results = await Promise.allSettled([
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -418,6 +515,47 @@ export class RecordingService {
                 `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = ANY($2)`,
                 [teamId, sessionIds],
                 'deleteRecordingComments'
+            ),
+            // One statement: the children's foreign keys are NO ACTION, so separate deletes would have to run child-first.
+            // The AsyncDeletion row (deletion_type 5 = Event) queues the observation's $recording_observed event for the ClickHouse sweep, atomically with the delete.
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `WITH observations AS (
+                     SELECT id FROM replay_vision_replayobservation
+                     WHERE team_id = $1 AND session_id = ANY($2)
+                 ), queued_events AS (
+                     INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_at)
+                     SELECT 5, $1, id::text, now() FROM observations
+                     ON CONFLICT DO NOTHING
+                 ), deleted_labels AS (
+                     DELETE FROM replay_vision_replayobservationlabel
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_views AS (
+                     DELETE FROM replay_vision_replayobservationview
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_matches AS (
+                     DELETE FROM replay_vision_visionalertmatch
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_media AS (
+                     DELETE FROM replay_vision_replayobservationmedia
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 )
+                 DELETE FROM replay_vision_replayobservation
+                 WHERE id IN (SELECT id FROM observations)`,
+                [teamId, sessionIds],
+                'deleteReplayVisionObservations'
+            ),
+            // Expired, not deleted: the row is the only pointer to the stored object, which the expiry sweep needs.
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                // `= ANY` over jsonb so the planner can use exportedasset_session; a subquery cannot.
+                `UPDATE posthog_exportedasset
+                 SET expires_after = now()
+                 WHERE team_id = $1
+                   AND expires_after > now()
+                   AND export_context -> 'session_recording_id' = ANY($2::jsonb[])`,
+                [teamId, sessionIds.map((sessionId) => JSON.stringify(sessionId))],
+                'expireRecordingExports'
             ),
         ])
 

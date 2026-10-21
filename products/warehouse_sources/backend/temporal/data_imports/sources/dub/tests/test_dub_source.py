@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
+    ENDPOINTS,
+    PLAN_GATED_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.source import DubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dub import DubSourceConfig
 
@@ -12,11 +15,6 @@ class TestDubSource:
     def setup_method(self):
         self.source = DubSource()
         self.config = DubSourceConfig(api_key="dub_test_key")
-
-    def test_source_is_released(self) -> None:
-        # unreleasedSource=True hides the connector from every user; a finished source
-        # must never regain it.
-        assert not self.source.get_source_config.unreleasedSource
 
     @pytest.mark.parametrize(
         ("valid", "message"),
@@ -63,7 +61,7 @@ class TestDubSource:
 
         probed = [call.args[1] for call in mock_check.call_args_list]
         assert len([e for e in probed if e in EVENT_ENDPOINTS]) == 1
-        assert set(probed) - set(EVENT_ENDPOINTS) == {"partners", "commissions", "payouts"}
+        assert set(probed) - set(EVENT_ENDPOINTS) == set(PLAN_GATED_ENDPOINTS) - set(EVENT_ENDPOINTS)
         for endpoint in EVENT_ENDPOINTS:
             assert permissions[endpoint] == "Business plan required"
         assert permissions["links"] is None

@@ -30,6 +30,7 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -323,6 +324,14 @@ function sanitizeFromName(name: string): string {
     return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
 }
 
+// A display name can come from Liquid output, so it may hold quotes, backslashes or line breaks.
+// Escape it as an RFC 5322 quoted string and drop control characters, which also stops a templated
+// name from injecting a header.
+export function formatMailbox(name: string | undefined, email: string): string {
+    const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
+    return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -345,7 +354,7 @@ export class EmailService {
         private integrationManager: IntegrationManagerService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string,
+        private siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
@@ -478,6 +487,30 @@ export class EmailService {
 
             const from = this.resolveFromSender(integration, params.from, addLog)
 
+            // An empty `to` comes from the customer's data (a person without an email property, or no
+            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
+            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
+            // with bad data inflates the platform send failure rate.
+            if (!params.to?.email?.trim()) {
+                addLog(
+                    'warn',
+                    'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_missing_recipient',
+                        count: 1,
+                    })
+                }
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
@@ -560,19 +593,55 @@ export class EmailService {
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
+                const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
                     'info',
-                    `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history.`
+                    capDelay.label
+                        ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${capRetrySeconds}s. The limit rises as the project builds a clean sending history.`
+                        : `Could not check this project's email sending limit, so this email is waiting. Retrying in ${capRetrySeconds}s. No action is needed on your side.`
                 )
                 return result
             }
 
+            // A reply-to set on the email step wins over the sender's default.
+            const paramsWithReplyTo =
+                parseAddressList(params.replyTo) || !integration.config.reply_to
+                    ? params
+                    : { ...params, replyTo: integration.config.reply_to }
+
+            // Tagged before click tracking wraps the links, so the tags land on the destination URL.
+            const metadata = invocation.hogFunction.metadata
+            const sendParams =
+                metadata?.utm_tags_enabled === true && params.html
+                    ? {
+                          ...paramsWithReplyTo,
+                          html: addUtmTagsToEmail(
+                              params.html,
+                              resolveUtmTags(
+                                  {
+                                      utm_source: 'posthog',
+                                      utm_medium: 'email',
+                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
+                                      utm_content: metadata.hog_flow_action_name ?? '',
+                                  },
+                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
+                                      addLog(
+                                          'warn',
+                                          `Used the default ${key} because its value has an error: ${message}`
+                                      )
+                                  )
+                              ),
+                              this.siteUrl
+                          ),
+                      }
+                    : paramsWithReplyTo
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -584,7 +653,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -596,6 +665,7 @@ export class EmailService {
                 // catches the cases where SES disagrees with our estimate.
                 throttled = true
                 result.finished = false
+                result.invocation.queueParameters = params
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {
@@ -688,12 +758,14 @@ export class EmailService {
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
      * config blip must never throttle a legitimate customer. A failed bucket claim returns 0 from
      * the limiter, which delays the send, because we must not send when we cannot account for it.
+     * That second case returns a null `label`: the send waits, but no cap was reached, so the
+     * caller must not tell the customer it hit one.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
         isTest: boolean,
         recipients: number = 1
-    ): Promise<{ retryDelayMs: number; label: string } | null> {
+    ): Promise<{ retryDelayMs: number; label: string | null } | null> {
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
             return null
@@ -734,13 +806,23 @@ export class EmailService {
             if (claim.granted) {
                 return null
             }
-            const denied = buckets[claim.deniedIndex ?? 1]
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
-            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
+            // `deniedIndex` is null when the limiter itself failed, not when a bucket was full. The
+            // send still waits, because we must not send what we cannot account for, but no cap was
+            // reached, so a null label tells the caller it has no cap to name to the customer.
+            const denied = claim.deniedIndex === null ? null : buckets[claim.deniedIndex]
+            // The daily bucket paces a limiter failure because it is the slower of the two, so the
+            // retry backs off at the safer rate while the limiter is unreachable.
+            const pacing = denied ?? buckets[1]
+            teamEmailCapDelayedTotal.inc({
+                tier: String(tier),
+                bucket: denied?.name ?? 'limiter_unavailable',
+                mode,
+            })
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, pacing.refillPerSecond, claim.reserved)
             emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
                 retryDelayMs,
-                label: denied.label,
+                label: denied?.label ?? null,
             }
         }
 
@@ -959,10 +1041,10 @@ export class EmailService {
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
-            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            from: formatMailbox(from.name, from.email),
+            to: formatMailbox(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
-            text: params.text,
+            ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
@@ -1034,9 +1116,9 @@ export class EmailService {
             : {}
 
         const sendEmailParams: SendEmailCommandInput = {
-            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            FromEmailAddress: formatMailbox(from.name, from.email),
             Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+                ToAddresses: [formatMailbox(params.to.name, params.to.email)],
             },
             Content: {
                 Simple: {
@@ -1045,10 +1127,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        Text: {
-                            Data: params.text,
-                            Charset: 'UTF-8',
-                        },
+                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },

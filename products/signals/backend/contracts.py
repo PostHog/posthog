@@ -4,6 +4,7 @@
 # `SignalNodeSerializer` in `serializers.py`), so they flow through the standard OpenAPI/Orval pipeline.
 
 import enum
+from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +22,30 @@ DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
 # Server-side cap on steering text. The serializer rejects longer input; reads truncate
 # defensively so a row written by another path cannot bloat every gate prompt.
 STEERING_MAX_LENGTH = 2000
+
+# ── Scope allowlists ────────────────────────────────────────────────────────────
+# Per-source `SignalSourceConfig.config` key holding the allowlist of scope ids emission narrows to.
+# Kept out of `emission/` for the same reason as the steering keys above.
+SCOPE_CONFIG_KEYS: Mapping[tuple[str, str], str] = {
+    (SignalSourceProduct.LINEAR, SignalSourceType.ISSUE): "linear_team_ids",
+}
+SCOPE_IDS_MAX_COUNT = 100
+# Both caps keep a row written outside the API from bloating the emission query past ClickHouse's size limit.
+SCOPE_ID_MAX_LENGTH = 255
+
+
+def scope_ids_problem(value: object) -> str | None:
+    """Why `value` is not a valid scope allowlist, or None when it is. The API rejects the value
+    with this message; the fetcher falls back to reading everything, so a malformed row never
+    applies part of a list."""
+    if not isinstance(value, list) or not all(isinstance(scope_id, str) and scope_id.strip() for scope_id in value):
+        return "must be a list of non-empty strings"
+    if len(value) > SCOPE_IDS_MAX_COUNT:
+        return f"must have at most {SCOPE_IDS_MAX_COUNT} entries"
+    if any(len(scope_id.strip()) > SCOPE_ID_MAX_LENGTH for scope_id in value):
+        return f"entries must be at most {SCOPE_ID_MAX_LENGTH} characters"
+    return None
+
 
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
 # `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
@@ -329,7 +354,6 @@ class SignalsScoutSignalExtra(SignalExtraBase):
     finding_id: str
     skill_name: str
     skill_version: int
-    confidence: float
     severity: ReportPriority | None = None
     hypothesis: str | None = None
     evidence: list[SignalsScoutEvidenceEntry]
@@ -343,6 +367,32 @@ class SignalsScoutSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.CROSS_SOURCE_ISSUE]
     source_product: Literal[SignalSourceProduct.SIGNALS_SCOUT]
     extra: SignalsScoutSignalExtra
+
+
+# ── Report checks ──────────────────────────────────────────────────────────────
+
+
+class CheckFailedSignalExtra(SignalExtraBase):
+    check_id: str
+    report_id: str
+    check_title: str
+    explanation: str
+    observed_value: float | None = None
+    baseline_value: float | None = None
+    threshold: str | None = None
+
+
+class CheckFailedSignalInput(SignalInputBase):
+    """A deterministic check that breached after its report was resolved.
+
+    The inbox emitting to itself. An `agent` check has a scout that can author a fresh report; a
+    `metric_threshold` check has nobody, so the verdict becomes a signal and the pipeline treats the
+    relapse the way it treats any other recurrence on a resolved report.
+    """
+
+    source_type: Literal[SignalSourceType.CHECK_FAILED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: CheckFailedSignalExtra
 
 
 # ── Logs ────────────────────────────────────────────────────────────────────────
@@ -359,6 +409,8 @@ class LogsAlertStateChangeSignalExtra(SignalExtraBase):
     consecutive_failures: int
     filters: dict[str, object]
     url: str
+    # The group a grouped alert fired for, by column. Absent for an ungrouped alert.
+    group_labels: dict[str, str] | None = None
 
 
 class LogsAlertStateChangeSignalInput(SignalInputBase):
@@ -533,6 +585,9 @@ class EnrichedReviewer(ContractModel):
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_skill: str | None = None
+    source_label: str
+    explanation: str | None = None
 
 
 # ── Tier-1 data-warehouse inbox sources ──────────────────────────────────────────
@@ -597,7 +652,7 @@ class KustomerConversationSignalExtra(SignalExtraBase):
     status: str | None
     priority: str | None
     tags: list
-    createdAt: str | None
+    created_at: str | None
 
 
 class KustomerConversationSignalInput(SignalInputBase):
@@ -623,7 +678,7 @@ class PlainThreadSignalExtra(SignalExtraBase):
     status: str | None
     priority: str | None
     labels: list
-    createdAt: str | None
+    created_at: str | None
 
 
 class PlainThreadSignalInput(SignalInputBase):
@@ -677,8 +732,8 @@ class SentryIssueSignalExtra(SignalExtraBase):
     level: str | None
     status: str | None
     permalink: str | None
-    shortId: str | None
-    firstSeen: str | None
+    short_id: str | None
+    first_seen: str | None
 
 
 class SentryIssueSignalInput(SignalInputBase):
@@ -732,9 +787,9 @@ class HoneybadgerFaultSignalInput(SignalInputBase):
 
 class RaygunErrorGroupSignalExtra(SignalExtraBase):
     status: str | None
-    applicationUrl: str | None
-    lastOccurredAt: str | None
-    createdAt: str | None
+    application_url: str | None
+    last_occurred_at: str | None
+    created_at: str | None
 
 
 class RaygunErrorGroupSignalInput(SignalInputBase):
@@ -765,7 +820,7 @@ class SonarqubeScannerFindingSignalExtra(SignalExtraBase):
     status: str | None
     component: str | None
     rule: str | None
-    creationDate: str | None
+    creation_date: str | None
 
 
 class SonarqubeScannerFindingSignalInput(SignalInputBase):
@@ -805,7 +860,7 @@ class FeaturebaseFeedbackSignalExtra(SignalExtraBase):
     status: str | None
     tags: list
     upvotes: str | None
-    createdAt: str | None
+    created_at: str | None
 
 
 class FeaturebaseFeedbackSignalInput(SignalInputBase):
@@ -857,8 +912,8 @@ class UservoiceFeedbackSignalInput(SignalInputBase):
 class ProductboardFeedbackSignalExtra(SignalExtraBase):
     state: str | None
     tags: list
-    displayUrl: str | None
-    createdAt: str | None
+    display_url: str | None
+    created_at: str | None
 
 
 class ProductboardFeedbackSignalInput(SignalInputBase):
@@ -871,7 +926,7 @@ class CannyFeedbackSignalExtra(SignalExtraBase):
     status: str | None
     tags: list
     score: str | None
-    voteCount: str | None
+    vote_count: str | None
     url: str | None
     created: str | None
 
@@ -898,10 +953,10 @@ class AsknicelyFeedbackSignalInput(SignalInputBase):
 
 class RetentlyFeedbackSignalExtra(SignalExtraBase):
     score: str | None
-    ratingCategory: str | None
-    feedbackTopics: list
+    rating_category: str | None
+    feedback_topics: list
     resolved: str | None
-    createdDate: str | None
+    created_date: str | None
 
 
 class RetentlyFeedbackSignalInput(SignalInputBase):
@@ -1016,6 +1071,7 @@ SignalInput = Annotated[
     | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
+    | CheckFailedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput
@@ -1112,6 +1168,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
     GoogleSearchConsoleSearchOpportunitySignalInput,
+    CheckFailedSignalInput,
 )
 
 

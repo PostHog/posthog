@@ -6,8 +6,12 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
 from rest_framework import status
 
+from posthog.api.my_notifications import NOTIFICATION_HISTORY_WINDOW
 from posthog.models import NotificationViewed, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.insight_queries import default_pageview_query
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -26,6 +30,8 @@ def _feature_flag_json_payload(key: str) -> dict:
     }
 
 
+# The feed only looks back a bounded window, so read the fixtures from the day they were written.
+@time_machine.travel("2023-08-17", tick=False)
 class TestMyNotifications(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
@@ -287,6 +293,49 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         assert changes.json()["last_read"] == "2023-08-17T04:24:25.000123Z"
         assert [c["unread"] for c in changes.json()["results"]] == [True, True]
 
+    def test_masks_destination_values_in_rows_written_before_the_mask(self) -> None:
+        destination = HogFunction.objects.create(
+            team=self.team, created_by=self.user, name="Example destination", type="destination", hog="return 1"
+        )
+        with time_machine.travel("2023-08-17T05:00:00Z", tick=False):
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.other_user,
+                scope="HogFunction",
+                activity="updated",
+                item_id=str(destination.id),
+                detail={
+                    "name": "Example destination",
+                    "changes": [
+                        {
+                            "type": "HogFunction",
+                            "field": "inputs",
+                            "action": "changed",
+                            "before": {"api_key": {"value": "example-private-before"}},
+                            "after": {"api_key": {"value": "example-private-after"}},
+                        }
+                    ],
+                },
+            )
+            changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications")
+
+        assert changes.status_code == status.HTTP_200_OK
+        newest = changes.json()["results"][0]
+        assert newest["item_id"] == str(destination.id)
+        assert newest["detail"]["changes"][0]["before"] == {"api_key": "masked"}
+        assert newest["detail"]["changes"][0]["after"] == {"api_key": "changed"}
+        assert "example-private" not in changes.content.decode()
+
+    def test_changes_older_than_the_history_window_are_not_shown(self) -> None:
+        with time_machine.travel("2023-08-17", tick=False) as frozen_time:
+            frozen_time.shift(NOTIFICATION_HISTORY_WINDOW + timedelta(days=1))
+            self.client.force_login(self.user)
+            changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications")
+
+        assert changes.status_code == status.HTTP_200_OK
+        assert changes.json()["results"] == []
+
     def test_notifications_viewed_n_plus_1(self) -> None:
         for i in range(1, 9):
             if i % 3 == 0:
@@ -300,7 +349,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
                 user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
             )
 
-            with self.assertNumQueries(FuzzyInt(33, 33)):
+            with self.assertNumQueries(FuzzyInt(28, 28)):
                 self.client.get(f"/api/projects/{self.team.id}/my_notifications")
 
     def test_microsecond_precision_mismatch(self):

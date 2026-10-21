@@ -6,12 +6,14 @@ from datetime import datetime
 import structlog
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
     MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
+    PRState,
     PullRequestList,
     WorkflowCost,
     WorkflowRunDetail,
@@ -31,7 +33,10 @@ from products.engineering_analytics.backend.logic.queries.merged_pull_requests i
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_author_workflow_costs, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
-from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
+from products.engineering_analytics.backend.logic.queries.pull_request_list import (
+    query_attention_pull_requests,
+    query_pull_request_list,
+)
 from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
 
 logger = structlog.get_logger(__name__)
@@ -101,10 +106,36 @@ def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
 
 
 def build_pull_request_list(
-    *, curated: CuratedGitHubSource, date_from: str | None = None, author: str | None = None
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    author: str | None = None,
+    state: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> PullRequestList:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    return query_pull_request_list(curated=curated, date_from=parsed_from, author=author)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    if parsed_to is not None and parsed_to < parsed_from:
+        raise ValueError("date_to must be on or after date_from")
+    try:
+        parsed_state = PRState(state) if state else None
+    except ValueError:
+        raise ValueError(f"state must be one of: {', '.join(s.value for s in PRState)}") from None
+    return query_pull_request_list(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        author=author,
+        state=parsed_state,
+        limit=limit,
+        offset=offset or 0,
+    )
+
+
+def build_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionPullRequestList:
+    return query_attention_pull_requests(curated=curated)
 
 
 def build_merged_pull_requests(

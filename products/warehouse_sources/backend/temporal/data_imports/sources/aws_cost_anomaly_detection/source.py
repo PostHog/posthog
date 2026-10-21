@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
     AwsCostAnomalyDetectionResumeConfig,
     aws_cost_anomaly_detection_source,
@@ -41,6 +40,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AwsCostAnomalyDetectionSource(
     ResumableSource[AwsCostAnomalyDetectionSourceConfig, AwsCostAnomalyDetectionResumeConfig]
 ):
+    codebase_detection = detect(
+        env=("^(AWS_COST_ANOMALY_DETECTION|AWSCOSTANOMALYDETECTION)_",),
+        npm=("@aws-sdk/client-cost-explorer",),
+        cargo=("aws-sdk-costexplorer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/costexplorer",),
+        maven=("software.amazon.awssdk:costexplorer", "com.amazonaws:aws-java-sdk-costexplorer"),
+        rubygems=("aws-sdk-costexplorer",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
 
@@ -133,7 +141,7 @@ class AwsCostAnomalyDetectionSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWS_COST_ANOMALY_DETECTION,
+            name=ExternalDataSourceType.AWSCOSTANOMALYDETECTION,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="AWS Cost Anomaly Detection",
             caption="""Sync the cost anomalies AWS detected on your account into the PostHog Data warehouse.
@@ -143,7 +151,7 @@ Create an IAM user or role with the `ce:GetAnomalies`, `ce:GetAnomalyMonitors` a
 Cost Explorer has to be enabled once in the AWS console, and it can take up to 24 hours before data is ready. AWS keeps anomalies for 90 days, so that is as far back as a first sync reaches. You only see the monitors and subscriptions created by the account you connect, so connect the management (payer) account for organization-wide coverage.""",
             iconPath="/static/services/aws_cost_anomaly_detection.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-anomaly-detection",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "finops", "cloud spend", "cost explorer", "cost anomaly detection"],
             fields=cast(
                 list[FieldType],

@@ -1,7 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconOpenSidebar, IconShare } from '@posthog/icons'
+import { IconOpenSidebar, IconShare, IconSidePanel } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
+import { DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -9,17 +11,24 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
+import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
+import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
-import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
+import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
+import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
+import { aiSceneView } from '../aiSceneView'
 import { Intro } from '../Intro'
-import { maxGlobalLogic } from '../maxGlobalLogic'
+import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
 import { Thread } from '../Thread'
 import { MaxNotConfigured } from './MaxNotConfigured'
+import { PhaiQuillOverflowMenu } from './PhaiQuillOverflowMenu'
+import { PhaiViewSwitchMenuItem } from './PhaiViewSwitchMenuItem'
 import { PhaiViewToggle } from './PhaiViewToggle'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
@@ -31,6 +40,8 @@ export function ChatHeader({
     children,
     hideBorder,
     isSandboxRuntime,
+    hideViewToggle,
+    onViewChange,
 }: {
     conversationId: string | null
     tabId?: string
@@ -38,10 +49,20 @@ export function ChatHeader({
     hideBorder?: boolean
     /** Debug rows only exist on the sandbox runtime, so the staff menu that reveals them is hidden elsewhere. */
     isSandboxRuntime?: boolean
+    /** For a surface the URL pinned, where the saved view the toggle reads does not match what is shown. */
+    hideViewToggle?: boolean
+    onViewChange?: (mode: PhaiViewMode) => void
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
     const isTitleLoading = chatTitle === 'New chat'
+    const skin = useThreadSkin()
+    const copyLink = (): void => {
+        copyToClipboard(
+            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+            'conversation sharing link'
+        )
+    }
 
     return (
         <div
@@ -61,35 +82,50 @@ export function ChatHeader({
                 )}
             </div>
             <div className="flex items-center gap-2">
-                {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
-                <PhaiViewToggle variant="lemon" />
-                {conversationId ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        sideIcon={<IconShare />}
-                        onClick={() => {
-                            copyToClipboard(
-                                urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
-                                'conversation sharing link'
-                            )
-                        }}
-                    >
-                        Copy link
-                    </LemonButton>
-                ) : undefined}
-                {tabId ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        sideIcon={<IconOpenSidebar />}
-                        onClick={() => {
-                            openSidePanelMax(conversationId ?? undefined)
-                        }}
-                    >
-                        Open in context panel
-                    </LemonButton>
-                ) : undefined}
+                {skin === 'quill' ? (
+                    <PhaiQuillOverflowMenu>
+                        {conversationId && (
+                            <DropdownMenuItem onClick={copyLink} data-attr="ai-copy-conversation-link">
+                                <IconShare />
+                                Copy link
+                            </DropdownMenuItem>
+                        )}
+                        {tabId && (
+                            <DropdownMenuItem
+                                onClick={() => openSidePanelMax(conversationId ?? undefined)}
+                                data-attr="ai-open-in-side-panel"
+                            >
+                                <IconSidePanel />
+                                Dock to the right
+                            </DropdownMenuItem>
+                        )}
+                        {(conversationId || tabId) && <DropdownMenuSeparator />}
+                        {isSandboxRuntime && <DebugLogsMenuItem parts={DROPDOWN_PARTS} />}
+                        {!hideViewToggle && <PhaiViewSwitchMenuItem onChange={onViewChange} />}
+                    </PhaiQuillOverflowMenu>
+                ) : (
+                    <>
+                        {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
+                        {!hideViewToggle && <PhaiViewToggle variant="lemon" onChange={onViewChange} />}
+                        {conversationId ? (
+                            <LemonButton size="small" type="secondary" sideIcon={<IconShare />} onClick={copyLink}>
+                                Copy link
+                            </LemonButton>
+                        ) : undefined}
+                        {tabId ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconOpenSidebar />}
+                                onClick={() => {
+                                    openSidePanelMax(conversationId ?? undefined)
+                                }}
+                            >
+                                Open in context panel
+                            </LemonButton>
+                        ) : undefined}
+                    </>
+                )}
             </div>
         </div>
     )
@@ -97,26 +133,55 @@ export function ChatHeader({
 
 interface AiFirstMaxInstanceProps {
     tabId: string
+    taskId?: string
+    /** The legacy conversation the URL names. It pins the legacy chat, as `taskId` pins the runner. */
+    chatId?: string
 }
 
-export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
+export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    const skin = useThreadSkin()
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
 
-    // On `/ai` the new view is the full TaskTracker product (tasks list + composer + run detail); a thin
-    // bar keeps the toggle reachable so the user can drop back to the legacy chat.
-    if (effectivePhaiView === 'new') {
+    if (aiSceneView({ taskId, chatId, effectivePhaiView }) === 'runner') {
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
-                <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
-                    {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
-                    <DebugLogsMenu variant="lemon" />
-                    <PhaiViewToggle variant="lemon" />
-                </div>
+                {!taskId && (
+                    <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
+                        {skin === 'quill' ? (
+                            <PhaiQuillOverflowMenu>
+                                {/* Only desktop Today has the floating and docked panel to move the chat into. */}
+                                {todayRailEnabled && !phoneLayout && (
+                                    <>
+                                        <TodayPanelMoveMenuItems
+                                            parts={DROPDOWN_PARTS}
+                                            chat={null}
+                                            dataAttrPrefix="ai"
+                                        />
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
+                                <DebugLogsMenuItem parts={DROPDOWN_PARTS} />
+                                <PhaiViewSwitchMenuItem />
+                            </PhaiQuillOverflowMenu>
+                        ) : (
+                            <>
+                                {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
+                                <DebugLogsMenu variant="lemon" />
+                                <PhaiViewToggle variant="lemon" />
+                            </>
+                        )}
+                    </div>
+                )}
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        <EmbeddedRunner />
+                        {/* The quill task header carries the debug logs switch in its own overflow menu. */}
+                        <EmbeddedRunner
+                            taskId={taskId}
+                            titleActions={skin === 'lemon' ? <DebugLogsMenu variant="lemon" /> : undefined}
+                        />
                     </BindLogic>
                 </div>
             </div>
@@ -138,6 +203,16 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                             conversationId={conversationId}
                             tabId={tabId}
                             isSandboxRuntime={conversation?.agent_runtime === 'sandbox'}
+                            // A chat link opened the legacy chat over the saved new view: the toggle would
+                            // offer "legacy" for what is already shown. "New chat" leads back to the runner.
+                            hideViewToggle={!!chatId && effectivePhaiView === 'new'}
+                            // Legacy Max keeps `?chat=` in the URL once a conversation starts, and that param
+                            // pins this chat, so switching to the new view has to leave the conversation too.
+                            onViewChange={(mode) => {
+                                if (mode === 'new' && chatId) {
+                                    router.actions.push(urls.ai())
+                                }
+                            }}
                         />
                         {isMaxAvailable ? (
                             <ChatArea

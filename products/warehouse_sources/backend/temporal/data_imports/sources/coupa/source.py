@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(env=("^COUPA_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://docs.coupa.com/en/developer-documentation/the-coupa-core-api/coupa-core-api-overview"
@@ -67,7 +68,7 @@ class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], Validat
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COUPA,
+            name=ExternalDataSourceType.COUPA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Coupa",
             caption="""Connect your Coupa instance to pull your spend management data into the PostHog Data warehouse.
@@ -75,7 +76,7 @@ class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], Validat
 A Coupa admin can create an OIDC client under Setup > Integrations > OAuth2/OpenID Connect Clients with the client credentials grant. Grant it the read scopes for the objects you want to sync (e.g. `core.invoice.read`, `core.purchase_order.read`). The instance URL is your Coupa host, e.g. `https://myorg.coupahost.com`.""",
             iconPath="/static/services/coupa.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coupa",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

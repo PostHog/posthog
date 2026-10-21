@@ -11,11 +11,13 @@ import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ActorsQuery } from '~/queries/schema/schema-general'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 const ROW_HEIGHT = 44
 
@@ -37,8 +39,8 @@ function parseResults(results: any[][] | undefined): PersonRowData[] {
 interface PersonRowProps {
     persons: PersonRowData[]
     existingPersonsSet: Set<string> | undefined
-    selectedPersons: Record<string, boolean>
-    onAddPerson: (id: string) => void
+    selectedPersons: Record<string, unknown>
+    onAddPerson: (id: string, displayName: string | null) => void
     onRemovePerson: (id: string) => void
 }
 
@@ -53,7 +55,7 @@ const PersonRowComponent = ({
 }: PersonRowProps & { index: number; style: CSSProperties; ariaAttributes: Record<string, unknown> }): JSX.Element => {
     const person = persons[index]
     const isInCohort = existingPersonsSet?.has(person.id) ?? false
-    const isSelected = selectedPersons[person.id] != null
+    const isSelected = person.id in selectedPersons
     const personUrl = person.displayName?.id ? urls.personByUUID(person.displayName.id) : undefined
 
     return (
@@ -66,7 +68,7 @@ const PersonRowComponent = ({
                     if (isSelected) {
                         onRemovePerson(person.id)
                     } else {
-                        onAddPerson(person.id)
+                        onAddPerson(person.id, person.displayName?.display_name ?? null)
                     }
                 }}
                 fullWidth
@@ -107,8 +109,8 @@ const PersonRowComponent = ({
 export interface PersonSelectListProps {
     query: ActorsQuery
     setQuery: (query: ActorsQuery) => void
-    selectedPersons: Record<string, boolean>
-    onAddPerson: (id: string) => void
+    selectedPersons: Record<string, unknown>
+    onAddPerson: (id: string, displayName: string | null) => void
     onRemovePerson: (id: string) => void
     existingPersonsSet?: Set<string>
     dataNodeKey: string
@@ -133,8 +135,10 @@ export function PersonSelectList({
         [dataNodeKey, query]
     )
 
-    const { response, responseLoading, canLoadNextData, nextDataLoading } = useValues(dataNodeLogic(dataNodeLogicProps))
-    const { loadNextData } = useActions(dataNodeLogic(dataNodeLogicProps))
+    const logic = dataNodeLogic(dataNodeLogicProps)
+    const { response, responseLoading, responseError, responseErrorObject, queryId, canLoadNextData, nextDataLoading } =
+        useValues(logic)
+    const { loadNextData, loadData } = useActions(logic)
 
     const persons = useMemo(() => parseResults((response as Record<string, any> | null)?.results), [response])
 
@@ -170,7 +174,17 @@ export function PersonSelectList({
             />
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="AddPersonToCohortModalBody__list">
-                    {responseLoading && persons.length === 0 ? (
+                    {responseError ? (
+                        <div className="flex h-full">
+                            <InsightErrorState
+                                query={query}
+                                queryId={responseErrorObject?.queryId ?? queryId}
+                                titleStatus={responseErrorObject?.status}
+                                onRetry={() => loadData('force_blocking')}
+                                title={responseError}
+                            />
+                        </div>
+                    ) : responseLoading && persons.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
                             <Spinner className="text-2xl" />
                         </div>

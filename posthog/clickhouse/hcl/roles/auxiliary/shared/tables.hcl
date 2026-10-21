@@ -382,6 +382,33 @@ database "posthog" {
       version_column = "computed_at"
     }
   }
+  # A plain MergeTree because every row is a distinct check and nothing supersedes anything. The one
+  # duplicate this table can see is a retried insert of an identical batch, which the replicated
+  # engine drops through its own insert deduplication; the writer keys that explicitly. A
+  # ReplacingMergeTree would instead make every count over the table wrong on any part a merge has
+  # not reached, and ClickHouse never promises a merge will run.
+  #
+  # The sort key serves a source rebuilding an N-of-M window from the last rows of one alert, a
+  # comparison scanning a team over a time range, and delivery resolving one evaluation under the
+  # (team, configuration, alert) prefix plus the time bound it already holds.
+  #
+  # `expires_at` is insert time rather than `occurred_at` plus 90 days, so a backfill of old checks
+  # does not land rows that are already expired.
+  table "sharded_platform_alert_events" {
+    order_by     = ["team_id", "configuration_id", "alert_id", "occurred_at", "evaluation_key"]
+    primary_key  = ["team_id", "configuration_id", "alert_id", "occurred_at"]
+    partition_by = "toYYYYMM(occurred_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_platform_alert_events_columns"
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.platform_alert_events"
+      replica_name = "{replica}-{shard}"
+    }
+  }
   table "sharded_session_replay_features" {
     order_by     = ["team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"
@@ -462,6 +489,21 @@ database "posthog" {
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_web_bot_definition"
       replica_name = "{replica}"
+    }
+  }
+  table "sharded_web_sessions_dimensional_preaggregated" {
+    order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id_v7"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_web_sessions_dimensional_preaggregated_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_sessions_dimensional_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
     }
   }
   table "sharded_web_bounces_dimensional_preaggregated" {
@@ -1059,6 +1101,34 @@ database "posthog" {
       group_name           = "clickhouse_hog_invocation_results"
       format               = "JSONEachRow"
       skip_broken_messages = 100
+    }
+  }
+  table "sharded_warehouse_object_reads_daily" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "sharded_warehouse_object_reads_daily_staging" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.sharded_warehouse_object_reads_daily_staging"
+      replica_name = "{replica}-{shard}"
     }
   }
 }

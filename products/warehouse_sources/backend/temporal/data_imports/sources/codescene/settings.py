@@ -1,23 +1,32 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalField
 
-# CodeScene has no documented server-side timestamp filter for these endpoints (the `analyses`
-# list/detail shape isn't publicly documented), so every endpoint here is full refresh only.
+# CodeScene's list endpoints take a generic `filter` expression but no server-side timestamp
+# filter, so every endpoint here is full refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 
-@dataclass
+@frozen
 class CodesceneEndpointConfig:
     name: str
     path: str
     # Key holding the row array in the response body (e.g. `{"projects": [...], "max_pages": 3}`).
-    data_selector: str
+    # `None` for an endpoint that returns a bare array with no envelope.
+    data_selector: str | None
     primary_key: str | list[str] = "id"
     page_size: int = 100
+    # The endpoints differ in what they page on: most take `page` + `page_size` and report
+    # `max_pages`, `analyses` and `delta-analyses` page on `page` alone, and `author-statistics`,
+    # `branch-statistics` and `commit-activity` return the whole collection in a single
+    # unpaginated response.
+    paginated: bool = True
+    page_size_param: str | None = "page_size"
     fanout: DependentEndpointConfig | None = None
     # No endpoint here has a documented server-side timestamp filter, so every stream is full
     # refresh; these stay empty but satisfy the fan-out helper's endpoint protocol.
@@ -50,6 +59,125 @@ CODESCENE_ENDPOINTS: dict[str, CodesceneEndpointConfig] = {
         path="/projects/{project_id}/analyses/latest/components",
         data_selector="components",
         primary_key=["project_id", "name"],
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "Analyses": CodesceneEndpointConfig(
+        name="Analyses",
+        path="/projects/{project_id}/analyses",
+        data_selector="analyses",
+        primary_key=["project_id", "id"],
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "Issues": CodesceneEndpointConfig(
+        name="Issues",
+        path="/projects/{project_id}/analyses/latest/issues",
+        data_selector="issues",
+        primary_key=["project_id", "id"],
+        page_size=200,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "TechnicalDebt": CodesceneEndpointConfig(
+        name="TechnicalDebt",
+        path="/projects/{project_id}/analyses/latest/technical-debt",
+        data_selector="result",
+        primary_key=["project_id", "file_name"],
+        page_size=200,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+            # Without this the endpoint returns the friction summary rather than the
+            # per-file refactoring targets.
+            child_params={"refactoring_targets": "true"},
+        ),
+    ),
+    "AuthorStatistics": CodesceneEndpointConfig(
+        name="AuthorStatistics",
+        path="/projects/{project_id}/analyses/latest/author-statistics",
+        data_selector=None,
+        primary_key=["project_id", "author"],
+        paginated=False,
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "Commits": CodesceneEndpointConfig(
+        name="Commits",
+        path="/projects/{project_id}/analyses/latest/commits",
+        data_selector="commits",
+        # A project can span several repositories, so a commit hash is only unique per repository.
+        primary_key=["project_id", "repository", "rev"],
+        page_size=200,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "CommitActivity": CodesceneEndpointConfig(
+        name="CommitActivity",
+        path="/projects/{project_id}/analyses/latest/commit-activity",
+        data_selector="commit_activity_trend",
+        primary_key=["project_id", "date"],
+        paginated=False,
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "BranchStatistics": CodesceneEndpointConfig(
+        name="BranchStatistics",
+        path="/projects/{project_id}/analyses/latest/branch-statistics",
+        data_selector=None,
+        primary_key=["project_id", "repository_name", "branch"],
+        paginated=False,
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "DeltaAnalyses": CodesceneEndpointConfig(
+        name="DeltaAnalyses",
+        path="/projects/{project_id}/delta-analyses",
+        data_selector="delta_analyses",
+        primary_key=["project_id", "id"],
+        page_size_param=None,
         fanout=DependentEndpointConfig(
             parent_name="Projects",
             resolve_param="project_id",

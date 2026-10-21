@@ -20,10 +20,10 @@ import json
 import base64
 from collections.abc import Callable
 from dataclasses import field, replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
 from django.core.validators import RegexValidator
-from django.db import models
 
 import structlog
 import posthoganalytics
@@ -31,15 +31,14 @@ from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 
+from products.canvas.backend.facade.enums import ConnectorCallStatus, ConnectorKind
 from products.mcp_store.backend.facade import api as mcp_store_facade
 from products.mcp_store.backend.facade.contracts import ConnectorTool as McpConnectorTool
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -55,28 +54,12 @@ _GITHUB_SOURCE = "canvas_connectors"
 _PERSONAL_INTEGRATIONS_PATH = "/settings/user-personal-integrations"
 
 
-class ConnectorCallStatus(models.TextChoices):
-    OK = "ok"
-    NOT_CONNECTED = "not_connected"
-    NEEDS_REAUTH = "needs_reauth"
-    NEEDS_APPROVAL = "needs_approval"
-    BLOCKED = "blocked"
-    TOOL_MISSING = "tool_missing"
-    WRITE_BLOCKED = "write_blocked"
-    UPSTREAM_ERROR = "upstream_error"
-
-
-class ConnectorKind(models.TextChoices):
-    NATIVE = "native"
-    MCP = "mcp"
-
-
-def canvas_connectors_enabled(team: "Team") -> bool:
+def canvas_connectors_enabled(team_uuid: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 CANVAS_CONNECTORS_FLAG,
-                str(team.uuid),
+                str(team_uuid),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -205,7 +188,7 @@ class GitHubGetFileContentsPayloadSerializer(GitHubRepositorySerializer):
 
 
 def _github_client(integration: UserIntegration) -> UserGitHubIntegration:
-    return UserGitHubIntegration(integration, source=_GITHUB_SOURCE)
+    return UserGitHubIntegration(integration, source=_GITHUB_SOURCE, priority=Priority.NORMAL)
 
 
 def _github_repo_path(client: UserGitHubIntegration, repository: str) -> str:
@@ -645,39 +628,40 @@ class ConnectorListing:
     tools: list[ConnectorToolListing]
 
 
-def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
-    return _native_field_schema(tool.payload_serializer())
-
-
-def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
-    schema: dict[str, Any]
+def _native_field_type_schema(field: serializers.Field) -> dict[str, Any]:
     if isinstance(field, serializers.Serializer):
-        schema = {
+        return {
             "type": "object",
             "properties": {name: _native_field_schema(child) for name, child in field.fields.items()},
             "required": [name for name, child in field.fields.items() if child.required],
         }
-    elif isinstance(field, (serializers.ListField, serializers.ListSerializer)):
+    if isinstance(field, (serializers.ListField, serializers.ListSerializer)):
         assert field.child is not None
-        schema = {"type": "array", "items": _native_field_schema(field.child)}
-    elif isinstance(field, serializers.DictField):
-        schema = {"type": "object", "additionalProperties": _native_field_schema(field.child)}
-    elif isinstance(field, serializers.BooleanField):
-        schema = {"type": "boolean"}
-    elif isinstance(field, serializers.IntegerField):
-        schema = {"type": "integer"}
-    elif isinstance(field, serializers.FloatField):
-        schema = {"type": "number"}
-    elif isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
-        schema = {}
-    else:
-        schema = {"type": "string"}
+        return {"type": "array", "items": _native_field_schema(field.child)}
+    if isinstance(field, serializers.DictField):
+        return {"type": "object", "additionalProperties": _native_field_schema(field.child)}
+    for field_type, schema_type in (
+        (serializers.BooleanField, "boolean"),
+        (serializers.IntegerField, "integer"),
+        (serializers.FloatField, "number"),
+    ):
+        if isinstance(field, field_type):
+            return {"type": schema_type}
+    if isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
+        return {}
+    return {"type": "string"}
+
+
+def _add_choice_schema(field: serializers.Field, schema: dict[str, Any]) -> None:
     if isinstance(field, serializers.ChoiceField):
         schema["enum"] = list(field.choices)
         if all(isinstance(choice, bool) for choice in field.choices):
             schema["type"] = "boolean"
         elif all(isinstance(choice, int) for choice in field.choices):
             schema["type"] = "integer"
+
+
+def _add_field_limits(field: serializers.Field, schema: dict[str, Any]) -> None:
     for attribute, keyword in (
         ("min_value", "minimum"),
         ("max_value", "maximum"),
@@ -689,20 +673,42 @@ def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
             schema[keyword] = value
     if isinstance(field, serializers.CharField) and not field.allow_blank:
         schema["minLength"] = max(schema.get("minLength", 0), 1)
+
+
+def _add_field_pattern(field: serializers.Field, schema: dict[str, Any]) -> None:
     for validator in field.validators:
         if isinstance(validator, RegexValidator):
             regex = validator.regex
             schema["pattern"] = regex if isinstance(regex, str) else regex.pattern
+
+
+def _add_nullable_schema(field: serializers.Field, schema: dict[str, Any]) -> None:
     if field.allow_null:
         if "type" in schema:
             schema["type"] = [schema["type"], "null"]
         if "enum" in schema:
             schema["enum"].append(None)
+
+
+def _add_field_metadata(field: serializers.Field, schema: dict[str, Any]) -> None:
     if field.default is not serializers.empty and not callable(field.default):
         schema["default"] = field.default
     if field.help_text:
         schema["description"] = str(field.help_text)
+
+
+def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
+    schema = _native_field_type_schema(field)
+    _add_choice_schema(field, schema)
+    _add_field_limits(field, schema)
+    _add_field_pattern(field, schema)
+    _add_nullable_schema(field, schema)
+    _add_field_metadata(field, schema)
     return schema
+
+
+def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
+    return _native_field_schema(tool.payload_serializer())
 
 
 def _mcp_tool_listing(tool: McpConnectorTool) -> ConnectorToolListing:

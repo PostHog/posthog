@@ -5,6 +5,8 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, sel
 // for a future zero-flash in-place handoff — today the scene navigates to the detail page once the run exists).
 export interface ActiveCreation {
     streamKey: string
+    interactionKey?: string
+    composerWasFocused?: boolean
     taskId?: string
     runId?: string
     draft?: string

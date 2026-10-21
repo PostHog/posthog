@@ -9,7 +9,7 @@ use crate::aggregator::Aggregator;
 use crate::config::Config;
 use crate::metrics_consts::*;
 use crate::producer::Producer;
-use crate::seen_cache::SeenCache;
+use crate::seen_cache::{utc_day, SeenCache};
 use crate::types::{IngestableEvent, PropertyType, TupleKey};
 
 #[derive(Clone, Copy, Default)]
@@ -124,6 +124,10 @@ pub(crate) async fn flush<P: Producer>(
 ) {
     if aggregator.is_empty() && pending_offsets.is_empty() {
         return;
+    }
+
+    if let Some(cache) = seen_cache {
+        cache.roll(utc_day());
     }
 
     let mut snapshot: Vec<(TupleKey, u64)> = aggregator.drain().into_iter().collect();

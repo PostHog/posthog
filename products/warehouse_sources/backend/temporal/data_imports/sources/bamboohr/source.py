@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.bamboohr import (
     BambooHRResumeConfig,
     bamboohr_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]):
+    codebase_detection = detect(env=("^BAMBOOHR_", "^BAMBOO_HR_"), pypi=("pybamboohr",), composer=("bamboohr/api",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://documentation.bamboohr.com"
@@ -50,10 +51,10 @@ class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BAMBOO_HR,
+            name=ExternalDataSourceType.BAMBOOHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="BambooHR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your BambooHR company subdomain and API key to pull your HR data into the PostHog Data warehouse.
 
 You can generate an API key from your BambooHR account under **Account Settings → API Keys** (requires admin permissions).
@@ -100,7 +101,14 @@ Make sure your API key has access to the data you want to sync (employee, time o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Every BambooHR stream that syncs incrementally is an employee-table history table
+            # whose rows update in place, so appending would stack a copy of each row every sync.
+            merge_only=[name for name, fields in INCREMENTAL_FIELDS.items() if fields],
+        )
 
     def validate_credentials(
         self,
@@ -133,4 +141,6 @@ Make sure your API key has access to the data you want to sync (employee, time o
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

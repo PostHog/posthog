@@ -13,6 +13,8 @@ against it. Neither may hardcode a model list.
 from __future__ import annotations
 
 from products.tasks.backend.facade.model_catalogue import (
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
+    COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     ModelChoice,
@@ -22,6 +24,8 @@ from products.tasks.backend.facade.model_catalogue import (
     filter_unsupported_effort,
     group_by_runtime,
     label_for,
+    normalize_model_id,
+    offered_model_choices,
     runtime_adapter_for,
 )
 
@@ -33,6 +37,9 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
     answers — whether a mention names a real model, which runtime drives it, and what
     efforts it takes — so the list no longer depends on a network call that can come
     back empty and leave a mention with nothing to match against.
+
+    Wider than what the App Home picker offers: a mention naming a retired model still
+    resolves to it, because a person who asks for one by name is not choosing from a list.
     """
     return catalog_model_choices()
 
@@ -43,19 +50,23 @@ def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
     label = display_name_for_model(model) if model else "—"
     if not reasoning_effort:
         return f"*{label}*"
-    return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
+    return f"*{label}* [{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}]"
 
 
 __all__ = [
+    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
+    "COST_BASELINE_MODEL",
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
     "describe_run_model",
+    "offered_model_choices",
     "filter_unsupported_effort",
     "display_name_for_model",
     "group_by_runtime",
     "label_for",
+    "normalize_model_id",
     "runtime_adapter_for",
 ]

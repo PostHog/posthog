@@ -33,6 +33,8 @@ function makeSignal(
 ): SignalNode {
     return {
         signal_id: `sig-${overrides.source_product}`,
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content: 'The user retried the upload three times before leaving the page.',
         source_type: 'issue',
         source_id: 'src-1',
@@ -97,7 +99,6 @@ const scannerFinding = makeSignal({
         scanner_type: 'ux',
         observation_id: 'obs-1',
         session_id: 'sess-2',
-        confidence: 0.82,
         problem_type: 'dead_end',
         start_time: 72,
         end_time: 90,
@@ -127,6 +128,18 @@ const conversationsTicket = makeSignal({
             { url: '/api/projects/997/exports/103/content/', author: 'Sam' },
             { url: '/api/projects/997/exports/104/content/', author: 'Sam' },
         ],
+    },
+})
+
+// Evidence stored without a ticket number still opens the ticket, from the uuid on the signal.
+const conversationsTicketWithoutNumber = makeSignal({
+    source_product: 'conversations',
+    source_type: 'ticket',
+    source_id: '0197c3d2-4f61-7a2b-9c88-5de1f0a3b774',
+    content: 'The export finishes but the emailed link 404s for everyone on the team.',
+    extra: {
+        channel_source: 'email',
+        status: 'open',
     },
 })
 
@@ -166,7 +179,6 @@ const scoutFinding = makeSignal({
         finding_id: 'finding-1a2b3c4d',
         skill_name: 'upload-health',
         skill_version: 3,
-        confidence: 0.85,
         severity: 'P1',
         hypothesis: 'The 2.4.0 release raised the client-side chunk size above the 413 limit on the upload endpoint.',
         evidence: [
@@ -401,6 +413,9 @@ const meta: Meta = {
                     pngResponse(
                         ['103', '104'].includes(String(req.params.exportId)) ? ATTACHMENT_PNG : RECORDING_PREVIEW_PNG
                     ),
+                // A scanner finding takes its frame from Replay Vision, addressed by observation.
+                '/api/projects/:id/vision/observations/:observationId/thumbnail/': () =>
+                    pngResponse(RECORDING_PREVIEW_PNG),
             },
             post: {
                 '/api/environments/:id/session_recordings/batch_check_exists': () => [
@@ -436,6 +451,10 @@ export const RecordingPreviews: Story = {
 
 export const TicketAttachments: Story = {
     render: () => <Rail signals={[conversationsTicket]} />,
+}
+
+export const TicketWithoutNumber: Story = {
+    render: () => <Rail signals={[conversationsTicketWithoutNumber]} />,
 }
 
 export const GenericFallbacks: Story = {

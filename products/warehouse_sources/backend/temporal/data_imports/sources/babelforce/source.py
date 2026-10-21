@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce import (
     BabelforceResumeConfig,
     babelforce_source,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BabelforceSource(ResumableSource[BabelforceSourceConfig, BabelforceResumeConfig]):
+    codebase_detection = detect(env=("^BABELFORCE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -59,7 +60,7 @@ class BabelforceSource(ResumableSource[BabelforceSourceConfig, BabelforceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BABELFORCE,
+            name=ExternalDataSourceType.BABELFORCE,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Babelforce",
             caption="""Enter your babelforce API credentials to pull your contact center data into the PostHog Data warehouse.
@@ -67,7 +68,7 @@ class BabelforceSource(ResumableSource[BabelforceSourceConfig, BabelforceResumeC
 You can create an access ID and access token pair in your babelforce manager app - see babelforce's [authentication guide](https://help.babelforce.com/hc/en-us/articles/6418329977108-Authentication-Best-Practice). The environment is the subdomain your account is served from - usually `services`, unless you are on a dedicated environment with a custom subdomain.""",
             iconPath="/static/services/babelforce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/babelforce",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

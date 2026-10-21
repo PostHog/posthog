@@ -11,14 +11,14 @@ permissions:
 
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
-    SEMGREP_IMAGE: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
+    SEMGREP_IMAGE: semgrep/semgrep:1.175.0@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796
 
 jobs:
     # Job to decide which path-scoped semgrep scans need to run.
     # See .github/actions/paths-filter/README.md for filter semantics
     # Pushes and PRs above GitHub's 3000-file API limit run every scan.
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Semgrep checks
@@ -35,6 +35,8 @@ jobs:
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
+            # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
+            scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -87,7 +89,7 @@ jobs:
                         - 'nodejs/**'
                         - 'packages/**'
                         - 'services/agent-proxy/**'
-                        - 'services/integration-service/**'
+                        - 'services/credentials-service/**'
                         - 'services/mcp/**'
                         - 'services/oauth-proxy/**'
                         - 'services/stripe-app/**'
@@ -138,11 +140,16 @@ jobs:
                       desktop:
                         - 'products/desktop/**'
                         - '.github/workflows/ci-security.yaml'
+                      # A change to the rules or the scan setup can change findings in
+                      # unchanged code, so the jobs that pass local rules scan the whole tree.
+                      scan-setup:
+                        - '.semgrep/rules/security/**'
+                        - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
 
         env:
@@ -162,11 +169,14 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup }}
                   args: >-
                       --config p/python
                       --config p/owasp-top-ten
@@ -190,7 +200,7 @@ jobs:
     semgrep-go:
         needs: changes
         if: needs.changes.outputs.go == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -208,6 +218,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
@@ -226,7 +238,7 @@ jobs:
     semgrep-rust:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -244,6 +256,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
@@ -264,7 +278,7 @@ jobs:
     semgrep-js:
         needs: changes
         if: needs.changes.outputs.js == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -282,11 +296,14 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup }}
                   args: >-
                       --config .semgrep/rules/security
                       --config p/javascript
@@ -297,7 +314,7 @@ jobs:
                       --include /nodejs
                       --include /packages
                       --include /services/agent-proxy
-                      --include /services/integration-service
+                      --include /services/credentials-service
                       --include /services/mcp
                       --include /services/oauth-proxy
                       --include /services/stripe-app
@@ -305,7 +322,7 @@ jobs:
     semgrep-products-frontend:
         needs: changes
         if: needs.changes.outputs.products-frontend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -323,6 +340,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             # Single-rule scan — keeps the failure surface here aligned with the
             # job name. Other custom TS rules (no-direct-fuse-instantiation,
@@ -332,6 +351,7 @@ jobs:
               uses: ./.github/actions/semgrep-ci
               with:
                   image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup }}
                   args: >-
                       --config .semgrep/rules/security/prefer-codegen-api.yaml
                       --include /products
@@ -340,7 +360,7 @@ jobs:
     semgrep-general:
         needs: changes
         if: needs.changes.outputs.general == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # The scan itself sits around 12 minutes, so 20 left too little headroom
         # for a slow runner and the job was tripping the timeout.
         timeout-minutes: 30
@@ -360,8 +380,15 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             # exclude all directories already scanned by other jobs
+            #
+            # This job is the only one that scans .github/, so a workflow rule in
+            # .semgrep/rules/security/ gates nothing until it is named here. The jobs
+            # that load that whole directory restrict their targets to trees that hold
+            # no workflow file.
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
               with:
@@ -371,6 +398,7 @@ jobs:
                       --config p/security-audit
                       --config p/trailofbits
                       --config p/github-actions
+                      --config .semgrep/rules/security/github-actions-publish-on-pull-request.yaml
                       --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
                       --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces
@@ -398,7 +426,7 @@ jobs:
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -478,7 +506,7 @@ jobs:
     semgrep-test-rules:
         needs: changes
         if: needs.changes.outputs.test-rules == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -506,6 +534,18 @@ jobs:
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep --test .semgrep/
 
+            # On a pull request semgrep-general scans only the changed files. A rule-only change
+            # leaves every workflow unchanged, so that scan cannot report what the edited rule
+            # now matches. This full scan can.
+            - name: Scan workflows with the workflow rules
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep scan --error --metrics=off --timeout 300 \
+                    --config .semgrep/rules/security/github-actions-publish-on-pull-request.yaml \
+                    .github/workflows/
+
     # products/desktop is an imported standalone app that does not follow the monorepo's
     # semgrep *convention* rules (.semgrep custom rules, devex), so those jobs exclude it.
     # This job gives its TS/Python real static security coverage from the universal registry
@@ -513,7 +553,7 @@ jobs:
     semgrep-desktop:
         needs: changes
         if: needs.changes.outputs.desktop == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -565,7 +605,7 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

@@ -12,7 +12,9 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
+    isPropertyGroupFilterLike,
     propertyFilterTypeToTaxonomicFilterType,
+    propertyGroupSummary,
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -37,6 +39,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
@@ -79,6 +82,7 @@ export function TaxonomicPropertyFilter({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -124,11 +128,15 @@ export function TaxonomicPropertyFilter({
         endpointFilters,
     })
     const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
-    const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
+    const row = filters[index] ? sanitizePropertyFilter(filters[index]) : null
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
-    const valuePresent = filter?.type === 'cohort' || !!filter?.key
+    // A group row has no key, operator or value, so everything below it reads the leaf filter only.
+    const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
+    const filter = isPropertyGroupFilterLike(row) ? null : row
+    const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
+        !nestedGroup &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
     const filterTaxonomicGroupType = filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined
     const isKeyOnlyRow = isKeyOnlyForGroup(selectingKeyOnly, filterTaxonomicGroupType)
@@ -165,13 +173,9 @@ export function TaxonomicPropertyFilter({
     // Look up cohort name, if not already provided in filter
     const cohortValue =
         filter?.type === PropertyFilterType.Cohort && !Array.isArray(filter?.value) ? filter.value : undefined
-    const cohortName =
-        filter?.type === PropertyFilterType.Cohort
-            ? filter.cohort_name ||
-              (cohortValue !== undefined
-                  ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
-                  : undefined)
-            : undefined
+    const cohort =
+        cohortValue !== undefined ? (cohortsById[cohortValue] ?? cohortsById[String(cohortValue)]) : undefined
+    const cohortName = filter?.type === PropertyFilterType.Cohort ? filter.cohort_name || cohort?.name : undefined
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -186,6 +190,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
@@ -211,7 +216,7 @@ export function TaxonomicPropertyFilter({
                 filter?.type === PropertyFilterType.DataWarehouse &&
                 dataWarehouseTableName &&
                 currentTeamId
-                    ? `api/environments/${currentTeamId}/data_warehouse/property_values?${toParams({
+                    ? `api/projects/${currentTeamId}/data_warehouse/property_values?${toParams({
                           table_name: dataWarehouseTableName,
                           key: filter.key,
                       })}`
@@ -263,26 +268,39 @@ export function TaxonomicPropertyFilter({
 
     const filterType = filter?.type as PropertyFilterType | undefined
 
-    const filterContent =
-        filter?.type === 'cohort'
-            ? cohortName || `Cohort #${filter?.value}`
-            : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
-              ? filter.label || `Group ${filter?.value}`
-              : (filter?.type === PropertyFilterType.Flag ||
-                      filterType === PropertyFilterType.AccountRelationship ||
-                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
-                  filter &&
-                  'label' in filter &&
-                  filter.label
-                ? filter.label
-                : filter?.key && (
-                      <PropertyKeyInfo
-                          value={filter.key}
-                          disablePopover
-                          ellipsis
-                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                      />
-                  )
+    // The button truncates its label, so its tooltip is how a long cohort name is read in full. The
+    // wrapper below cannot do that job: it clips rather than wraps, and it would nest the tag's own
+    // tooltip inside the button's. So the tooltip gets the plain string.
+    const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
+
+    const nestedGroupLabel = nestedGroup ? propertyGroupSummary(nestedGroup, cohortsById) : undefined
+
+    const filterContent = nestedGroup ? (
+        <span className="truncate">{nestedGroupLabel || 'Grouped filters'}</span>
+    ) : filter?.type === 'cohort' ? (
+        <span className="flex items-center gap-2 min-w-0">
+            <span className="truncate">{cohortLabel}</span>
+            {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
+        </span>
+    ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
+        filter.label || `Group ${filter?.value}`
+    ) : (filter?.type === PropertyFilterType.Flag ||
+          filterType === PropertyFilterType.AccountRelationship ||
+          filter?.type === PropertyFilterType.AccountCustomProperty) &&
+      filter &&
+      'label' in filter &&
+      filter.label ? (
+        filter.label
+    ) : (
+        filter?.key && (
+            <PropertyKeyInfo
+                value={filter.key}
+                disablePopover
+                ellipsis
+                type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+            />
+        )
+    )
 
     const legacyDropdown = (
         <LemonDropdown
@@ -301,7 +319,7 @@ export function TaxonomicPropertyFilter({
                 truncate={true}
                 tooltip={
                     <>
-                        {filterContent ?? (addText || 'Add filter')}
+                        {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
                         {addFilterDocLink && (
                             <>
                                 <br />
@@ -347,6 +365,7 @@ export function TaxonomicPropertyFilter({
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
@@ -401,7 +420,8 @@ export function TaxonomicPropertyFilter({
                         {showOperatorValueSelect &&
                             placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}
-                        {editable && propertyKeyEditable ? editablePicker : filterContent}
+                        {/* A group row opens no picker: selecting a property would replace the whole group. */}
+                        {editable && propertyKeyEditable && !nestedGroup ? editablePicker : filterContent}
                         {showOperatorValueSelect &&
                             !placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}

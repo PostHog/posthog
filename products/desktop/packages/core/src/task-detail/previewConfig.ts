@@ -1,7 +1,7 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { TaskRunDefaults } from "@posthog/api-client/posthog-client";
 import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
-import type { Adapter } from "@posthog/shared";
+import { type Adapter, PI_RUNTIME } from "@posthog/shared";
 import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
 
 export const CONTEXT_WINDOW_OPTION_CATEGORY = "_context_window";
@@ -136,7 +136,8 @@ export function deriveInitialConfig(
 export type PreferredRunDefaults = Pick<
   TaskRunDefaults,
   "runtime_adapter" | "model" | "reasoning_effort"
->;
+> &
+  Partial<Pick<TaskRunDefaults, "runtime">>;
 
 export interface PreferredRunSelection {
   model: string;
@@ -164,6 +165,7 @@ export function pickPreferredRunSelection(
   lastUsedReasoningEffort: string | null | undefined,
 ): PreferredRunSelection | null {
   if (lastUsedModel || lastUsedReasoningEffort) return null;
+  if (defaults?.runtime === PI_RUNTIME) return null;
   const model = defaults?.model;
   if (!model) return null;
   if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {
@@ -192,6 +194,12 @@ export function preferredRunAdapter(
     defaults.runtime_adapter === "codex"
     ? defaults.runtime_adapter
     : null;
+}
+
+export function preferredRunsOnPi(
+  defaults: PreferredRunDefaults | null | undefined,
+): boolean {
+  return Boolean(defaults?.model) && defaults?.runtime === PI_RUNTIME;
 }
 
 /**

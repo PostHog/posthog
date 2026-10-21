@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import os
 import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
@@ -34,8 +38,29 @@ from posthog.temporal.weekly_digest.types import (
     GenerateOrganizationDigestInput,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
+    TeamIdRange,
     WeeklyDigestInput,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+
+MAX_CONCURRENT_GENERATION_ACTIVITIES = 100
+_PATCH_BOUNDED_GENERATION_ACTIVITIES = "weekly-digest-bounded-generation-activities"
+
+
+def resolve_redis_host() -> str:
+    # redis-py connects to localhost when the URL host is empty, so an empty value counts as missing.
+    host = os.getenv("WEEKLY_DIGEST_REDIS_HOST")
+    if host:
+        return host
+    if settings.DEBUG or settings.TEST:
+        return "localhost"
+    raise ApplicationError(
+        "WEEKLY_DIGEST_REDIS_HOST is not set. Set it on the weekly digest worker to the digest Redis host.",
+        non_retryable=True,
+    )
 
 
 @workflow.defn(name="weekly-digest")
@@ -48,7 +73,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
         if input.common.redis_host is None:
-            input.common.redis_host = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+            input.common.redis_host = resolve_redis_host()
 
         if input.common.redis_port is None:
             input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
@@ -75,7 +100,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 ),
                 parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
                 execution_timeout=timedelta(hours=15),
-                run_timeout=timedelta(hours=6),
+                run_timeout=timedelta(hours=15),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=10),
@@ -136,9 +161,17 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             generate_usage_trends_lookup,
         ]
 
-        await asyncio.gather(
-            *[
-                workflow.execute_activity(
+        # Keep activity dispatch compatible with histories recorded before the concurrency bound.
+        concurrency = len(team_id_ranges) * len(generators)
+        if workflow.patched(_PATCH_BOUNDED_GENERATION_ACTIVITIES):
+            concurrency = MAX_CONCURRENT_GENERATION_ACTIVITIES
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def generate_batch(
+            team_id_range: TeamIdRange, generator: Callable[[GenerateDigestDataBatchInput], Awaitable[None]]
+        ) -> None:
+            async with semaphore:
+                await workflow.execute_activity(
                     generator,
                     GenerateDigestDataBatchInput(
                         team_id_range=team_id_range,
@@ -152,8 +185,12 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                     ),
                     heartbeat_timeout=timedelta(minutes=2),
                 )
+
+        await asyncio.gather(
+            *(
+                generate_batch(team_id_range, generator)
                 for team_id_range, generator in itertools.product(team_id_ranges, generators)
-            ]
+            )
         )
 
         organization_count = await workflow.execute_activity(

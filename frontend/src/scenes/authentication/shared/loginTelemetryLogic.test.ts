@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { login2FALogic } from 'scenes/authentication/login-2fa/login2FALogic'
 import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { passwordResetLogic } from 'scenes/authentication/password-reset/passwordResetLogic'
-import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
+import { LISTENED_ACTIONS, loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -22,6 +22,17 @@ function capturedProperties(event: string): Record<string, any> | undefined {
 
 function captureCount(event: string): number {
     return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event).length
+}
+
+// The real action type behind each literal in LISTENED_ACTIONS, read off the logic that dispatches
+// it. The Record type makes the compiler demand one entry per literal, the typed getter stops
+// compiling when an action is renamed, and the imports above fail when a logic's module moves.
+const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => string> = {
+    submitLoginRequest: () => loginLogic.actionTypes.submitLoginRequest,
+    loginError: () => loginLogic.actionTypes.setGeneralError,
+    codeVerificationFailure: () => loginLogic.actionTypes.submitCodeVerificationFailure,
+    twoFactorError: () => login2FALogic.actionTypes.setGeneralError,
+    resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
 }
 
 describe('loginTelemetryLogic', () => {
@@ -148,6 +159,40 @@ describe('loginTelemetryLogic', () => {
         logic.mount()
 
         expect(captureCount('login failed')).toBe(0)
+    })
+
+    // The listeners are keyed on strings, so nothing else ties a literal to the logic that dispatches
+    // the action. A literal that drifts from the real type stops its listener without any error.
+    it.each(Object.keys(LISTENED_ACTIONS) as (keyof typeof LISTENED_ACTIONS)[])(
+        'listens for the real action type of %s',
+        (key) => {
+            const twoFA = login2FALogic()
+            const reset = passwordResetLogic()
+            twoFA.mount()
+            reset.mount()
+
+            expect(LISTENED_ACTIONS[key]).toBe(LISTENED_ACTION_SOURCES[key]())
+
+            twoFA.unmount()
+            reset.unmount()
+        }
+    )
+
+    // Hearing another logic's actions must not hold that logic mounted. A held logic keeps its state
+    // between visits, so a failed second factor would show its old error on the next attempt.
+    it('mounts no other logic', () => {
+        logic.unmount()
+        login.unmount()
+        logic = loginTelemetryLogic()
+        logic.mount()
+
+        expect(loginLogic.findMounted()).toBeNull()
+        expect(login2FALogic.findMounted()).toBeNull()
+        expect(passwordResetLogic.findMounted()).toBeNull()
+
+        // afterEach unmounts both logics, so restore the one the test took down
+        login = loginLogic()
+        login.mount()
     })
 
     // precheck_failed must distinguish "the precheck ran and failed" from "no current precheck

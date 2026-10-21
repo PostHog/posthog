@@ -1,22 +1,25 @@
 ---
 name: reviewing-with-coderabbit
 description: >
-  Paused: the CodeRabbit local review is not running yet. Use whenever a review of a branch is asked for
-  (a local review, a self-review, a CodeRabbit review, a pre-PR review) or before `gh pr create`, so the
-  agent skips the CodeRabbit CLI without substituting an agent review. Trigger terms: coderabbit,
-  cr review, local review, self-review, review my branch, pre-PR review.
+  Disabled. CodeRabbit is retired on this repository in favor of PostHog Review,
+  so there is no local CodeRabbit pass to run before `gh pr create`.
+  When invoked, or when a prompt or template still mentions a CodeRabbit CLI pass, do nothing and continue
+  the task. Not for a person's own request to review a branch. Trigger terms: coderabbit, cr review,
+  CodeRabbit CLI.
 ---
 
-# Reviewing with CodeRabbit (paused)
+# Reviewing with CodeRabbit (disabled)
 
-The CodeRabbit rollout has not started, so this skill does nothing for now.
-The full flow returns when the rollout begins; the git history of this file holds it.
+This skill is switched off.
+PostHog Review reviews pull requests automatically in the repositories a project added in its Code review settings, for the authors its rules select.
+For the setup requirements, see the [PostHog Review architecture guide](../../../products/review_hog/ARCHITECTURE.md#entry-point-commands--configuration).
+An eligible person can also add the `posthog-review` label to request a review.
 
-## While paused
+When this skill is invoked, or an instruction asks for a CodeRabbit CLI pass:
 
-- Do not run any `coderabbit` or `cr` command, including `cr review`, `cr auth login`, `cr auth status`, and `cr doctor`.
-  A run on a machine that is not signed in opens a browser sign-in tab for the person at the keyboard.
-- Do not run `/code-review`, review subagents, or a fan-out over the diff in its place.
-  An agent review of a large diff bills a person's tokens and can reach hundreds of dollars on one branch.
+- Do not run `cr`, `coderabbit`, or `cr auth login`. The sign-in command opens a browser tab.
+- Do not run `/code-review`, review subagents, or a fan-out over the diff in its place unless a person asked for that review. An agent review of a large diff bills a person's tokens.
+- Record nothing about a skipped pass in the PR description.
 - Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
-- Under Agent context in the PR description, write that the CodeRabbit pass is paused and the PR opened without a local pass.
+
+The previous flow is in this file's git history.

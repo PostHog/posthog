@@ -1,0 +1,217 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { urls } from 'scenes/urls'
+
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
+import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
+
+import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { EditAlertModal } from 'products/alerts/frontend/views/EditAlertModal'
+import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { MetricFromInsightModal } from 'products/data_catalog/frontend/components/MetricFromInsightModal'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
+
+import { insightModalsLogic } from './insightModalsLogic'
+
+export function InsightModals({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element | null {
+    const { hasDashboardItemId } = useValues(insightLogic(insightLogicProps))
+
+    return (
+        <>
+            {hasDashboardItemId && (
+                <>
+                    <InsightSubscriptionsModalWrapper insightLogicProps={insightLogicProps} />
+                    <InsightSharingModalWrapper insightLogicProps={insightLogicProps} />
+                    <InsightAddToDashboardModalWrapper insightLogicProps={insightLogicProps} />
+                    <InsightAlertsModals insightLogicProps={insightLogicProps} />
+                    <NewDashboardModal />
+                    <InsightEndpointModalWrapper insightLogicProps={insightLogicProps} />
+                    <InsightMetricModalWrapper insightLogicProps={insightLogicProps} />
+                </>
+            )}
+
+            <InsightTerraformModalWrapper insightLogicProps={insightLogicProps} />
+            <ScreenShotEditor screenshotKey={INSIGHT_SCREENSHOT_KEY} />
+        </>
+    )
+}
+
+function InsightSubscriptionsModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element {
+    const { insightMode, itemId, isNewSubscription } = useValues(insightSceneLogic)
+    const { insight } = useValues(insightLogic(insightLogicProps))
+    const { push } = useActions(router)
+
+    return (
+        <SubscriptionsModal
+            data-attr="insight-subscriptions-modal"
+            isOpen={insightMode === ItemMode.Subscriptions}
+            closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+            insightShortId={insight.short_id}
+            insightName={insight.name || insight.derived_name || 'Untitled insight'}
+            subscriptionId={isNewSubscription ? undefined : itemId}
+        />
+    )
+}
+
+function InsightSharingModalWrapper({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const { insightMode } = useValues(insightSceneLogic)
+    const theInsightLogic = insightLogic(insightLogicProps)
+    const { insightProps, insight } = useValues(theInsightLogic)
+    const { insightData } = useValues(insightDataLogic(insightProps))
+    const { push } = useActions(router)
+
+    return (
+        <SharingModal
+            data-attr="insight-sharing-modal"
+            title="Insight sharing"
+            isOpen={insightMode === ItemMode.Sharing}
+            closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+            insightShortId={insight.short_id}
+            insight={insight}
+            cachedResults={insightData}
+            previewIframe
+            userAccessLevel={insight.user_access_level}
+        />
+    )
+}
+
+function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const { insightMode, alertId } = useValues(insightSceneLogic)
+    const { insightProps, insight } = useValues(insightLogic(insightLogicProps))
+    const { query } = useValues(insightDataLogic(insightProps))
+    const { push } = useActions(router)
+
+    const metricsAlertsEnabled = useFeatureFlag('METRICS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
+
+    return (
+        <>
+            {insightMode === ItemMode.Alerts && !alertId && (
+                <ManageAlertsModal
+                    onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                    isOpen={insightMode === ItemMode.Alerts}
+                    insightLogicProps={insightLogicProps}
+                    insightId={insight.id as number}
+                    insightShortId={insight.short_id as InsightShortId}
+                    canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
+                />
+            )}
+
+            {!!alertId && insight.id && (
+                <EditAlertModal
+                    onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
+                    isOpen={!!alertId}
+                    alertId={alertId === null || alertId === 'new' ? undefined : alertId}
+                    insightShortId={insight.short_id as InsightShortId}
+                    insightId={insight.id}
+                    insightName={insight.name}
+                    onEditSuccess={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
+                    insightLogicProps={insightLogicProps}
+                />
+            )}
+        </>
+    )
+}
+
+function InsightAddToDashboardModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element {
+    const { insightProps, canEditInsight } = useValues(insightLogic(insightLogicProps))
+    const theInsightModalsLogic = insightModalsLogic(insightLogicProps)
+    const { isAddToDashboardModalOpen } = useValues(theInsightModalsLogic)
+    const { closeAddToDashboardModal } = useActions(theInsightModalsLogic)
+
+    return (
+        <AddToDashboardModal
+            data-attr="insight-add-to-dashboard-modal"
+            isOpen={isAddToDashboardModalOpen}
+            closeModal={closeAddToDashboardModal}
+            insightProps={insightProps}
+            canEditInsight={canEditInsight}
+        />
+    )
+}
+
+function InsightTerraformModalWrapper({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const theInsightLogic = insightLogic(insightLogicProps)
+    const { insightProps, insight, derivedName } = useValues(theInsightLogic)
+    const { query } = useValues(insightDataLogic(insightProps))
+    const theInsightModalsLogic = insightModalsLogic(insightLogicProps)
+    const { isTerraformModalOpen } = useValues(theInsightModalsLogic)
+    const { closeTerraformModal } = useActions(theInsightModalsLogic)
+
+    return (
+        <TerraformExportModal
+            data-attr="insight-terraform-modal"
+            isOpen={isTerraformModalOpen}
+            onClose={closeTerraformModal}
+            resource={{ type: 'insight', data: { ...insight, query, derived_name: derivedName } }}
+        />
+    )
+}
+
+function InsightEndpointModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element | null {
+    const theInsightLogic = insightLogic(insightLogicProps)
+    const { insightProps, insight } = useValues(theInsightLogic)
+    const { insightQuery } = useValues(insightDataLogic(insightProps))
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { createFromInsightModalOpen } = useValues(endpointLogic)
+
+    if (!scenePanelOpen && !createFromInsightModalOpen) {
+        return null
+    }
+
+    return (
+        <EndpointFromInsightModal
+            insightQuery={insightQuery as unknown as HogQLQuery | EndpointQueryNode}
+            insightShortId={insight.short_id}
+        />
+    )
+}
+
+function InsightMetricModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element | null {
+    const { insight } = useValues(insightLogic(insightLogicProps))
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { metricFromInsightModalOpen } = useValues(metricsLogic)
+
+    if (!scenePanelOpen && !metricFromInsightModalOpen) {
+        return null
+    }
+
+    return (
+        <MetricFromInsightModal
+            insightShortId={insight.short_id}
+            insightName={insight.name || insight.derived_name || undefined}
+        />
+    )
+}

@@ -19,6 +19,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.ad_hoc_sync import (
     SchedulePauseError,
+    SyncStillRunningError,
     WorkflowStartError,
     is_schedule_paused as _is_schedule_paused,
     start_external_data_workflow as _start_external_data_workflow,
@@ -138,12 +139,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def repartition_view(self, request, schema_id):
-        # Stage partition settings and trigger a non-billable reset resync. Covers both
+        # Stage partition settings and trigger a non-billable in-place repartition. Covers both
         # repartitioning in place (keep the mode, change its knob — count/size/format) and
         # switching the mode entirely (e.g. md5 → datetime on a date column). The chosen
-        # mode/keys/knob are written as *_override keys that survive the bundled reset and are
-        # consumed once applied. Repartition without the reset would mix old and new layouts in
-        # the same Delta table and corrupt it, so the reset is always bundled in.
+        # mode/keys/knob become a `repartition_pending` target, which the run's pre-extraction
+        # activity applies by rewriting the stored files. No reset, no source re-pull.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
@@ -401,6 +401,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         except WorkflowStartError as e:
             messages.error(request, f"Failed to trigger sync: {e}")
             return redirect(_change_url(schema_id))
+        except SyncStillRunningError as e:
+            messages.error(request, str(e))
+            return redirect(_change_url(schema_id))
 
         workflow_id = trigger.workflow_id
         admin_paused_now = trigger.schedule_paused_now
@@ -531,8 +534,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 "admin:external_data_schema_recreate_schedule", args=[obj.id]
             )
 
-            # CDC schemas stream via a source-level extraction schedule; the per-schema schedule
-            # above is paused once streaming starts, so surface the real one too.
+            # CDC capture runs on a source-level extraction schedule; the per-schema schedule above
+            # loads what capture buffered, so surface both.
             if obj.is_cdc:
                 extra_context["cdc_extraction_schedule_id"] = f"cdc-extraction-{obj.source_id}"
         return super().change_view(request, object_id, form_url, extra_context=extra_context)

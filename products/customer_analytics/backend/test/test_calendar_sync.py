@@ -1,12 +1,18 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
+
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
+from products.customer_analytics.backend.temporal import calendar_sync as temporal_calendar_sync
 
 
 def _event(**overrides) -> dict:
@@ -39,8 +45,6 @@ class TestCalendarSync(BaseTest):
         self.integration = self._create_integration()
 
     def _create_integration(self):
-        from posthog.models.integration import Integration
-
         return Integration.objects.create(
             team=self.team,
             kind="google-calendar",
@@ -140,6 +144,92 @@ class TestCalendarSync(BaseTest):
         self.integration.refresh_from_db()
         assert self.integration.config["calendar_sync_token"] == "fresh"
 
+    @parameterized.expand([(5,), (15,), (30,), (60,)])
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_collector_honors_configured_cadence_boundary(self, interval_minutes: int) -> None:
+        now = timezone.now()
+        self.integration.config.update(
+            {
+                calendar_sync.SYNC_INTERVAL_CONFIG_KEY: interval_minutes,
+                calendar_sync.LAST_SYNCED_AT_CONFIG_KEY: (
+                    now - timedelta(minutes=interval_minutes) + timedelta(seconds=1)
+                ).isoformat(),
+            }
+        )
+        self.integration.save(update_fields=["config"])
+
+        assert temporal_calendar_sync._collect_calendar_integrations() == []
+
+        self.integration.config[calendar_sync.LAST_SYNCED_AT_CONFIG_KEY] = (
+            now - timedelta(minutes=interval_minutes)
+        ).isoformat()
+        self.integration.save(update_fields=["config"])
+        selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+        self.integration.refresh_from_db(fields=["config"])
+        assert calendar_sync.SYNC_ATTEMPTED_AT_CONFIG_KEY not in self.integration.config
+
+    @parameterized.expand([("google_error", False), ("token_refresh_failed", True)])
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_failed_sync_clears_active_marker_and_waits_for_its_cadence(
+        self, _name: str, token_refresh_failed: bool
+    ) -> None:
+        self.integration.config[calendar_sync.SYNC_INTERVAL_CONFIG_KEY] = 5
+        if token_refresh_failed:
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        self.integration.save(update_fields=["config", "errors"])
+        error_response = MagicMock(status_code=500, text="Google Calendar unavailable")
+
+        with self.assertRaises(calendar_sync.CalendarSyncError):
+            self._sync([error_response])
+
+        self.integration.refresh_from_db(fields=["config"])
+        assert calendar_sync.SYNC_STARTED_AT_CONFIG_KEY not in self.integration.config
+        assert self.integration.config[calendar_sync.SYNC_ATTEMPTED_AT_CONFIG_KEY] == timezone.now().isoformat()
+        assert temporal_calendar_sync._collect_calendar_integrations() == []
+
+        with time_machine.travel("2026-09-25T12:05:00Z", tick=False):
+            selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_collector_waits_for_retry_window(self) -> None:
+        self.integration.config[calendar_sync.SYNC_RETRY_AT_CONFIG_KEY] = (
+            timezone.now() + timedelta(minutes=5)
+        ).isoformat()
+        self.integration.save(update_fields=["config"])
+
+        assert temporal_calendar_sync._collect_calendar_integrations() == []
+
+        with time_machine.travel("2026-09-25T12:05:00Z", tick=False):
+            selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_collector_limits_each_run_to_the_two_hundred_longest_waiting_accounts(self) -> None:
+        self.integration.config[calendar_sync.LAST_SYNCED_AT_CONFIG_KEY] = (
+            timezone.now() - timedelta(hours=1)
+        ).isoformat()
+        self.integration.save(update_fields=["config"])
+        Integration.objects.bulk_create(
+            [
+                Integration(
+                    team=self.team,
+                    kind="google-calendar",
+                    integration_id=f"google-sub-{index + 2}",
+                )
+                for index in range(temporal_calendar_sync.MAX_SYNCS_PER_RUN)
+            ]
+        )
+
+        selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert len(selected) == 200
+        assert self.integration.id not in [item.integration_id for item in selected]
+
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"
         self.integration.save(update_fields=["config"])
@@ -234,15 +324,21 @@ class TestCalendarSync(BaseTest):
         assert str(participants["jane@acme.com"].person_id) == person_uuid
         assert participants["csm@posthog.com"].person_id is None
 
-    def test_ambiguous_email_domain_matches_nothing(self):
-        for name in ("Acme US", "Acme EU"):
-            account = Account.objects.for_team(self.team.id).create(
-                team=self.team, name=name, external_id=name.lower().replace(" ", "-")
-            )
-            account.properties = {"email_domains": ["acme.com"]}
+    @patch("products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email")
+    def test_ambiguous_email_domain_does_not_fall_through_to_person_group(self, mock_group_keys: MagicMock) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
+        Account.objects.for_team(self.team.id).create(team=self.team, name="Grouped", external_id="group-account")
+        mock_group_keys.side_effect = lambda _team_id, emails, _index: {
+            email: "group-account" for email in emails if email == "member@example.com"
+        }
+        for name in ("First", "Second"):
+            account = Account.objects.for_team(self.team.id).create(team=self.team, name=name, external_id=name.lower())
+            account.properties = {"email_domains": ["example.com"]}
             account.save()
 
-        self._sync([_pages_response([_event()])])
+        event = _event(attendees=[{"email": "member@example.com", "responseStatus": "accepted"}])
+        self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id is None
 
     @parameterized.expand(

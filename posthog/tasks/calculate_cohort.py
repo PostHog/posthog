@@ -4,15 +4,15 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db import InterfaceError, OperationalError
-from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
+from django.db import InterfaceError, OperationalError, transaction
+from django.db.models import Case, DurationField, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
 
 import grpc
 import structlog
 import posthoganalytics
 from celery import Task, chain, shared_task
-from celery.exceptions import Retry, SoftTimeLimitExceeded
+from celery.exceptions import MaxRetriesExceededError, Retry, SoftTimeLimitExceeded
 from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
@@ -44,9 +44,13 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, ImportResolution
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    CohortErrorCode,
+    close_open_population_attempts,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
+    get_friendly_error_message,
+    parse_error_code,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
 )
@@ -60,10 +64,11 @@ STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
 
 # The RetryInterceptor set plus RESOURCE_EXHAUSTED and INTERNAL, which an in-process retry must not
 # hammer but a task backoff of minutes is the right answer to. Personhog sheds load with
-# RESOURCE_EXHAUSTED and maps every Postgres query error (deadlock, lock or statement timeout, a
-# read-only primary after a failover) to INTERNAL. UNKNOWN stays in because an HTTP/2 stream reset
-# ("Stream removed") surfaces as UNKNOWN, and that is the outage shape that leaves a static cohort
-# half-synced.
+# RESOURCE_EXHAUSTED. It answers a Postgres lock or statement timeout with DEADLINE_EXCEEDED. It maps
+# every other Postgres query error (deadlock, a read-only primary after a failover) to INTERNAL. The
+# RetryInterceptor does not retry those timeouts, so this set is where they get their retry. UNKNOWN
+# stays in because an HTTP/2 stream reset ("Stream removed") surfaces as UNKNOWN, and that is the
+# outage shape that leaves a static cohort half-synced.
 STATIC_POPULATION_RETRYABLE_RPC_CODES = frozenset(
     {
         grpc.StatusCode.UNAVAILABLE,
@@ -173,6 +178,19 @@ MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
+MAX_STUCK_SOURCELESS_STATIC_COHORTS_TO_RESET = 30
+# insert_cohort_from_feature_flag stops at the soft limit and records its own failure. The sweep measures a cohort with
+# no history row from created_at. The extra hour covers the time that the task of that cohort waits in the queue.
+# calculate_cohort_from_list has no time limit. The sweep therefore resets a CSV import that runs longer than this. When
+# that import finishes, it rewrites the history row that the sweep closed. It also saves the cohort's calculation state
+# again.
+SOURCELESS_STATIC_COHORT_STUCK_AFTER = timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS, hours=1)
+
+# The path lookup returns NULL for a missing path. IS NOT NULL turns that NULL into false. exclude() therefore selects
+# exactly the rows that filter() rejects. static_cohort_has_supported_population_source rejects a few shapes that this
+# accepts, such as an empty query object. The sourced sweep in reset_stuck_cohorts resets those after an hour. It does
+# not dispatch them again.
+HAS_STATIC_POPULATION_SOURCE = Q(query__isnull=False) | Q(filters__properties__values__0__isnull=False)
 
 
 def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
@@ -226,17 +244,81 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
         )
         .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=one_hour_ago))
+        .filter(HAS_STATIC_POPULATION_SOURCE)
+    )
+
+
+def get_stuck_sourceless_static_cohort_candidates_queryset(cutoff: datetime) -> QuerySet:
+    newest_attempt = CohortCalculationHistory.objects.filter(cohort=OuterRef("pk")).order_by("-started_at")
+    return (
+        Cohort.objects.filter(is_static=True, is_calculating=True, deleted=False)
+        .exclude(HAS_STATIC_POPULATION_SOURCE)
+        .alias(
+            newest_attempt_started_at=Subquery(newest_attempt.values("started_at")[:1]),
+            newest_attempt_finished_at=Subquery(newest_attempt.values("finished_at")[:1]),
+        )
         .filter(
-            # Only fetch cohorts that have a retriggerable population source
-            # (HogQL query or filter criteria). Excludes CSV-upload cohorts
-            # that would always be discarded by the retry logic.
-            # This may match old static cohorts with stale filter data that
-            # predate criteria-based creation; those are caught and skipped
-            # by static_cohort_has_supported_population_source in the loop body.
-            Q(query__isnull=False)
-            | (Q(filters__has_key="properties") & ~Q(filters__properties={}) & ~Q(filters__properties__values=[]))
+            # A cohort is created when its first population is dispatched. Flag runs and CSV imports open a history row
+            # when their task starts. So a cohort that was never populated and has no history row still waits for its
+            # first task. Its created_at is the dispatch time of that task.
+            # A cohort whose earlier population failed without a history row has errors_calculating above 0. A CSV
+            # re-upload to that cohort writes no row until its task starts. This branch therefore skips that cohort.
+            Q(
+                newest_attempt_started_at__isnull=True,
+                last_calculation__isnull=True,
+                errors_calculating=0,
+                created_at__lte=cutoff,
+            )
+            # A flag run or a CSV import closes its history row on every exit except a kill. A CSV upload also closes
+            # the row that a killed attempt left open. So a re-upload that waits in the queue or in a retry backoff has
+            # a closed newest row. That row does not match.
+            | Q(newest_attempt_started_at__lte=cutoff, newest_attempt_finished_at__isnull=True)
         )
     )
+
+
+def _record_stuck_resets(event: str, cohort_ids: list[int]) -> None:
+    if cohort_ids:
+        COHORT_STUCK_RESETS_COUNTER.inc(len(cohort_ids))
+        logger.warning(event, cohort_ids=cohort_ids, count=len(cohort_ids))
+
+
+def reset_stuck_sourceless_static_cohorts() -> None:
+    # These cohorts have no query or filters to populate from again. A flag cohort is also a snapshot that a later run
+    # would change. So the reset records the failure and never dispatches a population.
+    now = timezone.now()
+    cutoff = now - SOURCELESS_STATIC_COHORT_STUCK_AFTER
+    reset_cohort_ids = []
+    for cohort in get_stuck_sourceless_static_cohort_candidates_queryset(cutoff).order_by(F("created_at").asc())[
+        0:MAX_STUCK_SOURCELESS_STATIC_COHORTS_TO_RESET
+    ]:
+        with transaction.atomic():
+            # The update repeats the candidate test. It skips a cohort whose run finished after the query above read
+            # it, and a cohort that a user re-uploaded after that read.
+            reset = (
+                get_stuck_sourceless_static_cohort_candidates_queryset(cutoff)
+                .filter(pk=cohort.pk)
+                .update(is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=now)
+            )
+            if not reset:
+                continue
+
+            # The history tab shows an open row as a run in progress.
+            if not close_open_population_attempts(cohort.pk, finished_at=now, started_before=cutoff):
+                CohortCalculationHistory.objects.create(
+                    team_id=cohort.team_id,
+                    cohort=cohort,
+                    filters=cohort.filters or {},
+                    # Only a cohort with no history row gets here. The code that created the cohort also dispatched its
+                    # run.
+                    started_at=cohort.created_at,
+                    finished_at=now,
+                    error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
+                    error_code=CohortErrorCode.INTERRUPTED,
+                )
+        reset_cohort_ids.append(cohort.pk)
+
+    _record_stuck_resets("reset_stuck_sourceless_static_cohorts", reset_cohort_ids)
 
 
 def reset_stuck_cohorts() -> None:
@@ -304,13 +386,9 @@ def reset_stuck_cohorts() -> None:
         if len(retriggered_static_cohort_ids) >= MAX_STUCK_COHORTS_TO_RESET:
             break
 
-    if reset_static_cohort_ids:
-        COHORT_STUCK_RESETS_COUNTER.inc(len(reset_static_cohort_ids))
-        logger.warning(
-            "reset_stuck_static_cohorts",
-            cohort_ids=reset_static_cohort_ids,
-            count=len(reset_static_cohort_ids),
-        )
+    _record_stuck_resets("reset_stuck_static_cohorts", reset_static_cohort_ids)
+
+    reset_stuck_sourceless_static_cohorts()
 
 
 def update_cohort_metrics() -> None:
@@ -713,6 +791,7 @@ def calculate_cohort_from_list(
         raise ValueError(f"Unsupported id_type: {id_type}")
 
     cohort: Cohort | None = None
+    history: CohortCalculationHistory | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     # Whole-list retries are safe because both stores ignore members already in the cohort.
@@ -723,6 +802,16 @@ def calculate_cohort_from_list(
             team_id = cohort.team_id
         if _static_population_obsolete(self, cohort):
             return
+
+        # An import that fails without a row of its own resolves `last_error_message` to whichever
+        # older population failed, because that lookup takes the newest errored row over the
+        # cohort's whole life. Recording the attempt also keeps imports in the calculation history
+        # beside the query and filter population paths.
+        history = CohortCalculationHistory.objects.create(
+            team_id=cohort.team_id,
+            cohort=cohort,
+            filters=cohort.properties.to_dict() if cohort.properties.values else {},
+        )
 
         if id_type == "distinct_id":
             batch_count = cohort.insert_users_by_list(
@@ -763,6 +852,12 @@ def calculate_cohort_from_list(
         processing_error = err
         raise
     finally:
+        # One history row records one attempt, so every exit closes it, including a scheduled
+        # retry. An open row left behind would read as an import still in flight.
+        if history is not None and cohort is not None:
+            _finalize_population_history(
+                history, cohort=cohort, processing_error=processing_error, will_retry=retry is not None
+            )
         # The batching helper finalizes success itself and leaves failure to this task, which has
         # to record it on every exit but a scheduled retry. That includes a retry whose broker
         # publish failed, where Celery raises Reject in place of Retry.
@@ -772,6 +867,41 @@ def calculate_cohort_from_list(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort_id, len(items), batch_count, (time.time() - start_time)
         )
+    )
+
+
+def _finalize_population_history(
+    history: CohortCalculationHistory,
+    *,
+    cohort: Cohort,
+    processing_error: BaseException | None,
+    will_retry: bool,
+) -> None:
+    """Close out the history record for one static population attempt.
+
+    `will_retry` says whether this attempt scheduled another one. The history tab renders each
+    row's message verbatim, so an attempt with a retry queued keeps the copy that says so.
+    """
+    history.finished_at = timezone.now()
+    if processing_error is None:
+        history.count = cohort.count
+    else:
+        # parse_error_code classifies exceptions. A BaseException that stopped the worker
+        # (shutdown, revoke) carries no cause worth showing, so it stays unknown.
+        history.error_code = (
+            parse_error_code(processing_error) if isinstance(processing_error, Exception) else CohortErrorCode.UNKNOWN
+        )
+        # The calculation history API serves `error` to anyone with cohort read access, and the
+        # history tab renders it verbatim. Raw exception text names the responding ClickHouse host
+        # and quotes the failing SQL, so only the friendly message is stored; the exception itself
+        # stays in the logs and in error tracking.
+        history.error = get_friendly_error_message(history.error_code, will_retry=will_retry)
+    # A long population can outlive its Postgres connection, so record the outcome resiliently
+    # instead of raising "connection is closed" over the error this row exists to report.
+    save_recovery_bookkeeping(
+        lambda: history.save(update_fields=["finished_at", "count", "error", "error_code"]),
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
     )
 
 
@@ -794,6 +924,7 @@ def _populate_static_cohort(
     # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
     # skipped or never-started attempt leaves whoever owns it (the API, a newer calculation) alone.
     claimed: Cohort | None = None
+    history: CohortCalculationHistory | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     try:
@@ -818,6 +949,14 @@ def _populate_static_cohort(
         cohort.save(update_fields=["is_calculating"])
         claimed = cohort
         cohort.refresh_from_db()
+
+        # A history record is the only way a population failure reaches the user: the cohort API
+        # reads `last_error_message` from the newest history row that carries an error. Without one,
+        # a population that died on a ClickHouse limit is indistinguishable from a cohort that
+        # matched nobody.
+        history = CohortCalculationHistory.objects.create(
+            team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+        )
 
         # The CH insert is idempotent: it excludes person_ids already in the cohort.
         # This handles both the retry-after-OOM case (no duplicates) and the
@@ -861,6 +1000,12 @@ def _populate_static_cohort(
         processing_error = err
         raise
     finally:
+        # One history row records one attempt, so every exit closes it, including a scheduled
+        # retry. An open row left behind would read as a population still in flight.
+        if history is not None and claimed is not None:
+            _finalize_population_history(
+                history, cohort=claimed, processing_error=processing_error, will_retry=retry is not None
+            )
         # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt.
@@ -946,13 +1091,15 @@ def insert_cohort_from_filters(
 # contradict what the cohort already reports.
 # Runs on the long-running queue (like the sibling cohort tasks) so a large paging run
 # can't clog the default workers, with a generous soft limit as a backstop ceiling.
-# SoftTimeLimitExceeded subclasses Exception, so get_cohort_actors_for_feature_flag's
-# except block records error state and re-raises it like any other failure.
+# get_cohort_actors_for_feature_flag catches BaseException, so an interruption raised into the
+# task (SoftTimeLimitExceeded, SystemExit) records error state and re-raises. A prefork child
+# killed by a signal runs no handler: a revoke with terminate=True, or a warm shutdown that
+# outlasts the pod's termination grace period, leaves the cohort calculating.
 @shared_task(
     ignore_result=True,
     max_retries=0,
     queue=CeleryQueue.LONG_RUNNING.value,
-    soft_time_limit=4 * 60 * 60,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
     from posthog.api.cohort import get_cohort_actors_for_feature_flag
@@ -1101,6 +1248,15 @@ def collect_cohort_query_stats(
         # This runs even if the worker OOM'd, since this task was scheduled before the calculation
         _collect_cohort_calculation_metrics(history, start_time)
 
+    except Retry:
+        raise
+    except MaxRetriesExceededError:
+        logger.warning(
+            "Gave up collecting delayed cohort query stats",
+            tag_matcher=tag_matcher,
+            cohort_id=cohort_id,
+            history_id=history_id,
+        )
     except Exception as e:
         logger.exception(
             "Failed to collect delayed cohort query stats",

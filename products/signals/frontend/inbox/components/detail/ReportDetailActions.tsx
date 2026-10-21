@@ -14,6 +14,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canResolveReport } from '../../utils/reportActions'
+import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
@@ -48,7 +49,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // Refund leaves a report in place only when a merged PR resolved it; anything else it dismisses
     // (so the open PR gets closed), which means the view has to navigate away. Mirrors the
     // `resolved_via_merged_pr` branch in the refund endpoint.
-    const staysPutOnRefund = isResolved && report.implementation_pr_merged === true
+    const staysPutOnRefund = isResolved && hasMergedReportPullRequest(report)
 
     // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
     // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then return to
@@ -100,11 +101,13 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const onRestoreClick = async (): Promise<void> => {
-        // Prefer the mounted Dismissed list logic so it optimistically drops the row and fixes its
-        // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
+        // Prefer the mounted list logic of the state the report sits in, Dismissed or Held back, so it
+        // optimistically drops the row and fixes its count + view badge synchronously (it also fires
+        // the API call + toast). Navigate straight back.
+        const sectionKey = report.suppression_source === 'dismissed' ? 'dismissed' : 'held-back'
         const dismissedList = reportListLogic.findMounted({
-            sectionKey: 'dismissed',
-            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.dismissed,
+            sectionKey,
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
         })
         if (dismissedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
@@ -112,7 +115,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
             return
         }
-        // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load), and for
+        // Fallback for a deep-linked detail with no mounted list for its state (e.g. cold load), and for
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {

@@ -7,6 +7,10 @@ const navigation = vi.hoisted(() => ({
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
+const links = vi.hoisted(() => ({
+  copyCanvasLink: vi.fn(() => Promise.resolve()),
+  copyChannelLink: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelDashboard: navigation.toChannelDashboard,
@@ -28,10 +32,19 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/canvas/utils/copyCanvasLink", () => ({
+  copyCanvasLink: links.copyCanvasLink,
+}));
+vi.mock("@posthog/ui/features/canvas/utils/copyChannelLink", () => ({
+  copyChannelLink: links.copyChannelLink,
+}));
 
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityRow";
-import { openActivityItem } from "./openActivityItem";
+import { openActivityItem, openActivityItemInRail } from "./openActivityItem";
 import type { TaskRowMenuProps } from "./TaskRowMenu";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
@@ -99,11 +112,16 @@ describe("ActivityRow", () => {
     );
 
     const title = screen.getByText("Tell me a joke");
-    const metadata = screen.getByText("just now · Agent finished in");
-    const spaceBadge = screen.getByText("Personal").closest(".quill-badge");
-    expect(title.compareDocumentPosition(metadata)).toBe(
+    const time = screen.getByText("just now");
+    const status = screen.getByText("Agent finished in");
+    const spaceBadge = screen
+      .getByText("Personal")
+      .closest<HTMLElement>(".quill-badge");
+    expect(title.compareDocumentPosition(time)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(status.parentElement).toHaveClass("ml-auto");
+    expect(status.parentElement).toContainElement(spaceBadge);
     expect(spaceBadge).toHaveClass("quill-badge--variant-default");
     const row = title.closest("button");
     expect(row).toHaveAccessibleName(
@@ -117,6 +135,25 @@ describe("ActivityRow", () => {
     expect(row).not.toHaveClass("bg-primary/10");
     expect(row).not.toHaveClass("outline-primary/20");
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
+  });
+
+  it("shows the full waiting status and space in a tooltip", () => {
+    render(
+      <ActivityRow
+        menu={taskMenu()}
+        item={item({ activityKind: "awaiting_input", channelName: "personal" })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={new Set(["task-1"])}
+        compact
+      />,
+    );
+
+    expect(
+      screen.getByTitle(
+        "just now · Agent is waiting for your reply in Personal",
+      ),
+    ).toBeInTheDocument();
   });
 
   it.each([
@@ -181,46 +218,97 @@ describe("ActivityRow", () => {
     expect(onArchive).toHaveBeenCalledOnce();
   });
 
-  it("opens an activity mention at its exact comment thread", () => {
-    const activity = item({
-      activityKind: "mention",
-      channelId: "channel-1",
-      commentId: "comment-1",
-      commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
-      author: {
-        id: 2,
-        uuid: "author",
-        email: "author@posthog.com",
-        first_name: "Ann",
-      },
-    });
+  it.each([
+    [
+      "the feed",
+      openActivityItem,
+      "task-1",
+      canvasCommentFocusKey("canvas-1"),
+      true,
+    ],
+    ["the rail", openActivityItemInRail, "task-1", "task-1", false],
+    [
+      "the rail without a task",
+      openActivityItemInRail,
+      null,
+      canvasCommentFocusKey("canvas-1"),
+      true,
+    ],
+  ])(
+    "opens an activity mention from %s at its exact comment thread",
+    (_where, activate, taskId, focusKey, opensCanvas) => {
+      const activity = item({
+        activityKind: "mention",
+        taskId,
+        channelId: "channel-1",
+        commentId: "comment-1",
+        commentTarget: { scope: "canvas", itemId: "canvas-1" },
+        author: {
+          id: 2,
+          uuid: "author",
+          email: "author@posthog.com",
+          first_name: "Ann",
+        },
+      });
 
+      render(
+        <ActivityRow
+          item={activity}
+          menu={taskMenu()}
+          onMarkRead={vi.fn()}
+          onActivate={activate}
+          blockedTaskIds={NO_BLOCKED_TASKS}
+        />,
+      );
+      const activityButton = screen
+        .getByText("Ann mentioned you")
+        .closest("button");
+      if (!activityButton) throw new Error("Expected activity row button");
+      fireEvent.click(activityButton);
+
+      if (opensCanvas) {
+        expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
+          "channel-1",
+          "canvas-1",
+        );
+      } else {
+        expect(navigation.toChannelDashboard).not.toHaveBeenCalled();
+      }
+      expect(navigation.toChannelTask).not.toHaveBeenCalled();
+      expect(
+        useCommentNavigationStore.getState().focusByTask[focusKey],
+      ).toEqual({
+        target: { scope: "canvas", itemId: "canvas-1" },
+        threadId: "comment-1",
+        nonce: expect.any(Number),
+        openCommentsTab: true,
+        intent: "navigate",
+      });
+    },
+  );
+
+  it("copies a canvas link, not a task link, for a canvas comment row", () => {
     render(
       <ActivityRow
-        item={activity}
+        item={item({
+          channelId: "channel-1",
+          commentId: "comment-1",
+          commentTarget: { scope: "canvas", itemId: "canvas-1" },
+        })}
         menu={taskMenu()}
         onMarkRead={vi.fn()}
-        onActivate={openActivityItem}
+        onActivate={vi.fn()}
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
-    const activityButton = screen
-      .getByText("just now · Ann mentioned you")
-      .closest("button");
-    if (!activityButton) throw new Error("Expected activity row button");
-    fireEvent.click(activityButton);
 
-    expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByLabelText("Copy thread link"));
+
+    expect(links.copyCanvasLink).toHaveBeenCalledWith(
       "channel-1",
       "canvas-1",
+      "activity",
     );
-    expect(navigation.toChannelTask).not.toHaveBeenCalled();
-    expect(useCommentNavigationStore.getState().focusByTask["task-1"]).toEqual({
-      target: { scope: "desktop_canvas", itemId: "canvas-1" },
-      threadId: "comment-1",
-      nonce: expect.any(Number),
-      openCommentsTab: true,
-      intent: "navigate",
-    });
+    expect(links.copyChannelLink).not.toHaveBeenCalled();
   });
 });

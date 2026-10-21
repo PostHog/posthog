@@ -7,7 +7,7 @@ import { TraceIdentityChips } from './TraceIdentityChips'
 
 // The branch under test is which chips render for a resolved identity, not the link internals:
 // both targets mount their own data-fetching logics, so they're stubbed at the boundary.
-jest.mock('scenes/persons/PersonDisplay', () => ({
+jest.mock('products/persons/frontend/components/PersonDisplay', () => ({
     PersonDisplay: ({ person }: { person: { distinct_id: string } }) => (
         <div data-attr="mock-person-display">{person.distinct_id}</div>
     ),

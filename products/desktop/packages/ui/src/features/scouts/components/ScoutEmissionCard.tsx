@@ -73,9 +73,6 @@ export function ScoutEmissionCard({
         />
         <CompassIcon size={14} className="shrink-0 text-(--iris-9)" />
         <SeverityBadge severity={emission.severity} />
-        <span className="text-[11px] text-gray-10">
-          confidence {Math.round(emission.confidence * 100)}%
-        </span>
         <span className="flex-1" />
         <RelativeTimestamp timestamp={emission.emitted_at} />
       </button>

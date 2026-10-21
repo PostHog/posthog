@@ -1,7 +1,7 @@
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -9,6 +9,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client import sync_execute
+
+from products.metrics.backend.facade.api import list_metric_picker_names
+from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
 from products.metrics.backend.metric_names_query_runner import (
     MAX_PICKER_SERVICES,
     MetricNamesQueryRunner,
@@ -87,6 +93,16 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(by_name["http.server.duration"], "histogram")
         self.assertEqual(by_name["queue.depth"], "gauge")
 
+    def test_returns_metric_type_for_more_names_than_the_default_row_limit(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for index in range(105):
+            _seed_point(team_id=self.team.id, metric_name=f"m{index:03d}", value=1.0, timestamp=anchor)
+
+        results = MetricNamesQueryRunner(team=self.team, limit=200).run()
+
+        self.assertEqual(len(results), 105)
+        self.assertEqual({row["metric_type"] for row in results}, {"gauge"})
+
     @parameterized.expand(
         [
             ("substring", "server", ["http.server.duration"]),
@@ -104,12 +120,9 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = MetricNamesQueryRunner(team=self.team, search=search)
         self.assertEqual([row["name"] for row in runner.run()], expected)
 
-    def test_reads_series_written_without_a_raw_datapoint_row(self):
-        # seed_metric_event writes metric_series1 + metric_samples1 and no metrics1
-        # row, so this is the one test that fails if the runner goes back to
-        # aggregating posthog.metrics. Seeding twice lands two unmerged
-        # ReplacingMergeTree parts for one fingerprint, which must still collapse
-        # to a single picker row without FINAL.
+    def test_collapses_unmerged_series_parts_without_final(self):
+        # Seeding twice lands two unmerged ReplacingMergeTree parts for one
+        # fingerprint, which must still collapse to a single picker row.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         for offset in (10, 1):
             seed_metric_event(
@@ -158,6 +171,13 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(cached_metric_names(self.team, services=["worker"]), run.return_value)
             self.assertEqual(run.call_count, 4)
 
+    def test_picker_names_do_not_cache(self):
+        with patch.object(MetricNamesQueryRunner, "run_picker") as run_picker:
+            run_picker.return_value = [{"name": "m1", "metric_type": "gauge"}]
+            self.assertEqual(list_metric_picker_names(team=self.team), run_picker.return_value)
+            self.assertEqual(list_metric_picker_names(team=self.team), run_picker.return_value)
+            self.assertEqual(run_picker.call_count, 2)
+
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
         _seed_point(
@@ -177,6 +197,45 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.run()
         self.assertEqual(results[0]["name"], "bar")
 
+    @parameterized.expand(
+        [
+            (
+                "search ranks exact, prefix, suffix, then service count, then name",
+                "HTTP",
+                [],
+                ["http", "http.requests", "server.http", "b.http.x", "a.http.x", "c.http.x"],
+            ),
+            (
+                "no search ranks by service count, then name",
+                "",
+                [],
+                ["b.http.x", "a.http.x", "c.http.x", "http", "http.requests", "other", "server.http"],
+            ),
+            (
+                "service scope counts the selected services only",
+                "",
+                ["web"],
+                ["a.http.x", "b.http.x", "c.http.x", "http", "server.http"],
+            ),
+        ]
+    )
+    def test_sort_order(self, _name: str, search: str, services: list[str], expected: list[str]):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name, metric_services in (
+            ("c.http.x", ["web"]),
+            ("a.http.x", ["web"]),
+            ("b.http.x", ["web", "worker"]),
+            ("server.http", ["web"]),
+            ("http.requests", ["worker"]),
+            ("http", ["web"]),
+            ("other", ["worker"]),
+        ):
+            for service in metric_services:
+                seed_metric(team_id=self.team.id, metric_name=metric_name, points=[(anchor, 1.0)], service_name=service)
+
+        runner = MetricNamesQueryRunner(team=self.team, search=search, services=services, include_sparklines=False)
+        self.assertEqual([row["name"] for row in runner.run()], expected)
+
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         _seed_point(team_id=99999, metric_name="other.team.metric", value=1.0, timestamp=anchor)
@@ -185,12 +244,12 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(runner.run(), [])
 
     def test_lookback_excludes_old_data(self):
-        old = timezone.now().replace(microsecond=0) - dt.timedelta(days=14)
+        old = timezone.now().replace(microsecond=0) - dt.timedelta(days=2)
         recent = timezone.now().replace(microsecond=0) - dt.timedelta(hours=1)
         _seed_point(team_id=self.team.id, metric_name="old.metric", value=1.0, timestamp=old)
         _seed_point(team_id=self.team.id, metric_name="recent.metric", value=2.0, timestamp=recent)
 
-        runner = MetricNamesQueryRunner(team=self.team, lookback=dt.timedelta(days=7))
+        runner = MetricNamesQueryRunner(team=self.team)
         names = [row["name"] for row in runner.run()]
         self.assertIn("recent.metric", names)
         self.assertNotIn("old.metric", names)
@@ -234,9 +293,10 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         truncate_metrics_tables()
         cache.clear()
 
-    def test_values_requires_authentication(self):
+    @parameterized.expand([("get",), ("post",)])
+    def test_values_requires_authentication(self, method):
         self.client.logout()
-        response = self.client.get(f"/api/projects/{self.team.id}/metrics/values")
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/metrics/values")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_values_returns_empty_for_no_data(self):
@@ -244,8 +304,12 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": []})
 
-    def test_values_returns_metric_names(self):
+    @parameterized.expand([("finite", 1.0), ("overflowing_average", 1e308)])
+    def test_values_returns_metric_names(self, _name: str, value: float):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        earlier = anchor - dt.timedelta(minutes=20)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=value, timestamp=earlier)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(earlier, value)], labels={"shard": "other"})
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
         _seed_point(team_id=self.team.id, metric_name="m2", value=2.0, timestamp=anchor, metric_type="gauge")
 
@@ -254,6 +318,22 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         names = {row["name"] for row in body["results"]}
         self.assertEqual(names, {"m1", "m2"})
+        self.assertIn("sparkline", body["results"][0])
+        sparkline = next(row["sparkline"] for row in body["results"] if row["name"] == "m1")
+        self.assertEqual(sparkline, [1.0, 1.0] if value == 1.0 else [1.0])
+
+    def test_names_returns_picker_fields_only(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+
+        with patch(
+            "products.metrics.backend.metric_names_query_runner.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [{"name": "m1", "metric_type": "gauge"}]})
+        self.assertEqual(execute.call_count, 1)
+        self.assertNotIn("metric_series", str(execute.call_args.kwargs["query"]))
 
     def test_values_search_param(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -264,6 +344,47 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = [row["name"] for row in response.json()["results"]]
         self.assertEqual(names, ["http.duration"])
+
+    def test_values_batch_matches_exact_names_and_service(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name, service in [
+            ("queue.depth", "web"),
+            ("queue.depth.extra", "web"),
+            ("http.duration", "web"),
+            ("worker.count", "worker"),
+        ]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name=metric_name,
+                points=[(anchor - dt.timedelta(minutes=20), 1.0), (anchor, 2.0)],
+                service_name=service,
+            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/values/",
+            {
+                "names": ["queue.depth", "http.duration", "worker.count", "missing.metric"],
+                "service": "web",
+                "limit": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"]
+        self.assertEqual({row["name"] for row in rows}, {"queue.depth", "http.duration"})
+        for row in rows:
+            self.assertEqual(row["sparkline"], [1.0, 2.0])
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("too many", [f"metric.{index}" for index in range(MAX_SPARKLINE_BATCH_SIZE + 1)]),
+            ("blank", [""]),
+            ("too long", ["a" * 256]),
+        ]
+    )
+    def test_values_rejects_invalid_names(self, _name, names):
+        response = self.client.post(f"/api/projects/{self.team.id}/metrics/values/", {"names": names}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand(
         [
@@ -300,8 +421,7 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     """The catalog is the picker row plus what makes a card scannable: the unit,
     when the metric was last heard from, and a small sparkline of its recent
-    shape. Sparkline points come from `metric_samples`, so a series written
-    without a pre-aggregated `metrics` row still draws."""
+    shape. Sparkline points come from the raw `metrics` data points."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -332,8 +452,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # A clear rise across the window: any faithful downsampling keeps the
         # last value above the first.
         points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(30)]
-        # Sparklines read metric_samples, so seed through the raw-sample path
-        # (seed_metric writes only the pre-aggregated metrics row).
         seed_metric_event(team_id=self.team.id, metric_name="queue.depth", points=points, metric_type="gauge")
 
         runner = MetricNamesQueryRunner(team=self.team)
@@ -343,10 +461,29 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(sparkline), 1)
         self.assertLess(sparkline[0], sparkline[-1])
 
+    def test_catalog_page_is_not_cut_at_the_default_query_limit(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for i in range(101):
+            _seed_point(team_id=self.team.id, metric_name=f"m{i:03d}", value=1.0, timestamp=anchor)
+
+        rows = MetricNamesQueryRunner(team=self.team, limit=150, include_sparklines=False).run()
+
+        self.assertEqual(len(rows), 101)
+
+    def test_every_name_in_a_batch_gets_a_sparkline(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(hours=6)
+        names = [f"busy.{i:02d}" for i in range(MAX_SPARKLINE_BATCH_SIZE)]
+        for name in names:
+            points = [(anchor + dt.timedelta(minutes=15 * i + 1), float(i)) for i in range(24)]
+            seed_metric_event(team_id=self.team.id, metric_name=name, points=points, metric_type="gauge")
+
+        rows = MetricNamesQueryRunner(team=self.team, names=names).run()
+
+        self.assertEqual({row["name"]: len(row["sparkline"]) > 1 for row in rows}, dict.fromkeys(names, True))
+
     def test_sparkline_is_bounded(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=120)
         points = [(anchor + dt.timedelta(minutes=i), float(i % 7)) for i in range(120)]
-        # Sparklines read metric_samples, so seed through the raw-sample path.
         seed_metric_event(team_id=self.team.id, metric_name="busy.metric", points=points, metric_type="gauge")
 
         runner = MetricNamesQueryRunner(team=self.team)
@@ -356,9 +493,7 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(row["sparkline"]), 1)
         self.assertLessEqual(len(row["sparkline"]), 24)
 
-    def test_sparkline_reads_samples_without_a_preaggregated_row(self):
-        # seed_metric_event writes metric_series + metric_samples and no metrics
-        # row, so this fails if the sparkline goes back to aggregating posthog.metrics.
+    def test_sparkline_draws_from_a_short_recent_run(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
         points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(10)]
         seed_metric_event(team_id=self.team.id, metric_name="samples.only", points=points, metric_type="gauge")
@@ -388,7 +523,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline_scoped_to_services(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
         for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed")):
-            # Sparklines read metric_samples, so seed through the raw-sample path.
             seed_metric_event(
                 team_id=self.team.id,
                 metric_name=metric_name,
@@ -406,7 +540,6 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # web and worker emit the same metric name. A card scoped to web must
         # draw only web's series; an unscoped card averages both.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
-        # Sparklines read metric_samples, so seed through the raw-sample path.
         seed_metric_event(
             team_id=self.team.id,
             metric_name="shared.metric",
@@ -437,9 +570,20 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
 
         with patch("products.metrics.backend.metric_names_query_runner.execute_hogql_query") as execute:
-            execute.return_value.results = [("m1", "gauge", "", timezone.now())]
+            execute.return_value = MagicMock(results=[("m1", "gauge", "", timezone.now())])
             rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
 
-        # One query for the names, none for the samples.
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(rows[0]["sparkline"], [])
+
+    def test_name_without_a_series_row_keeps_empty_details(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics4_series")
+
+        rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
+
+        self.assertEqual(
+            [(row["name"], row["metric_type"], row["unit"], row["last_seen"]) for row in rows],
+            [("m1", "", "", None)],
+        )

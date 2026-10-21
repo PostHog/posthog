@@ -537,7 +537,7 @@ class TestComputeSdkHealth(SimpleTestCase):
         assert release.is_outdated is True
         assert "properties.$lib = 'posthog-java'" in release.sql_query
         assert "$lib_version" not in release.sql_query
-        assert release.activity_page_url.startswith("/project/7/activity/explore#q=")
+        assert release.activity_page_url.startswith("/project/7/activity/events#q=")
 
     def test_danger_when_half_or_more_outdated(self):
         # 2 of 3 outdated — triggers danger
@@ -641,7 +641,7 @@ class TestUiParityStrings(SimpleTestCase):
     def test_activity_page_url_contains_project_prefix_and_version(self):
         url = _build_activity_page_url(2, "web", "1.298.0")
         # kea-router reads DataTableNode state from the hash, not the query string
-        assert url.startswith("/project/2/activity/explore#q=")
+        assert url.startswith("/project/2/activity/events#q=")
         # URL-encoded JSON payload should contain our lib/version filters
         assert "%22web%22" in url  # "web" encoded
         assert "1.298.0" in url
@@ -654,7 +654,7 @@ class TestUiParityStrings(SimpleTestCase):
 
     def test_activity_page_url_without_project(self):
         url = _build_activity_page_url(None, "web", "1.0.0")
-        assert url.startswith("/activity/explore#q=")
+        assert url.startswith("/activity/events#q=")
 
     def test_banner_matches_ui_copy(self):
         banner = _build_banner("posthog-python", OutdatedTrafficAlert(version="7.0.0", threshold_percent=10.0))
@@ -830,7 +830,7 @@ class TestAssessReleasePopulatesUiFields(SimpleTestCase):
         assert result.released_ago is not None
         assert "Upgrade recommended" in result.status_reason
         assert "posthog-node" in result.sql_query
-        assert result.activity_page_url.startswith("/project/7/activity/explore#q=")
+        assert result.activity_page_url.startswith("/project/7/activity/events#q=")
 
     def test_current_release_has_you_have_latest_tooltip(self):
         entry = _entry("1.5.0", 100, days_ago=5, is_latest=True)

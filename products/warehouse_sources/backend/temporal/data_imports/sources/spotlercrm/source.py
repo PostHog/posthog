@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpotlerCRMSource(ResumableSource[SpotlerCRMSourceConfig, SpotlerCRMResumeConfig]):
+    codebase_detection = detect(env=("^(SPOTLER_CRM|SPOTLERCRM)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v4",)
     default_version = "v4"
@@ -113,18 +114,18 @@ class SpotlerCRMSource(ResumableSource[SpotlerCRMSourceConfig, SpotlerCRMResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SPOTLER_CRM,
+            name=ExternalDataSourceType.SPOTLERCRM,
             category=DataWarehouseSourceCategory.CRM,
             label="Spotler CRM",
             caption="""Enter your Spotler CRM API access token to pull your CRM data into the PostHog Data warehouse.
 
 Generate a token in Spotler CRM under **Settings / Integrations / API V4** — it's shown only once, so copy it when you create it.
 
-Some record types need paid add-ons: Campaigns requires the Marketing tool, and Cases requires the Service & Support tool.""",
+Some record types need paid add-ons: Campaigns, Campaign details and Campaign stages require the Marketing tool, and Cases requires the Service & Support tool.""",
             docsUrl="https://posthog.com/docs/cdp/sources/spotlercrm",
             iconPath="/static/services/spotlercrm.png",
             keywords=["really simple systems", "spotler", "rss crm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

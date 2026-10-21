@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as json_module
+from dataclasses import replace
 
 import structlog
 from pydantic import BaseModel, Field, model_validator
@@ -11,8 +12,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SOURCES, VALIDATOR_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_output_config,
     anthropic_text,
     create_message,
+    llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
@@ -81,7 +84,7 @@ class ReplyReviewResult(BaseModel):
 async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
-        return await _review_reply(input)
+        return replace(await _review_reply(input), llm_attempts=llm_attempts())
 
 
 async def _review_reply(input: ReviewReplyInput) -> ReviewReplyOutput:
@@ -107,6 +110,7 @@ TICKET TYPE: {input.ticket_type}"""
         max_tokens=512,
         system=REPLY_REVIEW_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        **anthropic_output_config(ReplyReviewResult),
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)

@@ -4,7 +4,7 @@ import re
 from collections import Counter
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 # A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack cannot
 # place an image mid-sentence, and the link degrades badly if left alone: `chart:` is no scheme a
@@ -64,11 +64,6 @@ def strip_chart_references(text: str) -> str:
     # Definitions go first: a definition opens with a bracketed label of its own, and reducing that
     # to bare text would leave the line behind as `daily: chart:signups-drop` for Slack to show.
     return _REFERENCE_LINK_RE.sub(_reduce, _CHART_REF_DEFINITION_RE.sub("", text))
-
-
-def escape_slack_mrkdwn(text: str) -> str:
-    """Neutralize Slack control syntax so untrusted text cannot inject mentions or links."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # The Slack tokens that can address somebody or lie about where they point: the mentions
@@ -334,8 +329,3 @@ def chunk_slack_text(text: str, limit: int) -> list[str]:
     if current.strip():
         chunks.append(current.rstrip())
     return chunks
-
-
-def slack_channel_id_from_target(value: str) -> str:
-    """Extract the Slack channel ID from the frontend picker's `id|#name` value."""
-    return value.split("|", 1)[0].strip()

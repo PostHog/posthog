@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SumoLogicSource(ResumableSource[SumoLogicSourceConfig, SumoLogicResumeConfig]):
+    codebase_detection = detect(env=("^(SUMO_LOGIC|SUMOLOGIC)_",), pypi=("sumologic-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -53,10 +54,10 @@ class SumoLogicSource(ResumableSource[SumoLogicSourceConfig, SumoLogicResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SUMO_LOGIC,
+            name=ExternalDataSourceType.SUMOLOGIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sumo Logic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Connect your Sumo Logic account to sync log search results, collectors, monitors, dashboards, users, and more into the PostHog Data warehouse.
 
 Create an access ID and access key in your [Sumo Logic preferences](https://help.sumologic.com/docs/manage/security/access-keys/) (or use a service account's access key). Pick the deployment region your account lives on — it's the subdomain of your Sumo Logic URL (e.g. `service.eu.sumologic.com` is the EU deployment).

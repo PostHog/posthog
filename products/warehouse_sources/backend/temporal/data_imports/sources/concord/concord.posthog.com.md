@@ -4,20 +4,18 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: Concord
-beta: true
 ---
 
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 [Concord](https://www.concord.app/) is a contract lifecycle management (CLM) platform for
 e-signatures, contract storage, negotiation, and approvals. This source syncs your agreements,
 folders, clauses, tags, reports, organization members, and audit events into the PostHog data
-warehouse so you can join contract data with your product and revenue data.
+warehouse so you can join contract data with your product and revenue data. It also syncs
+per-agreement detail: smart fields, clauses, members, metadata, approval and signature state,
+version history, and the activity timeline.
 
 ## Prerequisites
 
@@ -48,6 +46,15 @@ Agreements expose Concord's server-side `modifiedAt`/`createdAt` timestamp filte
 **incremental** syncs. The audit **events** log is immutable and supports **append**-only syncing.
 Every other table is **full refresh** only, since Concord does not expose a server-side change
 filter for them.
+
+### Per-agreement tables
+
+The `agreement_activities`, `agreement_approval`, `agreement_clauses`, `agreement_endclauses`,
+`agreement_fields`, `agreement_members`, `agreement_metadata`, `agreement_signature`, and
+`agreement_versions` tables describe one agreement at a time. Concord has no bulk endpoint for them,
+so syncing one makes a request per agreement on every sync. They are **deselected by default** —
+turn on the ones you need. If an agreement is deleted or your API key can't read it, that agreement
+is skipped and the rest of the table still syncs.
 
 ## Configuration
 

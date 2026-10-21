@@ -61,6 +61,20 @@ WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     # pushed the branch cannot, which is what makes it the corroboration a merge-queue gate branch
     # is checked against before its name is trusted for attribution (see logic/merge_queue.py).
     "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # GitHub's numeric id of the workflow. It stays the same when the workflow's display name changes,
+    # so it identifies a workflow across a rename.
+    "workflow_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    # The event that triggered the run: 'push', 'pull_request', 'schedule', and so on.
+    "event": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Runs columns that a synced table can lack, each with the typed NULL a read selects in its place. A
+# query that names a column the table does not have fails, so the source resolver probes for these
+# and ``views.depot_ci`` selects the NULL when one is absent. The Depot runs rows select the same
+# NULLs, so both sides of the union agree on the column types.
+OPTIONAL_WORKFLOW_RUNS_COLUMNS: dict[str, str] = {
+    "workflow_id": "toInt(NULL)",
+    "event": "nullIf('', '')",
 }
 
 # Contract for the incoming ``github_workflow_jobs`` warehouse source (job-level CI: queue
@@ -87,6 +101,37 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
+# Contract for the Depot source's ``job_attempts`` table: one row per Depot CI job attempt, the
+# columns ``views.depot_ci`` reshapes into the two GitHub contracts above. Ids are Depot's strings.
+DEPOT_JOB_ATTEMPTS_COLUMNS: dict[str, dict[str, str]] = {
+    **{
+        name: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"}
+        for name in (
+            "run_id",
+            "repo",
+            "ref",
+            "head_sha",
+            "sha",
+            "workflow_id",
+            "workflow_name",
+            "workflow_status",
+            "workflow_created_at",
+            "workflow_started_at",
+            "workflow_finished_at",
+            "job_id",
+            "job_key",
+            "job_display_name",
+            "attempt_id",
+            "attempt_status",
+            "attempt_started_at",
+            "attempt_finished_at",
+            "sandbox_id",
+        )
+    },
+    "attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "run_workflow_count": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+}
+
 # Contract for the ``github_issue_events`` warehouse source: immutable issue/PR events, every
 # type kept (a source-side filter would pin the desc-walk watermark). ``actor`` / ``issue`` are
 # the nested GitHub objects verbatim as JSON. Same Nullable/string discipline as above.
@@ -96,15 +141,34 @@ ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
     "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "issue": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # GitHub adds this object only to a team review request, so a repo where no pull request asked a team
+    # lands no such column. The source resolver checks for it.
+    "requested_team": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Contract for the ``github_reviews`` warehouse source: one row per submitted review, fanned out
+# over pull requests with the parent's number injected as ``pr_number``. ``user`` is the reviewer
+# object verbatim as JSON. Same Nullable/string discipline as above.
+REVIEWS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "pr_number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "user": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "commit_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "submitted_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
 # are GitHub user objects with the parent team's identity injected by the source fan-out
 # (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the
-# membership-based merge timing reads. Same Nullable discipline as above.
+# membership-based merge timing reads, and ``role`` (``maintainer`` / ``member``) is what the
+# roster read orders reviewers by. Same Nullable discipline as above. GitHub omits ``role`` from
+# the documented member object, so a real table can land without it and the source resolver
+# probes for it rather than assuming it (see MEMBER_ROLE_COLUMN).
 TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "role": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

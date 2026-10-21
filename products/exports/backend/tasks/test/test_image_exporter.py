@@ -30,6 +30,7 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -151,6 +152,55 @@ class TestImageExporter(APIBaseTest):
 
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
+
+    @patch("products.exports.backend.tasks.image_exporter.report_creator_access_revoked")
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_creator_without_resource_access_is_reported_as_event_not_exception(
+        self,
+        mock_calculate: Any,
+        mock_capture: Any,
+        mock_report: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_calculate.side_effect = UserAccessControlError("web_analytics", "viewer")
+        self.exported_asset.created_by = self.user
+        self.exported_asset.save()
+
+        with self.assertRaises(UserAccessControlError):
+            image_exporter.export_image(self.exported_asset)
+
+        mock_capture.assert_not_called()
+        assert mock_report.call_args.kwargs["reason"] == "missing_resource_access"
+        assert mock_report.call_args.kwargs["properties"]["resource"] == "web_analytics"
+
+    @parameterized.expand(
+        [
+            ("user_query_error", QueryError("Unknown table"), False),
+            ("unexpected_error", ValueError("render failed"), True),
+        ]
+    )
+    def test_export_failure_reaches_error_tracking_only_when_not_a_user_error(
+        self,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+        _name: str,
+        error: Exception,
+        expect_captured: bool,
+    ) -> None:
+        mock_screenshot_asset.side_effect = error
+
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+            self.assertRaises(type(error)),
+        ):
+            image_exporter.export_image(self.exported_asset)
+
+        assert mock_capture.called is expect_captured
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -930,6 +980,35 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+
+    def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
+        # The player can mount rrweb inside its own frame document. A selector wait or a document query
+        # never looks inside a frame, so the export would time out, or measure the page without the player.
+        page = MagicMock()
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.sync_playwright",
+                return_value=sync_playwright_cm,
+            ),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper")
+
+        assert all(call.args[0] != ".replayer-wrapper" for call in page.wait_for_selector.call_args_list)
+        page.wait_for_function.assert_called_once()
+        assert "iframe.PlayerFrame__document" in page.wait_for_function.call_args.args[0]
+        measure_scripts = [call.args[0] for call in page.evaluate.call_args_list]
+        assert measure_scripts
+        assert all("iframe.PlayerFrame__document" in script for script in measure_scripts)
 
 
 class TestDimensionHelpers(SimpleTestCase):

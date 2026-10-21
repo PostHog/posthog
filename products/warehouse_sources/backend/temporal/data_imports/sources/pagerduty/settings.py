@@ -1,14 +1,16 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class PagerDutyEndpointConfig:
     path: str  # Path under the API base URL, e.g. "/incidents"
     envelope_key: str  # Key the list of objects is wrapped under in the response body
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = None  # Stable datetime field used to partition (never a mutable field)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # True only when the endpoint exposes a server-side `since` filter on created_at AND
@@ -17,6 +19,20 @@ class PagerDutyEndpointConfig:
     # ascending watermark. Endpoints without a controllable sort stay full-refresh so the
     # cursor can't advance past unread rows.
     supports_since: bool = False
+    # Names the PagerDuty feature an account needs before this endpoint answers at all, and the
+    # single HTTP status that endpoint answers with when the plan lacks it (402 with error code
+    # 2014, "required abilities are unavailable", or 404). The two fields are set together: a
+    # config with a feature but no status is a mistake, not "accept anything". Kept endpoint-
+    # specific rather than a shared {402, 404} set, because the other status is a genuine failure
+    # on that endpoint (e.g. a 404 on /teams is a real missing resource, not a plan gate) and must
+    # still raise instead of being swallowed as an empty table.
+    plan_gated_feature: Optional[str] = None
+    plan_gated_status: Optional[int] = None
+    # Fan-out child: `parent` names the endpoint whose rows supply the `{id}` in `path`, and that id
+    # lands on each child row as `parent_id_column`. Child ids are only documented as unique within
+    # their parent, so the parent id belongs in the child's primary key.
+    parent: Optional[str] = None
+    parent_id_column: Optional[str] = None
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -42,6 +58,17 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # would be needed for true change capture.
         supports_since=True,
     ),
+    "incident_alerts": PagerDutyEndpointConfig(
+        path="/incidents/{id}/alerts",
+        envelope_key="alerts",
+        primary_keys=["incident_id", "id"],
+        partition_key="created_at",
+        # Full refresh only: the child endpoint has no `since` filter, and an open incident keeps
+        # collecting alerts after it was created, so a window on the parent would miss them. The
+        # fan-out covers the incidents the parent listing returns, which is its default date range.
+        parent="incidents",
+        parent_id_column="incident_id",
+    ),
     "log_entries": PagerDutyEndpointConfig(
         path="/log_entries",
         envelope_key="log_entries",
@@ -49,6 +76,13 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # `/log_entries` accepts a `since` filter but exposes no controllable sort param, so
         # we can't guarantee an ascending watermark. Ship full refresh rather than risk the
         # cursor advancing past unread rows.
+    ),
+    "change_events": PagerDutyEndpointConfig(
+        path="/change_events",
+        envelope_key="change_events",
+        partition_key="timestamp",
+        # `/change_events` accepts `since`/`until` but no sort param, and `timestamp` is set by the
+        # tool that emits the event, so a late-arriving event can predate the watermark. Full refresh.
     ),
     "services": PagerDutyEndpointConfig(
         path="/services",
@@ -61,6 +95,19 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
     "teams": PagerDutyEndpointConfig(
         path="/teams",
         envelope_key="teams",
+        # PagerDuty gates teams behind an account ability; accounts without it answer 402 with
+        # error code 2014 on every /teams request.
+        plan_gated_feature="teams",
+        plan_gated_status=402,
+    ),
+    "team_members": PagerDutyEndpointConfig(
+        path="/teams/{id}/members",
+        envelope_key="members",
+        primary_keys=["team_id", "user_id"],
+        plan_gated_feature="teams",
+        plan_gated_status=402,
+        parent="teams",
+        parent_id_column="team_id",
     ),
     "escalation_policies": PagerDutyEndpointConfig(
         path="/escalation_policies",
@@ -70,9 +117,20 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         path="/schedules",
         envelope_key="schedules",
     ),
+    "oncalls": PagerDutyEndpointConfig(
+        path="/oncalls",
+        envelope_key="oncalls",
+        # Without `since`/`until` the API answers the on-call entries at the current time, so each
+        # sync replaces the table with who is on call now.
+    ),
     "priorities": PagerDutyEndpointConfig(
         path="/priorities",
         envelope_key="priorities",
+        # Incident priorities exist only on higher PagerDuty plans. The collection endpoint takes
+        # no path parameter, and an account that has the feature but no priority configured still
+        # answers 200 with an empty list, so a 404 here can only mean the plan lacks the feature.
+        plan_gated_feature="incident priorities",
+        plan_gated_status=404,
     ),
     "vendors": PagerDutyEndpointConfig(
         path="/vendors",

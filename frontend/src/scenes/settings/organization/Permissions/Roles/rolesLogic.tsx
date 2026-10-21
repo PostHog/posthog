@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { RoleMemberType, RoleType, UserBasicType } from '~/types'
@@ -201,7 +201,9 @@ export const rolesLogic = kea<rolesLogicType>([
                 const { roles, roleMembersToAdd } = values
                 const newRole = await api.roles.create(roleName)
                 await asyncActions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
-                eventUsageLogic.actions.reportRoleCreated(roleName)
+                posthog.capture('new role created', {
+                    role: roleName,
+                })
                 actions.setRoleMembersInFocus([])
                 actions.setRoleMembersToAdd([])
                 actions.setCreateRoleModalShown(false)

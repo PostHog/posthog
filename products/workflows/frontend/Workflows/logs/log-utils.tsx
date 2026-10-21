@@ -1,8 +1,9 @@
 import { IconTrash } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EmailViewerChip } from '../EmailViewerModal'
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'
@@ -109,12 +110,16 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             const eventUuid = matchesEventRegex[1]
             const eventName = matchesEventRegex[2]
             const eventTimestamp = matchesEventRegex[3]
+            // The events page reads flag calls from flag_evaluations only when the link names the event.
+            // Other names stay off the link because the log token strips | from event names.
+            // A name that contained | would then match no event.
+            const linkEventName = eventName === '$feature_flag_called' ? eventName : undefined
 
             elements.push(
                 <Link
                     key={part}
                     className="rounded p-1 -m-1 bg-border text-bg-primary"
-                    to={urls.event(eventUuid, eventTimestamp)}
+                    to={urls.event(eventUuid, eventTimestamp, linkEventName)}
                     target="_blank"
                     targetBlankIcon
                 >

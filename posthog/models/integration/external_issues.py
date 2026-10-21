@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from posthog.egress.limiter.policies import Priority
+
 from . import model
 from .github import GitHubIntegration
 from .gitlab import GitLabIntegration
@@ -45,9 +47,10 @@ def external_issue_url(integration: model.Integration, external_context: dict[st
         repository_path = (
             str(repository)
             if "/" in str(repository)
-            else f"{GitHubIntegration(integration).organization()}/{repository}"
+            else f"{GitHubIntegration(integration, source='external_issues', priority=Priority.CRITICAL).organization()}/{repository}"
         )
-        return f"https://github.com/{repository_path}/issues/{number}"
+        resource_path = "pull" if context.get("resource_type") == "pull_request" else "issues"
+        return f"https://github.com/{repository_path}/{resource_path}/{number}"
 
     if integration.kind == model.Integration.IntegrationKind.GITLAB:
         issue_id = context.get("issue_id")

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResumeConfig]):
+    codebase_detection = detect(env=("^(DING_CONNECT|DINGCONNECT)_",))
+
     api_docs_url = "https://www.dingconnect.com/Api/Description"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -117,10 +118,10 @@ class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DING_CONNECT,
+            name=ExternalDataSourceType.DINGCONNECT,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="DingConnect",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your DingConnect API key to pull your DingConnect data into the PostHog Data warehouse.
 
 You can generate an API key under the **Developer** tab of your [DingConnect account settings](https://www.dingconnect.com/Account/Settings).""",

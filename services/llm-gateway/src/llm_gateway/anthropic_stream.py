@@ -69,20 +69,43 @@ class _SSEPayloadDecoder:
         return payloads
 
 
-async def observe_anthropic_stream(stream: AsyncIterator[Any], backend: str) -> AsyncIterator[Any]:
+async def repair_anthropic_stream(stream: AsyncIterator[Any], backend: str) -> AsyncIterator[Any]:
+    """Record invalid bridge output, and drop reasoning deltas aimed at a text block.
+
+    A bridge that reads the block type from the OpenAI `content` field but the delta type
+    from `reasoning_content` puts a `thinking_delta` inside a block it opened as `text`.
+    Clients that trust the block type then show the reasoning as assistant prose. Dropping
+    the delta keeps reasoning out of the visible transcript and keeps the block consistent,
+    so a client that diffs streamed chunks against the assembled message stays in step.
+    """
     active_blocks: dict[int, str] = {}
     recorded_violations: set[tuple[int, str]] = set()
     sse_decoder = _SSEPayloadDecoder()
 
     async for chunk in stream:
-        for payload in _payloads_from_chunk(chunk, sse_decoder):
+        payloads = _payloads_from_chunk(chunk, sse_decoder)
+        drop_chunk = any(_leaks_reasoning_into_text_block(payload, active_blocks) for payload in payloads)
+        for payload in payloads:
             _observe_payload(payload, backend, active_blocks, recorded_violations)
+        if drop_chunk:
+            continue
         yield chunk
 
     for payload in sse_decoder.finish():
         _observe_payload(payload, backend, active_blocks, recorded_violations)
     for index in active_blocks:
         _record_violation(backend, index, "unclosed_block", recorded_violations)
+
+
+def _leaks_reasoning_into_text_block(payload: dict[str, Any], active_blocks: dict[int, str]) -> bool:
+    if payload.get("type") != "content_block_delta":
+        return False
+    delta = payload.get("delta")
+    delta_type = delta.get("type") if isinstance(delta, dict) else None
+    if not isinstance(delta_type, str) or _DELTA_BLOCK_TYPES.get(delta_type) != "thinking":
+        return False
+    index = payload.get("index")
+    return isinstance(index, int) and active_blocks.get(index) == "text"
 
 
 def _payloads_from_chunk(chunk: Any, sse_decoder: _SSEPayloadDecoder) -> list[dict[str, Any]]:

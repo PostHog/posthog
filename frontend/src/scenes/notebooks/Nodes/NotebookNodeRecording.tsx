@@ -9,7 +9,6 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayer,
@@ -26,6 +25,8 @@ import {
 import { urls } from 'scenes/urls'
 
 import { SessionRecordingId } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'

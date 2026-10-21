@@ -15,26 +15,39 @@ describe('agentSetupModalLogic', () => {
         logic?.unmount()
     })
 
-    it('restores the GitHub modal from the callback URL and only removes GitHub parameters when closed', () => {
-        router.actions.push('/inbox/config', {
-            setup: 'github',
-            integration_id: '12',
-            installation_id: '34',
-            github_setup_error: 'pending',
-            error_message: 'Try again',
-            github_install_pending: '1',
-            source: 'saved-filter',
-        })
-        const callbackPath = router.values.location.pathname
-
+    it('does not open inbox setup from the standalone trials page', () => {
+        router.actions.push('/inbox/scout-trials', { setup: 'github' })
         logic = agentSetupModalLogic()
         logic.mount()
 
-        expect(logic.values.openModal).toBe('github')
-
-        logic.actions.closeSetupModal()
-
-        expect(router.values.location.pathname).toBe(callbackPath)
-        expect(router.values.searchParams).toEqual({ source: 'saved-filter' })
+        expect(logic.values.openModal).toBeNull()
     })
+
+    it.each(['github', 'signal-sources'] as const)(
+        'restores the %s modal from the callback URL and removes callback parameters when closed',
+        (setup) => {
+            router.actions.push('/inbox/config', {
+                setup,
+                signal_source: 'intercom',
+                integration_error: 'access_denied',
+                integration_id: '12',
+                installation_id: '34',
+                github_setup_error: 'pending',
+                error_message: 'Try again',
+                github_install_pending: '1',
+                source: 'saved-filter',
+            })
+            const callbackPath = router.values.location.pathname
+
+            logic = agentSetupModalLogic()
+            logic.mount()
+
+            expect(logic.values.openModal).toBe(setup)
+
+            logic.actions.closeSetupModal()
+
+            expect(router.values.location.pathname).toBe(callbackPath)
+            expect(router.values.searchParams).toEqual({ source: 'saved-filter' })
+        }
+    )
 })

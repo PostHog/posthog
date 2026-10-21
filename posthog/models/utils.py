@@ -164,6 +164,7 @@ def generate_random_token(nbytes: int = 32) -> str:
 PROJECT_API_TOKEN_PREFIX = "phc_"  # "c" standing for "client"
 PERSONAL_API_KEY_PREFIX = "phx_"  # "x" standing for nothing in particular
 SECRET_API_TOKEN_PREFIX = "phs_"  # "s" standing for "secret"; team secret tokens and project secret API keys
+HEATMAP_SCREENSHOT_SECRET_PREFIX = "phh_"  # "h" standing for "heatmap"
 OAUTH_ACCESS_TOKEN_PREFIX = "pha_"  # "a" standing for "access"
 OAUTH_REFRESH_TOKEN_PREFIX = "phr_"  # "r" standing for "refresh"
 
@@ -182,6 +183,10 @@ def generate_random_token_personal() -> str:
 def generate_random_token_secret() -> str:
     # Similar to personal API keys, but for retrieving feature flag definitions for local evaluation.
     return SECRET_API_TOKEN_PREFIX + generate_random_token(35)
+
+
+def generate_random_token_heatmap_screenshot() -> str:
+    return HEATMAP_SCREENSHOT_SECRET_PREFIX + generate_random_token(16)
 
 
 def generate_random_oauth_access_token(_request) -> str:
@@ -219,6 +224,16 @@ def hash_key_value(
     # https://github.com/jazzband/django-rest-knox/issues/188
     value = hashlib.sha256(value.encode()).hexdigest()
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
+
+
+# Mirrors CredentialNodeValue in PostHog/ai-gateway; a change here without its twin breaks the join silently.
+AI_CREDENTIAL_HEX_LENGTH = 32
+
+
+def ai_credential_value(secure_value: str) -> str:
+    """The value the AI gateway stamps as $ai_credential on a key's generations: sha256 over the
+    stored sha256$<hex> hash (the gateway's credential fingerprint), first 32 hex characters."""
+    return hashlib.sha256(secure_value.encode()).hexdigest()[:AI_CREDENTIAL_HEX_LENGTH]
 
 
 def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
@@ -570,4 +585,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "model": obj.model,
                 "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
+        if isinstance(obj, models.Model):
+            # `changes_between` puts the related instance of a relation field into the change.
+            # Without this fallback each model with no branch above makes the write raise, and the
+            # deferred writer drops the row. The id identifies the instance and copies none of its
+            # fields, which can hold credentials.
+            return {"id": obj.pk}
         return json.JSONEncoder.default(self, obj)

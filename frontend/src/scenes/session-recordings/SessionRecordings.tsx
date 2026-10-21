@@ -1,15 +1,15 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -17,11 +17,13 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +33,6 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
-import { ReplayComments } from 'products/replay/frontend/comments/ReplayComments'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
@@ -42,21 +43,21 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
-import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
-import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
+import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
     const [loading, setLoading] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const handleNewPlaylist = async (): Promise<void> => {
         setLoading(true)
         try {
-            await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
-            reportRecordingPlaylistCreated('new')
+            await createPlaylist(
+                { _create_in_folder: 'Unfiled/Replay playlists', type: 'collection', creation_method: 'new' },
+                true
+            )
         } catch (error: any) {
             if (isAccessDeniedError(error)) {
                 lemonToast.error('You do not have access to create collections.')
@@ -80,6 +81,7 @@ function Header(): JSX.Element {
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
+                                data-attr="replay-open-file-playback"
                                 to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
@@ -88,6 +90,7 @@ function Header(): JSX.Element {
                                 <IconDocument /> Playback from PostHog JSON file
                             </Link>
                             <Link
+                                data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}
                                 buttonProps={{
                                     menuItem: true,
@@ -112,29 +115,52 @@ function Header(): JSX.Element {
                         interaction="click"
                         scope={Scene.Replay}
                     >
-                        <LemonButton
-                            type="primary"
-                            onClick={handleNewPlaylist}
-                            data-attr="save-recordings-playlist-button"
-                            loading={loading}
-                            size="small"
-                            tooltip="New collection"
-                        >
-                            New collection
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                onClick={handleNewPlaylist}
+                                data-attr="save-recordings-playlist-button"
+                                loading={loading}
+                                tooltip="New collection"
+                            >
+                                New collection
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={handleNewPlaylist}
+                                data-attr="save-recordings-playlist-button"
+                                loading={loading}
+                                size="small"
+                                tooltip="New collection"
+                            >
+                                New collection
+                            </LemonButton>
+                        )}
                     </Shortcut>
                 </AccessControlAction>
             )}
 
-            <LemonButton
-                icon={<IconGear />}
-                type="secondary"
-                size="small"
-                to={urls.replaySettings()}
-                data-attr="session-recordings-settings-button"
-            >
-                Settings
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="outline"
+                    render={<LinkPrimitive to={urls.replaySettings()} />}
+                    data-attr="session-recordings-settings-button"
+                >
+                    <IconGear />
+                    Settings
+                </Button>
+            ) : (
+                <LemonButton
+                    icon={<IconGear />}
+                    type="secondary"
+                    size="small"
+                    to={urls.replaySettings()}
+                    data-attr="session-recordings-settings-button"
+                >
+                    Settings
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -180,13 +206,8 @@ function AttachScenePlaylistLogic({
 }
 
 function MainPanel(): JSX.Element {
-    const { tab } = useValues(sessionReplaySceneLogic)
+    const { tab, picksInList } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
-
-    const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'scene',
-        updateSearchParams: true,
-    }
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
@@ -196,19 +217,15 @@ function MainPanel(): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
+                    <AttachScenePlaylistLogic playlistLogicProps={SCENE_PLAYLIST_LOGIC_PROPS} />
                     {isRedesignEnabled ? (
-                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                        <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                        <SessionRecordingsPlaylist {...SCENE_PLAYLIST_LOGIC_PROPS} picksInList={picksInList} />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
-            ) : tab === ReplayTabs.Comments ? (
-                <ReplayComments />
-            ) : tab === ReplayTabs.Templates ? (
-                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
@@ -228,21 +245,10 @@ const ReplayPageTabs: ReplayTab[] = [
         tooltip: 'View & create collections',
         'data-attr': 'session-recordings-collections-tab',
     },
-    {
-        label: 'Comments',
-        key: ReplayTabs.Comments,
-        tooltip: 'Comments you added to recordings',
-        'data-attr': 'session-recordings-comments-tab',
-    },
-    {
-        label: 'Filter templates',
-        key: ReplayTabs.Templates,
-        'data-attr': 'session-recordings-templates-tab',
-    },
 ]
 
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { tab } = useValues(sessionReplaySceneLogic)
     return (
         <LemonTabs
             activeKey={tab}
@@ -251,14 +257,7 @@ export function SessionRecordingsPageTabs(): JSX.Element {
             className="-mt-4"
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
+                    label: replayTab.label,
                     key: replayTab.key,
                     link: urls.replay(replayTab.key),
                     tooltip: replayTab.tooltip,

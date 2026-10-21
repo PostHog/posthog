@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudResumeConfig]):
+    codebase_detection = detect(env=("^PREFECT_API_KEY$", "^PREFECT_API_URL$"), pypi=("prefect", "prefect-client"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://docs.prefect.io/v3/api-ref/rest-api"
@@ -53,10 +54,10 @@ class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PREFECT_CLOUD,
+            name=ExternalDataSourceType.PREFECTCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Prefect Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Prefect Cloud account ID, workspace ID, and an API key to pull your flow and task run history into the PostHog Data warehouse.
 
 Both IDs are in your workspace URL: `https://app.prefect.cloud/account/<account ID>/workspace/<workspace ID>`.

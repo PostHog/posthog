@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
+    codebase_detection = detect(env=("^SNYK_",), npm=("snyk", "@snyk/protect"), pypi=("pysnyk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,10 +52,10 @@ class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SNYK,
+            name=ExternalDataSourceType.SNYK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Snyk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Snyk account to sync organizations, projects, targets, and vulnerability issues into the PostHog Data warehouse.
 
 Generate an API token from your [Snyk account settings](https://app.snyk.io/account) (or use a service account token from your organization or group settings). The token is sent as `Authorization: token <token>` and can read every organization it has access to.

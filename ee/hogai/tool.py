@@ -56,6 +56,15 @@ class ApprovalRequest(BaseModel):
     original_tool_call_id: str | None = None
 
 
+def pending_approval_proposal_id(value: object) -> str | None:
+    if isinstance(value, ApprovalRequest):
+        return value.proposal_id
+    if isinstance(value, dict) and value.get("status") == PENDING_APPROVAL_STATUS:
+        proposal_id = value.get("proposal_id")
+        return proposal_id if isinstance(proposal_id, str) else None
+    return None
+
+
 class ClientToolCallRequest(BaseModel):
     """Interrupt payload when a tool hands execution to its client-side handler.
 
@@ -381,7 +390,12 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         if preview is None:
             raise ValueError("preview must be provided for dangerous operations")
 
-        proposal_id = str(uuid.uuid4())
+        # Other parallel approvals can resume while this tool stays interrupted.
+        proposal_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"{self._get_conversation_id()}:{self._original_tool_call_id}")
+            if self._original_tool_call_id
+            else uuid.uuid4()
+        )
         serialized_payload = self._serialize_kwargs_for_storage(kwargs)
 
         approval_request = ApprovalRequest(

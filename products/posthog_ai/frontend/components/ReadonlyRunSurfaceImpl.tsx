@@ -42,7 +42,11 @@ export default function ReadonlyRunSurfaceImpl({
             ) : (
                 <div className={cn('@container/thread flex flex-col h-full overflow-hidden', className)}>
                     <div className="flex-1 min-h-0">
-                        <RunSurface.Thread listClassName={threadListClassName} rowClassName={threadRowClassName} />
+                        <RunSurface.Thread
+                            listClassName={threadListClassName}
+                            rowClassName={threadRowClassName}
+                            showContextUsage
+                        />
                     </div>
                 </div>
             )}

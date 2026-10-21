@@ -7,6 +7,7 @@ import { isNotNil } from 'lib/utils/guards'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -45,7 +46,7 @@ import {
     validColumnsForTiles,
 } from './utils'
 
-export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
+export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = pageCollectionId('marketing-analytics')
 
 const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
     column !== 'roas' && column !== 'cost_per_reported_conversion'
@@ -82,9 +83,12 @@ export interface marketingAnalyticsTilesLogicValues {
     } // marketingAnalyticsLogic
     draftConversionGoal: ConversionGoalFilter | null // marketingAnalyticsLogic
     drillDownLevel: MarketingAnalyticsDrillDownLevel // marketingAnalyticsLogic
+    includeConversionGoals: boolean // marketingAnalyticsLogic
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
+    marketingChartSourceIds: string[] // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
+    sourcesInitialLoading: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
     defaultColumns: string[] // marketingAnalyticsTableLogic
     query: DataTableNode | null // marketingAnalyticsTableLogic
@@ -107,7 +111,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             },
             draftConversionGoal: ConversionGoalFilter | null,
             integrationFilter: IntegrationFilter,
-            shouldFilterTestAccounts: boolean
+            shouldFilterTestAccounts: boolean,
+            includeConversionGoals: boolean
         ) => QueryTile
         marketingChartTile: (
             compareFilter: CompareFilter,
@@ -121,7 +126,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             baseCurrency: CurrencyCode,
             integrationFilter: IntegrationFilter,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            marketingChartSourceIds: string[]
         ) => QueryTile
         campaignBreakdownTile: (
             campaignCostsBreakdown: DataTableNode | null,
@@ -133,7 +139,7 @@ export interface marketingAnalyticsTilesLogicMeta {
             campaignBreakdownTile: QueryTile | null
         ) => QueryTile[]
         campaignCostsBreakdown: (
-            loading: boolean,
+            sourcesInitialLoading: boolean,
             query: DataTableNode | null,
             dateFilter: {
                 dateFrom: string | null
@@ -145,7 +151,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             compareFilter: CompareFilter,
             integrationFilter: IntegrationFilter,
             drillDownLevel: MarketingAnalyticsDrillDownLevel,
-            shouldFilterTestAccounts: boolean
+            shouldFilterTestAccounts: boolean,
+            includeConversionGoals: boolean
         ) => DataTableNode | null
     }
 }
@@ -166,7 +173,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'compareFilter',
                 'dateFilter',
                 'createMarketingDataWarehouseNodes',
+                'marketingChartSourceIds',
                 'loading',
+                'sourcesInitialLoading',
                 'draftConversionGoal',
                 'chartDisplayType',
                 'tileColumnSelection',
@@ -174,6 +183,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'shouldFilterTestAccounts',
                 'drillDownLevel',
                 'baseCurrency',
+                'includeConversionGoals',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -191,13 +201,15 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.draftConversionGoal,
                 s.integrationFilter,
                 s.shouldFilterTestAccounts,
+                s.includeConversionGoals,
             ],
             (
                 compareFilter: CompareFilter | null,
                 dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
                 integrationFilter: IntegrationFilter,
-                shouldFilterTestAccounts: boolean
+                shouldFilterTestAccounts: boolean,
+                includeConversionGoals: boolean
             ): QueryTile => ({
                 kind: 'query',
                 tileId: TileId.MARKETING_OVERVIEW,
@@ -214,7 +226,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     compareFilter: compareFilter || undefined,
                     properties: [],
                     filterTestAccounts: shouldFilterTestAccounts,
-                    draftConversionGoal: draftConversionGoal || undefined,
+                    draftConversionGoal: includeConversionGoals ? draftConversionGoal || undefined : undefined,
+                    ...(!includeConversionGoals ? { select: Object.values(MarketingAnalyticsBaseColumns) } : {}),
                     integrationFilter: integrationFilter,
                     tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
@@ -232,6 +245,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.baseCurrency,
                 s.integrationFilter,
                 s.featureFlags,
+                s.marketingChartSourceIds,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -241,7 +255,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 tileColumnSelection: validColumnsForTiles,
                 baseCurrency: CurrencyCode,
                 integrationFilter: IntegrationFilter,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                marketingChartSourceIds: string[]
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -316,6 +331,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             : costsPrecomputeEnabled
                               ? [costSeriesNode]
                               : createMarketingDataWarehouseNodes,
+                        marketingAnalyticsCostFallback:
+                            costsPrecomputeEnabled && hasSources
+                                ? { series: createMarketingDataWarehouseNodes, sourceIds: marketingChartSourceIds }
+                                : undefined,
                         compareFilter: compareFilter || undefined,
                         // The precompute path reads a single node, so split by source here; the S3 adapters
                         // are already per-source series and need no breakdown.
@@ -396,7 +415,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
         ],
         campaignCostsBreakdown: [
             (s) => [
-                s.loading,
+                // Not `loading`: nulling the query on every background refresh unmounts the
+                // table and refetches it each time the user returns to the tab.
+                s.sourcesInitialLoading,
                 s.query,
                 s.dateFilter,
                 s.draftConversionGoal,
@@ -405,9 +426,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.integrationFilter,
                 s.drillDownLevel,
                 s.shouldFilterTestAccounts,
+                s.includeConversionGoals,
             ],
             (
-                loading: boolean,
+                sourcesInitialLoading: boolean,
                 query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
@@ -415,12 +437,23 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 compareFilter: CompareFilter,
                 integrationFilter: IntegrationFilter,
                 drillDownLevel: MarketingAnalyticsDrillDownLevel,
-                shouldFilterTestAccounts: boolean
+                shouldFilterTestAccounts: boolean,
+                includeConversionGoals: boolean
             ): DataTableNode | null => {
-                if (loading) {
+                if (sourcesInitialLoading) {
                     return null
                 }
-                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                let marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                if (!includeConversionGoals) {
+                    const baseColumns = new Set<string>(Object.values(MarketingAnalyticsBaseColumns))
+                    baseColumns.add(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias)
+                    defaultColumns = defaultColumns.filter((column) => baseColumns.has(column))
+                    marketingQuery = {
+                        ...marketingQuery,
+                        select: marketingQuery?.select?.filter((column) => baseColumns.has(column)),
+                    } as MarketingAnalyticsTableQuery
+                    draftConversionGoal = null
+                }
 
                 // Determine the correct grouping column alias for the current drill-down level
                 const drillDownConfig = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]

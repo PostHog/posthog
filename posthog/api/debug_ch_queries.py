@@ -1,14 +1,17 @@
 import re
 import json
+import math
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.core.cache import cache
 from django.db.models import Count
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
 from rest_framework.decorators import action
@@ -36,7 +39,11 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    BACKGROUND_WARMING_TRIGGERS as WEB_ANALYTICS_WARMING_TRIGGERS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +167,55 @@ def _cache_table_stats() -> list[dict]:
             entry["oldest_partition"] = entry["partitions"][0]["partition"]
             entry["newest_partition"] = entry["partitions"][-1]["partition"]
     return list(stats.values())
+
+
+# Products on the shared lazy-precompute framework, keyed by the `product` query
+# param of `precompute_health`. Lazy-served reads share the framework's uniform
+# `_lazy_query` tag suffix, scoped by `log_comment_product` (the product tag the
+# runners set) so registered products cannot cross-contaminate each other's hit
+# ratios. `warming_triggers` are the product's OWN background-warmer triggers,
+# imported from the product module — deliberately not the framework-shared
+# "warmingV2", which belongs to the fleet-wide generic insight cache warmer and
+# would attribute every product's insight warming to this product's economics.
+# `eligible_live_query_types` — live (non-precomputed) read tags whose shapes the
+# product's lazy path could have served, the denominator of its hit ratio. When a
+# product grows a new live strategy tag, add it here or the ratio undercounts
+# that family's misses.
+_PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
+    "web_analytics": {
+        "log_comment_product": "web_analytics",
+        "warming_triggers": tuple(sorted(WEB_ANALYTICS_WARMING_TRIGGERS)),
+        "eligible_live_query_types": (
+            "web_overview_query",
+            "web_overview_preaggregated_query",
+            "web_overview_no_join_query",
+            "web_overview_session_id_set_query",
+            "stats_table_main_query",
+            "stats_table_path_bounce_query",
+            "stats_table_path_bounce_and_avg_time_query",
+            "stats_table_no_join_path_bounce_query",
+            "stats_table_no_join_path_bounce_and_avg_time_query",
+            "stats_table_session_id_set_path_bounce_query",
+            "stats_table_session_id_set_path_bounce_and_avg_time_query",
+            "stats_table_frustration_metrics_query",
+            "stats_table_entry_bounce_query",
+            "stats_table_preaggregated_query",
+            "stats_table_preaggregated_path_breakdown_query",
+            "stats_table_preaggregated_entry_bounce_query",
+            "web_goals_query",
+            "web_vitals_path_breakdown_query",
+        ),
+    },
+}
+
+# Reads that arrive through these channels are not user-facing dashboard traffic
+# (background warming, batch workflows, API scripts) and would distort the ratio.
+_PRECOMPUTE_EXCLUDED_WORKLOADS = ("Workload.OFFLINE", "OFFLINE")
+
+# One replica being down must degrade this observability endpoint to
+# partial data, not take it out entirely — the endpoint exists precisely
+# for incidents, which is when replicas tend to be missing.
+_PRECOMPUTE_HEALTH_QUERY_SETTINGS = {"skip_unavailable_shards": 1, "max_execution_time": 90}
 
 
 def _bucket_axis(hours: int) -> tuple[str, str, list[str], dict[str, int]]:
@@ -607,10 +663,10 @@ class DebugCHQueries(viewsets.ViewSet):
         # metric_type and funnel_order_type are tagged before the precompute builds run, so the build
         # sub-queries carry them too and stay grouped with their parent read under these filters.
         if metric_type_filter is not None:
-            extra_filters += " AND toString(log_comment.experiment_metric_type) = %(metric_type)s"
+            extra_filters += " AND lc_experiment_metric_type = %(metric_type)s"
             params["metric_type"] = metric_type_filter
         if funnel_order_type_filter is not None:
-            extra_filters += " AND toString(log_comment.experiment_funnel_order_type) = %(funnel_order_type)s"
+            extra_filters += " AND lc_experiment_funnel_order_type = %(funnel_order_type)s"
             params["funnel_order_type"] = funnel_order_type_filter
 
         # Filter at the group level (a group's terminal exception_code, resolved per query_id in per_query):
@@ -625,9 +681,8 @@ class DebugCHQueries(viewsets.ViewSet):
         # We rank groups by total duration (build + read — the user waited for both, synchronously) and
         # return every row of the top 100 groups; Python then nests the builds under their parent read.
         # Rows with no group id (legacy / non-runner queries) fall back to a group of one via `grp`.
-        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
-        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
-        # ''-when-missing semantics JSONExtractString gave us on the raw column.
+        # Reads query_log_archive (not system.query_log, which retains only hours): the log_comment tags
+        # are typed lc_* columns there, with '' when the tag is missing.
         # nosemgrep: clickhouse-fstring-param-audit - extra_filters is built from hardcoded SQL fragments; user values flow through params
         sql_query = f"""
             WITH per_query AS (
@@ -644,27 +699,33 @@ class DebugCHQueries(viewsets.ViewSet):
                     max(type) AS status,
                     argMax(team_id, type) AS team_id,
                     argMax(lc_query_type, type) AS query_type,
-                    argMax(ifNull(toString(log_comment.experiment_name), ''), type) AS experiment_name,
-                    argMax(ifNull(toString(log_comment.experiment_metric_name), ''), type) AS experiment_metric_name,
-                    argMax(ifNull(toString(log_comment.experiment_execution_path), ''), type) AS experiment_execution_path,
-                    argMax(ifNull(toString(log_comment.experiment_metric_type), ''), type) AS experiment_metric_type,
-                    argMax(ifNull(toString(log_comment.experiment_funnel_order_type), ''), type) AS experiment_funnel_order_type,
+                    argMax(lc_experiment_name, type) AS experiment_name,
+                    argMax(lc_experiment_metric_name, type) AS experiment_metric_name,
+                    argMax(lc_experiment_execution_path, type) AS experiment_execution_path,
+                    argMax(lc_experiment_metric_type, type) AS experiment_metric_type,
+                    argMax(lc_experiment_funnel_order_type, type) AS experiment_funnel_order_type,
                     argMax(lc_experiment_id, type) AS experiment_id,
-                    argMax(ifNull(toString(log_comment.experiment_exposures_path), ''), type) AS experiment_exposures_path,
-                    argMax(ifNull(toString(log_comment.experiment_metric_events_path), ''), type) AS experiment_metric_events_path,
-                    argMax(ifNull(toString(log_comment.experiment_query_surface), ''), type) AS experiment_query_surface,
-                    argMax(ifNull(toString(log_comment.experiment_precompute_table), ''), type) AS experiment_precompute_table,
-                    argMax(ifNull(toString(log_comment.experiment_query_group_id), ''), type) AS experiment_query_group_id,
-                    argMax(ifNull(toString(log_comment.experiment_precompute_skip_reason), ''), type) AS experiment_precompute_skip_reason,
-                    argMax(ifNull(toString(log_comment.experiment_scan_date_from), ''), type) AS experiment_scan_date_from,
-                    argMax(ifNull(toString(log_comment.experiment_scan_date_to), ''), type) AS experiment_scan_date_to,
-                    argMax(ifNull(toString(log_comment.precompute_window_start), ''), type) AS precompute_window_start,
-                    argMax(ifNull(toString(log_comment.precompute_window_end), ''), type) AS precompute_window_end
+                    argMax(lc_experiment_exposures_path, type) AS experiment_exposures_path,
+                    argMax(lc_experiment_metric_events_path, type) AS experiment_metric_events_path,
+                    argMax(lc_experiment_query_surface, type) AS experiment_query_surface,
+                    argMax(lc_experiment_precompute_table, type) AS experiment_precompute_table,
+                    argMax(lc_experiment_query_group_id, type) AS experiment_query_group_id,
+                    argMax(lc_experiment_precompute_skip_reason, type) AS experiment_precompute_skip_reason,
+                    argMax(lc_experiment_scan_date_from, type) AS experiment_scan_date_from,
+                    argMax(lc_experiment_scan_date_to, type) AS experiment_scan_date_to,
+                    argMax(lc_precompute_window_start, type) AS precompute_window_start,
+                    argMax(lc_precompute_window_end, type) AS precompute_window_end
                 FROM (
                     SELECT
                         query_id, query, query_start_time, query_duration_ms, exception,
                         read_bytes, read_rows, exception_code, memory_usage,
-                        toInt8(type) AS type, log_comment, team_id, lc_query_type, lc_experiment_id
+                        toInt8(type) AS type, team_id, lc_query_type, lc_experiment_id,
+                        lc_experiment_name, lc_experiment_metric_name, lc_experiment_execution_path,
+                        lc_experiment_metric_type, lc_experiment_funnel_order_type, lc_experiment_exposures_path,
+                        lc_experiment_metric_events_path, lc_experiment_query_surface, lc_experiment_precompute_table,
+                        lc_experiment_query_group_id, lc_experiment_precompute_skip_reason,
+                        lc_experiment_scan_date_from, lc_experiment_scan_date_to,
+                        lc_precompute_window_start, lc_precompute_window_end
                     FROM query_log_archive
                     WHERE
                         event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
@@ -770,13 +831,7 @@ class DebugCHQueries(viewsets.ViewSet):
     # Skip reasons the runner tags on reads that never attempted precompute. An empty reason on a
     # direct-scan read means precompute WAS attempted but the data wasn't ready (build failed/slow) —
     # that read paid for the build AND the full events scan, so it's the bucket to watch.
-    _PRECOMPUTE_SKIP_REASONS = (
-        "team_disabled",
-        "min_runtime",
-        "override_direct",
-        "data_warehouse",
-        "group_aggregation",
-    )
+    _PRECOMPUTE_SKIP_REASONS = tuple(reason.value for reason in PrecomputeSkipReason)
 
     @action(detail=False, methods=["GET"], url_path="precompute_overview", required_scopes=["query_performance:read"])
     def precompute_overview(self, request):
@@ -802,15 +857,18 @@ class DebugCHQueries(viewsets.ViewSet):
         # One terminal query_log row per query (toInt8(type) > 1 excludes QueryStart), so plain
         # counts are per-query without the GROUP BY query_id dedup the slowest_queries endpoint needs.
         # Duration/bytes stats only cover successful reads — failed ones have truncated durations.
-        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
-        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
-        # ''-when-missing semantics JSONExtractString gave us on the raw column.
-        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from a hardcoded tuple
+        # Reads query_log_archive (not system.query_log, which retains only hours): the log_comment tags
+        # are typed lc_* columns there, with '' when the tag is missing.
+        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from the PrecomputeSkipReason enum
         reads_sql = f"""
             SELECT
+                -- Untagged rows fold into direct_scan inside the GROUP BY, so the percentiles
+                -- cover the merged population. Merging groups after the fact can only sum counts,
+                -- not recombine percentiles.
                 coalesce(
-                    nullIf(toString(log_comment.experiment_exposures_path), ''),
-                    ifNull(toString(log_comment.experiment_execution_path), '')
+                    nullIf(lc_experiment_exposures_path, ''),
+                    nullIf(lc_experiment_execution_path, ''),
+                    'direct_scan'
                 ) AS exposures_path,
                 count() AS reads,
                 countIf(exception_code != 0) AS failed_reads,
@@ -826,15 +884,16 @@ class DebugCHQueries(viewsets.ViewSet):
                 sum(read_bytes) AS total_read_bytes
             FROM (
                 SELECT
-                    query_duration_ms, exception_code, read_bytes, log_comment,
-                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason,
-                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path
+                    query_duration_ms, exception_code, read_bytes,
+                    lc_experiment_exposures_path, lc_experiment_execution_path,
+                    lc_experiment_precompute_skip_reason AS skip_reason,
+                    lc_experiment_metric_events_path AS metric_events_path
                 FROM query_log_archive
                 WHERE
                     event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                     AND event_time > now() - INTERVAL %(hours)s HOUR
                     AND lc_product = 'experiments'
-                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND lc_experiment_query_surface = 'metric'
                     AND is_initial_query
                     AND toInt8(type) > 1
                     AND query NOT LIKE %(not_query)s
@@ -881,15 +940,20 @@ class DebugCHQueries(viewsets.ViewSet):
         metric_events = {"precomputed": 0, "direct_scan": 0, "not_applicable": 0}
         for raw_row in reads_response:
             row = dict(zip(reads_columns, raw_row))
-            path = row["exposures_path"] or "direct_scan"
-            entry = reads_by_path.setdefault(path, _empty_path_entry())
+            # One SQL group per path (the SQL normalizes untagged rows to direct_scan), so the
+            # per-stat assignment below never overwrites another group's percentiles. An unexpected
+            # path surfaces as its own key rather than being silently folded in.
+            entry = reads_by_path.setdefault(row["exposures_path"], _empty_path_entry())
             entry["reads"] += row["reads"]
             entry["failed_reads"] += row["failed_reads"]
             entry["attempted"] += row["attempted"]
             entry["total_read_bytes"] += row["total_read_bytes"]
             if row["reads"] > 0:
                 for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
-                    entry[stat] = row[stat]
+                    # avgIf/quantileIf return nan when a path has zero successful reads. STRICT_JSON
+                    # is off, so a nan would serialize as literal NaN — invalid JSON for the client.
+                    value = row[stat]
+                    entry[stat] = value if value is not None and math.isfinite(value) else None
             for reason in self._PRECOMPUTE_SKIP_REASONS:
                 entry["skip_reasons"][reason] += row[f"skip_{reason}"]
             metric_events["precomputed"] += row["me_precomputed"]
@@ -898,7 +962,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         builds_sql = """
             SELECT
-                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                lc_experiment_precompute_table AS build_table,
                 exception_code,
                 count() AS builds,
                 sum(query_duration_ms) AS total_duration_ms,
@@ -908,7 +972,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                 AND event_time > now() - INTERVAL %(hours)s HOUR
                 AND lc_product = 'experiments'
-                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND lc_experiment_query_surface = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND query NOT LIKE %(not_query)s
@@ -1049,17 +1113,17 @@ class DebugCHQueries(viewsets.ViewSet):
                     read_bytes,
                     exception_code,
                     coalesce(
-                        nullIf(toString(log_comment.experiment_exposures_path), ''),
-                        ifNull(toString(log_comment.experiment_execution_path), '')
+                        nullIf(lc_experiment_exposures_path, ''),
+                        lc_experiment_execution_path
                     ) AS exposures_path,
-                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path,
-                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
+                    lc_experiment_metric_events_path AS metric_events_path,
+                    lc_experiment_precompute_skip_reason AS skip_reason
                 FROM query_log_archive
                 WHERE
                     event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                     AND event_time > now() - INTERVAL %(hours)s HOUR
                     AND lc_product = 'experiments'
-                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND lc_experiment_query_surface = 'metric'
                     AND is_initial_query
                     AND toInt8(type) > 1
                     AND query NOT LIKE %(not_query)s
@@ -1079,7 +1143,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                 AND event_time > now() - INTERVAL %(hours)s HOUR
                 AND lc_product = 'experiments'
-                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND lc_experiment_query_surface = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND query NOT LIKE %(not_query)s
@@ -1154,6 +1218,344 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response({"tables": _cache_table_stats()})
 
+    @extend_schema(
+        description="Lazy-precompute health for a product on the shared framework: hourly hit "
+        "ratio (lazy-served vs eligible live reads), warmer activity, per-family miss breakdown, "
+        "and per-team warmed/missing rankings. `product` selects the vocabulary "
+        "(default web_analytics). Staff only.",
+        parameters=[
+            OpenApiParameter(
+                name="product",
+                type=OpenApiTypes.STR,
+                enum=sorted(_PRECOMPUTE_PRODUCTS),
+                required=False,
+                description="Precompute vocabulary to report on. Defaults to web_analytics.",
+            ),
+            OpenApiParameter(
+                name="hours",
+                type=OpenApiTypes.INT,
+                required=False,
+                description="Look-back window in hours. Clamped to 1-168 (7 days). Defaults to 24.",
+            ),
+            OpenApiParameter(
+                name="team_id",
+                type=OpenApiTypes.INT,
+                required=False,
+                description="Narrow every section to one team's reads. Fleet-wide when omitted.",
+            ),
+        ],
+        responses={200: dict},
+    )
+    @action(detail=False, methods=["GET"], url_path="precompute_health", required_scopes=["query_performance:read"])
+    def precompute_health(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view precompute health.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        product = request.query_params.get("product", "web_analytics")
+        if product not in _PRECOMPUTE_PRODUCTS:
+            raise exceptions.ValidationError(f"product must be one of: {', '.join(sorted(_PRECOMPUTE_PRODUCTS))}.")
+        vocabulary = _PRECOMPUTE_PRODUCTS[product]
+
+        try:
+            hours = int(request.query_params.get("hours", 24))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 168))  # clamp to 1h–7d; query_log retention bounds it anyway
+
+        # Fleet-wide by default (the warmer is one fleet-level system); a team_id
+        # narrows every section to that tenant's reads.
+        team_id_filter: Optional[int] = None
+        if request.query_params.get("team_id"):
+            try:
+                team_id_filter = int(request.query_params["team_id"])
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError("team_id must be an integer.")
+            if team_id_filter <= 0:
+                raise exceptions.ValidationError("team_id must be a positive integer.")
+
+        # Identical params yield near-identical answers within minutes, but every
+        # request costs several fleet-wide query_log scans — polling automation
+        # must not multiply that load onto the shared cluster.
+        response_cache_key = f"precompute_health/{product}/{hours}/{team_id_filter}"
+        cached_payload = cache.get(response_cache_key)
+        if cached_payload is not None:
+            return Response(cached_payload)
+
+        params: dict = {
+            "hours": hours,
+            "cluster": CLICKHOUSE_CLUSTER,
+            "eligible_live_types": vocabulary["eligible_live_query_types"],
+            "warming_triggers": vocabulary["warming_triggers"],
+            "log_product": vocabulary["log_comment_product"],
+            "excluded_workloads": _PRECOMPUTE_EXCLUDED_WORKLOADS,
+        }
+        team_filter_sql = ""
+        if team_id_filter is not None:
+            team_filter_sql = " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+            params["team_id"] = team_id_filter
+
+        # One failed scan (a timeout on a strained cluster, a memory limit) must
+        # cost its own section, not 500 the whole response — this endpoint is for
+        # incidents, when scans are slowest. Mirrors _cache_table_stats.
+        unavailable_sections: list[str] = []
+
+        def run_section(name: str, query: str) -> list:
+            try:
+                return sync_execute(query, params, settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS)
+            except Exception:
+                logger.exception("precompute_health: section %s failed", name)
+                unavailable_sections.append(name)
+                return []
+
+        # Shared read predicate: the product's lazy-served reads (framework
+        # `_lazy_query` suffix, scoped by the product tag so another registered
+        # product's lazy reads cannot inflate this product's numerator) or its
+        # eligible live reads. The LIKE prefilter keeps the JSON parsing off the
+        # bulk of query_log rows that never carried a query_type tag.
+        read_predicate = """log_comment LIKE '%%"query_type"%%'
+                AND (
+                    (
+                        endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
+                        AND JSONExtractString(log_comment, 'product') = %(log_product)s
+                    )
+                    OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                )"""
+
+        # User-facing reads only: background workloads, temporal batch requests,
+        # and API-key scripts would distort the ratio. Exception rows are counted
+        # too — tenants whose live reads FAIL are the ones precompute would help
+        # most, and dropping them hid exactly those teams from the rankings.
+        user_facing_sql = """
+                AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
+                AND JSONExtractString(log_comment, 'kind') != 'temporal'
+                AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'"""
+
+        hourly_rows = run_section(
+            "hourly",
+            f"""
+            SELECT
+                toStartOfHour(event_time) AS hour,
+                countIf(endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')) AS lazy_hits,
+                countIf(JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s) AS eligible_live,
+                countIf(
+                    JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                    AND exception_code != 0
+                ) AS live_errored
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            WHERE event_time > now() - toIntervalHour(%(hours)s)
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                AND is_initial_query{user_facing_sql}
+                AND {read_predicate}{team_filter_sql}
+            GROUP BY hour
+            ORDER BY hour
+            """,
+        )
+
+        warming_rows = run_section(
+            "warming",
+            f"""
+            SELECT
+                toStartOfHour(event_time) AS hour,
+                count() AS queries,
+                uniqExactIf(
+                    JSONExtractInt(log_comment, 'team_id'), JSONExtractInt(log_comment, 'team_id') != 0
+                ) AS teams,
+                countIf(exception_code != 0) AS errored
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            WHERE event_time > now() - toIntervalHour(%(hours)s)
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
+                AND is_initial_query
+                AND log_comment LIKE '%%"trigger"%%'
+                AND JSONExtractString(log_comment, 'trigger') IN %(warming_triggers)s{team_filter_sql}
+            GROUP BY hour
+            ORDER BY hour
+            """,
+        )
+
+        miss_rows = run_section(
+            "miss_breakdown",
+            f"""
+            SELECT
+                JSONExtractString(log_comment, 'query_type') AS query_type,
+                count() AS misses,
+                countIf(exception_code != 0) AS errored
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            WHERE event_time > now() - toIntervalHour(%(hours)s)
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                AND is_initial_query{user_facing_sql}
+                AND log_comment LIKE '%%"query_type"%%'
+                AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s{team_filter_sql}
+            GROUP BY query_type
+            ORDER BY misses DESC
+            """,
+        )
+
+        # Per-strategy execution detail for one tenant: latency percentiles, volume,
+        # and error codes per query_type tag. This is the triage layer — a latency
+        # finding names a team; this section says which strategy regressed and
+        # whether it failed by timeout, memory, or contention. Fleet-wide it would
+        # be an unbounded scan for numbers the hourly sections already summarize.
+        detail_rows: list = []
+        if team_id_filter is not None:
+            detail_rows = run_section(
+                "query_detail",
+                f"""
+                SELECT
+                    JSONExtractString(log_comment, 'query_type') AS query_type,
+                    count() AS reads,
+                    round(quantile(0.5)(query_duration_ms)) AS p50_ms,
+                    round(quantile(0.95)(query_duration_ms)) AS p95_ms,
+                    round(quantile(0.99)(query_duration_ms)) AS p99_ms,
+                    max(read_bytes) AS max_read_bytes,
+                    max(memory_usage) AS max_memory_bytes,
+                    countIf(exception_code != 0) AS errored,
+                    arrayDistinct(groupArrayIf(exception_code, exception_code != 0)) AS error_codes
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE event_time > now() - toIntervalHour(%(hours)s)
+                    AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
+                    AND is_initial_query{user_facing_sql}
+                    AND {read_predicate}{team_filter_sql}
+                GROUP BY query_type
+                ORDER BY reads DESC
+                """,
+            )
+
+        # Which tenants eat the most live (missed) reads — the scout's raw material
+        # for enrollment/coverage suggestions. Redundant under a team filter.
+        top_team_rows: list = []
+        if team_id_filter is None:
+            top_team_rows = run_section(
+                "top_missing_teams",
+                f"""
+                SELECT
+                    JSONExtractInt(log_comment, 'team_id') AS team_id,
+                    count() AS misses,
+                    countIf(exception_code != 0) AS errored
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE event_time > now() - toIntervalHour(%(hours)s)
+                    AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                    AND is_initial_query{user_facing_sql}
+                    AND log_comment LIKE '%%"query_type"%%'
+                    AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                    AND JSONExtractInt(log_comment, 'team_id') != 0
+                GROUP BY team_id
+                ORDER BY misses DESC
+                LIMIT 25
+                """,
+            )
+
+        # Warming spend per tenant — the cost side of the per-team economics the
+        # miss ranking gives the benefit side of. Redundant under a team filter
+        # (the hourly warming section already carries that tenant's numbers).
+        top_warmed_rows: list = []
+        if team_id_filter is None:
+            top_warmed_rows = run_section(
+                "top_warmed_teams",
+                f"""
+                SELECT
+                    JSONExtractInt(log_comment, 'team_id') AS team_id,
+                    count() AS warming_queries,
+                    round(sum(query_duration_ms) / 1000, 1) AS warming_seconds,
+                    countIf(exception_code != 0) AS errored
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE event_time > now() - toIntervalHour(%(hours)s)
+                    AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
+                    AND is_initial_query
+                    AND log_comment LIKE '%%"trigger"%%'
+                    AND JSONExtractString(log_comment, 'trigger') IN %(warming_triggers)s
+                    AND JSONExtractInt(log_comment, 'team_id') != 0
+                GROUP BY team_id
+                ORDER BY warming_seconds DESC
+                LIMIT 25
+                """,
+            )
+
+        # ClickHouse returns naive server-time (UTC) datetimes; stamp them and
+        # zero-fill the series so a silent hour reads as an explicit zero (a dead
+        # warmer is the alarm condition, not a missing bucket). A failed section
+        # stays an empty list — zeros there would masquerade as data.
+        window_end = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        hour_keys = [window_end - timedelta(hours=offset) for offset in range(hours, -1, -1)]
+        hourly_by_hour = {row[0].replace(tzinfo=UTC): row for row in hourly_rows}
+        warming_by_hour = {row[0].replace(tzinfo=UTC): row for row in warming_rows}
+
+        hourly_series = []
+        if "hourly" not in unavailable_sections:
+            for key in hour_keys:
+                _, lazy, live, live_errored = hourly_by_hour.get(key, (key, 0, 0, 0))
+                hourly_series.append(
+                    {
+                        "hour": key.isoformat(),
+                        "lazy_hits": lazy,
+                        "eligible_live": live,
+                        "live_errored": live_errored,
+                        "hit_ratio": round(100.0 * lazy / (lazy + live), 1) if lazy + live else None,
+                    }
+                )
+        warming_series = []
+        if "warming" not in unavailable_sections:
+            warming_series = [
+                {"hour": key.isoformat(), "queries": row[1], "teams": row[2], "errored": row[3]}
+                for key in hour_keys
+                for row in [warming_by_hour.get(key, (key, 0, 0, 0))]
+            ]
+
+        total_lazy = sum(row[1] for row in hourly_rows)
+        total_live = sum(row[2] for row in hourly_rows)
+        payload = {
+            "product": product,
+            "hours": hours,
+            "team_id": team_id_filter,
+            "unavailable_sections": unavailable_sections,
+            "summary": {
+                "lazy_hits": total_lazy,
+                "eligible_live": total_live,
+                "live_errored": sum(row[3] for row in hourly_rows),
+                "hit_ratio": round(100.0 * total_lazy / (total_lazy + total_live), 1)
+                if total_lazy + total_live
+                else None,
+            },
+            "hourly": hourly_series,
+            "warming": warming_series,
+            "miss_breakdown": [
+                {"query_type": query_type, "misses": misses, "errored": errored}
+                for query_type, misses, errored in miss_rows
+            ],
+            "top_missing_teams": [
+                {"team_id": team_id, "misses": misses, "errored": errored} for team_id, misses, errored in top_team_rows
+            ],
+            "top_warmed_teams": [
+                {
+                    "team_id": team_id,
+                    "warming_queries": warming_queries,
+                    "warming_seconds": warming_seconds,
+                    "errored": errored,
+                }
+                for team_id, warming_queries, warming_seconds, errored in top_warmed_rows
+            ],
+            "query_detail": [
+                {
+                    "query_type": query_type,
+                    "reads": reads,
+                    "p50_ms": p50,
+                    "p95_ms": p95,
+                    "p99_ms": p99,
+                    "max_read_bytes": max_read_bytes,
+                    "max_memory_bytes": max_memory_bytes,
+                    "errored": errored,
+                    "error_codes": error_codes,
+                }
+                for query_type, reads, p50, p95, p99, max_read_bytes, max_memory_bytes, errored, error_codes in detail_rows
+            ],
+        }
+        # A partial response must not be served for the cache window as if it
+        # were the real state — only complete payloads are cached.
+        if not unavailable_sections:
+            cache.set(response_cache_key, payload, timeout=120)
+        return Response(payload)
+
     # Keys match the experiment_precompute_table tag on build INSERTs; both are always present in
     # the response so the charts render a (zero) series even for a table with no builds in window.
     _CACHE_GROWTH_TABLES = ("exposures", "metric_events")
@@ -1189,7 +1591,7 @@ class DebugCHQueries(viewsets.ViewSet):
         growth_sql = f"""
             SELECT
                 formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
-                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                lc_experiment_precompute_table AS build_table,
                 sum(written_rows) AS written_rows,
                 sum(written_bytes) AS written_bytes
             FROM query_log_archive
@@ -1197,7 +1599,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                 AND event_time > now() - INTERVAL %(hours)s HOUR
                 AND lc_product = 'experiments'
-                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND lc_experiment_query_surface = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND exception_code = 0

@@ -3,6 +3,7 @@
 //! collector state.
 
 pub mod fingerprint;
+pub mod histogram;
 pub mod parse;
 
 use anyhow::{Context, Result};

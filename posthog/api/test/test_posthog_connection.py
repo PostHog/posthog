@@ -1,17 +1,22 @@
 import json
 import time
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.api.posthog_connection import CONNECTION_MAX_INFLIGHT_PER_CONNECTION
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 
@@ -19,6 +24,7 @@ FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 def _mock_response(status_code: int, body: dict, chunks: list[bytes] | None = None) -> MagicMock:
     # The view streams the body via res.iter_content(...), so drive that rather than res.json().
     m = MagicMock(status_code=status_code)
+    m.headers = {}
     m.__enter__.return_value = m
     m.iter_content.return_value = iter(chunks) if chunks is not None else iter([json.dumps(body).encode()])
     return m
@@ -54,6 +60,26 @@ class TestPostHogConnectionForward:
 
     def _target_url(self) -> str:
         return f"/api/environments/{self.team.pk}/posthog_connections/{self.integration.id}/target/"
+
+    @pytest.mark.parametrize("private", [True, False])
+    @pytest.mark.parametrize("target_status", [200, 403, 500])
+    def test_forward_preserves_trusted_capture_policy(
+        self, client: HttpClient, private: bool, target_status: int
+    ) -> None:
+        client.force_login(self.user)
+        upstream = _mock_response(target_status, {"detail": "Synthetic response"})
+        if private:
+            upstream.headers["X-PostHog-Suppress-Analytics"] = "true"
+        with patch(FORWARD_PATH, return_value=upstream):
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/tasks/"},
+                content_type="application/json",
+                headers={"X-PostHog-Suppress-Analytics": "true"},
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == target_status
+        assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
 
     def test_forward_injects_token_and_passes_through(self, client: HttpClient):
         client.force_login(self.user)
@@ -102,6 +128,43 @@ class TestPostHogConnectionForward:
                 content_type="application/json",
             )
         assert "User-Agent" not in mock_request.call_args[1]["headers"]
+
+    @pytest.mark.parametrize("sandbox", [False, True])
+    def test_forward_preserves_sandbox_origin(self, client: HttpClient, sandbox: bool):
+        application = OAuthApplication.objects.create(
+            name="Connection client",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            organization=self.organization,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_connection_caller_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="integration:write task:write" + (" internal_run:read" if sandbox else ""),
+            scoped_teams=[self.team.id],
+        )
+        self.integration.config["granted_scopes"] = ["task:write"]
+        self.integration.save(update_fields=["config"])
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(200, {})
+            response = client.post(
+                self._forward_url(),
+                {"method": "POST", "path": "api/projects/2/tasks/", "data": {"start_run": True}},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        headers = mock_request.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer AT"
+        assert headers.get(SANDBOX_ORIGIN_HEADER) == ("1" if sandbox else None)
 
     def test_forward_sends_body_only_for_write_methods(self, client: HttpClient):
         client.force_login(self.user)

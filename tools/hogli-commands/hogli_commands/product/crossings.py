@@ -38,6 +38,15 @@ The fourth channel does not read source at all. A relation field that crosses a 
 without `related_name="+"` adds a reverse accessor to the target class — no import, no name-level
 use, only the model registry can see it. reverse_accessors.py walks the graph; each edge is counted
 as the disallowed kind `reverse-accessor(<name>)`.
+
+The fifth channel reads the other end of the boundary: what a facade signature promises. An import
+linter sees the same edge whether a facade imports a model module to build contracts or to return
+the model, so publicness has to come from the shape of the API and not from the location of the
+file. isolation.py reads the signatures; each finding lands as one of the disallowed kinds
+`facade-returns`, `facade-accepts(<parameter>)` and `facade-logic`. The rule is
+products/architecture.md § Facades: The Public Interface. The kind `facade-wiring` reads the classes a
+facade hands out from a wiring location: one without an approved interface is a row, but only for a
+product on the Isolated rung, because below that rung the finding is information.
 """
 
 from __future__ import annotations
@@ -53,9 +62,22 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
-from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
-from .paths import PRODUCTS_DIR, REPO_ROOT
+from posthog.dataclasses import frozen
+
+from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes
+from .isolation import (
+    COMPUTED_WIRING_LOCATIONS,
+    MODEL_CROSSINGS,
+    FacadeShapeFinding,
+    IsolationRung,
+    UnapprovedWiringClass,
+    _facade_module_dotted,
+    _iter_facade_modules,
+    compute_isolation_status,
+    facade_model_crossings,
+    facade_shape_findings,
+)
+from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs
 from .reverse_accessors import reverse_accessor_edge_lines
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -142,7 +164,9 @@ class CrossingUse:
     """One kind of use of one crossing class in one consumer module, with how often it appears.
 
     `reverse-accessor(...)` rows overload `consumer_module` with the relation declaration
-    (`app.Model.field`) — a path into the model graph, not an importable module."""
+    (`app.Model.field`) — a path into the model graph, not an importable module. A `facade-returns`
+    or `facade-accepts` row overloads it with the facade symbol that carries the type
+    (`...facade.api.read`)."""
 
     crossing: str  # CrossingClass.label
     consumer_module: str  # dotted, e.g. "products.product_analytics.backend.presentation.insight"
@@ -793,12 +817,14 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
         module = _dotted_module(path)
         for name in _top_level_names(tree):
             exports[_Export(module, name)] = label
-    for facade_path in sorted((PRODUCTS_DIR / product / "backend" / "facade").glob("*.py")):
+    for facade_path in _iter_facade_modules(PRODUCTS_DIR / product / "backend"):
         tree = ast_parse_safe(facade_path)
         if tree is None:
             continue
         for name, source in _lazy_reexports(tree, product, _module_exists).items():
-            if (REPO_ROOT / source.replace(".", "/")).with_suffix(".py").is_relative_to(root):
+            # The source is a module or a package, so test both the package directory and the .py file.
+            source_path = REPO_ROOT / source.replace(".", "/")
+            if source_path.is_relative_to(root) or source_path.with_suffix(".py").is_relative_to(root):
                 exports[_Export(_dotted_module(facade_path), name)] = label
     return exports
 
@@ -858,14 +884,7 @@ def _lazy_reexports(tree: ast.Module, product: str, exists: Callable[[str], bool
     Lazy maps store their values relative to some package: absolute, relative to the product's
     backend package, or relative to a module-level prefix constant (`_B = "products....hogql_queries."`).
     The first candidate that names a real module wins."""
-    prefixes = [
-        node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
-        and node.value.value.endswith(".")
-    ]
+    prefixes = lazy_reexport_prefixes(tree)
     resolved: dict[str, str] = {}
     for name, value in lazy_reexport_map(tree).items():
         candidates = [value, *(prefix + value for prefix in prefixes), f"products.{product}.backend.{value}"]
@@ -1408,13 +1427,32 @@ def driven_wiring_locations(product: str, path: Path | None = None) -> frozenset
     """The computed wiring locations of `product` that a test outside the product drives.
 
     Read from the crossings baseline. The baseline is the evidence the lint reads: the repo-invariant
-    test keeps it equal to a fresh scan, so a location with no line here has no outside driver."""
+    test keeps it equal to a fresh scan, so a location with no line here has no outside driver. The
+    kind has to be read too, because a `facade-logic` line is keyed by a location as well."""
     prefix = f"{product}:"
-    return frozenset(
-        line.split(" ", 1)[0].removeprefix(prefix)
-        for line in _baseline_lines(path or BASELINE_PATH)
-        if line.startswith(prefix)
-    )
+    locations: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        if not line.startswith(prefix):
+            continue
+        crossing, _, kind, _ = line.split(" ")
+        if kind.startswith("drives("):
+            locations.add(crossing.removeprefix(prefix))
+    return frozenset(locations)
+
+
+def recorded_facade_shape_rows(product: str, path: Path | None = None) -> frozenset[str]:
+    """The `facade-*` baseline lines standing for one product's facade.
+
+    Read from the baseline for the same reason as the wiring locations above: the repo-invariant
+    test keeps the file equal to a fresh scan."""
+    prefix = f"products.{product}.backend.facade."
+    rows: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        if " facade-" not in line:
+            continue
+        if line.split(" ")[1].startswith(prefix):
+            rows.add(line)
+    return frozenset(rows)
 
 
 @functools.lru_cache(maxsize=4)
@@ -1619,9 +1657,81 @@ def reverse_accessor_uses(products: Iterable[str] | None = None) -> list[Crossin
     return uses
 
 
+# ---------------------------------------------------------------------------
+# Facade shapes — the fifth channel, read from the facade signatures
+# ---------------------------------------------------------------------------
+
+
+def facade_shape_use(finding: FacadeShapeFinding) -> CrossingUse:
+    """One facade shape finding as a baseline row.
+
+    The crossing slot names what crosses: the qualified type for a signature row, and the facade
+    module for a `logic` row, which is keyed by a location the way `drives(...)` is. The consumer
+    slot holds the facade symbol that carries the type, or the module itself for a `logic` row whose
+    count is the number of bodies left in it. The parameter of an `accepts` row rides in the kind,
+    the way the other detail-carrying kinds do.
+    """
+    if finding.kind == "logic":
+        crossing = wiring_location_label(finding.product, f"backend/facade/{finding.facade_module}")
+        consumer = finding.dotted_module
+    else:
+        crossing = f"{finding.source}.{finding.type_name}"
+        consumer = f"{finding.dotted_module}.{finding.symbol}"
+    kind = f"facade-{finding.kind}({finding.parameter})" if finding.parameter else f"facade-{finding.kind}"
+    return CrossingUse(crossing, consumer, kind, finding.count)
+
+
+def facade_shape_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """What every product facade puts on its boundary, as CrossingUse rows.
+
+    A finding belongs to the facade that carries it, so a product filter selects the facades to
+    read — the same one-sided scoping the reverse accessors use.
+    """
+    wanted = set(products) if products is not None else None
+    return [
+        facade_shape_use(finding)
+        for product_dir in backend_product_dirs()
+        if wanted is None or product_dir.name in wanted
+        for finding in facade_shape_findings(product_dir / "backend", product_dir.name)
+    ]
+
+
+def facade_wiring_use(product: str, finding: UnapprovedWiringClass) -> CrossingUse:
+    """One unapproved wiring class as a baseline row. The class crosses, and the consumer slot holds
+    the facade module that hands it out."""
+    return CrossingUse(
+        f"{product}.{finding.class_name}", _facade_module_dotted(product, finding.facade_module), "facade-wiring", 1
+    )
+
+
+def facade_wiring_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """Unapproved wiring classes of Isolated products, as CrossingUse rows.
+
+    Below the Isolated rung the finding is information and leaves no row, so a product reaches
+    Isolated only after it clears every finding. The rows that exist were recorded when the check
+    was introduced, and they may only go away."""
+    wanted = set(products) if products is not None else None
+    tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+    uses: list[CrossingUse] = []
+    for product_dir in backend_product_dirs():
+        if wanted is not None and product_dir.name not in wanted:
+            continue
+        status = compute_isolation_status(
+            product_dir.name, product_dir, product_dir / "backend", tach_content=tach_content
+        )
+        if status.rung is IsolationRung.ISOLATED:
+            uses.extend(facade_wiring_use(product_dir.name, finding) for finding in status.unapproved_wiring)
+    return uses
+
+
 def all_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
-    """Every channel: the three AST scans plus the model-graph reverse accessors."""
-    return scan_crossing_uses(products) + reverse_accessor_uses(products)
+    """Every channel: the three AST scans, the model-graph reverse accessors, and the facade rows."""
+    return (
+        scan_crossing_uses(products)
+        + reverse_accessor_uses(products)
+        + facade_shape_uses(products)
+        + facade_wiring_uses(products)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1695,9 +1805,13 @@ NEW_LINE_INSTRUCTION = (
     'related_name="+" (a query:<name> row means an explicit related_query_name keeps filter() '
     "traversal alive); seal it, remove the explicit query name, and give callers a facade read "
     "function. A 'drives(...)' line is a test outside the product that executes one of its query "
-    "runners; move that test into the product. A coupling that must stand is a doctrine amendment: "
-    "hand-edit the line in, and record why in products/architecture.md § Wiring couplings. "
-    "Regenerating the baseline cannot add a line."
+    "runners; move that test into the product. A 'facade-...' line is a facade that puts a Django, a "
+    "DRF or an ORM type on its own boundary, a capability submodule that holds bodies, or an "
+    "Isolated product's class from a wiring location without an approved interface; the "
+    "lint prints the move that clears each kind. A coupling that must stand needs a DevEx change "
+    "to the scanner, such as an approved interface, a MODEL_CROSSINGS entry or a carve-out. "
+    "Neither a regenerate nor a hand edit adds a line: product:lint refuses ledger growth in any "
+    "change that does not touch the scanner."
 )
 
 BASELINE_HEADER = f"""\
@@ -1705,7 +1819,7 @@ BASELINE_HEADER = f"""\
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Four channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# Five channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
@@ -1721,14 +1835,25 @@ BASELINE_HEADER = f"""\
 # related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
 # filter() traversal alive), and delete the line in the same change; a caller that needs reverse
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
+# And the `facade-*` kinds, read from the facade signatures rather than from a caller: what the
+# boundary itself promises. `facade-returns` and `facade-accepts(<parameter>)` mean a public facade
+# callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a capability
+# submodule holds bodies rather than re-exports, and its count is how many are left. The first
+# column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
+# `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
+# The rule is products/architecture.md § Facades: The Public Interface. `facade-wiring` means an
+# Isolated product's facade hands out a class from a wiring location that implements no approved
+# interface (§ Wiring couplings). Only Isolated products get these lines; below that rung the
+# lint reports the class as information.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
 # Regenerate after a removal: {REGENERATE_COMMAND}
 # That command refuses to write when the scan holds a line this file does not, or a count that
-# went up. A coupling that
-# must stand is a hand-edited line here, together with the amendment in products/architecture.md
-# § Wiring couplings that permits it, because a reviewer can see both.
+# went up. Do not hand-edit a line in: `hogli product:lint --all` refuses growth against the pull
+# request's base unless the change also touches the scanner in tools/hogli-commands/hogli_commands/product/.
+# A coupling that must stand needs that DevEx change (an approved interface, a MODEL_CROSSINGS
+# entry or a carve-out).
 """
 
 
@@ -1740,8 +1865,12 @@ def render_baseline(uses: Iterable[CrossingUse]) -> str:
     return BASELINE_HEADER + "\n".join(scanned_baseline_lines(uses)) + "\n"
 
 
+def parse_baseline(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip() and not line.startswith("#")]
+
+
 def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
-    return [line for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
+    return parse_baseline(path.read_text())
 
 
 def _counts_by_identity(lines: Iterable[str]) -> dict[str, int]:
@@ -1763,6 +1892,35 @@ class BaselineDrift:
 
     grown: list[str]
     shrunk: list[str]
+
+
+@frozen(order=True)
+class _Debt:
+    crossing: str
+    kind: str
+
+
+def _debt_by_crossing_and_kind(lines: Iterable[str]) -> Counter[_Debt]:
+    debt: Counter[_Debt] = Counter()
+    for line in lines:
+        crossing, _consumer, kind, count = line.split(" ")
+        debt[_Debt(crossing=crossing, kind=kind)] += int(count)
+    return debt
+
+
+def grown_debt(base_lines: Iterable[str], current_lines: Iterable[str]) -> list[str]:
+    """The debt that rose, summed per crossing and kind over all consumers.
+
+    A change that moves or splits a consumer module carries its lines along, so it raises no debt
+    even though its lines are new. This is the one growth rule: a regenerate and the PR-base check
+    in ledger_growth.py both apply it."""
+    base = _debt_by_crossing_and_kind(base_lines)
+    current = _debt_by_crossing_and_kind(current_lines)
+    return [
+        f"{debt.crossing} {debt.kind}: {base[debt]} → {count}"
+        for debt, count in sorted(current.items())
+        if count > base[debt]
+    ]
 
 
 def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> BaselineDrift:
@@ -1811,16 +1969,16 @@ class BaselineWouldGrow(Exception):
 
 
 def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> None:
-    """Record the scan, but only while every difference against the file is a removal.
+    """Record the scan, but only while no crossing's debt of any kind rises.
 
-    A regenerate that absorbs a new line hides the coupling from the review of the change that
-    caused it. A deliberate coupling therefore goes in by hand, next to the doctrine note that
-    permits it. There is no flag to skip this: a hand-edited line is what a reviewer reads, and a
-    flag would be pasted from one change into the next."""
+    A regenerate that absorbs new debt hides the coupling from the review of the change that caused
+    it. A moved or split consumer module keeps the debt where it was, so its new lines are written.
+    There is no flag to skip this, because a flag would be pasted from one change into the next."""
     scanned = list(uses)
     if path.exists():
-        drift = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
-        if drift.grown:
-            raise BaselineWouldGrow(path, drift.grown)
+        recorded = read_baseline(path)
+        lines = scanned_baseline_lines(scanned)
+        if grown_debt(recorded, lines):
+            raise BaselineWouldGrow(path, baseline_drift(recorded, lines).grown)
     path.write_text(render_baseline(scanned))
     _baseline_lines.cache_clear()

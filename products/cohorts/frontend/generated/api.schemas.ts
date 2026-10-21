@@ -302,6 +302,80 @@ export interface CohortConditionTypeFlagsApi {
     cohorts: boolean
 }
 
+/**
+ * * `static` - Static
+ * * `person_properties` - Person properties
+ * * `daily` - Daily
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `ready` - Ready
+ * * `needs_attention` - Needs attention
+ */
+export type CohortRealtimeStateEnumApi = (typeof CohortRealtimeStateEnumApi)[keyof typeof CohortRealtimeStateEnumApi]
+
+export const CohortRealtimeStateEnumApi = {
+    Static: 'static',
+    PersonProperties: 'person_properties',
+    Daily: 'daily',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    Ready: 'ready',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `scanning` - Scanning
+ * * `checking` - Checking
+ */
+export type CohortHistoryBuildPhaseEnumApi =
+    (typeof CohortHistoryBuildPhaseEnumApi)[keyof typeof CohortHistoryBuildPhaseEnumApi]
+
+export const CohortHistoryBuildPhaseEnumApi = {
+    Waiting: 'waiting',
+    Scanning: 'scanning',
+    Checking: 'checking',
+} as const
+
+export interface CohortHistoryBuildApi {
+    /** What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.
+     *
+     * * `waiting` - Waiting
+     * * `scanning` - Scanning
+     * * `checking` - Checking */
+    phase: CohortHistoryBuildPhaseEnumApi
+    /**
+     * How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.
+     * @nullable
+     */
+    percent_complete: number | null
+    /**
+     * When this build last made progress. Null while it is still queued.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface CohortRealtimeReadinessApi {
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+     *
+     * * `static` - Static
+     * * `person_properties` - Person properties
+     * * `daily` - Daily
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `ready` - Ready
+     * * `needs_attention` - Needs attention */
+    state: CohortRealtimeStateEnumApi
+    /**
+     * When the cohort became targetable by feature flags. Null unless the state is `ready`.
+     * @nullable
+     */
+    ready_at: string | null
+    /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
+    build: CohortHistoryBuildApi | null
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -360,10 +434,16 @@ export interface CohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime: CohortRealtimeReadinessApi | null
     readonly experiment_set: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
@@ -427,11 +507,84 @@ export interface PatchedCohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type?: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime?: CohortRealtimeReadinessApi | null
     readonly experiment_set?: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
 }
 
 export interface PatchedAddPersonsToStaticCohortRequestApi {
@@ -439,40 +592,72 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
     person_ids?: string[]
 }
 
-/**
- * * `person` - person
- */
-export type CohortPersonResultTypeEnumApi =
-    (typeof CohortPersonResultTypeEnumApi)[keyof typeof CohortPersonResultTypeEnumApi]
-
-export const CohortPersonResultTypeEnumApi = {
-    Person: 'person',
-} as const
-
-export type CohortPersonResultApiProperties = { [key: string]: unknown }
-
-export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
-
-export interface CohortPersonResultApi {
+export interface CohortUsedInWorkflowApi {
+    /** Workflow ID (UUID) */
     id: string
-    uuid: string
-    type: CohortPersonResultTypeEnumApi
+    /** Workflow display name */
     name: string
-    distinct_ids: string[]
-    properties: CohortPersonResultApiProperties
-    /** @nullable */
+    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+    status: string
+}
+
+export interface CohortUsedInWorkflowsBlockApi {
+    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+    results: CohortUsedInWorkflowApi[]
+    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+    total: number
+    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+    hidden: number
+    /** True when some relying workflows are not listed in results */
+    has_more: boolean
+}
+
+/**
+ * The actor's properties.
+ */
+export type SerializedPersonActorApiProperties = { [key: string]: unknown }
+
+export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
+
+export interface SerializedPersonActorApi {
+    /** The person's UUID, or the group's key. */
+    id: string
+    /** The actor's properties. */
+    properties: SerializedPersonActorApiProperties
+    /**
+     * When the actor was first seen.
+     * @nullable
+     */
     created_at: string | null
-    /** @nullable */
-    last_seen_at: string | null
-    /** @nullable */
-    is_identified: boolean | null
-    matched_recordings: CohortPersonResultApiMatchedRecordingsItem[]
-    /** @nullable */
+    /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    /**
+     * The actor's value at the data point it was queried for. Null unless the query computes one.
+     * @nullable
+     */
     value_at_data_point: number | null
+    /** Marks this actor as a person. */
+    type: 'person'
+    /** The person's UUID. Same value as `id`. */
+    uuid: string
+    /** Display name, resolved from the person's properties or distinct IDs. */
+    name: string
+    /** The person's distinct IDs, newest first. */
+    distinct_ids: string[]
+    /**
+     * When the person was last seen.
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Whether the person has been identified.
+     * @nullable
+     */
+    is_identified: boolean | null
 }
 
 export interface CohortPersonsResponseApi {
-    results: CohortPersonResultApi[]
+    results: SerializedPersonActorApi[]
     /** @nullable */
     next: string | null
     /** @nullable */
@@ -546,6 +731,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
+    workflows: CohortUsedInWorkflowsBlockApi
 }
 
 export type CohortsStaffListParams = {
@@ -563,6 +750,10 @@ export type CohortsListParams = {
      */
     basic?: boolean
     /**
+     * Optional. Return only cohorts created by the user with this id.
+     */
+    created_by_id?: number
+    /**
      * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
      */
     hide_behavioral_cohorts?: boolean
@@ -578,6 +769,30 @@ export type CohortsListParams = {
      * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
+    /**
+     * Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.
+     */
+    type?: CohortsListType
+}
+
+export type CohortsListType = (typeof CohortsListType)[keyof typeof CohortsListType]
+
+export const CohortsListType = {
+    Dynamic: 'dynamic',
+    Static: 'static',
+} as const
+
+export type CohortsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
 }
 
 export type CohortsPersonsRetrieveParams = {

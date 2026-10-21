@@ -4,9 +4,6 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -16,6 +13,7 @@ import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitio
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { recentTaxonomicFiltersLogic } from '../TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicFilterCategoryLayoutLogic } from '../TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PropertyFilters } from './PropertyFilters'
 
@@ -27,6 +25,8 @@ jest.mock('lib/components/AutoSizer', () => ({
 describe('PropertyFilters recent selections', () => {
     beforeEach(() => {
         initKeaTests()
+        taxonomicFilterCategoryLayoutLogic.mount()
+        taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(true)
         actionsModel.mount()
         groupsModel.mount()
         propertyDefinitionsModel.mount()
@@ -127,13 +127,16 @@ describe('PropertyFilters recent selections', () => {
         itemTestId,
         onChange,
     }: {
-        tabTestId: string
+        tabTestId: string | null
         searchQuery: string
         itemTestId: string
         onChange: jest.Mock
     }): Promise<void> {
         await openNewFilter()
-        await switchToTab(tabTestId)
+        // Search-only groups have no tab. Their list still renders its rows, which is all the commit path needs.
+        if (tabTestId) {
+            await switchToTab(tabTestId)
+        }
         await searchFor(searchQuery)
         await waitFor(() => {
             expect(screen.getByTestId(itemTestId)).toBeInTheDocument()
@@ -197,7 +200,7 @@ describe('PropertyFilters recent selections', () => {
                 ],
             },
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'example',
+            searchQuery: 'example.com',
             itemTestId: 'prop-filter-pageview_urls-0',
             // Pageview URLs collapse to a single `$current_url IContains <query>` shortcut,
             // so the recorded value is the typed query, not a specific matched URL.
@@ -222,7 +225,7 @@ describe('PropertyFilters recent selections', () => {
             mockOverrides: {
                 '/api/environments/:team/persons/values': [{ name: 'alice@example.com' }, { name: 'bob@example.com' }],
             },
-            tabTestId: 'taxonomic-tab-email_addresses',
+            tabTestId: null,
             searchQuery: 'alice',
             itemTestId: 'prop-filter-email_addresses-0',
             expectedRecentPattern: /email.*=.*alice@example\.com/i,
@@ -296,7 +299,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'first',
+            searchQuery: '/first',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -323,7 +326,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
+            searchQuery: '/pricing',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -336,7 +339,7 @@ describe('PropertyFilters recent selections', () => {
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
-            expect(screen.getByText(/Start searching/)).toBeInTheDocument()
+            expect(screen.getByText(/Type a value like a URL and we'll suggest a filter for it/)).toBeInTheDocument()
         })
     })
 
@@ -350,7 +353,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
+            searchQuery: '/pricing',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -451,7 +454,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
+            searchQuery: '/pricing',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -462,34 +465,23 @@ describe('PropertyFilters recent selections', () => {
 
         await openNewFilter()
 
-        await switchToTab('taxonomic-tab-recent_filters')
+        await switchToTab('taxonomic-tab-suggested_filters')
 
         await searchFor('pricing')
 
         await waitFor(() => {
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toHaveTextContent(/pricing/i)
         })
     })
 
     describe('category dropdown inside property modal', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
         beforeEach(() => {
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
         })
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
-        })
-
-        it('pill variant: clicking the inline category trigger does not close the property modal', async () => {
+        it('clicking the inline category trigger does not close the property modal', async () => {
             useSetupMocks()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
 
             renderFilters({
                 taxonomicGroupTypes: [
@@ -506,11 +498,8 @@ describe('PropertyFilters recent selections', () => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        it('pill variant: picking a category in the inline dropdown does not close the property modal', async () => {
+        it('picking a category in the inline dropdown does not close the property modal', async () => {
             useSetupMocks()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
 
             renderFilters({
                 taxonomicGroupTypes: [

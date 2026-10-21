@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MonteCarloSource(ResumableSource[MonteCarloSourceConfig, MonteCarloResumeConfig]):
+    codebase_detection = detect(
+        env=("^(MONTE_CARLO|MONTECARLO)_", "^MCD_DEFAULT_API_ID$", "^MCD_DEFAULT_API_TOKEN$"),
+        pypi=("pycarlo", "montecarlodata"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -43,10 +47,10 @@ class MonteCarloSource(ResumableSource[MonteCarloSourceConfig, MonteCarloResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MONTE_CARLO,
+            name=ExternalDataSourceType.MONTECARLO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Monte Carlo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["montecarlo", "data observability"],
             caption="""Enter your Monte Carlo API key to pull your data observability history into the PostHog Data warehouse.
 
@@ -103,7 +107,7 @@ You can create an API key from **Settings → API → Keys** in your Monte Carlo
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
-            if endpoint == "alerts":
+            if endpoint in ("alerts", "dbt_test_results", "fh_events", "job_executions"):
                 return "Only syncs the last 365 days on initial sync"
             return None
 

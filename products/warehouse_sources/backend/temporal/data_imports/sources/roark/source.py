@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,6 +28,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RoarkSource(ResumableSource[RoarkSourceConfig, RoarkResumeConfig]):
+    codebase_detection = detect(
+        env=("^ROARK_", "^ROARK_API_BEARER_TOKEN$"), npm=("@roarkanalytics/sdk",), pypi=("roark-analytics",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -41,10 +44,10 @@ class RoarkSource(ResumableSource[RoarkSourceConfig, RoarkResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ROARK,
+            name=ExternalDataSourceType.ROARK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Roark",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Roark API key to sync your voice and chat AI observability data into the PostHog Data warehouse.
 
 Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is a simple bearer token with read access to your organization's calls, chats, agents, metrics, issues, and simulations.

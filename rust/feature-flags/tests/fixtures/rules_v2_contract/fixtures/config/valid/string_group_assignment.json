@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "return_type": "string",
+  "default_value": "standard",
+  "aggregation_group_type_index": 0,
+  "rules": [
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": [
+          {
+            "key": "region",
+            "type": "group",
+            "operator": "exact",
+            "value": "north",
+            "group_type_index": 0,
+            "group_key_names": {
+              "organization": "Organization"
+            }
+          }
+        ]
+      },
+      "value": "compact",
+      "rollout_percentage": 50,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "group-release"
+    }
+  ]
+}

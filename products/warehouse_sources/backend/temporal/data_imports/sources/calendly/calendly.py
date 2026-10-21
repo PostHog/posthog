@@ -1,6 +1,6 @@
 import secrets
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlsplit
@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import (
     CALENDLY_ENDPOINTS,
     CALENDLY_WEBHOOK_EVENTS,
+    PAGE_SIZE,
+    PARENT_URI_PARAM_FIELD,
+    PARENT_UUID_FIELD,
     WEBHOOK_SCHEMA_NAMES,
     CalendlyEndpointConfig,
 )
@@ -27,8 +30,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -36,7 +46,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 CALENDLY_BASE_URL = "https://api.calendly.com"
-PAGE_SIZE = 100
 REQUEST_TIMEOUT = 60
 
 # Calendly webhook subscriptions are scoped to an organization or a single user. Every table this
@@ -75,6 +84,11 @@ def _format_datetime(value: Any) -> str:
     return str(value)
 
 
+def _last_uri_segment(uri: str) -> Optional[str]:
+    """The trailing path segment of a Calendly URI — its UUID — or None when there is none."""
+    return uri.rstrip("/").rsplit("/", 1)[-1] or None
+
+
 def _get_headers(token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
@@ -82,13 +96,17 @@ def _get_headers(token: str) -> dict[str, str]:
     }
 
 
-def validate_credentials(token: str) -> bool:
-    ok, _status = validate_via_probe(
+def validate_credentials(token: str) -> tuple[bool, int | None]:
+    """Probe `/users/me` and report `(is_valid, status_code)`.
+
+    The caller needs the status to tell a rejected token (401) from one Calendly accepts but
+    scopes too narrowly (403), which are two different fixes for the user.
+    """
+    return validate_via_probe(
         lambda: make_tracked_session(redact_values=(token,)),
         f"{CALENDLY_BASE_URL}/users/me",
         headers=_get_headers(token),
     )
-    return ok
 
 
 def get_current_organization(token: str, base_url: str = CALENDLY_BASE_URL) -> str:
@@ -124,6 +142,75 @@ def _build_initial_params(
     return params
 
 
+def _paginator() -> JSONResponsePaginator:
+    return JSONResponsePaginator(next_url_path="pagination.next_page")
+
+
+def _client_config(token: str, base_url: str) -> ClientConfig:
+    return {
+        "base_url": base_url,
+        "headers": {"Content-Type": "application/json"},
+        "auth": {"type": "bearer", "token": token},
+        "paginator": _paginator(),
+    }
+
+
+def _with_parent_lookup_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Derive the values a fan-out child binds into its path from the parent's `uri`.
+
+    `process_parent_data_item` formats the path without escaping, so both variants are prepared
+    here: the trailing UUID for `/scheduled_events/{uuid}/invitees`, and a percent-encoded URI for
+    the children that take the parent URI as a query param. A row whose URI yields no segment
+    keeps the key absent, so the fan-out fails with the framework's named-field error rather than
+    requesting a malformed path.
+    """
+    uri = row.get("uri")
+    if isinstance(uri, str):
+        segment = _last_uri_segment(uri)
+        if segment:
+            row[PARENT_UUID_FIELD] = segment
+        row[PARENT_URI_PARAM_FIELD] = quote(uri, safe="")
+    return row
+
+
+def _dependent_rows(
+    config: CalendlyEndpointConfig, token: str, base_url: str, team_id: int, job_id: str
+) -> Iterable[Any]:
+    """Fan the child endpoint out over its parent resource, one child request per parent row."""
+    assert config.fanout is not None
+    parent_config = CALENDLY_ENDPOINTS[config.fanout.parent_name]
+    organization = get_current_organization(token, base_url) if parent_config.scope_param == "organization" else None
+    child_endpoint_extra: Endpoint = (
+        {"paginator": "single_page", "data_selector": "resource"}
+        if config.single_resource
+        else {"paginator": _paginator(), "data_selector": "collection"}
+    )
+
+    return build_dependent_resource(
+        endpoint_configs=CALENDLY_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=dataclasses.replace(
+            config.fanout,
+            parent_params=_build_initial_params(parent_config, organization, False, None),
+            child_params={"sort": config.sort} if config.sort else {},
+        ),
+        client_config=_client_config(token, base_url),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        # No child endpoint here exposes a server-side time filter, so they all full refresh.
+        db_incremental_field_last_value=None,
+        # The parent's `count` already rides in `parent_params`, so this only sizes child pages.
+        page_size_param=None if config.single_resource else "count",
+        parent_data_map=_with_parent_lookup_fields,
+        # Both requests are declared explicitly because a child path carrying a `{placeholder}`
+        # would otherwise be taken for a single-entity endpoint and paginated as one page. The
+        # paginator is stateful, so parent and child each get their own instance.
+        parent_endpoint_extra={"paginator": _paginator(), "data_selector": "collection"},
+        child_endpoint_extra=child_endpoint_extra,
+    )
+
+
 def calendly_source(
     token: str,
     endpoint: str,
@@ -139,6 +226,12 @@ def calendly_source(
     base_url = _base_url_for_version(api_version)
 
     def get_rows() -> Iterator[Any]:
+        if config.fanout is not None:
+            # Dependent resources don't support resume in the rest_source framework, so the
+            # manager is intentionally not threaded into this path.
+            yield from _dependent_rows(config, token, base_url, team_id, job_id)
+            return
+
         resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
         initial_paginator_state: Optional[dict[str, Any]] = None
@@ -154,12 +247,7 @@ def calendly_source(
         )
 
         rest_config: RESTAPIConfig = {
-            "client": {
-                "base_url": base_url,
-                "headers": {"Content-Type": "application/json"},
-                "auth": {"type": "bearer", "token": token},
-                "paginator": JSONResponsePaginator(next_url_path="pagination.next_page"),
-            },
+            "client": _client_config(token, base_url),
             "resources": [
                 {
                     "name": endpoint,
@@ -202,7 +290,7 @@ def calendly_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=["uri"],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
@@ -330,8 +418,7 @@ def _subscription_uuid(subscription: dict[str, Any]) -> Optional[str]:
     uri = subscription.get("uri")
     if not isinstance(uri, str):
         return None
-    segment = uri.rstrip("/").rsplit("/", 1)[-1]
-    return segment or None
+    return _last_uri_segment(uri)
 
 
 def _delete_subscriptions(session: Session, base_url: str, subscriptions: list[dict[str, Any]]) -> list[str]:

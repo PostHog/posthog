@@ -16,6 +16,7 @@ export type AppViewType =
   | "task-input"
   | "folder-settings"
   | "activity"
+  | "canvases"
   | "home"
   | "inbox"
   | "report"
@@ -70,6 +71,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "folder-settings", folderId: last.params.folderId };
     case "/activity":
       return { type: "activity" };
+    case "/canvases":
+      return { type: "canvases" };
     case "/":
       return { type: "home" };
     case "/inbox":
@@ -77,6 +80,8 @@ function deriveFromMatches(matches: Match[]): AppView {
     case "/reports/$reportId":
       return { type: "report" };
     case "/loops":
+    case "/spaces/$channelId/loops/":
+    case "/spaces/$channelId/loops/$loopId":
       return { type: "loops" };
     case "/archived":
       return { type: "archived" };

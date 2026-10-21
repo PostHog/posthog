@@ -1,0 +1,413 @@
+// Resolved on body, outside any quill scope, so the sidebar, the content and the cards portaled out of the layout
+// (the floating AI chat) share one corner value.
+body {
+    --today-frame-radius: var(--radius);
+}
+
+.TodayAppLayout {
+    --today-frame-inset: 4px;
+
+    background: var(--today-paper);
+}
+
+.TodayAppLayout--top-bar {
+    --today-top-bar-height: 40px;
+
+    // The rail runs the full height. The top bar spans the sidebar, the content and the side panel.
+    grid-template:
+        'rail top top top' var(--today-top-bar-height)
+        'rail left content side' minmax(0, 1fr) / var(--today-rail-width) calc(
+            var(--left-nav-width) - var(--today-rail-width)
+        ) minmax(0, 1fr) var(--side-panel-width, 0);
+
+    // The shell's rail and sidebar take separate grid cells, so the shell itself drops out of the layout.
+    .TodayShell {
+        display: contents;
+    }
+
+    .TodayShell__rail {
+        grid-area: rail;
+    }
+
+    .TodayShell__sidebar--framed {
+        grid-area: left;
+    }
+
+    .TodayAppLayout__side-panel {
+        grid-area: side;
+    }
+}
+
+// Spans the sidebar and the content, so one soft shadow off their shared top-left edge lifts both above the chrome.
+// It has no fill, so it draws only the shadow outside its box.
+.TodayAppLayout__shadow {
+    position: relative;
+    grid-row: 2;
+    grid-column: 2 / span 2;
+    pointer-events: none;
+    border-top-left-radius: var(--today-frame-radius);
+    box-shadow: -20px -20px 18px -24px #00000021;
+
+    [theme='dark'] & {
+        box-shadow: -20px -20px 18px -24px #282828;
+    }
+}
+
+.TodayTopBar {
+    // Above the rail, which comes later in the grid and would otherwise paint over focus rings at the bar's left edge.
+    position: relative;
+    z-index: 1;
+    grid-area: top;
+    min-width: 0;
+}
+
+.TodayShell {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: transparent;
+}
+
+.TodayShell__sidebar {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+}
+
+// The panes sit in one framed inset beside the rail. A docked sidebar starts the inset, so it owns the top-left
+// corner and the seam against the content. The content frame in Navigation.tsx draws the rest.
+.TodayShell__sidebar--framed {
+    height: auto;
+    border-top-left-radius: var(--today-frame-radius);
+
+    // An overlay, like the content frame, so the border takes no space. The pane header then starts at the same
+    // point as the scene header, and the sidebar toggle stays under the pointer when the sidebar hides.
+    &::after {
+        position: absolute;
+        inset: 0;
+        z-index: var(--z-layout-navbar-under);
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--border);
+        border-bottom: 0;
+        border-radius: inherit;
+    }
+}
+
+// Spans the content and the side panel, so the gaps around the side panel card show the chrome like the top bar.
+.TodayAppLayout__backdrop {
+    grid-row: 2;
+    grid-column: content-start / side-end;
+}
+
+.TodayAppLayout .TodayAppLayout__content {
+    &.TodayAppLayout__content--corner {
+        border-top-left-radius: var(--today-frame-radius);
+    }
+
+    // An open side panel is a card of its own, so the content rounds the corner it shares with the gap.
+    &.TodayAppLayout__content--side-panel {
+        border-top-right-radius: var(--today-frame-radius);
+    }
+}
+
+.TodayAppLayout__frame {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-layout-navbar-under);
+    pointer-events: none;
+    border-top: 1px solid var(--border);
+    border-radius: inherit;
+
+    .TodayAppLayout__content--corner > & {
+        border-left: 1px solid var(--border);
+    }
+
+    .TodayAppLayout__content--side-panel > & {
+        border-right: 1px solid var(--border);
+    }
+}
+
+.TodayShell__scrim {
+    position: fixed;
+    inset: var(--today-top-bar-height, 0) 0 0 var(--today-rail-width);
+    z-index: var(--z-layout-navbar-under);
+    visibility: hidden;
+    background: rgb(21 21 21 / 18%);
+    opacity: 0;
+    transition:
+        opacity 240ms var(--today-ease),
+        visibility 240ms;
+
+    [theme='dark'] & {
+        background: rgb(0 0 0 / 55%);
+    }
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+.TodayShell__drawer {
+    position: fixed;
+    top: calc(var(--today-top-bar-height, 0px) + var(--today-frame-inset));
+    bottom: var(--today-frame-inset);
+
+    // A gap off the rail, so the floating sidebar reads as a separate layer.
+    left: calc(var(--today-rail-width) + var(--today-frame-inset) * 2);
+    z-index: var(--z-layout-navbar);
+    max-width: calc(100vw - var(--today-rail-width) - var(--today-frame-inset) * 2 - 3rem);
+    height: auto;
+    overflow: hidden;
+    visibility: hidden;
+    background: var(--today-paper);
+    border-radius: var(--today-frame-radius);
+    box-shadow: 24px 0 48px -24px rgb(0 0 0 / 28%);
+    opacity: 0;
+    transition:
+        transform 280ms var(--today-ease),
+        opacity 200ms var(--today-ease),
+        visibility 280ms;
+    transform: translateX(-12px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+
+    // An overlay border, like the docked frame, so the pane header starts where the scene header does.
+    &::after {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--border);
+        border-radius: inherit;
+    }
+}
+
+.TodayAppLayout--phone {
+    // Matches the pane header, so the top bar and the sidebar page share one height.
+    --today-phone-header-height: 42px;
+    --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+
+    padding-top: var(--today-phone-header-height);
+    padding-bottom: var(--today-tab-bar-height);
+
+    &.TodayAppLayout--no-phone-header {
+        --today-phone-header-height: 0px;
+    }
+}
+
+.TodayPhoneHeader {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    height: var(--today-phone-header-height);
+    padding: 0 8px;
+    color: var(--today-ink);
+    background: var(--today-paper);
+    border-bottom: 1px solid transparent;
+    transition: border-color 200ms var(--today-ease);
+
+    &[data-scrolled='true'] {
+        border-bottom-color: var(--today-line);
+    }
+}
+
+.TodayShell--phone {
+    display: contents;
+}
+
+@media (pointer: coarse) {
+    .TodayAppLayout--phone:has(:is(input, textarea, [contenteditable='true']):focus) {
+        --today-tab-bar-height: 0px;
+
+        .TodayTabBar {
+            display: none;
+        }
+    }
+}
+
+body.has-today-phone-layout :is(input, textarea, select) {
+    font-size: 1rem;
+}
+
+body.has-today-phone-layout .Toastify__toast-container--bottom-right {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+.TodayShell__page {
+    position: fixed;
+    inset: 0 0 var(--today-tab-bar-height);
+    z-index: var(--z-layout-navbar);
+    height: auto;
+    visibility: hidden;
+    background: var(--today-paper);
+    opacity: 0;
+    transition:
+        transform 240ms var(--today-ease),
+        opacity 180ms var(--today-ease),
+        visibility 240ms;
+    transform: translateY(8px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+
+    .quill-button--size-row {
+        -webkit-touch-callout: none;
+        height: 2.75rem;
+    }
+
+    .quill-input-group {
+        height: 2.5rem;
+    }
+}
+
+.TodayTabBar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    height: var(--today-tab-bar-height);
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    user-select: none;
+    background: var(--today-paper);
+    border-top: 1px solid var(--border);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayShell__scrim,
+    .TodayShell__drawer,
+    .TodayShell__page,
+    .TodayPhoneHeader {
+        transition: none;
+    }
+}
+
+.TodayShell__pane {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.TodayPane {
+    // The pane sits on the shell's chrome, not the app background.
+    --quill-icon-stack-ring: var(--chrome);
+
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 8px;
+}
+
+.TodayPane__filters {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.TodayPane__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 0 24px;
+    margin-top: 6px;
+    overflow-y: auto;
+    scrollbar-color: var(--today-input-border) transparent;
+    scrollbar-width: thin;
+}
+
+.TodayPane__state {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--today-muted);
+}
+
+// While the keyboard highlights a row, a row under a resting pointer would look active too, so its hover tint drops.
+.TodayPaneSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
+    background: transparent;
+}
+
+// A context panel tab fills the card. Switching tabs fades the new one in with a short slide from the side of
+// the tab that was picked, so the order of the header icons reads as a direction.
+.TodayContextPanelContent {
+    --today-context-panel-slide: 0.5rem;
+
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+
+    &[data-direction] {
+        animation: TodayContextPanelContent__switch 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)) both;
+    }
+
+    &[data-direction='backward'] {
+        --today-context-panel-slide: -0.5rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &[data-direction] {
+            animation: none;
+        }
+    }
+}
+
+@keyframes TodayContextPanelContent__switch {
+    from {
+        opacity: 0;
+        transform: translateX(var(--today-context-panel-slide));
+    }
+}
+
+// The floating button sinks away when the panel docks and rises back when it closes, so the hand-off reads.
+// Leaving is a little quicker than coming back.
+.TodayContextPanelButton {
+    transition:
+        opacity 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+        transform 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+        visibility 0s;
+
+    &[data-hidden] {
+        visibility: hidden;
+        opacity: 0;
+        transition:
+            opacity 160ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+            transform 160ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+            visibility 0s 160ms;
+        transform: translateY(0.5rem);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &,
+        &[data-hidden] {
+            transition: none;
+        }
+    }
+}

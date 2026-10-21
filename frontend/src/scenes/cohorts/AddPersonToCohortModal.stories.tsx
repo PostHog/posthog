@@ -46,33 +46,20 @@ const DEFAULT_QUERY = {
 }
 
 const noop = (): void => {}
-const actorsQueryHandler = async ({
-    request,
-}: MockResolverInfo): Promise<[number, typeof mockQueryResponse] | undefined> => {
-    const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
-    const queryKind = body?.query?.source?.kind ?? body?.query?.kind
+const mockActorsQuery =
+    (status: number, responseBody: Record<string, any>) =>
+    async ({ request }: MockResolverInfo): Promise<[number, Record<string, any>] | undefined> => {
+        const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
+        const queryKind = body?.query?.source?.kind ?? body?.query?.kind
 
-    if (queryKind === 'ActorsQuery') {
-        return [200, mockQueryResponse]
+        if (queryKind === 'ActorsQuery') {
+            return [status, responseBody]
+        }
     }
-}
 
-const emptyActorsQueryHandler = async ({
-    request,
-}: MockResolverInfo): Promise<[number, typeof mockQueryResponse] | undefined> => {
-    const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
-    const queryKind = body?.query?.source?.kind ?? body?.query?.kind
-
-    if (queryKind === 'ActorsQuery') {
-        return [
-            200,
-            {
-                ...mockQueryResponse,
-                results: [],
-            },
-        ]
-    }
-}
+const actorsQueryHandler = mockActorsQuery(200, mockQueryResponse)
+const emptyActorsQueryHandler = mockActorsQuery(200, { ...mockQueryResponse, results: [] })
+const erroredActorsQueryHandler = mockActorsQuery(500, { type: 'server_error', detail: 'Query failed to execute' })
 
 function ModalShell({
     children,
@@ -151,6 +138,27 @@ export const ModalWithAllSelected: Story = {
                     onAddPerson={noop}
                     onRemovePerson={noop}
                     dataNodeKey="story-modal-all-selected"
+                />
+            </ModalShell>
+        )
+    },
+}
+
+export const ModalQueryFailed: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: { '/api/environments/:team_id/query/:kind/': erroredActorsQueryHandler },
+        })
+
+        return (
+            <ModalShell saveDisabledReason="Select at least one user">
+                <PersonSelectList
+                    query={DEFAULT_QUERY}
+                    setQuery={noop}
+                    selectedPersons={{}}
+                    onAddPerson={noop}
+                    onRemovePerson={noop}
+                    dataNodeKey="story-modal-query-failed"
                 />
             </ModalShell>
         )

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.aha_ideas import (
     AhaIdeasResumeConfig,
     aha_ideas_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AhaIdeasSource(ResumableSource[AhaIdeasSourceConfig, AhaIdeasResumeConfig]):
+    codebase_detection = detect(env=("^(AHA_IDEAS|AHAIDEAS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -55,10 +56,10 @@ class AhaIdeasSource(ResumableSource[AhaIdeasSourceConfig, AhaIdeasResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AHA_IDEAS,
+            name=ExternalDataSourceType.AHAIDEAS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Aha! Ideas",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Aha! account domain and API key to pull your Aha! Ideas portal data — ideas, votes, comments, submitters, and portals — into the PostHog Data warehouse.
 
 Create an API key under **Settings → Personal → Developer → API keys** in your Aha! account. The key inherits your account permissions, so it can read every record you can see.""",

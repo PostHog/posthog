@@ -35,18 +35,18 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
             },
             "regression_test_count_prior": {"help_text": "Same count over the prior window."},
             "failed_run_count": {
-                "help_text": "CI runs (not spans) where an owned test's recorded outcome was failed or error. "
-                "An absolute count, not a rate: fast passing runs are not emitted.",
+                "help_text": "Distinct CI runs where at least one owned test failed or errored. A run with many "
+                "failing owned tests counts once. An absolute count, not a rate: fast passing runs are not emitted.",
             },
             "failed_run_count_prior": {"help_text": "Same count over the prior window."},
             "same_commit_recovery_run_count": {
-                "help_text": "Runs where one commit both failed and passed an owned test: a re-run attempt went "
-                "green, or an in-job retry recovered it.",
+                "help_text": "Distinct CI runs where one commit both failed and passed at least one owned test: a "
+                "re-run attempt went green, or an in-job retry recovered it.",
             },
             "same_commit_recovery_run_count_prior": {"help_text": "Same count over the prior window."},
             "quarantined_failed_run_count": {
-                "help_text": "Runs where an owned test recorded a tolerated failure while quarantined: masked in "
-                "CI, still failing.",
+                "help_text": "Distinct CI runs where at least one owned test recorded a tolerated failure while "
+                "quarantined.",
             },
             "quarantined_failed_run_count_prior": {"help_text": "Same count over the prior window."},
             "last_seen_at": {
@@ -72,7 +72,10 @@ class TeamCIHealthListSerializer(DataclassSerializer):
     items = TeamCIHealthItemSerializer(
         many=True,
         help_text="Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. "
-        "Teams are organizational owners of code surfaces; this never aggregates by author.",
+        "Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break "
+        "(a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt "
+        "with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its "
+        "failures.",
     )
 
     class Meta:

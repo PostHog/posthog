@@ -86,6 +86,8 @@ export function buildCanvasGenerationPrompt(input: {
 
 <${CANVAS_INSTRUCTIONS_TAG}>
 Invoke the \`building-canvases\` skill and follow it completely.
+If the canvas source has \`src/blocks/runtime.tsx\`, read the skill's \`references/blocks.md\` before you edit, and keep the canvas's blocks.
+Expose the values a person may want to change as params with \`editable()\`, as the skill's "Params" section describes.
 
 Target:
 - canvas id: "${escapeXmlAttr(input.dashboardId)}"

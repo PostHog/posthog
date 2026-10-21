@@ -21,6 +21,7 @@ const AssistantEventMultipleBreakdownFilterType = z.enum([
     'person',
     'event',
     'event_metadata',
+    'element',
     'session',
     'hogql',
     'cohort',
@@ -66,7 +67,13 @@ const CompareFilter = z.object({
 
 const AssistantDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
 })
 
 const AssistantDurationRange = z.object({
@@ -364,6 +371,7 @@ const PropertyOperator = z.enum([
     'in',
     'not_in',
     'is_cleaned_path_exact',
+    'is_cleaned_path_not_exact',
     'flag_evaluates_to',
     'semver_eq',
     'semver_neq',
@@ -601,6 +609,25 @@ const AggregationAxisFormat = z.enum([
     'short',
 ])
 
+const AssistantTrendsDisplayType = z.enum([
+    'ActionsLineGraph',
+    'ActionsBar',
+    'ActionsUnstackedBar',
+    'ActionsAreaGraph',
+    'ActionsLineGraphCumulative',
+    'SlopeGraph',
+    'BoxPlot',
+    'Metric',
+    'BoldNumber',
+    'ActionsBarValue',
+    'ActionsPie',
+    'ActionsDonut',
+    'ActionsProportionBar',
+    'ActionsTable',
+    'WorldMap',
+    'CalendarHeatmap',
+])
+
 const TrendsFormulaNode = z.object({
     custom_name: z.string().describe('Optional user-defined name for the formula').optional(),
     formula: z.string(),
@@ -630,30 +657,9 @@ const AssistantTrendsFilter = z.object({
             'Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point.'
         )
         .optional(),
-    display: z
-        .enum([
-            'Auto',
-            'ActionsLineGraph',
-            'ActionsBar',
-            'ActionsUnstackedBar',
-            'ActionsAreaGraph',
-            'ActionsLineGraphCumulative',
-            'BoldNumber',
-            'Metric',
-            'ActionsPie',
-            'ActionsDonut',
-            'ActionsBarValue',
-            'ActionsTable',
-            'WorldMap',
-            'CalendarHeatmap',
-            'TwoDimensionalHeatmap',
-            'BoxPlot',
-            'SlopeGraph',
-            'ScatterPlot',
-        ])
-        .describe(
-            'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what\'s our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.'
-        )
+    display: AssistantTrendsDisplayType.describe(
+        'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `SlopeGraph` - net change from the first to the last interval, one line per series. `BoxPlot` - quartiles of a numeric `math_property` for each interval. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what\'s our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsDonut` - total value donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.'
+    )
         .default('ActionsLineGraph')
         .optional(),
     formulaNodes: z
@@ -953,6 +959,8 @@ const AssistantFunnelsQuery = z.object({
         .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
 })
 
+const AssistantRetentionDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar'])
+
 const RetentionPeriod = z.enum(['Hour', 'Day', 'Week', 'Month'])
 
 const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 'retention_first_ever_occurrence'])
@@ -1013,6 +1021,9 @@ const AssistantRetentionFilter = z.object({
             'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
         )
         .optional(),
+    display: AssistantRetentionDisplayType.describe(
+        '`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars.'
+    ).optional(),
     meanRetentionCalculation: z
         .enum(['simple', 'weighted', 'none'])
         .describe(
@@ -1068,6 +1079,8 @@ const AssistantRetentionQuery = z.object({
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
 })
 
+const positive_integer = z.coerce.number().int().min(1)
+
 const AssistantStickinessEventsNode = z.object({
     custom_name: z.string().optional(),
     event: z.string().nullable().describe('The event or `null` for all events.').optional(),
@@ -1114,8 +1127,6 @@ const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar',
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const positive_integer = z.coerce.number().int().min(1)
-
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
     value: positive_integer,
@@ -1144,7 +1155,6 @@ const AssistantStickinessFilter = z.object({
 })
 
 const AssistantStickinessQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
     compareFilter: CompareFilter.describe(
         'Compare to date range. When enabled, shows the current and previous period side by side.'
     ).optional(),
@@ -1159,7 +1169,7 @@ const AssistantStickinessQuery = z.object({
     )
         .default('day')
         .optional(),
-    intervalCount: integer
+    intervalCount: positive_integer
         .describe(
             'How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.'
         )

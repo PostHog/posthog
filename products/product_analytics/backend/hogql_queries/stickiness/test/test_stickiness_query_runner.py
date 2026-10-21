@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -1516,9 +1517,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestStickinessDashboardFilters(BaseTest):
-    def _runner(self) -> StickinessQueryRunner:
+    def _runner(
+        self, date_from: str | None = None, compare_filter: CompareFilter | None = None
+    ) -> StickinessQueryRunner:
         return StickinessQueryRunner(
-            query=StickinessQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.DAY),
+            query=StickinessQuery(
+                series=[EventsNode(event="$pageview")],
+                interval=IntervalType.DAY,
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+                compareFilter=compare_filter,
+            ),
             team=self.team,
         )
 
@@ -1554,6 +1562,41 @@ class TestStickinessDashboardFilters(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
 
         assert runner.query.filterTestAccounts is expected
+
+    def test_dashboard_compare_filter_override(self) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w")))
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+
+    @parameterized.expand(
+        [
+            ("compare_set_on_construction", "all", CompareFilter(compare=True), None),
+            ("compare_arrives_via_override", "all", None, CompareFilter(compare=True)),
+            ("compare_set_on_construction_via_date_override", "-14d", CompareFilter(compare=True), None),
+        ]
+    )
+    def test_dashboard_compare_filter_is_stripped_for_all_time_range(
+        self,
+        _name: str,
+        query_date_from: str,
+        construction_compare_filter: Optional[CompareFilter],
+        override_compare_filter: Optional[CompareFilter],
+    ) -> None:
+        runner = self._runner(date_from=query_date_from, compare_filter=construction_compare_filter)
+        dashboard_date_from = "all" if query_date_from != "all" else None
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(date_from=dashboard_date_from, compareFilter=override_compare_filter)
+        )
+
+        assert runner.query.dateRange is not None
+        assert runner.query.dateRange.date_from == "all"
+        assert runner.query.compareFilter == CompareFilter(compare=False)
+        # Guards the series-doubling bug this fix also closes: setup_series() doubles entries
+        # while compare=True, so a stale rebuild after the strip would leave 2 series here.
+        assert len(runner.series) == 1
 
 
 class TestStickinessSeriesCustomNames(BaseTest):
@@ -1598,3 +1641,16 @@ class TestStickinessSeriesCustomNames(BaseTest):
 
         assert patched_response.results == expected_results
         assert was_modified is expect_modified
+
+
+class TestStickinessSeriesFanOut(BaseTest):
+    def test_runner_rejects_an_expansion_over_the_limit_before_it_expands_the_series(self) -> None:
+        query = StickinessQuery(
+            series=[EventsNode(event=f"event_{index}") for index in range(101)],
+            compareFilter=CompareFilter(compare=True),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            StickinessQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])

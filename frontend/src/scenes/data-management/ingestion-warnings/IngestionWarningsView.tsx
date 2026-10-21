@@ -41,6 +41,11 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    invalid_event_when_process_person_profile_is_false:
+        'Discarded an event that requires person processing because $process_person_profile was set to false',
+    event_dropped_person_processing_disabled:
+        'Discarded an event that requires person processing, which is turned off for this project',
+    cookieless_team_disabled: 'Discarded cookieless event because cookieless tracking is disabled',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -60,6 +65,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
     invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
     no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    misrouted_event: 'Discarded a non-AI event sent to the LLM analytics capture endpoint',
     // Emitted by the capture service for its session replay endpoint
     missing_session_id: 'Discarded a session replay batch with no $session_id',
     invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
@@ -86,6 +92,8 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+    cookieless_team_disabled: 'discarded-cookieless-event-because-cookieless-tracking-is-disabled',
+    misrouted_event: 'discarded-ai-events',
 }
 
 export const WARNING_TYPE_RENDERER = {
@@ -338,6 +346,24 @@ export const WARNING_TYPE_RENDERER = {
                 {' '}
                 Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
                 events
+            </>
+        )
+    },
+    cookieless_team_disabled: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded a <code>{details.event}</code> event sent in cookieless mode (event uuid:{' '}
+                <code>{details.eventUuid}</code>) because cookieless tracking is disabled for this project. Enable it
+                under{' '}
+                <Link to={urls.settings('environment-web-analytics', 'cookieless-server-hash-mode')}>
+                    Settings → Web analytics → Cookieless tracking
+                </Link>
+                , or remove <code>cookieless_mode</code> from your posthog-js config.
             </>
         )
     },

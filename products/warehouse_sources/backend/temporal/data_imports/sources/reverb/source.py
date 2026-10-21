@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,12 +28,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.rev
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Reverb requires the `Accept-Version` header on every request. "3.0" is the vendor's
@@ -50,11 +52,11 @@ class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REVERB,
+            name=ExternalDataSourceType.REVERB,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Reverb",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Reverb personal access token to pull your shop's orders, listings, and payouts into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Enter your Reverb personal access token to pull your shop's orders, listings, payouts, payments, and refund requests into the PostHog Data warehouse.
 
 Create a token from **My Profile → API & Integrations** in your Reverb account, with the `read_listings`, `read_orders`, and `read_payouts` scopes. The token doesn't expire.""",
             iconPath="/static/services/reverb.png",
@@ -97,7 +99,7 @@ Create a token from **My Profile → API & Integrations** in your Reverb account
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

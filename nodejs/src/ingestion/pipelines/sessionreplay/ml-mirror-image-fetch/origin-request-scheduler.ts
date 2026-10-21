@@ -6,6 +6,7 @@ import { ConfigurationRequestScheduler } from './configuration-policy'
 import { BudgetBlockReason, BudgetGrant, HostBudget } from './host-budget'
 import { ImageFetchRequestMetrics, SchedulerWaitScope } from './metrics'
 import { politenessKey } from './politeness-key'
+import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 export type ScheduledRequest<T> =
@@ -62,6 +63,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
         sourcePartitions: readonly number[] | undefined,
         request: () => Promise<T>
     ): Promise<ScheduledRequest<T>> {
+        const requestKind = configurationRequest ? 'configuration' : 'image'
         const origin = url.origin
         const registrableDomain = politenessKey(url.hostname)
         const nowMs = Date.now()
@@ -71,68 +73,75 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
         try {
             for (;;) {
                 const capacityWaitStartedAtMs = Date.now()
-                const scheduled = await this.inFlight.run({
-                    debugTag: registrableDomain,
-                    fn: async () => {
-                        const checkedAtMs = Date.now()
-                        this.recordSchedulerWait(
-                            'request_capacity',
-                            Math.max(0, checkedAtMs - capacityWaitStartedAtMs),
-                            registrableDomain,
-                            configurationRequest,
-                            sourcePartitions
-                        )
-                        const grant = this.budget.take(
-                            registrableDomain,
-                            origin,
-                            checkedAtMs,
-                            deadlineMs,
-                            configurationRequest
-                        )
-                        if (!grant.granted) {
-                            return {
-                                kind: 'stopped',
-                                reason: grant.reason,
-                                blockingReason: blockingReasonForStoppedGrant(grant),
-                                waitMs: grant.waitMs,
-                            } as const
-                        }
-                        if (grant.waitMs > 0) {
-                            return {
-                                kind: 'wait',
-                                waitMs: grant.waitMs,
-                                waitScope: grant.waitScope ?? 'registrable_domain_rate',
-                            } as const
-                        }
-                        if (!this.budget.acquireConnection(registrableDomain, origin)) {
-                            this.budget.returnGrant(
+                const capacityWait = ImageFetchProcessingMetrics.start(`${requestKind}_request_capacity`)
+                const scheduled = await this.inFlight
+                    .run({
+                        debugTag: registrableDomain,
+                        fn: async () => {
+                            capacityWait.finish()
+                            const checkedAtMs = Date.now()
+                            this.recordSchedulerWait(
+                                'request_capacity',
+                                Math.max(0, checkedAtMs - capacityWaitStartedAtMs),
+                                registrableDomain,
+                                configurationRequest,
+                                sourcePartitions
+                            )
+                            const grant = this.budget.take(
                                 registrableDomain,
                                 origin,
                                 checkedAtMs,
-                                grant.reservedStartAtMs,
-                                grant.halfOpenProbe
+                                deadlineMs,
+                                configurationRequest
                             )
-                            return {
-                                kind: 'stopped',
-                                reason: 'connection_limit' as const,
-                                blockingReason: 'connection_limit' as const,
-                                waitMs: 0,
-                            } as const
-                        }
-                        try {
-                            this.budget.markRequestStarted(
-                                registrableDomain,
-                                origin,
-                                Date.now(),
-                                grant.reservedStartAtMs,
-                                configurationRequest ? 'configuration' : 'image'
-                            )
-                            return { kind: 'ran', value: await request() } as const
-                        } finally {
-                            this.budget.releaseConnection(registrableDomain, origin)
-                        }
-                    },
-                })
+                            if (!grant.granted) {
+                                return {
+                                    kind: 'stopped',
+                                    reason: grant.reason,
+                                    blockingReason: blockingReasonForStoppedGrant(grant),
+                                    waitMs: grant.waitMs,
+                                } as const
+                            }
+                            if (grant.waitMs > 0) {
+                                return {
+                                    kind: 'wait',
+                                    waitMs: grant.waitMs,
+                                    waitScope: grant.waitScope ?? 'registrable_domain_rate',
+                                } as const
+                            }
+                            if (!this.budget.acquireConnection(registrableDomain, origin)) {
+                                this.budget.returnGrant(
+                                    registrableDomain,
+                                    origin,
+                                    checkedAtMs,
+                                    grant.reservedStartAtMs,
+                                    grant.halfOpenProbe
+                                )
+                                return {
+                                    kind: 'stopped',
+                                    reason: 'connection_limit' as const,
+                                    blockingReason: 'connection_limit' as const,
+                                    waitMs: 0,
+                                } as const
+                            }
+                            try {
+                                this.budget.markRequestStarted(
+                                    registrableDomain,
+                                    origin,
+                                    Date.now(),
+                                    grant.reservedStartAtMs,
+                                    configurationRequest ? 'configuration' : 'image'
+                                )
+                                return {
+                                    kind: 'ran',
+                                    value: await ImageFetchProcessingMetrics.measure(`${requestKind}_http`, request),
+                                } as const
+                            } finally {
+                                this.budget.releaseConnection(registrableDomain, origin)
+                            }
+                        },
+                    })
+                    .finally(() => capacityWait.finish())
                 if (scheduled.kind === 'ran') {
                     return { ran: true, value: scheduled.value }
                 }
@@ -159,7 +168,9 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                     configurationRequest,
                     sourcePartitions
                 )
-                await delay(scheduled.waitMs)
+                await ImageFetchProcessingMetrics.measure(`${requestKind}_${scheduled.waitScope}`, () =>
+                    delay(scheduled.waitMs)
+                )
             }
         } finally {
             this.budget.requestFinished(origin)

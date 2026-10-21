@@ -28,6 +28,8 @@ from products.marketing_analytics.backend.demo.world import (
 )
 
 PERSON_NAMESPACE = uuid.UUID("aa8e9c34-0d7a-46bc-b78b-1a4c5c6f7d01")
+LANDING_PATHS = ("/", "/features", "/pricing", "/docs", "/customers")
+SEARCH_TERMS = ("product analytics", "web analytics", "session replay", "feature flags")
 
 
 @dataclass
@@ -85,6 +87,8 @@ class MarketingEventGenerator:
                 "utm_content": self.rng.choice(["hero_cta", "pricing_card", "footer_link"]),
                 "$referring_domain": campaign.referring_domain or "$direct",
             }
+            if campaign.utm_medium == "cpc":
+                properties["utm_term"] = self.rng.choice(SEARCH_TERMS)
             if campaign.click_id_property:
                 properties[campaign.click_id_property] = uuid.uuid5(PERSON_NAMESPACE, f"click-{distinct_id}").hex
             session_id = self._browse_session(distinct_id, person_uuid, ts, properties)
@@ -299,7 +303,7 @@ class MarketingEventGenerator:
         if self.rng.random() < 0.4:
             return session_id
         elapsed = 0
-        for pathname in self.rng.sample(["/features", "/pricing", "/docs", "/customers"], self.rng.randint(1, 4)):
+        for pathname in self.rng.sample(LANDING_PATHS[1:], self.rng.randint(1, 4)):
             elapsed += self.rng.randint(15, 150)
             self._emit(
                 distinct_id,
@@ -362,10 +366,16 @@ class MarketingEventGenerator:
 
     def _pageview(self, distinct_id: str, person_uuid: uuid.UUID, ts: dt.datetime, properties: dict) -> str:
         utm_params = {k: v for k, v in properties.items() if k.startswith("utm_") and v}
-        url = SITE_URL + ("/?" + urlencode(utm_params) if utm_params else "/")
+        pathname = properties.get("$pathname") or self.rng.choice(LANDING_PATHS)
+        url = SITE_URL + pathname + ("?" + urlencode(utm_params) if utm_params else "")
         session_id = self._new_session_id(ts)
         self._emit(
-            distinct_id, person_uuid, EVENT_PAGEVIEW, ts, {**properties, "$current_url": url}, session_id=session_id
+            distinct_id,
+            person_uuid,
+            EVENT_PAGEVIEW,
+            ts,
+            {**properties, "$current_url": url, "$pathname": pathname},
+            session_id=session_id,
         )
         return session_id
 

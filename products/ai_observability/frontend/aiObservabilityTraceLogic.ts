@@ -61,6 +61,16 @@ export interface AIObservabilityTraceDataNodeLogicParams {
 
 const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
 
+// An unencoded `+` in a URL query decodes to a space, so `+00:00` arrives as ` 00:00`.
+function parseUrlDate(value: string): string | null {
+    const raw = String(value).trim()
+    if (dayjs(raw).isValid()) {
+        return raw
+    }
+    const repaired = raw.replace(/ (\d{2}:?\d{2})$/, '+$1')
+    return dayjs(repaired).isValid() ? repaired : null
+}
+
 export function getDataNodeLogicProps({
     traceId,
     query,
@@ -682,16 +692,18 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     kind: NodeKind.TraceQuery,
                     traceId,
                     includeSentiment: true,
-                    dateRange: dateRange?.dateFrom
-                        ? // dateFrom is a minimum timestamp of an event for a trace.
-                          {
-                              date_from: dateRange.dateFrom,
-                              date_to: dateRange?.dateTo || dayjs(dateRange.dateFrom).add(10, 'minutes').toISOString(),
-                          }
-                        : // By default will look for traces from the beginning.
-                          {
-                              date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
-                          },
+                    dateRange:
+                        dateRange?.dateFrom && dayjs(dateRange.dateFrom).isValid()
+                            ? // dateFrom is a minimum timestamp of an event for a trace.
+                              {
+                                  date_from: dateRange.dateFrom,
+                                  date_to:
+                                      dateRange?.dateTo || dayjs(dateRange.dateFrom).add(10, 'minutes').toISOString(),
+                              }
+                            : // By default will look for traces from the beginning.
+                              {
+                                  date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
+                              },
                 }
 
                 return {
@@ -848,12 +860,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    urlToAction(({ actions, cache }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         [`${urls.aiObservabilityTraces()}/:id`]: (
             { id },
             { event, timestamp, exception_ts, search, line, tab, msg }
         ) => {
-            actions.setTraceId(tryDecodeURIComponent(id ?? ''))
+            const traceId = tryDecodeURIComponent(id ?? '')
+            const isNewTrace = traceId !== values.traceId
+            actions.setTraceId(traceId)
             void addProductIntent({
                 product_type: ProductKey.AI_OBSERVABILITY,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
@@ -864,15 +878,19 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             const parsedLine = line ? parseInt(line, 10) : NaN
             actions.setLineNumber(!isNaN(parsedLine) ? parsedLine : null)
             actions.setInitialTab(tab || null)
-            if (timestamp) {
-                actions.setDateRange(timestamp || null)
-            } else if (exception_ts) {
+            const dateFrom = timestamp ? parseUrlDate(timestamp) : null
+            const exceptionDate = exception_ts ? parseUrlDate(exception_ts) : null
+            if (dateFrom) {
+                actions.setDateRange(dateFrom)
+            } else if (exceptionDate) {
                 // Increase the lookup window to 20 minutes before and after the exception timestamp, which gives in total 60 minutes.
-                const parsedDate = dayjs(exception_ts)
+                const parsedDate = dayjs(exceptionDate)
                 actions.setDateRange(
                     parsedDate.subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString(),
                     parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
                 )
+            } else if (isNewTrace) {
+                actions.setDateRange(null)
             }
             // Set search from URL param if provided, otherwise clear it.
             // Mark it as URL-driven so the listener doesn't write it straight back to the URL.

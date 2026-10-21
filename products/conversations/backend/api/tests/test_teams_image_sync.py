@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.conversations.backend.teams_attachments import (
     _download_image,
     extract_teams_bot_attachments,
@@ -57,27 +59,41 @@ class TestTeamsImageIngest(SimpleTestCase):
         assert images == []
         mock_download.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("pdf", "application/pdf", "invoice.pdf", b"%PDF-1.4 fake content"),
+            ("heic", "image/heic", "photo.heic", b"\x00\x00\x00\x18ftypheic fake content"),
+        ]
+    )
     @patch("products.conversations.backend.teams_attachments.save_file_to_uploaded_media")
     @patch("products.conversations.backend.teams_attachments._download_image")
-    def test_extract_bot_attachments_keeps_non_image_file(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
-        mock_download.return_value = b"%PDF-1.4 fake content"
-        mock_save.return_value = "https://app.posthog.com/uploaded_media/pdf"
+    def test_extract_bot_attachments_keeps_file_served_as_download(
+        self,
+        _name: str,
+        content_type: str,
+        file_name: str,
+        content: bytes,
+        mock_download: MagicMock,
+        mock_save: MagicMock,
+    ) -> None:
+        mock_download.return_value = content
+        mock_save.return_value = "https://app.posthog.com/uploaded_media/file"
 
         fake_team = MagicMock()
         fake_team.id = 1
 
         attachments = [
             {
-                "contentType": "application/pdf",
-                "contentUrl": "https://smba.trafficmanager.net/files/invoice.pdf",
-                "name": "invoice.pdf",
+                "contentType": content_type,
+                "contentUrl": f"https://smba.trafficmanager.net/files/{file_name}",
+                "name": file_name,
             }
         ]
         results = extract_teams_bot_attachments(attachments, fake_team, "bot-token")
 
         assert len(results) == 1
-        assert results[0]["mimetype"] == "application/pdf"
-        assert results[0]["name"] == "invoice.pdf"
+        assert results[0]["mimetype"] == content_type
+        assert results[0]["name"] == file_name
         # Non-image bytes are stored without image validation
         assert mock_save.call_args.kwargs["validate_images"] is False
 

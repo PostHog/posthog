@@ -22,6 +22,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -31,10 +32,14 @@ from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    OutputSchema,
     StreamChunk,
     Usage,
 )
-from products.ai_observability.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+from products.ai_observability.backend.providers.formatters.gemini_formatter import (
+    MessageConversionError,
+    convert_anthropic_messages_to_gemini,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +156,9 @@ class GeminiAdapter:
         `complete` and `stream` both route through this, so the same provider failure reads the
         same way whether the caller streamed it or not.
         """
+        if isinstance(error, MessageConversionError):
+            # The user authored the message that failed to convert, so show the reason.
+            return ProviderRequestRejectedError(str(error))
         if isinstance(error, APIError):
             error_message = str(error).lower()
             status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
@@ -167,6 +175,11 @@ class GeminiAdapter:
             # gracefully instead of burning Temporal retries on an unhandled exception.
             if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
                 return ModelNotFoundError(model)
+            # Google cancels a call with a 499/CANCELLED error. The retry policy already covers it,
+            # but the message differs per occurrence, so an unmapped one files a new error tracking
+            # issue every time. Share the transport lane, which the caller retries quietly.
+            if status_code == 499 or "cancelled" in error_message or "canceled" in error_message:
+                return ProviderConnectionError(str(error))
             return None
         if isinstance(error, httpx.TransportError):
             # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)
@@ -203,6 +216,7 @@ class GeminiAdapter:
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             tools=tools,
+            output_schema=request.output_schema,
         )
 
         analytics_kwargs: dict[str, Any] = {}
@@ -303,6 +317,7 @@ class GeminiAdapter:
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict] | None = None,
+        output_schema: OutputSchema | None = None,
     ) -> dict[str, Any]:
         """Prepare Gemini config kwargs."""
         effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
@@ -315,6 +330,9 @@ class GeminiAdapter:
             config_kwargs["max_output_tokens"] = max_tokens
         if tools is not None:
             config_kwargs["tools"] = tools
+        if output_schema is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_json_schema"] = output_schema.schema
         return config_kwargs
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:

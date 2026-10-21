@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import requests
+import structlog
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -13,12 +15,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_
 BASE_URL = "https://www.clarity.ms"
 INSIGHTS_PATH = "/export-data/api/v1/project-live-insights"
 
+LOGGER = structlog.get_logger(__name__)
+
 # Cheapest possible probe to confirm a token is genuine: one day, no breakdown dimensions. Still
 # counts against the project's 10-requests/day quota, which is an accepted tradeoff for validating
 # credentials at source-create time.
 _VALIDATION_NUM_OF_DAYS = "1"
 
 _REQUEST_TIMEOUT = 30
+
+TOKEN_INVALID_ERROR = (
+    "Your Microsoft Clarity API token is invalid or expired. Generate a new token in Clarity "
+    "under Settings -> Data Export and reconnect."
+)
+# A Clarity token only ever grants access to the project it was generated in, so a 403 means the
+# token belongs to another project rather than that it is missing a permission.
+TOKEN_WRONG_PROJECT_ERROR = (
+    "Your Microsoft Clarity API token isn't authorized for this project. Generate one in the "
+    "Clarity project you want to sync, under Settings -> Data Export, then reconnect."
+)
+TOKEN_CHECK_FAILED_ERROR = (
+    "Microsoft Clarity rejected the connection check. Confirm the token is still listed in Clarity "
+    "under Settings -> Data Export, then reconnect."
+)
+CLARITY_UNREACHABLE_ERROR = (
+    "Couldn't reach Microsoft Clarity to check your token. This is usually temporary, so try again in a few minutes."
+)
 
 
 def _build_params(num_of_days: str, dimensions: list[str]) -> dict[str, str]:
@@ -28,10 +50,10 @@ def _build_params(num_of_days: str, dimensions: list[str]) -> dict[str, str]:
     return params
 
 
-def _fetch(token: str, num_of_days: str, dimensions: list[str]) -> requests.Response:
+def _fetch(token: str, num_of_days: str, dimensions: list[str], retry: Retry | None = None) -> requests.Response:
     # make_tracked_session already retries 429/5xx with backoff; the daily quota is a hard cap so a
     # 429 that survives those retries is genuine and should surface, not be retried again here.
-    session = make_tracked_session(redact_values=(token,))
+    session = make_tracked_session(redact_values=(token,), retry=retry)
     return session.get(
         f"{BASE_URL}{INSIGHTS_PATH}",
         params=_build_params(num_of_days, dimensions),
@@ -42,21 +64,26 @@ def _fetch(token: str, num_of_days: str, dimensions: list[str]) -> requests.Resp
 
 def validate_credentials(token: str) -> tuple[bool, str | None]:
     try:
-        response = _fetch(token, _VALIDATION_NUM_OF_DAYS, [])
+        # The probe runs inline on an API worker, so it takes a single attempt. Default retries
+        # honor the Retry-After of a quota 429 and outlast the gateway timeout.
+        response = _fetch(token, _VALIDATION_NUM_OF_DAYS, [], retry=Retry(total=0))
     except requests.RequestException:
-        return False, "Could not reach Microsoft Clarity. Please try again."
+        return False, CLARITY_UNREACHABLE_ERROR
 
     if response.ok:
         return True, None
     if response.status_code == 401:
-        return False, "Invalid or expired Microsoft Clarity API token."
+        return False, TOKEN_INVALID_ERROR
     if response.status_code == 403:
-        return False, "This Microsoft Clarity API token is not authorized for this project."
+        return False, TOKEN_WRONG_PROJECT_ERROR
     if response.status_code == 429:
         # The project's 10-requests/day quota is already exhausted (possibly by other tooling), but
         # that doesn't mean the token itself is invalid — don't block source creation over it.
         return True, None
-    return False, f"Microsoft Clarity returned status {response.status_code}."
+    if response.status_code >= 500:
+        return False, CLARITY_UNREACHABLE_ERROR
+    LOGGER.warning("Microsoft Clarity rejected the credential probe", status_code=response.status_code)
+    return False, TOKEN_CHECK_FAILED_ERROR
 
 
 def _resolve_dimensions(dimension1: Optional[str], dimension2: Optional[str], dimension3: Optional[str]) -> list[str]:

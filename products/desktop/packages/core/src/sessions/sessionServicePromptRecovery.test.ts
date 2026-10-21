@@ -113,6 +113,81 @@ describe("SessionService prompt recovery on fatal session errors", () => {
     );
   });
 
+  it.each(
+    [
+      "This conversation is too large to continue.",
+      "Prompt is too long",
+      "exceeded this model context window limit",
+      'API Error: 413 {"error":{"message":"Request rejected"}}',
+    ].flatMap((message) =>
+      (["message", "details"] as const).map((location) => ({
+        message,
+        location,
+      })),
+    ),
+  )(
+    "keeps the session connected for $message in $location",
+    async ({ message, location }) => {
+      const { service, sessions, promptMutate, recoverSpy, usageLimitShow } =
+        createHarness();
+      const error =
+        location === "message"
+          ? new Error(`Internal error: ${message}`)
+          : Object.assign(new Error("Internal error"), {
+              data: { details: message },
+            });
+      promptMutate.mockImplementation(async () => {
+        sessions[TASK_RUN_ID].isCompacting = true;
+        throw error;
+      });
+      recoverSpy.mockResolvedValue(true);
+
+      await expect(service.sendPrompt(TASK_ID, "/compact")).rejects.toThrow(
+        error,
+      );
+
+      expect(promptMutate).toHaveBeenCalledTimes(1);
+      expect(recoverSpy).not.toHaveBeenCalled();
+      expect(usageLimitShow).not.toHaveBeenCalled();
+      expect(sessions[TASK_RUN_ID]).toMatchObject({
+        status: "connected",
+        isPromptPending: false,
+        isCompacting: false,
+        promptStartedAt: null,
+      });
+    },
+  );
+
+  it.each(["message", "details"] as const)(
+    "surfaces a request rejection in %s without restarting the session",
+    async (location) => {
+      const { service, sessions, promptMutate, recoverSpy } = createHarness();
+      const message = "API Error: 400 invalid_request_error";
+      const error =
+        location === "message"
+          ? new Error(`Internal error: ${message}`)
+          : Object.assign(new Error("Internal error"), {
+              data: { details: message },
+            });
+      promptMutate.mockRejectedValue(error);
+
+      await expect(
+        service.sendPrompt(TASK_ID, "keep this message"),
+      ).rejects.toThrow(
+        "The AI provider couldn't process this request. Try starting a new task.",
+      );
+
+      expect(promptMutate).toHaveBeenCalledTimes(1);
+      expect(recoverSpy).not.toHaveBeenCalled();
+      expect(sessions[TASK_RUN_ID]).toMatchObject({
+        status: "connected",
+        isPromptPending: false,
+        isCompacting: false,
+        promptStartedAt: null,
+      });
+    },
+  );
+
   it.each([
     {
       case: "recovery fails",

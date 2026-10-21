@@ -78,12 +78,20 @@ def register_team_extension_signal(
         except Exception as e:
             _logger.warning(f"Error creating {model_name}: {e}")
 
-    post_save.connect(receiver_func, sender=Team, dispatch_uid=f"create_{model_name.lower()}")
+    # weak=False: receiver_func is local, so the default weak reference dies as soon as this
+    # function returns and the next connect() sweeps the dead entry away. Under DEBUG the
+    # receiver survives by accident, because Signal.connect's kwargs check caches it, so only
+    # production loses the receiver.
+    post_save.connect(receiver_func, sender=Team, dispatch_uid=f"create_{model_name.lower()}", weak=False)
 
 
 class TeamExtensionDescriptor:
     """
     TRANSITIONAL: Descriptor for lazy-loading Team extension models.
+
+    The first read on a Team instance loads the extension row. Later reads on that instance
+    return the same object. refresh_from_db() does not reload the row. After code writes the row
+    through another object, read the row directly or load a new Team instance.
 
     Exists for backward compatibility with existing `team.<product>_config` accessors.
     Do NOT add new descriptors to Team — products should access their config via
@@ -101,10 +109,13 @@ class TeamExtensionDescriptor:
         self.class_name = class_name
         self.defaults = defaults
         self._model_class: type[models.Model] | None = None
-        self.attr_name = ""
+        self.cache_name = ""
 
     def __set_name__(self, owner: type, name: str) -> None:
-        self.attr_name = name
+        # The team update paths diff snapshots of `Team.__dict__` for the activity log.
+        # dict_changes_between skips keys that start with "_". A cache under the public name would
+        # log the config as a team field that changed.
+        self.cache_name = f"_{name}"
 
     @property
     def model_class(self) -> type[models.Model]:
@@ -116,6 +127,6 @@ class TeamExtensionDescriptor:
     def __get__(self, obj: "Team | None", objtype: type | None = None) -> Any:
         if obj is None:
             return self
-        value = get_or_create_team_extension(obj, self.model_class, self.defaults)
-        obj.__dict__[self.attr_name] = value
-        return value
+        if self.cache_name not in obj.__dict__:
+            obj.__dict__[self.cache_name] = get_or_create_team_extension(obj, self.model_class, self.defaults)
+        return obj.__dict__[self.cache_name]

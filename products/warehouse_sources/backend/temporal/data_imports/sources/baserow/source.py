@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow import (
     BaserowResumeConfig,
     baserow_rows_source,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BaserowSource(ResumableSource[BaserowSourceConfig, BaserowResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(env=("^BASEROW_",))
+
     # Baserow's REST API carries no version segment or version header.
     api_docs_url = "https://baserow.io/api-docs"
 
@@ -50,7 +51,7 @@ class BaserowSource(ResumableSource[BaserowSourceConfig, BaserowResumeConfig], V
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BASEROW,
+            name=ExternalDataSourceType.BASEROW,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Baserow",
             caption="""Sync the tables from your Baserow databases into the PostHog Data warehouse — each Baserow table becomes its own warehouse table.
@@ -58,7 +59,7 @@ class BaserowSource(ResumableSource[BaserowSourceConfig, BaserowResumeConfig], V
 Create a database token in Baserow under **Settings > Database tokens** and make sure **read** permission is enabled for the tables you want to sync. Leave the instance URL blank to use Baserow's hosted service; self-hosted instances must be reachable over https.""",
             iconPath="/static/services/baserow.png",
             docsUrl="https://posthog.com/docs/cdp/sources/baserow",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["airtable alternative", "no-code database"],
             fields=cast(
                 list[FieldType],

@@ -12,12 +12,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import {
     isDirectScoutNote,
     NOTES_FETCH_LIMIT,
     scoutNoteOriginLabel,
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
+import { linkReportIdsInNote } from '../../../utils/scoutMemoryPresentation'
 import { ScoutNoteContent } from './ScoutNoteContent'
 
 /** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
@@ -137,68 +139,118 @@ export function LeaveScoutNoteButton({
  */
 export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Element {
     const logic = scoutNotesLogic({ skillName })
-    const { scoutNotes, fleetWideNotes, notesLoading, notesLoadFailed, notesCapped } = useValues(logic)
+    const { scoutNotes, fleetWideNotes, toldCount, notesLoading, notesLoadFailed, notesCapped } = useValues(logic)
     const { deleteNote, loadNotes } = useActions(logic)
-    const [showAll, setShowAll] = useState(false)
+    const { reportRows } = useValues(scoutDetailLogic({ skillName }))
 
-    const visible = showAll ? scoutNotes : scoutNotes.slice(0, 4)
-    const otherFleetNotes = skillName ? fleetWideNotes.filter((note) => !scoutNotes.includes(note)) : []
+    // On the fleet view every note is already in `scoutNotes`.
+    const otherFleetNotes = skillName ? fleetWideNotes : []
+    // Reports this scout touched in the window, so a note naming one by id can name it by title.
+    const reportsById = new Map(reportRows.map(({ report }) => [report.id.toLowerCase(), report]))
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-default">What you've told it</span>
-                <span className="flex-1" />
-                <LeaveScoutNoteButton skillName={skillName} size="xsmall" />
-            </div>
-
-            {notesLoading && scoutNotes.length === 0 ? (
+            {notesLoading && toldCount === 0 ? (
                 <div className="rounded border border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Loading notes…
                 </div>
-            ) : notesLoadFailed && scoutNotes.length === 0 ? (
+            ) : notesLoadFailed && toldCount === 0 ? (
                 <div className="flex flex-col items-center gap-2 rounded border border-danger bg-danger-highlight px-4 py-6 text-center text-sm text-danger">
                     <span>Couldn't load the notes.</span>
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadNotes()}>
                         Try again
                     </LemonButton>
                 </div>
-            ) : scoutNotes.length === 0 ? (
+            ) : toldCount === 0 ? (
                 <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Nothing yet. Leave a note to steer what this scout looks at, or dismiss one of its reports with a
                     reason, and that reaches it too.
                 </div>
             ) : (
-                <div className="flex flex-col rounded border border-primary bg-surface-primary">
-                    {visible.map((note) => (
-                        <ScoutNoteRow key={note.id} note={note} onDelete={() => deleteNote(note.id)} />
-                    ))}
-                    {scoutNotes.length > visible.length && (
-                        <div className="border-t border-primary px-3 py-2">
-                            <LemonButton size="xsmall" type="tertiary" onClick={() => setShowAll(true)}>
-                                Show all {pluralize(scoutNotes.length, 'note')}
-                            </LemonButton>
+                <>
+                    {scoutNotes.length > 0 && (
+                        <ScoutNoteList
+                            notes={scoutNotes}
+                            reportsById={reportsById}
+                            capped={notesCapped}
+                            onDelete={deleteNote}
+                        />
+                    )}
+                    {/* A note addressed to every scout reaches this one too, but it is not about this
+                        scout, so it sits under its own label rather than in the list above. */}
+                    {otherFleetNotes.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold text-secondary">For every scout</span>
+                            <ScoutNoteList
+                                notes={otherFleetNotes}
+                                reportsById={reportsById}
+                                capped={notesCapped}
+                                onDelete={deleteNote}
+                            />
                         </div>
                     )}
-                    {showAll && notesCapped && (
-                        <span className="border-t border-primary px-3 py-2 text-[11px] text-muted">
-                            Showing the newest {NOTES_FETCH_LIMIT} notes.
-                        </span>
-                    )}
-                </div>
+                </>
             )}
 
             <span className="text-xs text-muted">
                 New notes are picked up on the next run and folded into what it has learned. Delete a note once it has
                 done its job.
-                {otherFleetNotes.length > 0 &&
-                    ` ${pluralize(otherFleetNotes.length, 'note')} addressed to every scout applies here too.`}
             </span>
         </div>
     )
 }
 
-function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => void }): JSX.Element {
+function ScoutNoteList({
+    notes,
+    reportsById,
+    capped,
+    onDelete,
+}: {
+    notes: ScoutNoteApi[]
+    reportsById: Map<string, { id: string; title: string | null }>
+    capped: boolean
+    onDelete: (noteId: string) => void
+}): JSX.Element {
+    const [showAll, setShowAll] = useState(false)
+    const visible = showAll ? notes : notes.slice(0, 4)
+
+    return (
+        <div className="flex flex-col rounded border border-primary bg-surface-primary">
+            {visible.map((note) => (
+                <ScoutNoteRow
+                    key={note.id}
+                    note={note}
+                    content={linkReportIdsInNote(note.content, reportsById, {
+                        truncateUnmatched: !isDirectScoutNote(note),
+                    })}
+                    onDelete={() => onDelete(note.id)}
+                />
+            ))}
+            {notes.length > visible.length && (
+                <div className="border-t border-primary px-3 py-2">
+                    <LemonButton size="xsmall" type="tertiary" onClick={() => setShowAll(true)}>
+                        Show all {pluralize(notes.length, 'note')}
+                    </LemonButton>
+                </div>
+            )}
+            {showAll && capped && (
+                <span className="border-t border-primary px-3 py-2 text-[11px] text-muted">
+                    Showing the newest {NOTES_FETCH_LIMIT} notes.
+                </span>
+            )}
+        </div>
+    )
+}
+
+function ScoutNoteRow({
+    note,
+    content,
+    onDelete,
+}: {
+    note: ScoutNoteApi
+    content: string
+    onDelete: () => void
+}): JSX.Element {
     const direct = isDirectScoutNote(note)
     const disabledReason = noteWriteDisabledReason()
 
@@ -222,7 +274,7 @@ function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => 
                         </Tooltip>
                     )}
                 </div>
-                <ScoutNoteContent content={note.content} />
+                <ScoutNoteContent content={content} />
             </div>
             {/* Only a note someone left here is retired here. A derived one is a record of what
                 happened in the inbox, and deleting it would rewrite that. */}

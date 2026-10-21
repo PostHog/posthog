@@ -294,20 +294,34 @@ class TestSignalReportRefundAPI(APIBaseTest):
                 SignalReport.Status.READY,
                 {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
                 True,
+                None,
             ),
+            ("canonical_merge", SignalReport.Status.READY, {"pr_url": "https://github.com/x/y/pull/1"}, True, "merged"),
             # Resolved without a merged PR must NOT report a merge: status alone can't attest one.
             (
                 "resolved_without_merge",
                 SignalReport.Status.RESOLVED,
                 {"pr_url": "https://github.com/x/y/pull/1"},
                 False,
+                None,
             ),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
-    def test_analytics_pr_merged_reflects_merge_flag_not_status(self, _flag, _name, report_status, output, expected):
+    def test_analytics_pr_merged_reflects_merge_flag_not_status(
+        self, _flag, _name, report_status, output, expected, linked_state
+    ):
         report = _make_report(self.team, status=report_status)
         _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
+        if linked_state is not None:
+            from products.signals.backend.models import SignalReportPullRequest
+
+            assert (
+                SignalReportPullRequest.objects.for_team(self.team.id)
+                .filter(repository="x/y", number=1)
+                .update(state=linked_state)
+                == 1
+            )
         with patch("products.signals.backend.views.report_user_action") as mock_report:
             assert self._refund(report).status_code == status.HTTP_200_OK
         assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]):
+    codebase_detection = detect(env=("^JUSTCALL_",))
+
     supported_versions = ("v2.1",)
     default_version = "v2.1"
     api_docs_url = "https://developer.justcall.io/reference"
@@ -56,7 +57,7 @@ class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JUST_CALL,
+            name=ExternalDataSourceType.JUSTCALL,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="JustCall",
             caption="""Enter your JustCall API credentials to pull your JustCall data into the PostHog Data warehouse.
@@ -64,7 +65,7 @@ class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]
 Generate an API key and secret under **Account Settings → Developers (APIs and Webhooks)** in your [JustCall dashboard](https://app.justcall.io/). The credentials have read access to your account's calls, texts, contacts, and phone numbers.""",
             iconPath="/static/services/justcall.png",
             docsUrl="https://posthog.com/docs/cdp/sources/justcall",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,3 +1,4 @@
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import {
   act,
@@ -8,6 +9,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BuiltCanvas } from "./BuiltCanvas";
+
+vi.mock("@posthog/ui/shell/openExternal", () => ({ openExternalUrl: vi.fn() }));
 
 describe("BuiltCanvas", () => {
   const capabilities = {
@@ -24,6 +27,50 @@ describe("BuiltCanvas", () => {
   };
   const initialIsDarkMode = useThemeStore.getState().isDarkMode;
   afterEach(() => useThemeStore.setState({ isDarkMode: initialIsDarkMode }));
+
+  it("opens a GitHub PR without a confirmation dialog", async () => {
+    const confirm = vi.spyOn(window, "confirm");
+    Object.defineProperty(navigator, "userActivation", {
+      configurable: true,
+      value: { isActive: true },
+    });
+    try {
+      render(
+        <BuiltCanvas
+          artifactUrl="https://usercontent.example/build/index.html"
+          capabilities={capabilities}
+          onDataRequest={vi.fn()}
+        />,
+      );
+      const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+      if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+      const postMessage = vi
+        .spyOn(iframe.contentWindow, "postMessage")
+        .mockImplementation(() => undefined);
+      fireEvent.load(iframe);
+      const calls = postMessage.mock.calls as unknown as [
+        unknown,
+        string,
+        Transferable[],
+      ][];
+      const port = calls.at(-1)?.[2]?.[0] as MessagePort;
+      port.postMessage({
+        channel: "posthog-canvas",
+        type: "open-external",
+        url: "https://github.com/example/app/pull/42",
+      });
+      await waitFor(() =>
+        expect(openExternalUrl).toHaveBeenCalledWith(
+          "https://github.com/example/app/pull/42",
+        ),
+      );
+      expect(confirm).not.toHaveBeenCalled();
+    } finally {
+      confirm.mockRestore();
+      Reflect.deleteProperty(navigator, "userActivation");
+      vi.mocked(openExternalUrl).mockClear();
+    }
+  });
 
   it("loads an immutable artifact without granting origin or popup access", () => {
     render(

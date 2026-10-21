@@ -1,0 +1,23 @@
+{
+    "name": "@posthog/workflow-plan",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Evaluates GitHub Actions job and step conditions against PR, push, and schedule scenarios",
+    "license": "MIT",
+    "type": "module",
+    "scripts": {
+        "plan": "node src/cli.ts",
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@actions/expressions": "0.3.61",
+        "js-yaml": "^4.1.0"
+    },
+    "devDependencies": {
+        "@types/js-yaml": "^4.0.9",
+        "@types/node": "^24.0.0",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.0"
+    }
+}

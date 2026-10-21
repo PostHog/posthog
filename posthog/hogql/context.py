@@ -1,4 +1,5 @@
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
@@ -101,6 +102,9 @@ class HogQLContext:
     top_level_settings: dict[str, object] = field(default_factory=dict)
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    # Standard-library names the bytecode compiler accepts for a direct call. The Python and Node
+    # standard libraries differ, so a caller whose bytecode runs elsewhere names what it can execute.
+    allowed_functions: Optional[dict[str, tuple[int, Optional[int]]]] = None
     property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).
@@ -116,6 +120,10 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+    referenced_saved_query_ids: set[str] = field(default_factory=set)
+    referenced_warehouse_table_ids: set[str] = field(default_factory=set)
+    directly_read_ids: set[str] = field(default_factory=set)
+    view_body_depth: int = 0
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
@@ -165,6 +173,10 @@ class HogQLContext:
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
 
+    # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
+    # the filter is selective, so set it only for a query shape that was measured to be faster with it.
+    order_events_reads_by_sort_key: bool = False
+
     # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
     # Postgres table name so two such tables can never share one window. Resolved lazily by the
     # ClickHouse printer the first time each table is printed, so a query that reads none of them
@@ -182,7 +194,7 @@ class HogQLContext:
             from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
 
             # Pin per context so an instance-setting flip can't mix schemas within one query.
-            self.use_new_events_schema = use_new_events_schema(self.team_id)
+            self.use_new_events_schema = use_new_events_schema(self.team_id, self.modifiers)
         return self.use_new_events_schema
 
     def add_value(self, value: Any) -> str:
@@ -230,6 +242,27 @@ class HogQLContext:
             from posthog.schema import HogQLNotice  # noqa: PLC0415
 
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    def clear_reads(self) -> None:
+        self.referenced_saved_query_ids.clear()
+        self.referenced_warehouse_table_ids.clear()
+        self.directly_read_ids.clear()
+
+    def read_tags(self) -> dict[str, list[str] | None]:
+        return {
+            "saved_query_ids": sorted(self.referenced_saved_query_ids) or None,
+            "warehouse_table_ids": sorted(self.referenced_warehouse_table_ids) or None,
+            "directly_read_ids": sorted(self.directly_read_ids) or None,
+        }
+
+    @contextmanager
+    def entering_select(self, view_name: str | None) -> Iterator[None]:
+        step = 0 if view_name is None else 1
+        self.view_body_depth += step
+        try:
+            yield
+        finally:
+            self.view_body_depth -= step
 
     def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
         self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning

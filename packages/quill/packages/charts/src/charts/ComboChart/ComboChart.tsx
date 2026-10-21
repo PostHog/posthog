@@ -149,6 +149,8 @@ function ComboChartInner<Meta = unknown>({
                 barLayout,
                 seriesTypeOf,
                 barStackedData,
+                bandPadding: config?.bandPadding,
+                groupPadding: config?.bandPadding === 0 ? 0 : undefined,
                 valueDomain,
                 axes: configYAxes,
             })
@@ -183,7 +185,7 @@ function ComboChartInner<Meta = unknown>({
                 _private: comboPrivate,
             }
         },
-        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, configYAxes]
+        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, configYAxes, config?.bandPadding]
     )
 
     const drawStatic = useCallback(

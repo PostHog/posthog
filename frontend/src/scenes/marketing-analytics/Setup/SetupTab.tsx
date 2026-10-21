@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -46,11 +46,19 @@ export function SetupTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { setupSection } = useValues(marketingAnalyticsLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
-    const { setupPlan, visibleSuggestions, reviewingSuggestion, isReviewingBatch, safeBatch, applyingIds } =
-        useValues(setupPlanLogic)
-    const { loadSetupPlan, reviewSuggestion, confirmReviewedSuggestion, confirmReviewedBatch } =
+    const {
+        setupPlan,
+        setupPlanLoading,
+        sourceScanDisabledReason,
+        visibleSuggestions,
+        reviewingSuggestion,
+        isReviewingBatch,
+        safeBatch,
+        applyingIds,
+    } = useValues(setupPlanLogic)
+    const { loadSetupPlan, rescanSources, reviewSuggestion, confirmReviewedSuggestion, confirmReviewedBatch } =
         useActions(setupPlanLogic)
-    const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { integrationSettingsModal, setupEntryPointLabel } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     // Keep the audit gated for one release so the two flags can roll independently;
@@ -72,12 +80,25 @@ export function SetupTab(): JSX.Element {
     const active = sections.find((section) => section.key === setupSection) ?? sections[0]
 
     useEffect(() => {
-        posthog.capture('marketing analytics setup section viewed', { section: active.key })
+        posthog.capture('marketing analytics setup section viewed', {
+            section: active.key,
+            entry_point: setupEntryPointLabel,
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active.key])
 
     return (
-        <div className="flex flex-col md:flex-row gap-6 mt-4">
-            <nav className="md:w-56 shrink-0 flex flex-row md:flex-col gap-px overflow-x-auto">
+        <div className="flex flex-col @min-[48rem]/main-content:flex-row gap-6 mt-4">
+            <div className="@min-[48rem]/main-content:hidden">
+                <LemonSelect
+                    fullWidth
+                    value={active.key}
+                    onChange={setSetupSection}
+                    options={sections.map((section) => ({ value: section.key, label: section.label }))}
+                    aria-label="Setup section"
+                />
+            </div>
+            <nav className="hidden @min-[48rem]/main-content:flex w-56 shrink-0 flex-col gap-px">
                 {sections.map((section) => (
                     <LemonButton
                         key={section.key}
@@ -100,6 +121,17 @@ export function SetupTab(): JSX.Element {
                 {/* Skipped for "Suggested setup", which renders the whole ranked list
                     itself and would otherwise show everything twice. */}
                 {active.key !== SetupSection.SUGGESTIONS && <SectionSuggestions section={active.key} />}
+                {active.key === SetupSection.SOURCES && (
+                    <LemonButton
+                        size="small"
+                        loading={setupPlanLoading}
+                        onClick={rescanSources}
+                        disabledReason={sourceScanDisabledReason}
+                        data-attr="marketing-sources-rescan"
+                    >
+                        Scan events again
+                    </LemonButton>
+                )}
                 {active.content}
             </div>
 
@@ -116,7 +148,7 @@ export function SetupTab(): JSX.Element {
                 onClose={() => reviewSuggestion(null)}
                 onConfirm={(item) => {
                     // Navigate ops finish here; everything else goes to the server.
-                    if (item.apply && runNavigateOp(item.apply)) {
+                    if (item.apply && runNavigateOp(item.apply, setupEntryPointLabel)) {
                         reviewSuggestion(null)
                         return
                     }

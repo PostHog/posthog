@@ -42,12 +42,8 @@ export default defineConfig({
         preserve raw per-test failure signal.
      */
     retries: process.env.PLAYWRIGHT_RETRIES ? Number(process.env.PLAYWRIGHT_RETRIES) : process.env.CI ? 3 : 2,
-    /*
-        GitHub Actions has 4 cores so run 3 workers 
-        and leave one core for all the rest
-        For local running, our machines are all M3 or M4 by now so we can afford to run more workers
-    */
-    workers: process.env.CI ? 3 : 6,
+    /* CI passes --workers explicitly, sized against the other processes on its runner. */
+    workers: 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         // Enforces `mode: "run"` quarantine entries — tolerates their failures so

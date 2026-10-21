@@ -27,6 +27,7 @@ export interface CellTagBlock {
 export const DATAFRAME_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 const TAG_START_REGEX = /^<([A-Z][A-Za-z0-9]*)(?=[\s/>])/
+const ESCAPED_TAG_START_REGEX = /^\\<([A-Z][A-Za-z0-9]*)(?=[\s/>])/
 
 // A JSON string literal: quote-delimited with backslash escapes.
 const JSON_STRING = '"(?:[^"\\\\]|\\\\.)*"'
@@ -80,6 +81,19 @@ function findExpressionProp(tagSource: string, name: string): { start: number; e
     return null
 }
 
+export function readExpressionProp(tagSource: string, name: string): unknown {
+    const expression = findExpressionProp(tagSource, name)
+    if (!expression) {
+        return null
+    }
+    const segment = tagSource.slice(expression.start, expression.end)
+    try {
+        return JSON.parse(segment.slice(`${name}={`.length, -1))
+    } catch {
+        return null
+    }
+}
+
 export function serializePropValue(value: unknown): string {
     if (typeof value === 'string') {
         return JSON.stringify(value)
@@ -107,6 +121,72 @@ export function upsertProp(tagSource: string, name: string, value: unknown): str
     return `${tagSource.slice(0, closing)}${needsSpace ? ' ' : ''}${serialized} ${tagSource.slice(closing)}`
 }
 
+/** Drop a prop from a self-closing tag, leaving every other prop untouched. */
+export function removeProp(tagSource: string, name: string): string {
+    const stringMatch = stringPropRegex(name).exec(tagSource)
+    if (stringMatch) {
+        // The match starts at the whitespace the prop sits behind, so dropping the whole
+        // match keeps the remaining props single-spaced.
+        return tagSource.slice(0, stringMatch.index) + tagSource.slice(stringMatch.index + stringMatch[0].length)
+    }
+    const expression = findExpressionProp(tagSource, name)
+    if (!expression) {
+        return tagSource
+    }
+    // `start` points at the name, so walk back over the space in front of it.
+    let start = expression.start
+    while (start > 0 && /\s/.test(tagSource[start - 1]!)) {
+        start -= 1
+    }
+    return tagSource.slice(0, start) + tagSource.slice(expression.end)
+}
+
+/**
+ * The props the editor derives for a SQL cell that holds its SQL in `query` and has no `code`. Keep in
+ * sync with `getSqlV2PropsFromQueryProp` (markdownNotebookV2.ts) and `_code_from_query_prop` (sql_v2_state.py).
+ */
+export function legacySqlProps(tagSource: string): { code: string; vizQuery?: Record<string, unknown> } | null {
+    if (readStringProp(tagSource, 'code')?.trim()) {
+        return null
+    }
+    let query: unknown = readStringProp(tagSource, 'query') ?? readExpressionProp(tagSource, 'query')
+    if (typeof query === 'string') {
+        if (!query.trim().startsWith('{')) {
+            return query.trim() ? { code: query } : null
+        }
+        try {
+            query = JSON.parse(query)
+        } catch {
+            return null
+        }
+    }
+    if (!query || typeof query !== 'object' || Array.isArray(query)) {
+        return null
+    }
+    const node = query as Record<string, unknown>
+    const source = (node.kind === 'HogQLQuery' ? node : node.source) as Record<string, unknown> | null | undefined
+    const code = source?.kind === 'HogQLQuery' && typeof source.query === 'string' ? source.query : ''
+    if (!code.trim()) {
+        return null
+    }
+    return node.kind === 'DataVisualizationNode' ? { code, vizQuery: node } : { code }
+}
+
+/**
+ * While `code` is empty, a chart in `query` overrides `outputTab` and `vizQuery` in the editor. A chart
+ * edit would not show, and new `code` would drop the chart, unless the tag holds the derived props first.
+ */
+export function materializeLegacySqlProps(tagSource: string): string {
+    const legacy = legacySqlProps(tagSource)
+    if (!legacy) {
+        return tagSource
+    }
+    const source = upsertProp(tagSource, 'code', legacy.code)
+    return legacy.vizQuery
+        ? upsertProp(upsertProp(source, 'outputTab', 'visualization'), 'vizQuery', legacy.vizQuery)
+        : source
+}
+
 export function buildCellTag(tagName: string, props: Record<string, unknown>): string {
     const serialized = Object.entries(props)
         .filter(([, value]) => value !== undefined)
@@ -120,6 +200,29 @@ export function buildCellTag(tagName: string, props: Record<string, unknown>): s
  * starts at a line beginning with `<TagName` and runs until a line ending in `/>` (or a
  * closing tag) — a blank line terminates an unclosed tag without swallowing the document.
  */
+/**
+ * Lexical on purpose. `parseCellTags` reports nothing for a tag that never terminates, and that
+ * is the case that corrupts a document, so a guard built on the parser would pass exactly the
+ * input it must reject.
+ */
+/**
+ * Characters Python's `str.strip()` and `\s` treat as whitespace and JavaScript's do not. The
+ * backend parses the tag grammar, so a line it reads as `<Tag …` must not read as prose here.
+ */
+const PYTHON_ONLY_WHITESPACE = /[\x1c-\x1f\x85]/g
+
+/** A line as the backend's whitespace grammar sees it, so both sides agree on what it opens. */
+export function normalizeForTagScan(line: string): string {
+    return line.replace(PYTHON_ONLY_WHITESPACE, ' ').trim()
+}
+
+export function startsComponentTag(line: string): boolean {
+    const normalized = normalizeForTagScan(line)
+    // The backend recovers a multiline tag written as `\<Tag …>`, so the escaped form opens a
+    // runnable cell exactly like the bare one.
+    return TAG_START_REGEX.test(normalized) || ESCAPED_TAG_START_REGEX.test(normalized)
+}
+
 export function parseCellTags(markdown: string): CellTagBlock[] {
     const blocks: CellTagBlock[] = []
     const lines = markdown.split('\n')
@@ -160,7 +263,10 @@ export function parseCellTags(markdown: string): CellTagBlock[] {
             source,
             nodeId: readStringProp(source, 'nodeId'),
             returnVariable: (readStringProp(source, 'returnVariable') ?? '').trim(),
-            code: readStringProp(source, 'code') ?? '',
+            code:
+                (tagName === 'SQLV2' ? legacySqlProps(source)?.code : undefined) ??
+                readStringProp(source, 'code') ??
+                '',
         })
         offset += blockLines.reduce((sum, blockLine) => sum + blockLine.length + 1, 0)
         index = cursor + 1

@@ -1,41 +1,57 @@
+import json
 import time
+import uuid
+import base64
+from datetime import timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
+from posthog.api.github_callback.personal_state import user_has_personal_github_integration
 from posthog.api.github_callback.state import (
     load_authorize_state,
     parse_github_authorize_state_param,
     store_unified_authorize_state,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.models import OrganizationMembership, Team, User
+from posthog.api.user_integration import _has_unlinked_github_installations
+from posthog.egress.limiter.policies import Priority
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubIntegrationError,
     GitHubUserAuthorization,
     Integration,
 )
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.user_integration import (
+    NEEDS_REAUTHORIZATION_AT_CONFIG_KEY,
     GitHubInstallRequest,
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
     user_github_integration_from_installation,
 )
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
     return GitHubUserAuthorization(
         gh_id=gh_id,
         gh_login=gh_login,
+        identity_verified_at=123,
         access_token="gho_access",
         refresh_token="ghr_refresh",
         access_token_expires_in=28800,
@@ -67,6 +83,30 @@ def _create_user_integration(user: User, **overrides) -> UserIntegration:
     }
     defaults.update(overrides)
     return UserIntegration.objects.create(user=user, **defaults)
+
+
+def _codex_jwt(claims: dict[str, Any]) -> str:
+    def segment(value: dict[str, Any]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+    return f"{segment({'alg': 'RS256'})}.{segment(claims)}.c2lnbmF0dXJl"
+
+
+def _codex_access_token() -> str:
+    return _codex_jwt(
+        {
+            "exp": int(time.time()) + 3600,
+            "https://api.openai.com/auth": {"chatgpt_account_id": "acct_1", "chatgpt_plan_type": "plus"},
+        }
+    )
+
+
+def _codex_refresh_body(refresh_token: str) -> dict[str, Any]:
+    return {
+        "access_token": _codex_access_token(),
+        "refresh_token": refresh_token,
+        "id_token": _codex_jwt({"email": "dev@example.com"}),
+    }
 
 
 class TestUserIntegrationEndpoints(APIBaseTest):
@@ -121,6 +161,23 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         self.assertEqual(response.json()["results"][0]["installation_status"], "unavailable")
 
+    def test_list_keeps_a_credential_that_needs_reconnecting_and_marks_it(self):
+        integration = _create_user_integration(self.user)
+        integration.config = {
+            **integration.config,
+            "needs_reauthorization_reason": "refresh rejected by GitHub",
+            "needs_reauthorization_at": 1704110400,
+        }
+        integration.save()
+
+        response = self.client.get("/api/users/@me/integrations/")
+
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["needs_reauthorization"])
+        self.assertEqual(results[0]["needs_reauthorization_at"], "2024-01-01T12:00:00Z")
+        self.assertNotIn("needs_reauthorization_reason", results[0])
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_list_heals_a_placeholder_account_name(self, mock_client_request):
         mock_client_request.return_value = MagicMock(
@@ -162,6 +219,16 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         data = response.json()
         self.assertEqual(data["installation_status"], "unavailable")
         self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
+
+    @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/"), ("GET", "branches/?repo=octocat/repo1")])
+    def test_github_installation_endpoints_reject_a_flagged_link(self, method, path):
+        integration = _create_user_integration(self.user)
+        integration.config = {**integration.config, NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: 1}
+        integration.save()
+
+        response = self.client.generic(method, f"/api/users/@me/integrations/github/12345/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_returns_multiple_github_integrations(self):
         _create_user_integration(self.user, integration_id="12345")
@@ -296,9 +363,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_last_reference_calls_github_uninstall(self, mock_uninstall):
-        mock_uninstall.return_value = True
+        mock_uninstall.return_value = "uninstalled"
         _create_user_integration(self.user, integration_id="12345")
 
         response = self.client.delete("/api/users/@me/integrations/github/12345/")
@@ -307,7 +374,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_called_once_with("12345")
         self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_skips_uninstall_when_team_reference_exists(self, mock_uninstall):
         _create_user_integration(self.user, integration_id="12345")
         Integration.objects.create(
@@ -320,7 +387,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_not_called()
         self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_skips_uninstall_when_other_user_reference_exists(self, mock_uninstall):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         _create_user_integration(self.user, integration_id="12345")
@@ -332,16 +399,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_not_called()
 
     @patch(
-        "posthog.api.user_integration.UserGitHubIntegration.uninstall_if_last_reference",
+        "posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status",
         side_effect=Exception("GitHub API error"),
     )
-    def test_delete_still_returns_204_when_uninstall_fails(self, _mock_uninstall):
+    def test_delete_still_returns_204_when_uninstall_fails(self, mock_uninstall):
         _create_user_integration(self.user, integration_id="12345")
 
         response = self.client.delete("/api/users/@me/integrations/github/12345/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+        mock_uninstall.assert_called_once_with("12345")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
@@ -420,12 +488,25 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("client_id=gh_client_123", url)
         self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
+    @parameterized.expand(
+        [
+            ("healthy_link", {}, "app_install", "github.com/apps/posthog-dev/installations/new"),
+            (
+                "flagged_link",
+                {NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: 1},
+                "oauth_authorize",
+                "github.com/login/oauth/authorize",
+            ),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
         "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
-    def test_github_start_posthog_code_skips_fast_path_when_already_linked(self, _mock_settings):
+    def test_github_start_posthog_code_fast_path_with_an_existing_link(
+        self, _name, link_config, expected_flow, expected_url, _mock_settings
+    ):
         integration = Integration.objects.create(
             team=self.team,
             kind="github",
@@ -438,7 +519,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             user=self.user,
             kind="github",
             integration_id=integration.integration_id,
-            config={},
+            config=link_config,
             sensitive_config={},
         )
         response = self.client.post(
@@ -448,8 +529,47 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data.get("connect_flow"), "app_install")
-        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+        self.assertEqual(data.get("connect_flow"), expected_flow)
+        self.assertIn(expected_url, data["install_url"])
+
+    @parameterized.expand(
+        [("healthy_link", {}, False), ("flagged_link", {NEEDS_REAUTHORIZATION_AT_CONFIG_KEY: 1}, True)]
+    )
+    @patch("posthog.api.user_integration.list_user_github_app_installations", return_value=[{"id": 12345678}])
+    def test_has_unlinked_github_installations_counts_a_flagged_link_as_unlinked(
+        self, _name, link_config, expected, _mock_list
+    ):
+        UserIntegration.objects.create(
+            user=self.user, kind="github", integration_id="12345678", config=link_config, sensitive_config={}
+        )
+        self.assertIs(_has_unlinked_github_installations(self.user), expected)
+
+    @parameterized.expand([("oauth_discover", "posthog_code"), ("app_install", None)])
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=None)
+    @patch(
+        "posthog.api.github_callback.types.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_start_records_the_selected_project_organization(
+        self, expected_flow, connect_from, _mock_settings, _mock_unlinked
+    ):
+        other_org = Organization.objects.create(name="Synthetic other organization")
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        self.user.current_organization = other_org
+        self.user.save(update_fields=["current_organization"])
+
+        body = {"team_id": self.team.id, **({"connect_from": connect_from} if connect_from else {})}
+        response = self.client.post("/api/users/@me/integrations/github/start/", body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["connect_flow"], expected_flow)
+        state = parse_qs(urlparse(response.json()["install_url"]).query)["state"][0]
+        token, _ = parse_github_authorize_state_param(state)
+        assert token is not None
+        stored = load_authorize_state(token, user_id=self.user.id)
+        assert stored is not None
+        assert stored.originating_organization_id == self.organization.id
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
@@ -669,14 +789,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
 
         state = "tok_oauth_discover_empty"
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state,
-                flow=FlowKind.OAUTH_DISCOVER,
-                user_id=self.user.id,
-                connect_from="posthog_code",
-            ),
+        origin = GitHubAuthorizeState(
+            token=state,
+            flow=FlowKind.OAUTH_DISCOVER,
+            user_id=self.user.id,
+            connect_from="posthog_code",
         )
+        store_unified_authorize_state(origin)
+        other_org = Organization.objects.create(name="Synthetic other organization")
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        self.user.current_organization = other_org
+        self.user.save(update_fields=["current_organization"])
 
         response = self.client.get(
             "/complete/github-link/",
@@ -685,6 +808,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
+
+        next_state = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        next_token, _ = parse_github_authorize_state_param(next_state)
+        assert next_token is not None
+        resumed = load_authorize_state(next_token, user_id=self.user.id)
+        assert resumed is not None
+        assert resumed.originating_organization_id == self.organization.id
+        assert resumed.flow_id == origin.flow_id
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1047,7 +1178,7 @@ class TestUserGitHubIntegration(APIBaseTest):
                 "user_refresh_token": "ghr_refresh",
             },
         )
-        return UserGitHubIntegration(integration)
+        return UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
     def test_github_login_and_id(self):
         gh = self._make_integration()
@@ -1066,24 +1197,42 @@ class TestUserGitHubIntegration(APIBaseTest):
         gh = self._make_integration()
         self.assertFalse(gh.user_access_token_expired())
 
+    @parameterized.expand(
+        [
+            ("github_returns_a_new_refresh_token", {"refresh_token": "ghr_new"}, "ghr_new", True),
+            ("github_returns_no_refresh_token", {}, "ghr_refresh", False),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
-    def test_refresh_user_access_token_updates_credentials(self, mock_post):
+    def test_refresh_user_access_token_updates_credentials(
+        self,
+        _name: str,
+        refresh_token_field: dict[str, str],
+        expected_refresh_token: str,
+        expected_rotated: bool,
+        mock_post,
+    ):
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "access_token": "gho_new",
-            "refresh_token": "ghr_new",
+            **refresh_token_field,
             "expires_in": 28800,
             "refresh_token_expires_in": 15897600,
         }
         mock_post.return_value = mock_response
 
-        gh = self._make_integration()
-        gh.refresh_user_access_token()
+        gh = self._make_integration(credential_version="synthetic-old-version", identity_verified_at=123)
+        with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
+            gh.refresh_user_access_token()
 
         gh.integration.refresh_from_db()
+        self.assertNotEqual(gh.integration.config["credential_version"], "synthetic-old-version")
+        self.assertEqual(gh.integration.config["identity_verified_at"], 123)
         self.assertEqual(gh.user_access_token, "gho_new")
-        self.assertEqual(gh.user_refresh_token, "ghr_new")
+        self.assertEqual(gh.user_refresh_token, expected_refresh_token)
+        refreshed = next(entry for entry in logs if entry["event"] == "credential_refreshed")
+        self.assertIs(refreshed["refresh_token_rotated"], expected_rotated)
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
@@ -1116,7 +1265,7 @@ class TestUserGitHubIntegration(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
-    def test_refresh_discards_row_on_unrecoverable_error(self, mock_post):
+    def test_refresh_keeps_the_row_and_flags_it_on_unrecoverable_error(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"error": "bad_refresh_token"}
         mock_post.return_value = mock_response
@@ -1124,7 +1273,14 @@ class TestUserGitHubIntegration(APIBaseTest):
         gh = self._make_integration()
         with self.assertRaises(ReauthorizationRequired):
             gh.refresh_user_access_token()
-        self.assertFalse(UserIntegration.objects.filter(user=self.user, kind="github").exists())
+        with self.assertRaises(ReauthorizationRequired):
+            gh.get_usable_user_access_token()
+
+        row = UserIntegration.objects.get(user=self.user, kind="github")
+        self.assertEqual(row.config["needs_reauthorization_reason"], "refresh rejected by GitHub: bad_refresh_token")
+        self.assertNotIn("user_access_token", row.sensitive_config)
+        self.assertNotIn("user_refresh_token", row.sensitive_config)
+        self.assertTrue(UserGitHubIntegration(row, source="test", priority=Priority.CRITICAL).needs_reauthorization)
 
     def test_get_usable_user_access_token_raises_when_refresh_token_expired(self):
         now = int(time.time())
@@ -1166,7 +1322,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         )
         integration.kind = "slack"
         with self.assertRaises(Exception, msg="non-github"):
-            UserGitHubIntegration(integration)
+            UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
     def test_user_refresh_token_expired_returns_false_when_no_expiry(self):
         gh = self._make_integration()
@@ -1196,6 +1352,35 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["user_refresh_token"], "ghr_refresh")
+        self.assertEqual(integration.config["identity_verified_at"], 123)
+
+    @parameterized.expand([("failure_before_reconnect", False), ("stale_failure_after_reconnect", True)])
+    def test_a_reconnected_row_stays_usable(self, _name, fail_after_reconnect):
+        row = _create_user_integration(self.user)
+        stale = UserGitHubIntegration(row, source="test", priority=Priority.CRITICAL)
+        if not fail_after_reconnect:
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
+
+        integration = user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id=row.integration_id,
+                installation_info={"account": {"type": "User", "login": "octocat"}},
+                access_token="ghs_install",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="selected",
+            ),
+            _authorization(),
+        )
+        if fail_after_reconnect:
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
+            integration.refresh_from_db()
+
+        self.assertFalse(
+            UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL).needs_reauthorization
+        )
+        self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
+        self.assertTrue(user_has_personal_github_integration(self.user))
 
     def test_different_installation_creates_second_integration(self):
         _create_user_integration(self.user)
@@ -1222,8 +1407,17 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.integration_id, "67890")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_new")
 
-    def test_same_installation_updates_existing_integration(self):
-        _create_user_integration(self.user, integration_id="12345")
+    @parameterized.expand(
+        [
+            ("relink_without_organization_keeps_stored", False, "stored"),
+            ("relink_with_organization_replaces_stored", True, "new"),
+        ]
+    )
+    def test_same_installation_updates_existing_integration(self, _name, relink_with_organization, expected):
+        stored_organization = Organization.objects.create(name="Synthetic stored organization")
+        existing = _create_user_integration(self.user, integration_id="12345")
+        existing.config["originating_organization_id"] = str(stored_organization.id)
+        existing.save(update_fields=["config"])
         integration = user_github_integration_from_installation(
             self.user,
             GitHubInstallationAccess(
@@ -1241,11 +1435,14 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
                 access_token_expires_in=28800,
                 refresh_token_expires_in=15897600,
             ),
+            originating_organization_id=self.organization.id if relink_with_organization else None,
         )
 
         self.assertEqual(UserIntegration.objects.filter(user=self.user, kind="github").count(), 1)
         self.assertEqual(integration.integration_id, "12345")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_refreshed")
+        expected_organization = stored_organization if expected == "stored" else self.organization
+        self.assertEqual(integration.config["originating_organization_id"], str(expected_organization.id))
 
     @parameterized.expand(
         [
@@ -1300,7 +1497,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(mock_report.call_count, 0)
 
 
-class TestGithubUserFromCode(APIBaseTest):
+class TestGithubUserFromCode(SimpleTestCase):
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.github.requests.post")
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
@@ -1577,3 +1774,167 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
                 format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestUserIntegrationCodexEndpoints(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch("posthog.api.user_integration_codex.posthoganalytics.feature_enabled", return_value=True)
+        self.flag_enabled = flag.start()
+        self.addCleanup(flag.stop)
+        cache.clear()
+
+    def _sandbox_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_sandbox_{uuid.uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="user:read user:write",
+            sandbox_task_id=uuid.uuid4(),
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return client
+
+    def _openai_response(self, status_code: int, body: dict[str, Any]) -> requests.Response:
+        response = requests.Response()
+        response.status_code = status_code
+        response._content = json.dumps(body).encode()
+        return response
+
+    def _connect(self) -> Any:
+        with patch("requests.request", return_value=self._openai_response(200, _codex_refresh_body("rt_rotated"))):
+            return self.client.post(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
+                format="json",
+            )
+
+    def test_codex_status_is_not_connected_before_connect(self):
+        response = self.client.get("/api/users/@me/integrations/codex/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": "not_connected", "plan_type": None, "email": None, "connected_at": None}
+
+    def test_connect_stores_the_chain_and_never_returns_a_token(self):
+        response = self._connect()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["status"] == "connected"
+        assert body["plan_type"] == "plus"
+        assert "rt_" not in response.content.decode()
+        assert "eyJ" not in response.content.decode()
+        row = UserIntegration.objects.get(user=self.user, kind="codex")
+        assert row.sensitive_config["refresh_token"] == "rt_rotated"
+        assert self.client.get("/api/users/@me/integrations/codex/").json()["status"] == "connected"
+
+    @parameterized.expand(
+        [
+            ("api_key_file", {"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"}, None),
+            ("rejected_by_openai", None, (400, {"error": "invalid_grant"})),
+        ]
+    )
+    def test_connect_rejects_an_unusable_credential_and_stores_nothing(self, _name, body, openai):
+        payload = body or {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_dead"}}
+        with patch("requests.request", return_value=self._openai_response(*openai) if openai else None):
+            response = self.client.post("/api/users/@me/integrations/codex/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "tokens"
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+    def test_connect_reports_an_unreachable_openai_as_a_gateway_error(self):
+        with patch("requests.request", side_effect=requests.ConnectionError("down")):
+            response = self.client.post(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+    def test_destroy_revokes_and_forgets_the_account(self):
+        self._connect()
+
+        with patch("requests.request", return_value=self._openai_response(200, {})) as request:
+            response = self.client.delete("/api/users/@me/integrations/codex/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert request.call_args.kwargs["json"]["token"] == "rt_rotated"
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        assert self.client.delete("/api/users/@me/integrations/codex/").status_code == status.HTTP_204_NO_CONTENT
+
+    @parameterized.expand([("connect", "post"), ("disconnect", "delete")])
+    def test_sandbox_token_cannot_change_the_connection(self, _name, method):
+        self._connect()
+
+        with patch("requests.request") as request:
+            response = getattr(self._sandbox_client(), method)(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_attacker"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        request.assert_not_called()
+        assert (
+            UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"] == "rt_rotated"
+        )
+
+    @parameterized.expand([("flag_off", False, None), ("flag_check_failed", None, RuntimeError("down"))])
+    def test_connect_is_unavailable_without_the_flag(self, _name, enabled, error):
+        self.flag_enabled.return_value = enabled
+        self.flag_enabled.side_effect = error
+
+        with patch("requests.request") as request:
+            response = self.client.post(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        request.assert_not_called()
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+    def test_connect_is_throttled_per_user(self):
+        for _ in range(10):
+            assert self._connect().status_code == status.HTTP_200_OK
+
+        with patch("requests.request") as request:
+            response = self.client.post(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        request.assert_not_called()
+        assert self.client.delete("/api/users/@me/integrations/codex/").status_code == status.HTTP_204_NO_CONTENT
+
+    def test_another_user_cannot_read_or_remove_the_connection(self):
+        self._connect()
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        self.client.force_login(other)
+
+        assert (
+            self.client.get(f"/api/users/{self.user.uuid}/integrations/codex/").status_code == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            self.client.delete(f"/api/users/{self.user.uuid}/integrations/codex/").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists()

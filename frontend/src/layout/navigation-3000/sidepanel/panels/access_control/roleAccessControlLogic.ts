@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlResponseType, RoleType } from '~/types'
@@ -320,6 +321,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             null as AccessControlResponseType | null,
             {
                 loadResourceAccessControls: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<AccessControlResponseType>(
                         `api/projects/${values.currentProjectId}/resource_access_controls`
                     )
@@ -434,6 +436,15 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
                     role: values.selectedRoleId ?? undefined,
                 },
             ]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.settings('organization-roles')]: (_, __, hashParams) => {
+            const roleId = hashParams.role ?? null
+            if (roleId !== values.selectedRoleId) {
+                actions.selectRoleId(roleId)
+            }
         },
     })),
 ])

@@ -3,7 +3,13 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import (
+    CheckRunStatus,
+    CheckSeverity,
+    SuiteRunStatus,
+    subject_type_choices,
+    suite_run_trigger_choices,
+)
 
 
 class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -21,19 +27,19 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
 
     trigger = models.CharField(
         max_length=32,
-        choices=[(t.value, t.value) for t in SuiteRunTrigger],
-        help_text="What started this run: manual, materialization, or source_sync.",
+        choices=suite_run_trigger_choices,
+        help_text="What started this run: manual, materialization, source_sync, or scheduled.",
     )
     status = models.CharField(
         max_length=16,
         choices=[(s.value, s.value) for s in SuiteRunStatus],
-        default=SuiteRunStatus.RUNNING,
+        default=SuiteRunStatus.RUNNING.value,
         help_text="empty means the trigger matched no runnable checks, which is not a failure.",
     )
 
     subject_type = models.CharField(
         max_length=32,
-        choices=[(t.value, t.value) for t in SubjectType],
+        choices=subject_type_choices,
         blank=True,
         help_text="Set when the run targets exactly one subject.",
     )
@@ -97,7 +103,7 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     )
 
     # Denormalized from the check so history stays readable after the definition changes or goes away.
-    subject_type = models.CharField(max_length=32, choices=[(t.value, t.value) for t in SubjectType])
+    subject_type = models.CharField(max_length=32, choices=subject_type_choices)
     subject_uuid = models.UUIDField()
     subject_name = models.CharField(max_length=400)
     # No choices, for the same reason as on the check itself: the registry owns the set of types.
@@ -141,6 +147,11 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     compiled_query = models.TextField(
         blank=True,
         help_text="HogQL selecting the failing rows. Re-run it to see them. Cleared by retention after 30 days.",
+    )
+    audited_staged_refresh = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the run audited a refresh that was staged but not yet published, under the materialization gate.",
     )
     error = models.TextField(blank=True, help_text="Compilation or execution failure, for status=errored.")
     duration_ms = models.IntegerField(null=True, blank=True)

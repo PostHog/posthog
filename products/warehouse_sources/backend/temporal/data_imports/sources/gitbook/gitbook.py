@@ -1,6 +1,10 @@
 import dataclasses
+from collections.abc import Callable
 from typing import Any, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
+    coerce_datetime_to_utc,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -15,12 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
+    IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.settings import GITBOOK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.settings import (
+    GITBOOK_ENDPOINTS,
+    GitBookEndpointConfig,
+)
 
 GITBOOK_BASE_URL = "https://api.gitbook.com/v1"
 # List endpoints accept a `limit` of up to 1000 per the OpenAPI spec; a moderate page keeps
@@ -31,9 +40,14 @@ PAGE_SIZE = 250
 DEFAULT_PROBE_PATH = "/user"
 
 # Every list response is `{"items": [...], "next": {"page": "..."}}`; `next` is omitted on the last
-# page. The parent list of a space-scoped endpoint is enumerated per organization (orgs -> spaces).
+# page. The parent list of a space-, site- or team-scoped endpoint is enumerated per organization
+# (orgs -> spaces/sites/teams).
 _ORGS_PATH = "/orgs"
-_SPACES_PATH = "/orgs/{parent_id}/spaces"
+_INTERMEDIATE_PARENTS: dict[str, tuple[str, str]] = {
+    "space": ("spaces", "/orgs/{parent_id}/spaces"),
+    "site": ("sites", "/orgs/{parent_id}/sites"),
+    "team": ("teams", "/orgs/{parent_id}/teams"),
+}
 
 
 @dataclasses.dataclass
@@ -86,25 +100,99 @@ def _list_resource(name: str, path: str) -> EndpointResource:
     }
 
 
-def _child_resource(name: str, child_path: str, parent_name: str, inject_as: Optional[str]) -> EndpointResource:
-    resource: EndpointResource = {
-        "name": name,
-        "endpoint": {
-            "path": child_path,
-            "params": {
-                "limit": PAGE_SIZE,
-                "parent_id": {"type": "resolve", "resource": parent_name, "field": "id"},
-            },
-            "data_selector": "items",
-            "data_selector_required": True,
-        },
+def _format_gitbook_datetime(value: Any) -> str:
+    normalized = coerce_datetime_to_utc(value)
+    if normalized is None:
+        return str(value)
+    return normalized.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _flatten_pages(row: dict[str, Any]) -> list[dict[str, Any]]:
+    # One row per page of the revision tree. Nested pages drop their `pages` children and record
+    # their parent instead, and inherit the space id injected on the top-level row.
+    space_id = row.get("space_id")
+    rows: list[dict[str, Any]] = []
+    stack: list[tuple[dict[str, Any], Optional[str]]] = [(row, None)]
+    while stack:
+        page, parent_page_id = stack.pop()
+        children = page.get("pages") or []
+        rows.append(
+            {
+                **{k: v for k, v in page.items() if k != "pages"},
+                "space_id": space_id,
+                "parent_page_id": parent_page_id,
+            }
+        )
+        stack.extend((child, page.get("id")) for child in reversed(children))
+    return rows
+
+
+def _lift_team_member_user_id(row: dict[str, Any]) -> dict[str, Any]:
+    row["user_id"] = ((row.get("organization") or {}).get("user") or {}).get("id")
+    return row
+
+
+_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "pages": _flatten_pages,
+    "team_members": _lift_team_member_user_id,
+}
+
+
+def _child_resource(
+    name: str,
+    child_path: str,
+    parent_name: str,
+    inject: dict[str, str],
+    bind: Optional[dict[str, str]] = None,
+    paginated: bool = True,
+    data_selector: str = "items",
+    row_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = None,
+    incremental: Optional[IncrementalConfig] = None,
+) -> EndpointResource:
+    # `bind` maps each path placeholder to the parent row field it is resolved from; `inject` maps
+    # parent row fields to the columns they are copied into on every child row.
+    params: dict[str, Any] = {"limit": PAGE_SIZE} if paginated else {}
+    for placeholder, parent_field in (bind or {"parent_id": "id"}).items():
+        params[placeholder] = {"type": "resolve", "resource": parent_name, "field": parent_field}
+    endpoint: Endpoint = {
+        "path": child_path,
+        "params": params,
+        "data_selector": data_selector,
+        "data_selector_required": True,
     }
-    if inject_as is not None:
-        # Inject the parent's id into every row so rows from different parents stay distinguishable
-        # (and usable in composite primary keys), matching the old `parent_id_key` behavior.
-        resource["include_from_parent"] = ["id"]
-        resource["data_map"] = rename_parent_fields(parent_name, {"id": inject_as})
+    if not paginated:
+        endpoint["paginator"] = "single_page"
+    if incremental is not None:
+        endpoint["incremental"] = incremental
+    resource: EndpointResource = {"name": name, "endpoint": endpoint}
+
+    maps: list[Callable[[dict[str, Any]], Any]] = []
+    if inject:
+        # Inject the parent's fields into every row so rows from different parents stay
+        # distinguishable (and usable in composite primary keys).
+        resource["include_from_parent"] = list(inject)
+        maps.append(rename_parent_fields(parent_name, inject))
+    if row_map is not None:
+        maps.append(row_map)
+    if len(maps) == 1:
+        resource["data_map"] = maps[0]
+    elif maps:
+        rename, reshape = maps
+        resource["data_map"] = lambda row: reshape(rename(row))
     return resource
+
+
+def _incremental_config(
+    config: GitBookEndpointConfig, should_use_incremental_field: bool, incremental_field: Optional[str]
+) -> Optional[IncrementalConfig]:
+    if not should_use_incremental_field or not config.incremental_fields or config.incremental_param is None:
+        return None
+    return {
+        "cursor_path": incremental_field or config.incremental_fields[0]["field"],
+        "start_param": config.incremental_param,
+        "initial_value": "1970-01-01T00:00:00Z",
+        "convert": _format_gitbook_datetime,
+    }
 
 
 def gitbook_source(
@@ -113,6 +201,9 @@ def gitbook_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[GitBookResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     config = GITBOOK_ENDPOINTS[endpoint]
     client = _client_config(api_token)
@@ -141,7 +232,7 @@ def gitbook_source(
             resume_hook=save_cursor,
             initial_paginator_state=initial_state,
         )
-        return _source_response(endpoint, config.primary_keys, resource)
+        return _source_response(config, resource)
 
     if config.parent == "organization":
         # Single-hop fan-out (orgs -> child). One dependent resource, so the framework checkpoints
@@ -151,7 +242,12 @@ def gitbook_source(
             "client": client,
             "resources": [
                 _list_resource("orgs", _ORGS_PATH),
-                _child_resource(endpoint, config.path, parent_name="orgs", inject_as=config.parent_id_key),
+                _child_resource(
+                    endpoint,
+                    config.path,
+                    parent_name="orgs",
+                    inject={"id": config.parent_id_key} if config.parent_id_key else {},
+                ),
             ],
         }
 
@@ -174,32 +270,64 @@ def gitbook_source(
             initial_paginator_state=fanout_initial,
         )
         resource = next(r for r in built if r.name == endpoint)
-        return _source_response(endpoint, config.primary_keys, resource)
+        return _source_response(config, resource)
 
-    # Space-scoped fan-out (comments): a two-level chain orgs -> spaces -> comments. With more than
-    # one dependent resource the framework disables resume; a retry re-fetches and the merge dedupes
-    # on the primary key.
+    # Space-, site- and team-scoped fan-out: a two-level chain orgs -> spaces/sites/teams -> child.
+    # With more than one dependent resource the framework disables resume; a retry re-fetches and
+    # the merge dedupes on the primary key.
+    parent_name, parent_path = _INTERMEDIATE_PARENTS[config.parent]
+    if config.parent == "space":
+        intermediate = _child_resource(parent_name, parent_path, parent_name="orgs", inject={})
+        bind = None
+        inject = {"id": config.parent_id_key} if config.parent_id_key else {}
+    else:
+        # Site and team paths are nested under the organization, so the intermediate rows carry
+        # the organization id for the child path to bind.
+        intermediate = _child_resource(parent_name, parent_path, parent_name="orgs", inject={"id": "organization_id"})
+        bind = {"organization_id": "organization_id", "parent_id": "id"}
+        inject = {"organization_id": "organization_id"}
+        if config.parent_id_key:
+            inject["id"] = config.parent_id_key
     rest_config = {
         "client": client,
         "resources": [
             _list_resource("orgs", _ORGS_PATH),
-            _child_resource("spaces", _SPACES_PATH, parent_name="orgs", inject_as=None),
-            _child_resource(endpoint, config.path, parent_name="spaces", inject_as=config.parent_id_key),
+            intermediate,
+            _child_resource(
+                endpoint,
+                config.path,
+                parent_name=parent_name,
+                inject=inject,
+                bind=bind,
+                paginated=config.paginated,
+                data_selector=config.data_selector,
+                row_map=_ROW_MAPS.get(endpoint),
+                incremental=_incremental_config(config, should_use_incremental_field, incremental_field),
+            ),
         ],
     }
-    built = rest_api_resources(rest_config, team_id, job_id, None)
+    built = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+    )
     resource = next(r for r in built if r.name == endpoint)
-    return _source_response(endpoint, config.primary_keys, resource)
+    return _source_response(config, resource)
 
 
-def _source_response(endpoint: str, primary_keys: list[str], resource: Any) -> SourceResponse:
+def _source_response(config: GitBookEndpointConfig, resource: Any) -> SourceResponse:
+    # Most objects have no stable creation timestamp, so only endpoints with one partition by it.
     return SourceResponse(
-        name=endpoint,
+        name=config.name,
         items=lambda: resource,
-        primary_keys=primary_keys,
-        # No stable creation timestamp exists on every object, so we don't partition by datetime.
+        primary_keys=config.primary_keys,
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )
 
 

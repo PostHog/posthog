@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase import (
     browserbase_source,
     validate_credentials as validate_browserbase_credentials,
@@ -36,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
+    codebase_detection = detect(
+        env=("^BROWSERBASE_",),
+        npm=("@browserbasehq/sdk", "@browserbasehq/stagehand"),
+        pypi=("browserbase", "stagehand"),
+        go=("github.com/browserbase/stagehand-go",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -48,10 +54,10 @@ class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BROWSERBASE,
+            name=ExternalDataSourceType.BROWSERBASE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browserbase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Browserbase API key to sync your Browserbase sessions and projects into the PostHog Data warehouse.
 
 You can find your project API key in your [Browserbase dashboard](https://www.browserbase.com/settings). API keys are scoped to a single project.""",
@@ -98,8 +104,9 @@ You can find your project API key in your [Browserbase dashboard](https://www.br
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every Browserbase list endpoint is full refresh: there is no server-side timestamp filter,
-        # so nothing can be synced incrementally (see settings.py).
+        # Every Browserbase endpoint is full refresh: either no server-side timestamp filter exists,
+        # or the only one on offer filters on creation time over rows that keep changing after they
+        # are created (see settings.py).
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,

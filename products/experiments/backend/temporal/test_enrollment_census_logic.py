@@ -33,7 +33,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _metric() -> dict[str, Any]:
-    return {"kind": "ExperimentMetric", "uuid": str(uuid.uuid4())}
+    return {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid.uuid4())}
 
 
 def _stats(**overrides: Any) -> TeamDirectScanStats:
@@ -55,9 +55,9 @@ class TestEnrollmentCensusCriteria(BaseTest):
         [
             ("scan_volume", _stats(total_read_bytes=6 * 10**12), ("scan_volume",)),
             ("slow_read_fraction", _stats(slow_reads=11), ("slow_reads",)),
-            ("hard_failures", _stats(hard_failures=5), ("hard_failures",)),
-            ("below_all_thresholds", _stats(slow_reads=10, hard_failures=4), ()),
-            ("too_few_reads", _stats(direct_reads=49, slow_reads=49, total_read_bytes=6 * 10**12), ()),
+            ("hard_failures", _stats(hard_failures=3), ("hard_failures",)),
+            ("below_all_thresholds", _stats(slow_reads=10, hard_failures=2), ()),
+            ("too_few_reads", _stats(direct_reads=29, slow_reads=29, total_read_bytes=6 * 10**12), ()),
         ]
     )
     def test_candidate_criteria(

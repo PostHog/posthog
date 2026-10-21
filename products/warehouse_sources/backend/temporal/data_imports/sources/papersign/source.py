@@ -1,14 +1,13 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PapersignSource(ResumableSource[PapersignSourceConfig, PapersignResumeConfig]):
+    codebase_detection = detect(env=("^PAPERSIGN_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://paperform.readme.io/reference/papersign"
@@ -47,10 +48,10 @@ class PapersignSource(ResumableSource[PapersignSourceConfig, PapersignResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PAPERSIGN,
+            name=ExternalDataSourceType.PAPERSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="Papersign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Paperform API key to sync your Papersign documents, folders, and spaces into the PostHog Data warehouse.
 
 Create an API key on your [Paperform account page](https://paperform.co/account/developer/api-keys). The key has full account access — Paperform does not offer per-resource scopes.

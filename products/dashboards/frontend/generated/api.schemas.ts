@@ -7,105 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DashboardSavedViewFiltersApi {
-    /** @maxLength 200 */
-    search?: string
-    createdBy?: number[] | 'All users'
-    pinned?: boolean
-    shared?: boolean
-    /**
-     * @maxItems 50
-     * @items.maxLength 100
-     */
-    tags?: string[]
-    /**
-     * @maxLength 4000
-     * @nullable
-     */
-    folder?: string | null
-}
-
-/**
- * * `private` - Private
- * * `team` - Team
- */
-export type DashboardSavedViewScopeEnumApi =
-    (typeof DashboardSavedViewScopeEnumApi)[keyof typeof DashboardSavedViewScopeEnumApi]
-
-export const DashboardSavedViewScopeEnumApi = {
-    Private: 'private',
-    Team: 'team',
-} as const
-
-export interface DashboardSavedViewApi {
-    readonly id: string
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name: string
-    /** Dashboard list filters stored by this view. */
-    filters: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    readonly created_by: number | null
-    /** Whether the current user can change this view's visibility. */
-    readonly can_change_scope: boolean
-}
-
-export interface PaginatedDashboardSavedViewListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardSavedViewApi[]
-}
-
-export interface DashboardSavedViewWriteApi {
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name: string
-    /** Dashboard list filters stored by this view. */
-    filters: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-}
-
-export interface PatchedDashboardSavedViewApi {
-    readonly id?: string
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name?: string
-    /** Dashboard list filters stored by this view. */
-    filters?: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    readonly created_by?: number | null
-    /** Whether the current user can change this view's visibility. */
-    readonly can_change_scope?: boolean
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -306,28 +207,6 @@ export const DashboardCreationModeEnumApi = {
     Unlisted: 'unlisted',
 } as const
 
-/**
- * * `21` - Everyone in the project can edit
- * * `37` - Only those invited to this dashboard can edit
- */
-export type RestrictionLevelEnumApi = (typeof RestrictionLevelEnumApi)[keyof typeof RestrictionLevelEnumApi]
-
-export const RestrictionLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
-/**
- * * `21` - Can view dashboard
- * * `37` - Can edit dashboard
- */
-export type PrivilegeLevelEnumApi = (typeof PrivilegeLevelEnumApi)[keyof typeof PrivilegeLevelEnumApi]
-
-export const PrivilegeLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -374,19 +253,11 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: DashboardCreationModeEnumApi
     tags?: unknown[]
-    /** Controls who can edit the dashboard.
-     *
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit */
-    readonly restriction_level: RestrictionLevelEnumApi
-    readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
-    readonly access_control_version: string
     /** @nullable */
     readonly last_refresh: string | null
     readonly team_id: number
@@ -419,6 +290,12 @@ export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
  * @nullable
  */
 export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
+
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * @nullable
+ */
+export type DashboardApiGroupTitles = { [key: string]: string } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -490,6 +367,11 @@ export const LayoutCompactionEnumApi = {
     Stable: 'stable',
 } as const
 
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
+
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
      *
@@ -505,6 +387,8 @@ export interface DashboardCustomizationApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardCustomizationApiGroupTitles
 }
 
 /**
@@ -522,7 +406,7 @@ export interface DashboardApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
-    last_accessed_at?: string | null
+    readonly last_accessed_at: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -557,15 +441,11 @@ export interface DashboardApi {
      */
     data_color_theme_id?: number | null
     tags?: unknown[]
-    restriction_level?: RestrictionLevelEnumApi
-    readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
-    readonly access_control_version: string
     /** @nullable */
     last_refresh?: string | null
     /** @nullable */
@@ -594,6 +474,11 @@ export interface DashboardApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    group_titles?: DashboardApiGroupTitles
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -608,15 +493,11 @@ export interface DashboardApi {
     _create_in_folder?: string
 }
 
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    level: RestrictionLevelEnumApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * @nullable
+ */
+export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
 
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
@@ -640,13 +521,58 @@ export interface DashboardFiltersOpenApiApi {
     properties?: unknown
 }
 
+export interface _DashboardPatchTileLayoutBoxOpenApiApi {
+    /**
+     * Column position in the dashboard grid (0-indexed).
+     * @minimum 0
+     * @maximum 11
+     */
+    x: number
+    /**
+     * Row position in the dashboard grid (0-indexed).
+     * @minimum 0
+     */
+    y: number
+    /**
+     * Width in grid columns. The desktop grid is 12 columns wide.
+     * @minimum 1
+     * @maximum 12
+     */
+    w: number
+    /**
+     * Height in grid rows.
+     * @minimum 1
+     */
+    h: number
+}
+
+export interface _DashboardPatchTileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts. */
+    sm: _DashboardPatchTileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+    xs?: _DashboardPatchTileLayoutBoxOpenApiApi
+}
+
+/**
+ * * `winner` - Winner
+ * * `cheeky-hog` - Cheeky hog
+ */
+export type DashboardTileBadgeEnumApi = (typeof DashboardTileBadgeEnumApi)[keyof typeof DashboardTileBadgeEnumApi]
+
+export const DashboardTileBadgeEnumApi = {
+    Winner: 'winner',
+    CheekyHog: 'cheeky-hog',
+} as const
+
 /**
  * * `activity_events_list` - activity_events_list
+ * * `canvas_app` - canvas_app
  * * `conversations_recent_tickets` - conversations_recent_tickets
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
  * * `logs_list` - logs_list
+ * * `notebook_widget` - notebook_widget
  * * `session_replay_list` - session_replay_list
  * * `survey_results` - survey_results
  */
@@ -655,14 +581,23 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ActivityEventsList: 'activity_events_list',
+    CanvasApp: 'canvas_app',
     ConversationsRecentTickets: 'conversations_recent_tickets',
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
+    NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
 } as const
+
+export interface NotebookWidgetConfigApi {
+    /** Source notebook short ID. */
+    notebookShortId?: string | null
+    /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+    snapshotId?: string | null
+}
 
 export type WidgetDateRangeApiDateFrom =
     | (typeof WidgetDateRangeApiDateFrom)[keyof typeof WidgetDateRangeApiDateFrom]
@@ -713,6 +648,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -776,18 +712,15 @@ export interface ActivityEventsListWidgetConfigApi {
     properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
-/**
- * Issue ranking column.
- */
-export type ErrorTrackingListWidgetConfigApiOrderBy =
-    (typeof ErrorTrackingListWidgetConfigApiOrderBy)[keyof typeof ErrorTrackingListWidgetConfigApiOrderBy]
+export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
-export const ErrorTrackingListWidgetConfigApiOrderBy = {
+export const ErrorTrackingOrderByApi = {
     LastSeen: 'last_seen',
     FirstSeen: 'first_seen',
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 /**
@@ -841,7 +774,7 @@ export interface ErrorTrackingListWidgetConfigApi {
      */
     limit?: number
     /** Issue ranking column. */
-    orderBy?: ErrorTrackingListWidgetConfigApiOrderBy
+    orderBy?: ErrorTrackingOrderByApi
     /** Sort direction for orderBy. */
     orderDirection?: ErrorTrackingListWidgetConfigApiOrderDirection
     /** Issue status filter. */
@@ -1094,7 +1027,13 @@ export interface ConversationsRecentTicketsWidgetConfigApi {
     savedViewId?: string | null
 }
 
+export interface CanvasAppWidgetConfigApi {
+    /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
+    canvasId?: string | null
+}
+
 export type DashboardWidgetConfigApi =
+    | NotebookWidgetConfigApi
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
@@ -1103,6 +1042,7 @@ export type DashboardWidgetConfigApi =
     | SurveyResultsWidgetConfigApi
     | LogsListWidgetConfigApi
     | ConversationsRecentTicketsWidgetConfigApi
+    | CanvasAppWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -1110,11 +1050,13 @@ export interface DashboardPatchWidgetOpenApiApi {
     /** Widget type identifier (cannot be changed on update).
      *
      * * `activity_events_list` - activity_events_list
+     * * `canvas_app` - canvas_app
      * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
@@ -1133,6 +1075,21 @@ export interface DashboardPatchWidgetOpenApiApi {
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
+    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
+    layouts?: _DashboardPatchTileLayoutsOpenApiApi
+    /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
+    show_description?: boolean
+    /**
+     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+     * @maxLength 100
+     * @nullable
+     */
+    group_key?: string | null
+    /** Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.
+     *
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog */
+    badge?: DashboardTileBadgeEnumApi | null
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
@@ -1164,11 +1121,6 @@ export interface PatchedPatchedDashboardOpenApiApi {
      */
     data_color_theme_id?: number | null
     tags?: string[]
-    /** Who can edit this dashboard.
-     *
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit */
-    restriction_level?: RestrictionLevelEnumApi
     /**
      * List of quick filter IDs associated with this dashboard.
      * @nullable
@@ -1188,7 +1140,12 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
-    /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    group_titles?: PatchedPatchedDashboardOpenApiApiGroupTitles
+    /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
@@ -1250,6 +1207,12 @@ export interface CreateTextTileRequestApi {
      * @maxLength 4000
      */
     body: string
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
     layouts?: TileLayoutsApi
     /**
@@ -1273,6 +1236,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -1287,6 +1251,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -1328,12 +1293,53 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
 export interface ActionConversionGoalApi {
     actionId: number
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export interface CustomEventConversionGoalApi {
     customEventName: string
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
@@ -1352,7 +1358,7 @@ export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
     date_to?: string | null
     /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
     daysOfWeek?: DaysOfWeekEnumApi[] | null
@@ -1374,272 +1380,6 @@ export const IntervalTypeApi = {
     Quarter: 'quarter',
     Year: 'year',
 } as const
-
-export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
-
-export const BounceRatePageViewModeApi = {
-    CountPageviews: 'count_pageviews',
-    UniqUrls: 'uniq_urls',
-    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
-} as const
-
-export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
-
-export const FilterLogicalOperatorApi = {
-    And: 'AND',
-    Or: 'OR',
-} as const
-
-export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
-
-export const CustomBotFieldApi = {
-    RawUserAgent: '$raw_user_agent',
-    Ip: '$ip',
-    Lib: '$lib',
-    Host: '$host',
-    Pathname: '$pathname',
-    CurrentUrl: '$current_url',
-    Browser: '$browser',
-    Os: '$os',
-    BrowserLanguage: '$browser_language',
-    ScreenWidth: '$screen_width',
-    ScreenHeight: '$screen_height',
-    GeoipCountryCode: '$geoip_country_code',
-    Referrer: '$referrer',
-    ReferringDomain: '$referring_domain',
-} as const
-
-export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
-
-export const CustomBotMatcherApi = {
-    Contains: 'contains',
-    Regex: 'regex',
-    Exact: 'exact',
-    Cidr: 'cidr',
-} as const
-
-export interface CustomBotConditionApi {
-    id: string
-    /** The event property this condition reads. */
-    key: CustomBotFieldApi
-    matcher: CustomBotMatcherApi
-    /** Matched against the property named by `key`. */
-    pattern: string
-}
-
-export interface CustomBotRuleApi {
-    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
-    category?: string | null
-    /** Whether every condition must match (AND) or any one of them (OR). */
-    combiner: FilterLogicalOperatorApi
-    id: string
-    items: CustomBotConditionApi[]
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-}
-
-export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
-
-export const CustomChannelFieldApi = {
-    UtmSource: 'utm_source',
-    UtmMedium: 'utm_medium',
-    UtmCampaign: 'utm_campaign',
-    ReferringDomain: 'referring_domain',
-    Url: 'url',
-    Pathname: 'pathname',
-    Hostname: 'hostname',
-} as const
-
-export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
-
-export const CustomChannelOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-} as const
-
-export interface CustomChannelConditionApi {
-    id: string
-    key: CustomChannelFieldApi
-    op: CustomChannelOperatorApi
-    value?: string | string[] | null
-}
-
-export interface CustomChannelRuleApi {
-    channel_type: string
-    combiner: FilterLogicalOperatorApi
-    id: string
-    items: CustomChannelConditionApi[]
-}
-
-export interface DataWarehouseEventsModifierApi {
-    distinct_id_field: string
-    id_field: string
-    table_name: string
-    timestamp_field: string
-}
-
-export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
-
-export const InCohortViaApi = {
-    Auto: 'auto',
-    Leftjoin: 'leftjoin',
-    Subquery: 'subquery',
-    LeftjoinConjoined: 'leftjoin_conjoined',
-} as const
-
-export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
-
-export const InlineCohortCalculationApi = {
-    Off: 'off',
-    Auto: 'auto',
-    Always: 'always',
-} as const
-
-export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
-
-export const MaterializationModeApi = {
-    Auto: 'auto',
-    LegacyNullAsString: 'legacy_null_as_string',
-    LegacyNullAsNull: 'legacy_null_as_null',
-    Disabled: 'disabled',
-} as const
-
-export type MaterializedColumnsOptimizationModeApi =
-    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
-
-export const MaterializedColumnsOptimizationModeApi = {
-    Disabled: 'disabled',
-    Optimized: 'optimized',
-} as const
-
-export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
-
-export const ParserModeApi = {
-    CppOnly: 'cpp_only',
-    CppWithRustShadow: 'cpp_with_rust_shadow',
-    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
-    RustWithCppShadow: 'rust_with_cpp_shadow',
-    RustOnly: 'rust_only',
-    RustPyOnly: 'rust_py_only',
-    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
-} as const
-
-export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
-
-export const PersonsArgMaxVersionApi = {
-    Auto: 'auto',
-    V1: 'v1',
-    V2: 'v2',
-} as const
-
-export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
-
-export const PersonsJoinModeApi = {
-    Inner: 'inner',
-    Left: 'left',
-} as const
-
-export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
-
-export const PersonsOnEventsModeApi = {
-    Disabled: 'disabled',
-    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
-    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
-    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
-} as const
-
-export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
-
-export const PropertyGroupsModeApi = {
-    Enabled: 'enabled',
-    Disabled: 'disabled',
-    Optimized: 'optimized',
-} as const
-
-export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
-
-export const SessionTableVersionApi = {
-    Auto: 'auto',
-    V1: 'v1',
-    V2: 'v2',
-    V3: 'v3',
-} as const
-
-export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
-
-export const SessionsV2JoinModeApi = {
-    String: 'string',
-    Uuid: 'uuid',
-} as const
-
-export interface HogQLQueryModifiersApi {
-    bounceRateDurationSeconds?: number | null
-    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
-    convertToProjectTimezone?: boolean | null
-    customBotDefinitions?: CustomBotRuleApi[] | null
-    customChannelTypeRules?: CustomChannelRuleApi[] | null
-    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
-    debug?: boolean | null
-    /** If these are provided, the query will fail if these skip indexes are not used */
-    forceClickhouseDataSkippingIndexes?: string[] | null
-    formatCsvAllowDoubleQuotes?: boolean | null
-    inCohortVia?: InCohortViaApi | null
-    inlineCohortCalculation?: InlineCohortCalculationApi | null
-    materializationMode?: MaterializationModeApi | null
-    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
-    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
-    mergeFederatedAggregateJoins?: boolean | null
-    optimizeJoinedFilters?: boolean | null
-    optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
-    parserMode?: ParserModeApi | null
-    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
-    personsJoinMode?: PersonsJoinModeApi | null
-    personsOnEventsMode?: PersonsOnEventsModeApi | null
-    propertyGroupsMode?: PropertyGroupsModeApi | null
-    pushDownPredicates?: boolean | null
-    s3TableUseInvalidColumns?: boolean | null
-    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
-    sessionIdPushdown?: boolean | null
-    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
-    sessionPropertyPreAggregation?: boolean | null
-    sessionTableVersion?: SessionTableVersionApi | null
-    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
-    timings?: boolean | null
-    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
-    typeAwareCastSimplification?: boolean | null
-    useMaterializedViews?: boolean | null
-    usePreaggregatedIntermediateResults?: boolean | null
-    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
-    usePreaggregatedTableTransforms?: boolean | null
-    useWebAnalyticsPreAggregatedTables?: boolean | null
-    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
-    webAnalyticsFirstPageviewFilters?: boolean | null
-}
-
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
 
 export interface PersonMetadataPropertyFilterApi {
     key: string
@@ -1673,23 +1413,6 @@ export interface EventMetadataPropertyFilterApi {
     operator: PropertyOperatorApi
     type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface SessionPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'session'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
 }
 
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
@@ -1903,166 +1626,6 @@ export interface BehavioralPropertyFilterApi {
     /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
     type?: 'behavioral'
     value: InlineBehavioralTypeApi
-}
-
-export interface PropertyGroupFilterValueApi {
-    type: FilterLogicalOperatorApi
-    values: (
-        | PropertyGroupFilterValueApi
-        | EventPropertyFilterApi
-        | PersonPropertyFilterApi
-        | PersonMetadataPropertyFilterApi
-        | ElementPropertyFilterApi
-        | EventMetadataPropertyFilterApi
-        | SessionPropertyFilterApi
-        | CohortPropertyFilterApi
-        | RecordingPropertyFilterApi
-        | LogEntryPropertyFilterApi
-        | GroupPropertyFilterApi
-        | FeaturePropertyFilterApi
-        | FlagPropertyFilterApi
-        | HogQLPropertyFilterApi
-        | EmptyPropertyFilterApi
-        | DataWarehousePropertyFilterApi
-        | DataWarehousePersonPropertyFilterApi
-        | ErrorTrackingIssueFilterApi
-        | LogPropertyFilterApi
-        | MetricPropertyFilterApi
-        | SpanPropertyFilterApi
-        | RevenueAnalyticsPropertyFilterApi
-        | AccountCustomPropertyFilterApi
-        | WorkflowVariablePropertyFilterApi
-        | BehavioralPropertyFilterApi
-    )[]
-}
-
-export interface PropertyGroupFilterApi {
-    type: FilterLogicalOperatorApi
-    values: PropertyGroupFilterValueApi[]
-}
-
-export interface BoxPlotDatumApi {
-    day: string
-    label: string
-    max: number
-    mean: number
-    median: number
-    min: number
-    p25: number
-    p75: number
-    series_index?: number | null
-    series_label?: string | null
-}
-
-export interface ClickhouseQueryProgressApi {
-    active_cpu_time: number
-    bytes_read: number
-    estimated_rows_total: number
-    rows_read: number
-    time_elapsed: number
-}
-
-export interface QueryStatusApi {
-    budget_remaining_bytes?: number | null
-    bytes_read?: number | null
-    /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
-    complete?: boolean | null
-    dashboard_id?: number | null
-    /** When did the query execution task finish (whether successfully or not). */
-    end_time?: string | null
-    /** If the query failed, this will be set to true. More information can be found in the error_message field. */
-    error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
-    error_code?: string | null
-    error_message?: string | null
-    expiration_time?: string | null
-    id: string
-    insight_id?: number | null
-    labels?: string[] | null
-    /** When was the query execution task picked up by a worker. */
-    pickup_time?: string | null
-    /** ONLY async queries use QueryStatus. */
-    query_async?: true
-    query_progress?: ClickhouseQueryProgressApi | null
-    results?: unknown
-    /** When was query execution task enqueued. */
-    start_time?: string | null
-    task_id?: string | null
-    team_id: number
-}
-
-export interface ResolvedDateRangeResponseApi {
-    date_from: string
-    date_to: string
-}
-
-export interface QueryTimingApi {
-    /** Key. Shortened to 'k' to save on data. */
-    k: string
-    /** Time in seconds. Shortened to 't' to save on data. */
-    t: number
-}
-
-export interface DataWarehouseSourceUsageApi {
-    /** ExternalDataSource id */
-    id: string
-    /** Connector type of the source (e.g. Stripe, Postgres), if known */
-    source_type?: string | null
-    /** Warehouse table name that was referenced */
-    table_name: string
-}
-
-export interface DataWarehouseSyncWarningApi {
-    /** Human-readable warning shown to the user */
-    message: string
-    /** Name of the ExternalDataSchema responsible for syncing the table */
-    schema_name: string
-    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
-    source_id?: string | null
-    /** Source type, e.g. "Stripe", "Hubspot" */
-    source_type: string
-    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
-    status: string
-    /** Name of the warehouse table the warning refers to */
-    table_name: string
-    /** Tells warning kinds apart in the shared `warnings` list */
-    type?: 'warehouse_sync'
-}
-
-export interface AccessControlFilterWarningApi {
-    /** Human-readable warning shown to the user */
-    message: string
-    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
-    resources: string[]
-    /** Tells warning kinds apart in the shared `warnings` list */
-    type?: 'access_control'
-}
-
-export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
-
-export interface TrendsQueryResponseApi {
-    boxplot_data?: BoxPlotDatumApi[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Wether more breakdown values are available. */
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: TrendsQueryResponseApiResultsItem[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Connector-synced data warehouse sources referenced by this query, if any. */
-    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
@@ -2313,6 +1876,596 @@ export interface RevenueCurrencyPropertyConfigApi {
     static?: CurrencyCodeApi | null
 }
 
+export type DataWarehouseNodeApiResponse = { [key: string]: unknown } | null
+
+export interface DataWarehouseNodeApi {
+    custom_name?: string | null
+    distinct_id_field: string
+    dw_source_type?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    id: string
+    id_field: string
+    kind?: 'DataWarehouseNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: DataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface MarketingAnalyticsCostFallbackApi {
+    /**
+     * @minItems 1
+     * @maxItems 200
+     */
+    series: DataWarehouseNodeApi[]
+    /**
+     * @minItems 1
+     * @maxItems 200
+     */
+    sourceIds: string[]
+}
+
+export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
+
+export const BounceRatePageViewModeApi = {
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotConditionApi {
+    id: string
+    /** The event property this condition reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
+export interface CustomBotRuleApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomBotConditionApi[]
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+}
+
+export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
+
+export const CustomChannelFieldApi = {
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
+} as const
+
+export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
+
+export const CustomChannelOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface CustomChannelConditionApi {
+    id: string
+    key: CustomChannelFieldApi
+    op: CustomChannelOperatorApi
+    value?: string | string[] | null
+}
+
+export interface CustomChannelRuleApi {
+    channel_type: string
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomChannelConditionApi[]
+}
+
+export interface DataWarehouseEventsModifierApi {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
+export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
+
+export const InCohortViaApi = {
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
+} as const
+
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
+export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
+
+export const MaterializationModeApi = {
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+export const MaterializedColumnsOptimizationModeApi = {
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
+
+export const ParserModeApi = {
+    CppOnly: 'cpp_only',
+    CppWithRustShadow: 'cpp_with_rust_shadow',
+    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
+    RustWithCppShadow: 'rust_with_cpp_shadow',
+    RustOnly: 'rust_only',
+    RustPyOnly: 'rust_py_only',
+    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
+} as const
+
+export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
+
+export const PersonsArgMaxVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+} as const
+
+export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
+
+export const PersonsJoinModeApi = {
+    Inner: 'inner',
+    Left: 'left',
+} as const
+
+export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
+
+export const PersonsOnEventsModeApi = {
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
+
+export const PropertyGroupsModeApi = {
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
+
+export const SessionTableVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
+} as const
+
+export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
+
+export const SessionsV2JoinModeApi = {
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export interface HogQLQueryModifiersApi {
+    bounceRateDurationSeconds?: number | null
+    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
+    convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
+    customBotDefinitions?: CustomBotRuleApi[] | null
+    customChannelTypeRules?: CustomChannelRuleApi[] | null
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
+    debug?: boolean | null
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[] | null
+    formatCsvAllowDoubleQuotes?: boolean | null
+    inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
+    materializationMode?: MaterializationModeApi | null
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean | null
+    /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+    negatedPersonFiltersNotIn?: boolean | null
+    optimizeJoinedFilters?: boolean | null
+    optimizeProjections?: boolean | null
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
+    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
+    personsJoinMode?: PersonsJoinModeApi | null
+    personsOnEventsMode?: PersonsOnEventsModeApi | null
+    propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
+    s3TableUseInvalidColumns?: boolean | null
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean | null
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean | null
+    sessionTableVersion?: SessionTableVersionApi | null
+    /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+    sessionTimestampBufferMinutes?: number | null
+    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
+    timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
+    useMaterializedViews?: boolean | null
+    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
+    useNewEventsCluster?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
+    usePreaggregatedIntermediateResults?: boolean | null
+    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
+    usePreaggregatedTableTransforms?: boolean | null
+    useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+export interface PropertyGroupFilterValueApi {
+    type: FilterLogicalOperatorApi
+    values: (
+        | PropertyGroupFilterValueApi
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
+        | ElementPropertyFilterApi
+        | EventMetadataPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+        | RecordingPropertyFilterApi
+        | LogEntryPropertyFilterApi
+        | GroupPropertyFilterApi
+        | FeaturePropertyFilterApi
+        | FlagPropertyFilterApi
+        | HogQLPropertyFilterApi
+        | EmptyPropertyFilterApi
+        | DataWarehousePropertyFilterApi
+        | DataWarehousePersonPropertyFilterApi
+        | ErrorTrackingIssueFilterApi
+        | LogPropertyFilterApi
+        | MetricPropertyFilterApi
+        | SpanPropertyFilterApi
+        | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
+        | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
+    )[]
+}
+
+export interface PropertyGroupFilterApi {
+    type: FilterLogicalOperatorApi
+    values: PropertyGroupFilterValueApi[]
+}
+
+export interface BoxPlotDatumApi {
+    day: string
+    label: string
+    max: number
+    mean: number
+    median: number
+    min: number
+    p25: number
+    p75: number
+    series_index?: number | null
+    series_label?: string | null
+}
+
+export interface ClickhouseQueryProgressApi {
+    active_cpu_time: number
+    bytes_read: number
+    estimated_rows_total: number
+    rows_read: number
+    time_elapsed: number
+}
+
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+}
+
+export interface QueryScanAnalysisApi {
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** Every finding, fixable or not. Empty when the analysis found none. */
+    findings: QueryScanWarningApi[]
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number | null
+}
+
+export interface QueryScanSummaryApi {
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysisApi | null
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+}
+
+export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
+    /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
+    complete?: boolean | null
+    dashboard_id?: number | null
+    /** When did the query execution task finish (whether successfully or not). */
+    end_time?: string | null
+    /** If the query failed, this will be set to true. More information can be found in the error_message field. */
+    error?: boolean | null
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+    error_code?: string | null
+    error_message?: string | null
+    expiration_time?: string | null
+    id: string
+    insight_id?: number | null
+    labels?: string[] | null
+    /** When was the query execution task picked up by a worker. */
+    pickup_time?: string | null
+    /** ONLY async queries use QueryStatus. */
+    query_async?: true
+    query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
+    results?: unknown
+    /** When was query execution task enqueued. */
+    start_time?: string | null
+    task_id?: string | null
+    team_id: number
+}
+
+export interface ResolvedDateRangeResponseApi {
+    date_from: string
+    date_to: string
+}
+
+export interface QueryTimingApi {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
+
+export interface DataWarehouseSourceUsageApi {
+    /** ExternalDataSource id */
+    id: string
+    /** Connector type of the source (e.g. Stripe, Postgres), if known */
+    source_type?: string | null
+    /** Warehouse table name that was referenced */
+    table_name: string
+}
+
+export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'warehouse_sync'
+}
+
+export interface AccessControlFilterWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'access_control'
+}
+
+export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
+
+export interface TrendsQueryResponseApi {
+    boxplot_data?: BoxPlotDatumApi[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: TrendsQueryResponseApiResultsItem[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
 export type EventsNodeApiResponse = { [key: string]: unknown } | null
 
 export interface EventsNodeApi {
@@ -2491,98 +2644,6 @@ export interface ActionsNodeApi {
     version?: number | null
 }
 
-export type DataWarehouseNodeApiResponse = { [key: string]: unknown } | null
-
-export interface DataWarehouseNodeApi {
-    custom_name?: string | null
-    distinct_id_field: string
-    dw_source_type?: string | null
-    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-    fixedProperties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | PersonMetadataPropertyFilterApi
-              | ElementPropertyFilterApi
-              | EventMetadataPropertyFilterApi
-              | SessionPropertyFilterApi
-              | CohortPropertyFilterApi
-              | RecordingPropertyFilterApi
-              | LogEntryPropertyFilterApi
-              | GroupPropertyFilterApi
-              | FeaturePropertyFilterApi
-              | FlagPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | EmptyPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-              | DataWarehousePersonPropertyFilterApi
-              | ErrorTrackingIssueFilterApi
-              | LogPropertyFilterApi
-              | MetricPropertyFilterApi
-              | SpanPropertyFilterApi
-              | RevenueAnalyticsPropertyFilterApi
-              | AccountCustomPropertyFilterApi
-              | WorkflowVariablePropertyFilterApi
-              | BehavioralPropertyFilterApi
-          )[]
-        | null
-    id: string
-    id_field: string
-    kind?: 'DataWarehouseNode'
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | GroupMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'hogql'
-        | null
-    math_group_type_index?: MathGroupTypeIndexApi | null
-    math_hogql?: string | null
-    math_multiplier?: number | null
-    math_property?: string | null
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
-    math_property_type?: string | null
-    name?: string | null
-    optionalInFunnel?: boolean | null
-    /** Properties configurable in the interface */
-    properties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | PersonMetadataPropertyFilterApi
-              | ElementPropertyFilterApi
-              | EventMetadataPropertyFilterApi
-              | SessionPropertyFilterApi
-              | CohortPropertyFilterApi
-              | RecordingPropertyFilterApi
-              | LogEntryPropertyFilterApi
-              | GroupPropertyFilterApi
-              | FeaturePropertyFilterApi
-              | FlagPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | EmptyPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-              | DataWarehousePersonPropertyFilterApi
-              | ErrorTrackingIssueFilterApi
-              | LogPropertyFilterApi
-              | MetricPropertyFilterApi
-              | SpanPropertyFilterApi
-              | RevenueAnalyticsPropertyFilterApi
-              | AccountCustomPropertyFilterApi
-              | WorkflowVariablePropertyFilterApi
-              | BehavioralPropertyFilterApi
-          )[]
-        | null
-    response?: DataWarehouseNodeApiResponse
-    table_name: string
-    timestamp_field: string
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
 export type GroupNodeApiResponse = { [key: string]: unknown } | null
 
 export interface GroupNodeApi {
@@ -2679,6 +2740,8 @@ export interface GroupNodeApi {
 export interface QueryLogTagsApi {
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
@@ -2698,6 +2761,15 @@ export const AggregationAxisFormatApi = {
     Short: 'short',
 } as const
 
+export type AnnotationScopeApi = (typeof AnnotationScopeApi)[keyof typeof AnnotationScopeApi]
+
+export const AnnotationScopeApi = {
+    DashboardItem: 'dashboard_item',
+    Dashboard: 'dashboard',
+    Project: 'project',
+    Organization: 'organization',
+} as const
+
 export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
 
 export const CurveApi = {
@@ -2705,9 +2777,18 @@ export const CurveApi = {
     Smooth: 'smooth',
 } as const
 
+export type SeriesColorModeApi = (typeof SeriesColorModeApi)[keyof typeof SeriesColorModeApi]
+
+export const SeriesColorModeApi = {
+    Palette: 'palette',
+    Opacity: 'opacity',
+} as const
+
 export interface ChartStyleApi {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: CurveApi | null
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: SeriesColorModeApi | null
 }
 
 export type DetailedResultsAggregationTypeApi =
@@ -2733,6 +2814,7 @@ export const ChartDisplayTypeApi = {
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsDonut: 'ActionsDonut',
+    ActionsProportionBar: 'ActionsProportionBar',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -2749,6 +2831,16 @@ export interface TrendsFormulaNodeApi {
     formula: string
 }
 
+export type CalculationApi = (typeof CalculationApi)[keyof typeof CalculationApi]
+
+export const CalculationApi = {
+    Fixed: 'fixed',
+    Mean: 'mean',
+    Median: 'median',
+    Min: 'min',
+    Max: 'max',
+} as const
+
 export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
 
 export const PositionApi = {
@@ -2756,12 +2848,23 @@ export const PositionApi = {
     End: 'end',
 } as const
 
+export type ScopeApi = (typeof ScopeApi)[keyof typeof ScopeApi]
+
+export const ScopeApi = {
+    All: 'all',
+    Series: 'series',
+} as const
+
 export interface GoalLineApi {
     borderColor?: string | null
+    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+    calculation?: CalculationApi | null
     displayIfCrossed?: boolean | null
     displayLabel?: boolean | null
     label: string
     position?: PositionApi | null
+    /** SQL chart calculations use the primary axis, across all series or separately per series. */
+    scope?: ScopeApi | null
     value: number
 }
 
@@ -2812,6 +2915,7 @@ export const DataColorTokenApi = {
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
+    customColor?: string | null
     hidden?: boolean | null
 }
 
@@ -2851,6 +2955,8 @@ export interface TrendsFilterApi {
     aggregationAxisPostfix?: string | null
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
+    /** Render only annotations with this scope. Unset renders every scope. */
+    annotationsScope?: AnnotationScopeApi | null
     breakdown_histogram_bin_count?: number | null
     /** Chart rendering style overrides (line shape). */
     chartStyle?: ChartStyleApi | null
@@ -2938,6 +3044,8 @@ export interface TrendsQueryApi {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalTypeApi | null
     kind?: 'TrendsQuery'
+    /** Live series for a Marketing cost trend when materialization coverage is incomplete. */
+    marketingAnalyticsCostFallback?: MarketingAnalyticsCostFallbackApi | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Property filters for all series */
@@ -2973,7 +3081,10 @@ export interface TrendsQueryApi {
     response?: TrendsQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
@@ -3223,6 +3334,8 @@ export const FunnelLayoutApi = {
 export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface FunnelsFilterApi {
+    /** Render only annotations with this scope. Only applies to historical-trends funnels. */
+    annotationsScope?: AnnotationScopeApi | null
     binCount?: number | null
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     breakdownAttributionValue?: number | null
@@ -3630,6 +3743,8 @@ export interface RetentionFilterApi {
     returningEntity?: RetentionEntityApi | null
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: number | null
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean | null
     showTrendLines?: boolean | null
     targetEntity?: RetentionEntityApi | null
     /** The time window mode to use for retention calculations */
@@ -3742,6 +3857,8 @@ export interface PathsFilterApi {
     showFullUrls?: boolean | null
     startPoint?: string | null
     stepLimit?: number | null
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean | null
 }
 
 export interface PathsLinkApi {
@@ -4117,7 +4234,10 @@ export interface StickinessQueryApi {
     response?: StickinessQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilterApi | null
@@ -4348,6 +4468,7 @@ export const WebStatsBreakdownApi = {
     FirstPageviewUTMContent: 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
     Browser: 'Browser',
+    InAppBrowser: 'InAppBrowser',
     Os: 'OS',
     Viewport: 'Viewport',
     DeviceType: 'DeviceType',
@@ -4455,6 +4576,7 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebStatsTableQuery'
@@ -4718,6 +4840,25 @@ export interface HogQLNoticeApi {
     fix?: string | null
     message: string
     start?: number | null
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string | null
+}
+
+export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
+
+export const PredicateFixActionApi = {
+    EditQuery: 'edit_query',
+    EditPropertyType: 'edit_property_type',
+    Materialize: 'materialize',
+} as const
+
+export interface PredicateQuickfixApi {
+    /** Character offset in the query where the replaced range ends. */
+    end: number
+    /** Character offset in the query where the replaced range starts. */
+    start: number
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
 }
 
 export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]
@@ -4740,15 +4881,21 @@ export const PredicateIndexVerdictApi = {
 } as const
 
 export interface PredicateIndexUsageApi {
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string | null
     column_name?: string | null
     end?: number | null
+    /** Prose advice for a reader. */
     fix?: string | null
+    fix_action?: PredicateFixActionApi | null
     message: string
     /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
     operator: string
     /** Type the value is physically stored as. */
     physical_type: string
     property_name: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfixApi | null
     scope: PredicateScopeApi
     /** Type the property definition declares. */
     semantic_type: string
@@ -4769,6 +4916,13 @@ export const QueryIndexUsageApi = {
     Yes: 'yes',
 } as const
 
+export interface HogQLMetadataColumnApi {
+    /** Output column name, in the same order as the SELECT list. */
+    name: string
+    /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+    type: string
+}
+
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
@@ -4777,6 +4931,8 @@ export interface HogQLMetadataResponseApi {
     isUsingIndices?: QueryIndexUsageApi | null
     isValid?: boolean | null
     notices: HogQLNoticeApi[]
+    /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+    output_columns?: HogQLMetadataColumnApi[] | null
     query?: string | null
     table_names?: string[] | null
     warnings: HogQLNoticeApi[]
@@ -4785,6 +4941,8 @@ export interface HogQLMetadataResponseApi {
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5072,6 +5230,8 @@ export interface MarketingAnalyticsItemApi {
 
 export interface Response12Api {
     columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
@@ -5081,6 +5241,8 @@ export interface Response12Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5101,12 +5263,16 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5195,12 +5361,14 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Apns: 'apns',
+    AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
+    TwitterAds: 'twitter-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -5210,9 +5378,11 @@ export interface ErrorTrackingExternalReferenceIntegrationApi {
 }
 
 export interface ErrorTrackingExternalReferenceApi {
+    external_id: string
     external_url: string
     id: string
     integration: ErrorTrackingExternalReferenceIntegrationApi
+    title: string
 }
 
 export interface FirstEventApi {
@@ -5344,73 +5514,6 @@ export interface Response15Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export type ExperimentSignificanceCodeApi =
-    (typeof ExperimentSignificanceCodeApi)[keyof typeof ExperimentSignificanceCodeApi]
-
-export const ExperimentSignificanceCodeApi = {
-    Significant: 'significant',
-    NotEnoughExposure: 'not_enough_exposure',
-    LowWinProbability: 'low_win_probability',
-    HighLoss: 'high_loss',
-    HighPValue: 'high_p_value',
-} as const
-
-export interface ExperimentVariantFunnelsBaseStatsApi {
-    failure_count: number
-    key: string
-    success_count: number
-}
-
-export type Response16ApiCredibleIntervals = { [key: string]: number[] }
-
-export type Response16ApiInsightItemItem = { [key: string]: unknown }
-
-export type Response16ApiProbability = { [key: string]: number }
-
-export interface Response16Api {
-    credible_intervals: Response16ApiCredibleIntervals
-    expected_loss: number
-    funnels_query?: FunnelsQueryApi | null
-    insight: Response16ApiInsightItemItem[][]
-    kind?: 'ExperimentFunnelsQuery'
-    probability: Response16ApiProbability
-    significance_code: ExperimentSignificanceCodeApi
-    significant: boolean
-    stats_version?: number | null
-    variants: ExperimentVariantFunnelsBaseStatsApi[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface ExperimentVariantTrendsBaseStatsApi {
-    absolute_exposure: number
-    count: number
-    exposure: number
-    key: string
-}
-
-export type Response17ApiCredibleIntervals = { [key: string]: number[] }
-
-export type Response17ApiInsightItem = { [key: string]: unknown }
-
-export type Response17ApiProbability = { [key: string]: number }
-
-export interface Response17Api {
-    count_query?: TrendsQueryApi | null
-    credible_intervals: Response17ApiCredibleIntervals
-    exposure_query?: TrendsQueryApi | null
-    insight: Response17ApiInsightItem[]
-    kind?: 'ExperimentTrendsQuery'
-    p_value: number
-    probability: Response17ApiProbability
-    significance_code: ExperimentSignificanceCodeApi
-    significant: boolean
-    stats_version?: number | null
-    variants: ExperimentVariantTrendsBaseStatsApi[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
 export type AIEventTypeApi = (typeof AIEventTypeApi)[keyof typeof AIEventTypeApi]
 
 export const AIEventTypeApi = {
@@ -5491,7 +5594,7 @@ export interface LLMTraceApi {
     webSearchCost?: number | null
 }
 
-export interface Response18Api {
+export interface Response16Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5517,7 +5620,7 @@ export interface Response18Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response20Api {
+export interface Response18Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5544,7 +5647,7 @@ export interface Response20Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response21Api {
+export interface Response19Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5619,7 +5722,7 @@ export interface AccountsTableRowApi {
     tags?: string[] | null
 }
 
-export interface Response22Api {
+export interface Response20Api {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -6408,6 +6511,15 @@ export interface ExperimentRatioMetricApi {
     version?: number | null
 }
 
+export type ExperimentExposureNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureNodeApi {
+    kind?: 'ExperimentExposureNode'
+    response?: ExperimentExposureNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -6433,7 +6545,7 @@ export interface ExperimentRetentionMetricApi {
     retention_window_start: number
     retention_window_unit: FunnelConversionWindowTimeUnitApi
     sharedMetricId?: number | null
-    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentExposureNodeApi
     start_handling: StartHandlingApi
     uuid?: string | null
     /** version of the node, used for schema migrations */
@@ -6526,6 +6638,30 @@ export interface ExperimentBreakdownResultApi {
     breakdown_value: (string | number)[]
     /** Test variant results with statistical comparisons for this breakdown */
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
+}
+
+export type ExperimentSignificanceCodeApi =
+    (typeof ExperimentSignificanceCodeApi)[keyof typeof ExperimentSignificanceCodeApi]
+
+export const ExperimentSignificanceCodeApi = {
+    Significant: 'significant',
+    NotEnoughExposure: 'not_enough_exposure',
+    LowWinProbability: 'low_win_probability',
+    HighLoss: 'high_loss',
+    HighPValue: 'high_p_value',
+} as const
+
+export interface ExperimentVariantTrendsBaseStatsApi {
+    absolute_exposure: number
+    count: number
+    exposure: number
+    key: string
+}
+
+export interface ExperimentVariantFunnelsBaseStatsApi {
+    failure_count: number
+    key: string
+    success_count: number
 }
 
 export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
@@ -6657,9 +6793,18 @@ export interface PathsV2ActorsQueryApi {
     version?: number | null
 }
 
+export type ExecutionTargetApi = (typeof ExecutionTargetApi)[keyof typeof ExecutionTargetApi]
+
+export const ExecutionTargetApi = {
+    Default: 'default',
+    ManagedTrino: 'managed_trino',
+} as const
+
 export interface HogQLFiltersApi {
     /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilterApi | null
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -6697,6 +6842,8 @@ export interface HogQLFiltersApi {
 export interface HogQLQueryResponseApi {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -6751,6 +6898,8 @@ export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 export interface HogQLQueryApi {
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string | null
+    /** Compile and run this query against the hosted Trino target. */
+    executionTarget?: ExecutionTargetApi | null
     explain?: boolean | null
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
@@ -7730,6 +7879,8 @@ export const MarketingAnalyticsOrderByEnumApi = {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
@@ -7739,6 +7890,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7807,12 +7960,16 @@ export interface MarketingAnalyticsTableQueryApi {
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7868,16 +8025,6 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     /** version of the node, used for schema migrations */
     version?: number | null
 }
-
-export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
-
-export const ErrorTrackingOrderByApi = {
-    LastSeen: 'last_seen',
-    FirstSeen: 'first_seen',
-    Occurrences: 'occurrences',
-    Users: 'users',
-    Sessions: 'sessions',
-} as const
 
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
@@ -8000,80 +8147,6 @@ export interface ErrorTrackingIssueCorrelationQueryApi {
     modifiers?: HogQLQueryModifiersApi | null
     response?: ErrorTrackingIssueCorrelationQueryResponseApi | null
     tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export type ExperimentFunnelsQueryResponseApiCredibleIntervals = { [key: string]: number[] }
-
-export type ExperimentFunnelsQueryResponseApiInsightItemItem = { [key: string]: unknown }
-
-export type ExperimentFunnelsQueryResponseApiProbability = { [key: string]: number }
-
-export interface ExperimentFunnelsQueryResponseApi {
-    credible_intervals: ExperimentFunnelsQueryResponseApiCredibleIntervals
-    expected_loss: number
-    funnels_query?: FunnelsQueryApi | null
-    insight: ExperimentFunnelsQueryResponseApiInsightItemItem[][]
-    kind?: 'ExperimentFunnelsQuery'
-    probability: ExperimentFunnelsQueryResponseApiProbability
-    significance_code: ExperimentSignificanceCodeApi
-    significant: boolean
-    stats_version?: number | null
-    variants: ExperimentVariantFunnelsBaseStatsApi[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface ExperimentFunnelsQueryApi {
-    experiment_id?: number | null
-    fingerprint?: string | null
-    funnels_query: FunnelsQueryApi
-    kind?: 'ExperimentFunnelsQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    name?: string | null
-    response?: ExperimentFunnelsQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    uuid?: string | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export type ExperimentTrendsQueryResponseApiCredibleIntervals = { [key: string]: number[] }
-
-export type ExperimentTrendsQueryResponseApiInsightItem = { [key: string]: unknown }
-
-export type ExperimentTrendsQueryResponseApiProbability = { [key: string]: number }
-
-export interface ExperimentTrendsQueryResponseApi {
-    count_query?: TrendsQueryApi | null
-    credible_intervals: ExperimentTrendsQueryResponseApiCredibleIntervals
-    exposure_query?: TrendsQueryApi | null
-    insight: ExperimentTrendsQueryResponseApiInsightItem[]
-    kind?: 'ExperimentTrendsQuery'
-    p_value: number
-    probability: ExperimentTrendsQueryResponseApiProbability
-    significance_code: ExperimentSignificanceCodeApi
-    significant: boolean
-    stats_version?: number | null
-    variants: ExperimentVariantTrendsBaseStatsApi[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface ExperimentTrendsQueryApi {
-    count_query: TrendsQueryApi
-    experiment_id?: number | null
-    exposure_query?: TrendsQueryApi | null
-    fingerprint?: string | null
-    kind?: 'ExperimentTrendsQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    name?: string | null
-    response?: ExperimentTrendsQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    uuid?: string | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8383,6 +8456,8 @@ export interface AccountsQueryResponseApi {
 export interface AccountsQueryApi {
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean | null
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean | null
     /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
@@ -8467,55 +8542,6 @@ export interface AccountsTableCustomPropertyHistoryColumnApi {
     windowDays: WindowDaysApi
 }
 
-export interface AccountsTableSearchFilterApi {
-    kind?: 'search'
-    query: string
-}
-
-export interface AccountsTableTagsFilterApi {
-    kind?: 'tags'
-    /** Match accounts carrying any of these tag names. */
-    tagNames: string[]
-}
-
-export interface AccountsTableAssignedToFilterApi {
-    kind?: 'assigned_to'
-    /** Match accounts where any listed user actively holds any relationship. */
-    userIds: number[]
-}
-
-export const AccountsTableAssignedFilterApiValue = {
-    kind: 'assigned',
-} as const
-export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
-
-export const AccountsTableUnassignedFilterApiValue = {
-    kind: 'unassigned',
-} as const
-export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
-
-export type AccountsTableRelationshipOperatorApi =
-    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
-
-export const AccountsTableRelationshipOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-} as const
-
-export interface AccountsTableRelationshipFilterApi {
-    definitionId: string
-    kind?: 'relationship'
-    operator: AccountsTableRelationshipOperatorApi
-    userIds?: number[] | null
-}
-
-export interface AccountsTableAccountIdFilterApi {
-    accountId: string
-    kind?: 'account_id'
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -8536,6 +8562,23 @@ export interface AccountsTableAccountFieldFilterApi {
     kind?: 'account_field'
     operator: AccountsTableAccountFieldOperatorApi
     values?: string[] | null
+}
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
 }
 
 export type AccountsTableCustomPropertyOperatorApi =
@@ -8565,6 +8608,38 @@ export interface AccountsTableCustomPropertyFilterApi {
     operator: AccountsTableCustomPropertyOperatorApi
     /** Values interpreted according to the custom property definition's display type. */
     values?: (string | number | boolean)[] | null
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
 }
 
 export const AccountsTableCountMetricApiValue = {
@@ -8665,6 +8740,14 @@ export interface AccountsTableQueryApi {
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?:
+        | (
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[][]
+        | null
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?:
         | (
@@ -8718,11 +8801,9 @@ export type DataTableNodeApiResponse =
     | Response14Api
     | Response15Api
     | Response16Api
-    | Response17Api
     | Response18Api
+    | Response19Api
     | Response20Api
-    | Response21Api
-    | Response22Api
     | null
 
 export interface DataTableNodeApi {
@@ -8817,8 +8898,6 @@ export interface DataTableNodeApi {
         | MarketingAnalyticsAggregatedQueryApi
         | ErrorTrackingQueryApi
         | ErrorTrackingIssueCorrelationQueryApi
-        | ExperimentFunnelsQueryApi
-        | ExperimentTrendsQueryApi
         | TracesQueryApi
         | TraceQueryApi
         | SessionQueryApi
@@ -8933,9 +9012,9 @@ export const ValueDisplayApi = {
 } as const
 
 export interface PieChartSettingsApi {
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean | null
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: SliceContentApi | null
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
     valueDisplay?: ValueDisplayApi | null
@@ -8956,6 +9035,13 @@ export interface ScatterChartSettingsApi {
     /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
     xStartAtZero?: boolean | null
 }
+
+export type ValueLabelPositionApi = (typeof ValueLabelPositionApi)[keyof typeof ValueLabelPositionApi]
+
+export const ValueLabelPositionApi = {
+    End: 'end',
+    Center: 'center',
+} as const
 
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
@@ -9013,13 +9099,14 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
@@ -9039,8 +9126,14 @@ export interface ChartSettingsApi {
     showYAxisBorder?: boolean | null
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
+    valueLabelBackground?: boolean | null
+    valueLabelFontSize?: number | null
+    valueLabelPosition?: ValueLabelPositionApi | null
+    valueLabelRotation?: number | null
     xAxis?: ChartAxisApi | null
+    xAxisDateFormat?: string | null
     xAxisLabel?: string | null
+    xAxisTickRotation?: number | null
     yAxis?: ChartAxisApi[] | null
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean | null
@@ -9087,6 +9180,354 @@ export interface DataVisualizationNodeApi {
     version?: number | null
 }
 
+export type BIDateBucketApi = (typeof BIDateBucketApi)[keyof typeof BIDateBucketApi]
+
+export const BIDateBucketApi = {
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export type DatePartApi = (typeof DatePartApi)[keyof typeof DatePartApi]
+
+export const DatePartApi = {
+    Month: 'month',
+    Quarter: 'quarter',
+    DayOfWeek: 'day_of_week',
+} as const
+
+export interface BILocalFieldDefinition1Api {
+    aggregate: boolean
+    expression: string
+    kind?: 'expression'
+}
+
+export interface BICategoryGroupApi {
+    name: string
+    values: string[]
+}
+
+export interface BILocalFieldDefinition2Api {
+    expression: string
+    groups: BICategoryGroupApi[]
+    kind?: 'groups'
+    other: string
+    preserveUngrouped?: boolean | null
+}
+
+export interface BILocalFieldDefinition3Api {
+    expression: string
+    kind?: 'bins'
+    origin: number
+    width: number
+}
+
+export interface BIDataSourceApi {
+    connectionId?: string | null
+    table: string
+}
+
+export type DatabaseSerializedFieldTypeApi =
+    (typeof DatabaseSerializedFieldTypeApi)[keyof typeof DatabaseSerializedFieldTypeApi]
+
+export const DatabaseSerializedFieldTypeApi = {
+    Integer: 'integer',
+    Float: 'float',
+    Decimal: 'decimal',
+    String: 'string',
+    Datetime: 'datetime',
+    Date: 'date',
+    Boolean: 'boolean',
+    Array: 'array',
+    Json: 'json',
+    LazyTable: 'lazy_table',
+    VirtualTable: 'virtual_table',
+    FieldTraverser: 'field_traverser',
+    Expression: 'expression',
+    View: 'view',
+    MaterializedView: 'materialized_view',
+    Unknown: 'unknown',
+} as const
+
+export interface BIFieldApi {
+    dateBucket?: BIDateBucketApi | null
+    datePart?: DatePartApi | null
+    expression: string
+    id: string
+    label?: string | null
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
+    localFieldId?: string | null
+    name: string
+    source: BIDataSourceApi
+    type: DatabaseSerializedFieldTypeApi
+}
+
+export type ComparisonPeriodApi = (typeof ComparisonPeriodApi)[keyof typeof ComparisonPeriodApi]
+
+export const ComparisonPeriodApi = {
+    Previous: 'previous',
+} as const
+
+export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
+
+export const BIFilterOperatorApi = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    Contains: 'contains',
+    In: 'in',
+    NotIn: 'not_in',
+    Between: 'between',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    Last7Days: 'last_7_days',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Custom: 'custom',
+} as const
+
+export interface BIFilterApi {
+    customExpression?: string | null
+    enabled?: boolean | null
+    field: BIFieldApi
+    label?: string | null
+    operator: BIFilterOperatorApi
+    value: string
+    valueTo?: string | null
+    values?: string[] | null
+}
+
+export interface BIHierarchyApi {
+    id: string
+    /** Ordered from the broadest dimension to the most detailed. */
+    levels: BIFieldApi[]
+    name: string
+}
+
+export interface HierarchyDrillPathItemApi {
+    filterIds: string[]
+    hierarchyId: string
+    nextField: BIFieldApi
+    previousField: BIFieldApi
+}
+
+export type BIQueryLimitApi = (typeof BIQueryLimitApi)[keyof typeof BIQueryLimitApi]
+
+export const BIQueryLimitApi = {
+    Number100: 100,
+    Number1000: 1000,
+    Number10000: 10000,
+    Number50000: 50000,
+} as const
+
+export interface AliasApi {
+    label: string
+    value?: string | null
+}
+
+export interface MemberAliaseApi {
+    aliases: AliasApi[]
+    field: BIFieldApi
+}
+
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
+} as const
+
+export type ReferenceLinesApi = (typeof ReferenceLinesApi)[keyof typeof ReferenceLinesApi]
+
+export const ReferenceLinesApi = {
+    Pane: 'pane',
+    Worksheet: 'worksheet',
+} as const
+
+export interface BIPaneSettingsApi {
+    /** Ordered dimension IDs used to split returned groups into separate charts. */
+    fields: string[]
+    /** Use a separate value scale for each pane instead of a shared primary scale. */
+    independentAxes?: boolean | null
+    /** Calculate reference lines from each pane or from all returned worksheet marks. */
+    referenceLines?: ReferenceLinesApi | null
+}
+
+export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
+
+export const Operator1Api = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export interface BIConditionGroupApi {
+    filters: string[]
+    groups: BIConditionGroupApi[]
+    operator: Operator1Api
+}
+
+export type Operator2Api = (typeof Operator2Api)[keyof typeof Operator2Api]
+
+export const Operator2Api = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    GreaterThanOrEqual: 'greater_than_or_equal',
+    LessThanOrEqual: 'less_than_or_equal',
+    Between: 'between',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface BIResultFilterApi {
+    enabled?: boolean | null
+    id: string
+    label?: string | null
+    /** @minimum 0 */
+    measureIndex: number
+    operator: Operator2Api
+    value: string
+    valueTo?: string | null
+}
+
+export type BISortDirectionApi = (typeof BISortDirectionApi)[keyof typeof BISortDirectionApi]
+
+export const BISortDirectionApi = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
+export interface BISortApi {
+    direction: BISortDirectionApi
+    key: string
+}
+
+export interface BITopNApi {
+    /** @minimum 1 */
+    count: number
+    fieldId: string
+    includeOther: boolean
+    /** @minimum 0 */
+    measureIndex: number
+}
+
+export interface BITotalsApi {
+    columns?: boolean | null
+    rows?: boolean | null
+    subtotals?: boolean | null
+}
+
+export type BIAggregationApi = (typeof BIAggregationApi)[keyof typeof BIAggregationApi]
+
+export const BIAggregationApi = {
+    Count: 'count',
+    CountDistinct: 'count_distinct',
+    Sum: 'sum',
+    Average: 'average',
+    Minimum: 'minimum',
+    Maximum: 'maximum',
+    Custom: 'custom',
+} as const
+
+export type ShelfApi = (typeof ShelfApi)[keyof typeof ShelfApi]
+
+export const ShelfApi = {
+    Rows: 'rows',
+    Columns: 'columns',
+} as const
+
+export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
+
+export const BITableCalculationTypeApi = {
+    PercentOfTotal: 'percent_of_total',
+    RunningTotal: 'running_total',
+    Difference: 'difference',
+    PercentChange: 'percent_change',
+    MovingAverage: 'moving_average',
+    Rank: 'rank',
+} as const
+
+export interface BITableCalculationApi {
+    /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+    computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
+    type: BITableCalculationTypeApi
+    /** Number of points, including the current point, in a trailing moving average. */
+    window?: number | null
+}
+
+export interface BIValueApi {
+    aggregation: BIAggregationApi
+    customExpression?: string | null
+    display?: ChartSettingsDisplayApi | null
+    field: BIFieldApi
+    formatting?: ChartSettingsFormattingApi | null
+    label?: string | null
+    /** Measures in older worksheets belong to rows. */
+    shelf?: ShelfApi | null
+    tableCalculation?: BITableCalculationApi | null
+}
+
+export interface BIConfigApi {
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string | null
+    chartType: ChartDisplayTypeApi
+    colorBy?: string | null
+    columns: BIFieldApi[]
+    compareFilter?: CompareFilterApi | null
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: ComparisonPeriodApi | null
+    /** Column that receives the worksheet and dashboard date range. */
+    dateField?: BIFieldApi | null
+    dateRange?: DateRangeApi | null
+    filters: BIFilterApi[]
+    /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+    hierarchies?: BIHierarchyApi[] | null
+    hierarchyDrillPath?: HierarchyDrillPathItemApi[] | null
+    limit: BIQueryLimitApi
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIFieldApi[] | null
+    memberAliases?: MemberAliaseApi[] | null
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
+    /** Split the returned groups into charts using these ordered dimension IDs. */
+    panes?: BIPaneSettingsApi | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQueryApi | null
+    resultFilterGroup?: BIConditionGroupApi | null
+    resultFilters?: BIResultFilterApi[] | null
+    rowFilterGroup?: BIConditionGroupApi | null
+    rows: BIFieldApi[]
+    /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
+    sort?: BISortApi | null
+    source?: BIDataSourceApi | null
+    topN?: BITopNApi | null
+    totals?: BITotalsApi | null
+    values: BIValueApi[]
+}
+
+export type BIVisualizationNodeApiKind = (typeof BIVisualizationNodeApiKind)[keyof typeof BIVisualizationNodeApiKind]
+
+export const BIVisualizationNodeApiKind = {
+    BIVisualizationNode: 'BIVisualizationNode',
+} as const
+
+export interface BIVisualizationNodeApi {
+    chartSettings?: ChartSettingsApi | null
+    config: BIConfigApi
+    display?: ChartDisplayTypeApi | null
+    kind: BIVisualizationNodeApiKind
+    source: HogQLQueryApi
+    tableSettings?: TableSettingsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type HogQueryApiKind = (typeof HogQueryApiKind)[keyof typeof HogQueryApiKind]
 
 export const HogQueryApiKind = {
@@ -9115,10 +9556,16 @@ export interface HogQueryApi {
  * The query definition for this insight. The `kind` field determines the query type:
  * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
  * - `DataVisualizationNode` — SQL insights using HogQL
+ * - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
  * - `DataTableNode` — raw data tables
  * - `HogQuery` — Hog language queries
  */
-export type _InsightQuerySchemaApi = InsightVizNodeApi | DataTableNodeApi | DataVisualizationNodeApi | HogQueryApi
+export type _InsightQuerySchemaApi =
+    | InsightVizNodeApi
+    | DataTableNodeApi
+    | DataVisualizationNodeApi
+    | BIVisualizationNodeApi
+    | HogQueryApi
 
 export interface DashboardTileBasicApi {
     readonly id: number
@@ -9127,8 +9574,74 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+/**
+ * Warnings attached to the query response that produced an insight's results.
+ */
+export type _InsightResultWarningsApi = (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[]
+
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
+
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -9136,6 +9649,10 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
+    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    metricFilters?: MetricsQueryFilterApi[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariableApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -9168,6 +9685,7 @@ export interface DashboardFilterApi {
 
 export interface TileFiltersApi {
     breakdown_filter?: BreakdownFilterApi | null
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -9303,8 +9821,6 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -9323,6 +9839,10 @@ export interface InsightApi {
     readonly types: readonly unknown[] | null
     /** @nullable */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+    readonly query_scan: unknown
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -9342,6 +9862,12 @@ export interface TextApi {
      * @nullable
      */
     body?: string | null
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     readonly last_modified_at: string
     team: number
@@ -9425,6 +9951,12 @@ export interface DashboardTileApi {
     show_description?: boolean | null
     /** @nullable */
     transparent_background?: boolean | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    group_key?: string | null
+    badge?: DashboardTileBadgeEnumApi | null
 }
 
 export interface DeleteTileRequestApi {
@@ -9454,6 +9986,7 @@ export interface PatchedMoveTileRequestApi {
 /**
  * * `preserve` - preserve
  * * `two_column` - two_column
+ * * `three_column` - three_column
  * * `full_width` - full_width
  */
 export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
@@ -9461,6 +9994,7 @@ export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
 export const LayoutEnumApi = {
     Preserve: 'preserve',
     TwoColumn: 'two_column',
+    ThreeColumn: 'three_column',
     FullWidth: 'full_width',
 } as const
 
@@ -9470,16 +10004,17 @@ export interface ReorderTilesRequestApi {
      * @minItems 1
      */
     tile_order: number[]
-    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. Use the other modes only when every tile should use the same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × 5-tall, and 'full_width' makes every tile 12-wide × 5-tall.
      *
      * * `preserve` - preserve
      * * `two_column` - two_column
+     * * `three_column` - three_column
      * * `full_width` - full_width */
     layout?: LayoutEnumApi
 }
 
 /**
- * InsightSerializer restricted to identifiers + result only.
+ * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
  */
 export interface InsightResultApi {
     readonly id: number
@@ -9489,6 +10024,8 @@ export interface InsightResultApi {
     /** @nullable */
     readonly derived_name: string | null
     readonly result: unknown
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
 }
 
 /**
@@ -9540,6 +10077,12 @@ export interface UpdateTextTileRequestApi {
      * @maxLength 4000
      */
     body?: string
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
     layouts?: TileLayoutsApi
     /**
@@ -9550,7 +10093,7 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
-export interface _WidgetTileLayoutBoxOpenApiApi {
+export interface _TileLayoutBoxOpenApiApi {
     /** Column position in the dashboard grid (0-indexed). */
     x?: number
     /** Row position in the dashboard grid (0-indexed). */
@@ -9561,11 +10104,36 @@ export interface _WidgetTileLayoutBoxOpenApiApi {
     h?: number
 }
 
-export interface _WidgetTileLayoutsOpenApiApi {
+export interface _TileLayoutsOpenApiApi {
     /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _WidgetTileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: _WidgetTileLayoutBoxOpenApiApi
+    sm?: _TileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+    xs?: _TileLayoutBoxOpenApiApi
+}
+
+export type NotebookWidgetAddRequestOpenApiApiWidgetType =
+    (typeof NotebookWidgetAddRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetAddRequestOpenApiApiWidgetType]
+
+export const NotebookWidgetAddRequestOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _TileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: NotebookWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the notebook widget widget. */
+    config: NotebookWidgetConfigApi
 }
 
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
@@ -9585,7 +10153,7 @@ export interface ActivityEventsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
@@ -9610,7 +10178,7 @@ export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
@@ -9635,7 +10203,7 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
@@ -9660,7 +10228,7 @@ export interface ExperimentsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentsListWidgetAddRequestOpenApiApiWidgetType
@@ -9685,7 +10253,7 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9710,7 +10278,7 @@ export interface SurveyResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SurveyResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9735,7 +10303,7 @@ export interface LogsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
@@ -9760,7 +10328,7 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
@@ -9768,7 +10336,33 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
     config: ConversationsRecentTicketsWidgetConfigApi
 }
 
+export type CanvasAppWidgetAddRequestOpenApiApiWidgetType =
+    (typeof CanvasAppWidgetAddRequestOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetAddRequestOpenApiApiWidgetType]
+
+export const CanvasAppWidgetAddRequestOpenApiApiWidgetType = {
+    CanvasApp: 'canvas_app',
+} as const
+
+export interface CanvasAppWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _TileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: CanvasAppWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the canvas app widget. */
+    config: CanvasAppWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
+    | NotebookWidgetAddRequestOpenApiApi
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
@@ -9777,13 +10371,14 @@ export type AddDashboardWidgetRequestApi =
     | SurveyResultsWidgetAddRequestOpenApiApi
     | LogsListWidgetAddRequestOpenApiApi
     | ConversationsRecentTicketsWidgetAddRequestOpenApiApi
+    | CanvasAppWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -9793,6 +10388,29 @@ export interface AddDashboardWidgetsBatchRequestOpenApiApi {
 export interface AddDashboardWidgetsBatchResponseApi {
     /** Created dashboard widget tiles in request order. */
     tiles: DashboardTileApi[]
+}
+
+export type NotebookWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const NotebookWidgetUpdateRequestOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: NotebookWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+    config?: NotebookWidgetConfigApi
 }
 
 export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
@@ -9979,7 +10597,31 @@ export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
     config?: ConversationsRecentTicketsWidgetConfigApi
 }
 
+export type CanvasAppWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof CanvasAppWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const CanvasAppWidgetUpdateRequestOpenApiApiWidgetType = {
+    CanvasApp: 'canvas_app',
+} as const
+
+export interface CanvasAppWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: CanvasAppWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the canvas app widget. Omit to leave unchanged. */
+    config?: CanvasAppWidgetConfigApi
+}
+
 export type UpdateDashboardWidgetRequestApi =
+    | NotebookWidgetUpdateRequestOpenApiApi
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
     | SessionReplayListWidgetUpdateRequestOpenApiApi
@@ -9988,6 +10630,7 @@ export type UpdateDashboardWidgetRequestApi =
     | SurveyResultsWidgetUpdateRequestOpenApiApi
     | LogsListWidgetUpdateRequestOpenApiApi
     | ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi
+    | CanvasAppWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -10004,6 +10647,31 @@ export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi {
 export interface UpdateDashboardWidgetsBatchResponseApi {
     /** Updated dashboard widget tiles in request order. */
     tiles: DashboardTileApi[]
+}
+
+export interface DashboardBulkDeleteRequestApi {
+    /**
+     * Dashboard IDs to soft-delete. At most 100 IDs per request.
+     * @maxItems 100
+     * @items.minimum 1
+     */
+    ids: number[]
+    /** Also delete insights that have no remaining dashboard after deletion. Defaults to false. */
+    delete_insights?: boolean
+}
+
+export interface DashboardBulkDeleteSkippedApi {
+    /** ID of the dashboard that was skipped. */
+    id: number
+    /** Reason the dashboard was skipped. */
+    reason: string
+}
+
+export interface DashboardBulkDeleteResponseApi {
+    /** IDs of dashboards that were soft-deleted. */
+    deleted: number[]
+    /** Dashboards that were not deleted. */
+    skipped: DashboardBulkDeleteSkippedApi[]
 }
 
 /**
@@ -10032,7 +10700,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
     /**
-     * Tag names to add, remove, or set.
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
      * @maxItems 100
      * @items.maxLength 255
      */
@@ -10052,6 +10720,27 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export type NotebookWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof NotebookWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof NotebookWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const NotebookWidgetCatalogEntryOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetCatalogEntryOpenApiApi {
+    widget_type: NotebookWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: NotebookWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -10222,7 +10911,29 @@ export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
     live: boolean
 }
 
+export type CanvasAppWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof CanvasAppWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const CanvasAppWidgetCatalogEntryOpenApiApiWidgetType = {
+    CanvasApp: 'canvas_app',
+} as const
+
+export interface CanvasAppWidgetCatalogEntryOpenApiApi {
+    widget_type: CanvasAppWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: CanvasAppWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
+}
+
 export type WidgetCatalogEntryApi =
+    | NotebookWidgetCatalogEntryOpenApiApi
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
@@ -10231,9 +10942,10 @@ export type WidgetCatalogEntryApi =
     | SurveyResultsWidgetCatalogEntryOpenApiApi
     | LogsListWidgetCatalogEntryOpenApiApi
     | ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi
+    | CanvasAppWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
-    /** Registered dashboard widget types available when dashboard-widgets is enabled. */
+    /** Registered dashboard widget types. */
     results: WidgetCatalogEntryApi[]
 }
 
@@ -10267,6 +10979,15 @@ export interface PatchedDataColorThemeApi {
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+/**
+ * * `notebook_widget` - notebook_widget
+ */
+export type NotebookWidgetTypeEnumApi = (typeof NotebookWidgetTypeEnumApi)[keyof typeof NotebookWidgetTypeEnumApi]
+
+export const NotebookWidgetTypeEnumApi = {
+    NotebookWidget: 'notebook_widget',
+} as const
 
 /**
  * * `activity_events_list` - activity_events_list
@@ -10347,31 +11068,13 @@ export const ConversationsRecentTicketsWidgetTypeEnumApi = {
     ConversationsRecentTickets: 'conversations_recent_tickets',
 } as const
 
-export type DashboardSavedViewsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * Return saved views with this visibility scope.
-     *
-     * * `private` - Private
-     * * `team` - Team
-     * @minLength 1
-     */
-    scope?: DashboardSavedViewsListScope
-}
+/**
+ * * `canvas_app` - canvas_app
+ */
+export type CanvasAppWidgetTypeEnumApi = (typeof CanvasAppWidgetTypeEnumApi)[keyof typeof CanvasAppWidgetTypeEnumApi]
 
-export type DashboardSavedViewsListScope =
-    (typeof DashboardSavedViewsListScope)[keyof typeof DashboardSavedViewsListScope]
-
-export const DashboardSavedViewsListScope = {
-    Private: 'private',
-    Team: 'team',
+export const CanvasAppWidgetTypeEnumApi = {
+    CanvasApp: 'canvas_app',
 } as const
 
 export type DashboardTemplatesListParams = {
@@ -10412,6 +11115,14 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
+     * Optional. Return only dashboards created by the user with this UUID.
+     */
+    created_by?: string
+    /**
+     * Optional. Exclude dashboards that PostHog generated.
+     */
+    exclude_generated?: boolean
+    /**
      * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
      */
     folder?: string
@@ -10425,6 +11136,14 @@ export type DashboardsListParams = {
      */
     offset?: number
     /**
+     * Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.
+     */
+    ordering?: DashboardsListOrdering
+    /**
+     * Optional. Return only pinned dashboards.
+     */
+    pinned?: boolean
+    /**
      * Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
@@ -10435,6 +11154,12 @@ export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof Da
 export const DashboardsListFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsListOrdering = (typeof DashboardsListOrdering)[keyof typeof DashboardsListOrdering]
+
+export const DashboardsListOrdering = {
+    LastViewedAt: '-last_viewed_at',
 } as const
 
 export type DashboardsCreateParams = {
@@ -10595,13 +11320,21 @@ export type DashboardsRunInsightsRetrieveParams = {
     filters_override?: string
     format?: DashboardsRunInsightsRetrieveFormat
     /**
-     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     * Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run.
+     */
+    max_result_chars?: number
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded.
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat
     /**
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
+    /**
+     * Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.
+     */
+    tile_ids?: string
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */

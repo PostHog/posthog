@@ -178,6 +178,34 @@ describe('logsPatternsLogic', () => {
         )
     })
 
+    it('viewMatchingLogs matches canonical members and version without narrowing by example facets', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.viewMatchingLogs({
+            ...RESPONSE.patterns[0],
+            match_patterns: ['User <N> not found', 'User <UUID> not found'],
+            pattern_version: 3,
+            match_regex: null,
+            match_literal: null,
+        })
+
+        const inner = filtersLogic.values.filters.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.values).toEqual(
+            expect.arrayContaining([
+                {
+                    key: 'pattern',
+                    value: ['User <N> not found', 'User <UUID> not found'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Log,
+                },
+                { key: 'pattern_version', value: 3, operator: PropertyOperator.Exact, type: PropertyFilterType.Log },
+            ])
+        )
+        expect(selectedServices()).toEqual([])
+        expect(selectedLevels()).toEqual([])
+    })
+
     it('compare mode diffs with the same query body and switches loaders for filter reloads', async () => {
         // The diff must scope its windows with exactly the filters a plain mine uses — if the
         // two request bodies drift apart, compare mode silently answers a different question
@@ -195,10 +223,7 @@ describe('logsPatternsLogic', () => {
             logic.actions.setCompareEnabled(true)
         }).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
 
-        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), {
-            query: minedQuery,
-            baselineDateRange: undefined, // 'lastWeek' delegates the -7d default to the backend
-        })
+        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ query: minedQuery }))
         expect(logic.values.diffResponse).toEqual(DIFF_RESPONSE)
 
         mockDiffCreate.mockClear()
@@ -209,7 +234,7 @@ describe('logsPatternsLogic', () => {
         expect(mockCreate).toHaveBeenCalledTimes(1) // only the original mount load
     })
 
-    it('preceding baseline is the same-length window ending where the current one starts', async () => {
+    it('defaults to the preceding baseline: the same-length window ending where the current one starts', async () => {
         // Locks the window arithmetic: a drift here (wrong length, overlap, or gap) makes the
         // "vs. preceding period" comparison silently wrong while still returning results.
         mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
@@ -224,19 +249,19 @@ describe('logsPatternsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
         expect(mockDiffCreate).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ baselineDateRange: undefined })
-        )
-
-        logic.actions.setBaselineMode('preceding')
-        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
-        expect(mockDiffCreate).toHaveBeenLastCalledWith(
-            expect.any(String),
             expect.objectContaining({
                 baselineDateRange: {
                     date_from: '2026-06-23T11:00:00.000Z',
                     date_to: '2026-06-23T12:00:00.000Z',
                 },
             })
+        )
+
+        logic.actions.setBaselineMode('lastWeek')
+        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
+        expect(mockDiffCreate).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ baselineDateRange: undefined }) // the backend applies the -7d default
         )
     })
 
@@ -250,13 +275,13 @@ describe('logsPatternsLogic', () => {
         configLogic.mount()
 
         configLogic.actions.setCompareEnabled(true)
-        configLogic.actions.setBaselineMode('preceding')
+        configLogic.actions.setBaselineMode('lastWeek')
         configLogic.actions.setViewMode('patterns')
 
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
         expect(mockCreate).not.toHaveBeenCalled()
-        expect(logic.values.baselineMode).toBe('preceding')
+        expect(logic.values.baselineMode).toBe('lastWeek')
     })
 
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {

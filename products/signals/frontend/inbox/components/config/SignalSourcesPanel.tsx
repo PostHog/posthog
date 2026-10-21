@@ -23,12 +23,12 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
  * the Signal sources setup modal.
  */
 export function SignalSourcesPanel(): JSX.Element {
-    const { dataSourceSetupSource } = useValues(signalSourcesLogic)
+    const { dataSourceSetupSource, dataSourceSetupOAuthRedirectUrl } = useValues(signalSourcesLogic)
     const {
         loadSources,
         loadSourceConfigs,
         loadVisionScanners,
-        loadToolDataEvents,
+        loadProductDataEvents,
         closeDataSourceSetup,
         onDataSourceSetupComplete,
     } = useActions(signalSourcesLogic)
@@ -37,14 +37,18 @@ export function SignalSourcesPanel(): JSX.Element {
         loadSources()
         loadSourceConfigs()
         loadVisionScanners()
-        loadToolDataEvents()
+        loadProductDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     if (dataSourceSetupSource !== null) {
         return (
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
-                <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
+                <DataSourceSetup
+                    source={dataSourceSetupSource}
+                    onComplete={() => onDataSourceSetupComplete()}
+                    oauthRedirectUrl={dataSourceSetupOAuthRedirectUrl}
+                />
             </div>
         )
     }

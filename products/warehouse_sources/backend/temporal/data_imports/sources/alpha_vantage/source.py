@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
     alpha_vantage_source,
     validate_credentials as validate_alpha_vantage_credentials,
@@ -32,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
+    codebase_detection = detect(env=("^(ALPHA_VANTAGE|ALPHAVANTAGE)_",), pypi=("alpha-vantage",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.alphavantage.co/documentation/"
 
@@ -64,13 +65,14 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Alpha Vantage has no server-side updated-at cursor, so every table is full refresh only.
+        # Only the functions carrying a server-side time filter can sync incrementally, and none
+        # supports append. See `incremental_fields` in settings.py for why.
         schemas = [
             SourceSchema(
                 name=endpoint.name,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint.incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=endpoint.incremental_fields,
                 detected_primary_keys=endpoint.primary_keys,
                 should_sync_default=endpoint.should_sync_default,
                 description=endpoint.description,
@@ -111,15 +113,18 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             symbols=symbols,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ALPHA_VANTAGE,
+            name=ExternalDataSourceType.ALPHAVANTAGE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Alpha Vantage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stocks", "market data", "financial", "equities", "fundamentals"],
             caption="""Enter your Alpha Vantage API key and the stock symbols you want to track to pull market data and company fundamentals into the PostHog Data warehouse.
 

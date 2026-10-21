@@ -6,6 +6,8 @@ import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
+import { HogFunctionTemplateType } from '~/types'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
@@ -13,6 +15,34 @@ import type { HogFlow, HogFlowAction } from '../types'
 import { HogFlowEditorPanel } from './HogFlowEditorPanel'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
+
+// The email template is hidden, so it is not in the shared destinations fixture. Mirrors
+// nodejs/src/cdp/templates/_destinations/email/email.template.ts.
+const EMAIL_TEMPLATE: HogFunctionTemplateType = {
+    id: 'template-email',
+    type: 'destination',
+    name: 'Email',
+    description: 'The email message to send. Configure the recipient, sender, subject, and content.',
+    status: 'hidden',
+    free: false,
+    code: '',
+    code_language: 'hog',
+    icon_url: '/static/posthog-icon.svg',
+    inputs_schema: [
+        {
+            type: 'native_email',
+            key: 'email',
+            label: 'Email message',
+            integration: 'email',
+            required: true,
+            secret: false,
+            description: 'The email message to send. Configure the recipient, sender, subject, and content.',
+        },
+    ],
+}
+
+const EMAIL_PREVIEW_HTML =
+    '<html><body style="margin:0;font-family:sans-serif"><div style="background:#1d1f27;color:#fff;padding:24px">PostHog</div><div style="padding:24px"><h1 style="margin:0 0 8px">Welcome aboard</h1><p>Your account is ready to go.</p></div></body></html>'
 
 const PANEL_WORKFLOW: HogFlow = {
     ...NEW_WORKFLOW,
@@ -61,6 +91,28 @@ const PANEL_WORKFLOW: HogFlow = {
             },
         },
         {
+            id: 'email',
+            type: 'function_email',
+            name: 'Send welcome email',
+            description: 'Welcome the account to the product.',
+            config: {
+                template_id: 'template-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: '{{ person.properties.email }}', name: '' },
+                            from: { email: 'hello@example.com', name: 'Example' },
+                            subject: 'Welcome aboard',
+                            preheader: '',
+                            text: 'Your account is ready to go.',
+                            html: EMAIL_PREVIEW_HTML,
+                        },
+                        templating: 'liquid',
+                    },
+                },
+            },
+        },
+        {
             id: 'conditional',
             type: 'conditional_branch',
             name: 'Route by account stage',
@@ -100,7 +152,8 @@ const PANEL_WORKFLOW: HogFlow = {
     edges: [
         { from: 'trigger', to: 'delay', type: 'continue' },
         { from: 'delay', to: 'webhook', type: 'continue' },
-        { from: 'webhook', to: 'conditional', type: 'continue' },
+        { from: 'webhook', to: 'email', type: 'continue' },
+        { from: 'email', to: 'conditional', type: 'continue' },
         { from: 'conditional', to: 'cohort', type: 'branch', index: 0 },
         { from: 'conditional', to: 'exit', type: 'branch', index: 1 },
         { from: 'conditional', to: 'exit', type: 'continue' },
@@ -113,6 +166,7 @@ const PANEL_WORKFLOW: HogFlow = {
 type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
+    layout?: 'floating' | 'panel'
 }
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
@@ -127,6 +181,10 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': PANEL_WORKFLOW,
                 '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
+                '/api/projects/:team_id/hog_function_templates': {
+                    count: _hogFunctionTemplatesDestinations.results.length + 1,
+                    results: [...(_hogFunctionTemplatesDestinations.results as unknown[]), EMAIL_TEMPLATE],
+                },
             },
             patch: {
                 '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => [
@@ -157,7 +215,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
+function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryProps): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
     const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
     const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
@@ -180,9 +238,18 @@ function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
         <ReactFlowProvider>
             <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
                 <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                    <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
-                        <HogFlowEditorPanel />
-                    </div>
+                    {layout === 'panel' ? (
+                        // Mirrors the tree view's host: a full-height row where the panel sits
+                        // beside the tree, so the panel is as tall as the editor
+                        <div className="@container/workflow-editor relative flex h-screen overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto">
+                            <div className="min-w-0 flex-1 bg-background" />
+                            <HogFlowEditorPanel layout="panel" />
+                        </div>
+                    ) : (
+                        <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
+                            <HogFlowEditorPanel />
+                        </div>
+                    )}
                 </BindLogic>
             </BindLogic>
         </ReactFlowProvider>
@@ -202,6 +269,12 @@ Trigger.args = { mode: 'build', selectedNodeId: 'trigger' }
 
 export const Webhook: StoryFn<PanelStoryProps> = Template.bind({})
 Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
+
+export const Email: StoryFn<PanelStoryProps> = Template.bind({})
+Email.args = { mode: 'build', selectedNodeId: 'email' }
+
+export const EmailInSidePanel: StoryFn<PanelStoryProps> = Template.bind({})
+EmailInSidePanel.args = { mode: 'build', selectedNodeId: 'email', layout: 'panel' }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }

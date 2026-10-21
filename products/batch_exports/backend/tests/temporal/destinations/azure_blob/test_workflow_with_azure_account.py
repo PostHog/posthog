@@ -24,20 +24,17 @@ from posthog.models.integration import Integration
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     run_azure_blob_batch_export_workflow,
 )
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("AZURE_STORAGE_CONNECTION_STRING", "AZURE_TEST_CONTAINER"),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        "AZURE_STORAGE_CONNECTION_STRING" not in os.environ or "AZURE_TEST_CONTAINER" not in os.environ,
-        reason="Real Azure credentials not set (AZURE_STORAGE_CONNECTION_STRING and AZURE_TEST_CONTAINER required)",
-    ),
 ]
 
 
@@ -138,8 +135,7 @@ async def test_workflow_exports_data_successfully(
     model: BatchExportModel | BatchExportSchema | None,
 ):
     """Test workflow exports events, persons, or sessions to real Azure Storage."""
-    batch_export_model = model if isinstance(model, BatchExportModel) else None
-    batch_export_schema = model if isinstance(model, dict) else None
+    batch_export_model = BatchExportModel(name="events", schema=model) if isinstance(model, dict) else model
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -152,7 +148,6 @@ async def test_workflow_exports_data_successfully(
         file_format=file_format,
         compression=compression,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     assert run.status == "Completed"
@@ -174,8 +169,7 @@ async def test_workflow_exports_data_successfully(
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("file_format", ["JSONLines", "Parquet"], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli", "zstd", "lz4", "snappy"], indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_workflow_handles_formats_and_compression(
     ateam,
@@ -192,9 +186,6 @@ async def test_workflow_handles_formats_and_compression(
     model: BatchExportModel,
 ):
     """Test workflow handles various file formats and compression types with real Azure."""
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
         batch_export_id=str(azure_batch_export.id),

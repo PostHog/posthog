@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConfig]):
+    codebase_detection = detect(env=("^(STOCK_DATA|STOCKDATA)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -118,10 +119,10 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.STOCK_DATA,
+            name=ExternalDataSourceType.STOCKDATA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="StockData.org",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your StockData.org API token to pull market news with sentiment plus quote, end-of-day, intraday, dividend, and split price data into the PostHog Data warehouse.
 
 You can find your API token in your [StockData.org dashboard](https://www.stockdata.org/dashboard).

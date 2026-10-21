@@ -182,18 +182,3 @@ export const formatAggregationAxisValueWithShareOfTotal = (
     const shareOfTotal = parseFloat(((Number(value) / total) * 100).toFixed(1))
     return `${formatted} (${shareOfTotal}%)`
 }
-
-export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined): string => {
-    switch (chartDisplayType) {
-        case ChartDisplayType.ActionsLineGraph:
-        case ChartDisplayType.ActionsLineGraphCumulative:
-        case ChartDisplayType.ActionsBar:
-        case ChartDisplayType.ActionsUnstackedBar:
-        case ChartDisplayType.ActionsAreaGraph:
-            return 'Y-axis unit'
-        case ChartDisplayType.ActionsBarValue:
-            return 'X-axis unit'
-        default:
-            return 'Unit'
-    }
-}

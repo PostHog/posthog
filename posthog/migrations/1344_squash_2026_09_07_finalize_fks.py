@@ -22,6 +22,7 @@ class Migration(migrations.Migration):
         ("exports", "0001_squash_2026_09_07_initial"),
         ("feature_flags", "0001_squash_2026_09_07_initial"),
         ("notebooks", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0000_squash_stub"),
         ("posthog", "0001_squash_2026_09_07_initial"),
         ("product_analytics", "0001_squash_2026_09_07_initial"),
         ("replay_vision", "0001_squash_2026_09_07_initial"),

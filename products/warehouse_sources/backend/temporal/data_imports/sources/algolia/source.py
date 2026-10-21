@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.algolia import (
     AlgoliaResumeConfig,
     algolia_source,
@@ -19,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.al
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -46,11 +46,89 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "searches_no_results": "Most frequent searches on the index that returned zero results. Full refresh only.",
     "searches_no_clicks": "Most frequent searches on the index that received no clicks. Full refresh only.",
     "ab_tests": "A/B tests configured on the application, with per-variant results. Full refresh only.",
+    "conversion_rate": "Daily conversion rate on the index, with tracked search and conversion counts.",
+    "add_to_cart_rate": "Daily add-to-cart rate on the index, with tracked search and add-to-cart counts.",
+    "purchase_rate": "Daily purchase rate on the index, with tracked search and purchase counts.",
+    "revenue": "Daily revenue attributed to searches on the index, broken down by currency.",
+    "click_through_rate": "Daily click-through rate on the index, with click and tracked search counts.",
+    "average_click_position": "Daily average position of clicked search results on the index.",
+    "users_count": "Daily count of unique users searching the index.",
+    "top_filters": "Most frequently used filter attributes on the index. Full refresh only.",
+    "top_filter_values": "Most frequent filter values for each filter attribute on the index. Full refresh only.",
+    "top_countries": "Countries with the most searches on the index. Full refresh only.",
+    "click_positions": "Clicks per position range in the index's search results. Full refresh only.",
 }
 
 
 @SourceRegistry.register
 class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
+    codebase_detection = detect(
+        env=("^ALGOLIA_",),
+        npm=("algoliasearch", "instantsearch.js", "react-instantsearch"),
+        pypi=("algoliasearch",),
+        cocoapods=("AlgoliaSearchClient",),
+        composer=(
+            "algolia/algoliasearch-client-php",
+            "algolia/algolia-search-bundle",
+            "algolia/algoliasearch-adapter-magento-2",
+            "algolia/algoliasearch-custom-algolia-magento-2",
+            "algolia/algoliasearch-ingestion-magento-2",
+            "algolia/algoliasearch-inventory-magento-2",
+            "algolia/algoliasearch-laravel",
+            "algolia/algoliasearch-laravel-4",
+            "algolia/algoliasearch-magento",
+            "algolia/algoliasearch-magento-2",
+            "algolia/algoliasearch-magento-2-es-compatibility",
+            "algolia/algoliasearch-nette",
+            "algolia/algoliasearch-wordpress",
+            "algolia/laravel-scout-algolia-macros",
+        ),
+        go=("github.com/algolia/algoliasearch-client-go",),
+        maven=(
+            "com.algolia:algoliasearch",
+            "com.algolia:algoliasearch-client-kotlin",
+            "com.algolia:algoliasearch-android",
+            "com.algolia:algoliasearch-apache",
+            "com.algolia:algoliasearch-apache-uber",
+            "com.algolia:algoliasearch-appengine",
+            "com.algolia:algoliasearch-async",
+            "com.algolia:algoliasearch-client-java",
+            "com.algolia:algoliasearch-client-kotlin-android",
+            "com.algolia:algoliasearch-client-kotlin-common",
+            "com.algolia:algoliasearch-client-kotlin-iosarm64",
+            "com.algolia:algoliasearch-client-kotlin-iossimulatorarm64",
+            "com.algolia:algoliasearch-client-kotlin-iosx64",
+            "com.algolia:algoliasearch-client-kotlin-jvm",
+            "com.algolia:algoliasearch-client-kotlin-macosarm64",
+            "com.algolia:algoliasearch-client-kotlin-macosx64",
+            "com.algolia:algoliasearch-client-kotlin-metadata",
+            "com.algolia:algoliasearch-common",
+            "com.algolia:algoliasearch-core",
+            "com.algolia:algoliasearch-core-uber",
+            "com.algolia:algoliasearch-java-net",
+            "com.algolia:algoliasearch-offline-android",
+            "com.algolia:algoliasearch-offline-core-android",
+            "com.algolia:algoliasearch-scala_2.11",
+            "com.algolia:algoliasearch-scala_2.12",
+            "com.algolia:algoliasearch-scala_2.13",
+            "com.algolia:algoliasearch-scala_3",
+        ),
+        pub=(
+            "algolia_client_search",
+            "algoliasearch",
+            "algolia_client_agent_studio",
+            "algolia_client_composition",
+            "algolia_client_core",
+            "algolia_client_ingestion",
+            "algolia_client_insights",
+            "algolia_client_recommend",
+            "algolia_helper_flutter",
+            "algolia_insights",
+        ),
+        rubygems=("algolia", "algoliasearch", "algoliasearch-rails"),
+        swiftpm=("github.com/algolia/algoliasearch-client-swift",),
+    )
+
     api_docs_url = "https://www.algolia.com/doc/rest-api/search"
 
     @property
@@ -60,10 +138,10 @@ class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ALGOLIA,
+            name=ExternalDataSourceType.ALGOLIA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Algolia",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Algolia Application ID and an API key to pull your Algolia data into the PostHog Data warehouse.
 
 You can find your Application ID and create API keys in your [Algolia dashboard](https://dashboard.algolia.com/account/api-keys/all).
@@ -72,7 +150,7 @@ The API key needs the ACLs for the data you want to sync:
 - `browse` — index records
 - `settings` — synonyms and query rules
 - `listIndexes` — the list of indices
-- `analytics` — top searches, top hits, zero-result/zero-click searches, and A/B tests
+- `analytics` — search, click, conversion and revenue metrics, filter and country breakdowns, and A/B tests
 
 Set the region to match where your Algolia application is hosted. It selects the analytics host used for the analytics and A/B test tables.
 """,
@@ -142,14 +220,13 @@ Set the region to match where your Algolia application is hosted. It selects the
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # No Algolia endpoint exposes a server-side "updated since" filter, so every table is
-        # full refresh (no incremental fields); the cursor/page tokens still make each one
-        # resumable. An empty mapping keeps every endpoint full refresh, since
-        # `build_endpoint_schemas` treats any present entry as incremental.
+        # `merge_only` covers every endpoint because Algolia restates recent days as late
+        # events arrive, so a re-read has to update those rows rather than append a copy.
         return build_endpoint_schemas(
             ENDPOINTS,
-            {},
+            INCREMENTAL_FIELDS,
             names,
+            merge_only=ENDPOINTS,
             descriptions=_ENDPOINT_DESCRIPTIONS,
             should_sync_default={name: cfg.should_sync_default for name, cfg in ALGOLIA_ENDPOINTS.items()},
         )
@@ -187,6 +264,9 @@ Set the region to match where your Algolia application is hosted. It selects the
             job_id=inputs.job_id,
             manager=resumable_source_manager,
             region=config.region,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            incremental_field=inputs.incremental_field,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

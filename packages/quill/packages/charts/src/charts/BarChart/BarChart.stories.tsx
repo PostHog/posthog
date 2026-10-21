@@ -216,6 +216,20 @@ export const WithValueLabels: Story = {
     },
 }
 
+export const CenteredPercentLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'percent', axisOrientation: 'horizontal' }
+        return (
+            <Stage>
+                <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme}>
+                    <ValueLabels position="center" valueFormatter={(value) => `${(value * 100).toFixed(0)}%`} />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
 export const DenseValueLabels: Story = {
     render: () => {
         const theme = useReactiveTheme()

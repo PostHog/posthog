@@ -1,5 +1,7 @@
 import dataclasses
 
+from django.db import transaction
+
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -55,20 +57,21 @@ class RecordSkippedDataModelingJobsInputs:
 def _create_data_modeling_job(
     inputs: CreateDataModelingJobInputs, workflow_id: str, workflow_run_id: str
 ) -> CreatedDataModelingJob:
-    node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
-    )
-    job = DataModelingJob.objects.create(
-        team_id=inputs.team_id,
-        saved_query=node.saved_query,
-        status=DataModelingJob.Status.RUNNING,
-        engine=inputs.engine,
-        workflow_id=workflow_id,
-        workflow_run_id=workflow_run_id,
-        parent_workflow_id=inputs.parent_workflow_id,
-        created_by_id=node.saved_query.created_by_id if node.saved_query else None,
-        manually_triggered_by_id=inputs.manually_triggered_by_id,
-    )
+    with transaction.atomic():
+        node = Node.objects.prefetch_related("saved_query").get(
+            id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+        )
+        job = DataModelingJob.objects.create(
+            team_id=inputs.team_id,
+            saved_query=node.saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            engine=inputs.engine,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            parent_workflow_id=inputs.parent_workflow_id,
+            created_by_id=node.saved_query.created_by_id if node.saved_query else None,
+            manually_triggered_by_id=inputs.manually_triggered_by_id,
+        )
     return CreatedDataModelingJob(
         job_id=str(job.id),
         saved_query_id=str(node.saved_query.id) if node.saved_query else None,
@@ -114,13 +117,13 @@ def _subject(names: list[str], total: int) -> str:
 def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
     if failed_total and suspended_total:
         subject = _subject(failed + suspended, failed_total + suspended_total)
-        return f"Skipped because {subject} are failing or paused."
+        return f"Skipped because {subject} are failing or suspended."
     if failed_total:
         verb = "is" if failed_total == 1 else "are"
         return f"Skipped because {_subject(failed, failed_total)} {verb} failing."
     if suspended_total:
         verb = "was" if suspended_total == 1 else "were"
-        return f"Skipped because {_subject(suspended, suspended_total)} {verb} paused after repeated failures."
+        return f"Skipped because {_subject(suspended, suspended_total)} {verb} suspended after repeated failures."
     return "Skipped because an upstream view failed."
 
 

@@ -4,13 +4,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
@@ -95,11 +94,6 @@ class TestAppStoreConnectSource:
         for schema in schemas:
             assert schema.detected_primary_keys == APP_STORE_CONNECT_ENDPOINTS[schema.name].primary_keys
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = AppStoreConnectSource().get_schemas(_config(), team_id=1, names=["customer_reviews"])
-
-        assert [schema.name for schema in schemas] == ["customer_reviews"]
-
     def test_only_report_tables_are_incremental_and_opt_in(self) -> None:
         schemas = {schema.name: schema for schema in AppStoreConnectSource().get_schemas(_config(), team_id=1)}
 
@@ -172,6 +166,8 @@ class TestAppStoreConnectSource:
 
         assert valid is expected_valid
         assert (error is None) is expected_valid
+        # The message is read in the source wizard, where an HTTP status tells the user nothing.
+        assert status is None or error is None or str(status) not in error
 
     def test_forbidden_is_accepted_at_source_create_but_not_per_schema(self) -> None:
         source = AppStoreConnectSource()
@@ -182,8 +178,8 @@ class TestAppStoreConnectSource:
 
         # A key whose role can't read `/v1/apps` is still a real key, so source creation must not fail.
         assert (created, create_error) == (True, None)
-        assert per_schema is False
-        assert schema_error is not None
+        # Naming the roles that can read the table is the only way out of this one.
+        assert (per_schema, schema_error) == (False, APP_STORE_CONNECT_READ_FORBIDDEN_ERROR)
 
     def test_an_unreadable_app_id_blocks_the_source_with_the_probe_message(self) -> None:
         probe_message = "This API key cannot read these app IDs: 999. It can read: Acme (1234567890)."

@@ -1,0 +1,127 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { AgentsRoster } from './AgentsRoster'
+
+const SCANNERS = Array.from({ length: 10 }, (_, index) => ({
+    id: `scanner-${index}`,
+    name: `Scanner ${index}`,
+    description: `Watches step ${index}.`,
+    scanner_type: 'monitor',
+    enabled: true,
+    emits_signals: false,
+}))
+
+const EMPTY_LIST = { count: 0, next: null, previous: null, results: [] }
+
+describe('AgentsRoster', () => {
+    beforeEach(() => {
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': () => [200, { results: [] }],
+                '/api/projects/:team_id/vision/scanners/': () => [
+                    200,
+                    { count: SCANNERS.length, next: null, previous: null, results: SCANNERS },
+                ],
+                '/api/projects/:team_id/event_definitions/': () => [200, EMPTY_LIST],
+                '/api/environments/:team_id/external_data_sources/': () => [200, EMPTY_LIST],
+            },
+        })
+        // The roster only loads its sources behind this flag, so without it every list stays empty.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+        })
+    })
+    afterEach(cleanup)
+
+    it('renders a window of external sources and finds an unmounted source through search', async () => {
+        render(<AgentsRoster />)
+
+        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        await userEvent.click(screen.getAllByLabelText('Expand GitHub issues')[0])
+        expect(screen.getByText('Reads the GitHub issues data you sync to Data warehouse.')).toBeInTheDocument()
+        expect(screen.queryByText('GitLab')).not.toBeInTheDocument()
+
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitLab')
+
+        expect(await screen.findByText('GitLab')).toBeInTheDocument()
+        expect(screen.getByLabelText('Arm Support')).toBeInTheDocument()
+    })
+
+    it('lets a connection retry finish before another retry can start', async () => {
+        let resolveRequest!: () => void
+        const pendingRequest = new Promise<void>((resolve) => {
+            resolveRequest = resolve
+        })
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/': async () => {
+                    requests++
+                    if (requests === 1) {
+                        return [500, { detail: 'Server error' }]
+                    }
+                    await pendingRequest
+                    return [200, EMPTY_LIST]
+                },
+            },
+        })
+        render(<AgentsRoster />)
+        signalSourcesLogic.actions.loadSources()
+        const retry = (await screen.findAllByText('Retry'))[0].closest('button')!
+        await userEvent.click(retry)
+        expect(retry).toHaveAttribute('aria-disabled', 'true')
+        resolveRequest()
+        await waitFor(() => expect(screen.queryByText(/Couldn't load your connections/)).not.toBeInTheDocument())
+        expect(requests).toBe(2)
+    })
+
+    // The cap keeps a long user-created list from burying the sources below it, but a filter that
+    // could not reach past it would make a scanner unfindable by name.
+    it('caps the scanner list, and lets both the filter and Show more reach past the cap', async () => {
+        render(<AgentsRoster />)
+        await userEvent.click(await screen.findByText('Replay vision'))
+
+        expect(await screen.findByText('Scanner 7')).toBeInTheDocument()
+        expect(screen.queryByText('Scanner 8')).not.toBeInTheDocument()
+
+        await userEvent.type(screen.getByPlaceholderText('Filter scanners'), 'Scanner 9')
+        expect(await screen.findByText('Scanner 9')).toBeInTheDocument()
+
+        await userEvent.clear(screen.getByPlaceholderText('Filter scanners'))
+        await userEvent.click(await screen.findByText('Show 2 more scanners'))
+        expect(await screen.findByText('Scanner 9')).toBeInTheDocument()
+    })
+
+    // A failed load leaves every switch reading off and every import source reading unconnected.
+    // A click then creates a row that may already exist, so the switches have to stay shut.
+    it('holds the source switches shut while the source list has failed to load', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': () => [500, { detail: 'Server error' }],
+            },
+        })
+        render(<AgentsRoster />)
+        signalSourcesLogic.actions.loadSources()
+
+        expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
+        expect(screen.getByLabelText('Arm Support')).toBeDisabled()
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitHub issues')
+        const githubButton = await screen.findByLabelText('Turn on GitHub issues')
+        expect(githubButton).toHaveAttribute('aria-disabled', 'true')
+        await userEvent.click(githubButton)
+        expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
+        expect(screen.queryByText('Connect')).not.toBeInTheDocument()
+    })
+})

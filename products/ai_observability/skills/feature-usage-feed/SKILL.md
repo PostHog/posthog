@@ -142,7 +142,12 @@ posthog:query-llm-traces-list
 
 `randomOrder: true` matters — recency bias produces a non-representative sample. Pick 5-10 traces to test against.
 
-**Output size warning:** `query-llm-traces-list` with `limit: 10` routinely returns 3-6MB of JSON (full input/output per generation). This will blow your context window. **Immediately delegate the summarization to a subagent** the moment you see the "result exceeds maximum allowed tokens" error — ask the subagent to extract, per trace: the trace id, the first user message (truncated to ~300 chars), the sampled `$current_url`, and a one-sentence description of what the conversation was about. Don't try to read the raw file in-line.
+**Output size warning:** `query-llm-traces-list` with `limit: 10` routinely returns 3-6MB of JSON (full input/output per generation). This will blow your context window. **Immediately delegate the summarization to a subagent** the moment you see the "result exceeds maximum allowed tokens" error — ask the subagent to extract, per trace: the trace id, the first user message (truncated to ~300 chars), and a one-sentence description of what the conversation was about. Don't try to read the raw file in-line.
+
+The trace tools return the AI payload only.
+A custom property such as `$current_url`, `agent_mode` or `ai_product` comes back as a name in `_redactedKeys` with no value,
+so read it with `posthog:execute-sql` for the sampled trace ids when a sample needs it.
+Filtering on those properties, as both patterns above do, is unaffected.
 
 **Watch for topic drift in Pattern B samples.** The `agent_mode` tag reflects the user's mode selection at the time of the turn — but chat state retains the mode even if the user drifts off-topic within the same conversation (e.g. user selected "error tracking" mode, then asked an unrelated pricing question three turns later). Your eval prompt's classification step needs to be permissive about topic-drift: PASS should mean "user is doing something recognizably in-scope for this mode", FAIL should catch the off-topic drift. If you don't, your feed will include irrelevant PASS entries that happen to carry the mode tag.
 

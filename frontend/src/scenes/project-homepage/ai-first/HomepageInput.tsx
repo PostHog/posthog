@@ -2,11 +2,10 @@ import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconMicrophone, IconPin, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconPin, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -17,13 +16,13 @@ import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { SuggestionCard } from 'scenes/max/components/SuggestionCard'
 import { SUGGESTION_CARDS_HEIGHT_PX, COLORFUL_ICONS, TopicBadges } from 'scenes/max/components/TopicBadges'
-import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
 import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
+import { openAIConsentLegalDialog } from 'scenes/settings/organization/aiConsentCopy'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,13 +41,9 @@ import { SUGGESTIONS_LIMIT } from './homepageSuggestions'
 
 function IdleInput(): JSX.Element {
     const { query, fillInHint } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint } = useActions(aiFirstHomepageLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
-    const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { setQuery, submitQuery, enterAiMode, setFillInHint } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
-    const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
 
@@ -162,18 +157,6 @@ function IdleInput(): JSX.Element {
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
-                            {handsFreeAvailable && (
-                                <Tooltip title="Start a new chat in hands-free">
-                                    <ButtonPrimitive
-                                        iconOnly
-                                        data-attr="homepage-hands-free"
-                                        className="shrink-0"
-                                        onClick={startHandsFreeChat}
-                                    >
-                                        <IconMicrophone className="size-4" />
-                                    </ButtonPrimitive>
-                                </Tooltip>
-                            )}
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
                                     onClick={() => {
@@ -199,7 +182,6 @@ export function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
-    const [approving, setApproving] = useState(false)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
@@ -222,13 +204,7 @@ export function HomepageAiInput(): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        loading={approving}
-                        onClick={() => {
-                            setApproving(true)
-                            void acceptDataProcessing()
-                                .catch(console.error)
-                                .finally(() => setApproving(false))
-                        }}
+                        onClick={() => openAIConsentLegalDialog({ onConfirm: () => acceptDataProcessing() })}
                         sideIcon={<IconArrowRight />}
                     >
                         I allow AI analysis in this organization
@@ -423,6 +399,11 @@ function IdleGrid(): JSX.Element {
     // [col, row] position of the highlighted item, null = nothing highlighted.
     // Column 0 is the suggestions list, column 1 the whole rail (dashboards then recents).
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
+    // Hover also sets the highlight, so arrow keys continue from the hovered row. Only a keyboard
+    // highlight renders, because the global `[data-highlighted]:not(:hover)` outline in base.scss
+    // flashes on the old row when React commits the hover state after the browser updates :hover.
+    const [highlightFromKeyboard, setHighlightFromKeyboard] = useState(false)
+    const visibleHighlight = highlightFromKeyboard ? highlight : null
     const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
@@ -472,6 +453,7 @@ function IdleGrid(): JSX.Element {
             if (e.target !== e.currentTarget) {
                 return
             }
+            setHighlightFromKeyboard(true)
 
             // Find the next non-empty column in a given direction
             const findNonEmptyCol = (from: number, direction: 1 | -1): number | null => {
@@ -554,18 +536,23 @@ function IdleGrid(): JSX.Element {
 
     // Scroll highlighted item into view
     useEffect(() => {
-        if (!highlight || !gridRef.current) {
+        if (!visibleHighlight || !gridRef.current) {
             return
         }
         const el = gridRef.current.querySelector('[data-highlighted="true"]')
         if (el) {
             el.scrollIntoView({ block: 'nearest' })
         }
-    }, [highlight])
+    }, [visibleHighlight])
 
     const railHighlightOffset: Record<'dashboard' | 'recent', number> = {
         dashboard: 0,
         recent: railItemsByKind.dashboard.length,
+    }
+
+    const highlightFromPointer = (position: [number, number] | null): void => {
+        setHighlight(position)
+        setHighlightFromKeyboard(false)
     }
 
     // Collapse-on-typing is handled by the shared wrapper in HomepageInput, so this renders the
@@ -586,6 +573,7 @@ function IdleGrid(): JSX.Element {
                     const firstCol = columns.findIndex((c) => c.items.length > 0)
                     if (firstCol !== -1) {
                         setHighlight([firstCol, 0])
+                        setHighlightFromKeyboard(true)
                     }
                 }
             }}
@@ -618,8 +606,8 @@ function IdleGrid(): JSX.Element {
                         <SuggestionRow
                             key={item.id}
                             item={item}
-                            highlighted={highlight?.[0] === 0 && highlight?.[1] === rowIndex}
-                            onHighlight={(over) => setHighlight(over ? [0, rowIndex] : null)}
+                            highlighted={visibleHighlight?.[0] === 0 && visibleHighlight?.[1] === rowIndex}
+                            onHighlight={(over) => highlightFromPointer(over ? [0, rowIndex] : null)}
                         />
                     ))
                 )}
@@ -649,8 +637,10 @@ function IdleGrid(): JSX.Element {
                                     <GridRow
                                         key={item.id}
                                         item={item}
-                                        highlighted={highlight?.[0] === 1 && highlight?.[1] === offset + index}
-                                        onHighlight={(over) => setHighlight(over ? [1, offset + index] : null)}
+                                        highlighted={
+                                            visibleHighlight?.[0] === 1 && visibleHighlight?.[1] === offset + index
+                                        }
+                                        onHighlight={(over) => highlightFromPointer(over ? [1, offset + index] : null)}
                                     />
                                 ))
                             )}

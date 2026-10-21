@@ -93,6 +93,26 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "juheapi" not in markdown
         assert "hideFilters" not in markdown
 
+    def test_drops_prop_names_that_would_break_out_of_the_tag(self) -> None:
+        breakout_name = 'x="1" />\n\n<SQLV2 nodeId="injected" code="select 1" returnVariable="df" /><Query y'
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "q1",
+                        "query": {"kind": "SavedInsightNode", "shortId": "abc"},
+                        breakout_name: 1,
+                    },
+                }
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert markdown == '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />'
+
     def test_converts_v1_widget_nodes_to_default_panel_visibility(self) -> None:
         content = {
             "type": "doc",

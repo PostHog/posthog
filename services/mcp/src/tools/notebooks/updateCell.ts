@@ -2,17 +2,34 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
+import { wrapRunResultAsInformational } from './cellRuns'
 import {
-    awaitRun,
-    buildResultProp,
-    dispatchRun,
-    shapeRunForModel,
-    wrapRunResultAsInformational,
-    type ShapedRunResult,
-} from './cellRuns'
-import { collectRunRefs, directDependents, findCellTag, parseCellTags, replaceCellTag, upsertProp } from './cellTags'
-import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+    findCellTag,
+    materializeLegacySqlProps,
+    replaceCellTag,
+    normalizeForTagScan,
+    startsComponentTag,
+    upsertProp,
+} from './cellTags'
+import {
+    applyVisualization,
+    CellVisualizationSchema,
+    storedVisualizationWarnings,
+    VISUALIZATION_PARAM_DESCRIPTION,
+} from './cellVisualization'
+import { applyMarkdownEdit, fetchMarkdownNotebook, replaceMarkdownCell } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+import { runExistingCell, type RunCellResult } from './runCell'
+
+/**
+ * The two id shapes a markdown block can carry: derived from its text by
+ * `_create_stable_markdown_prose_id` in `products/notebooks/backend/util.py`, or stored in the
+ * document as an anchor above the block.
+ *
+ * Only sharpens an error, because the content parameter decides the branch. A prefix change in
+ * the backend therefore degrades one message and breaks nothing.
+ */
+const PROSE_NODE_ID_PREFIXES = ['mdp-', 'phb-']
 
 const UpdateCellInputSchema = z
     .object({
@@ -21,22 +38,113 @@ const UpdateCellInputSchema = z
         code: z
             .string()
             .optional()
-            .describe('New SQL or Python source. Omit to re-run the cell as-is (e.g. a stale cell).'),
+            .describe(
+                'New SQL or Python source. Omitting code and visualization still re-runs the cell as-is, but prefer notebooks-run-cell for that.'
+            ),
+        markdown: z
+            .string()
+            .optional()
+            .describe(
+                'New markdown for a markdown cell: prose, a heading, a table, or a fenced block. Use this instead of `code` when notebooks-get reports the cell as cell_type "markdown". Pass the replacement only; the surrounding cells are untouched.'
+            ),
+        visualization: CellVisualizationSchema.nullable()
+            .optional()
+            .describe(
+                `${VISUALIZATION_PARAM_DESCRIPTION} Pass null to show the results table again. Without code, the chart changes and the cell does not re-run.`
+            ),
     })
     .strict()
 
 export const NotebooksUpdateCellSchema = z.preprocess(notebookIdAliases('notebook_id'), UpdateCellInputSchema)
 
-export interface UpdateCellResult {
+export type UpdateCellResult = RunCellResult
+
+export interface UpdateVisualizationResult {
     node_id: string
-    run: ShapedRunResult
-    stale_dependents: { node_id: string; dataframe_name?: string }[]
+    updated: true
+    visualization_warnings?: string[]
 }
 
-export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult>['handler'] = async (
+export interface UpdateProseCellResult {
+    node_id: string
+    updated: true
+}
+
+/** Reject markdown that opens a component tag, so a cell can only be added by the tool that owns runs and identity. */
+function assertNoComponentTag(markdown: string): void {
+    let insideFence = false
+    // The backend collapses `\r\n` and a lone `\r` to a newline before it looks for tags, so a
+    // payload split only on `\n` hides a tag from this guard that the backend later reads as a
+    // live cell.
+    for (const line of markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
+        // Fence detection normalizes the same characters as the tag check. Python strips them,
+        // so a control-prefixed fence opens a block there and reads as prose here, which moves
+        // every tag after it in or out of the fence.
+        if (normalizeForTagScan(line).startsWith('```')) {
+            insideFence = !insideFence
+            continue
+        }
+        // Both walkers read fenced content as inert, so a tag written as an example there opens
+        // no cell and the guard would reject a legitimate edit.
+        if (insideFence || !startsComponentTag(line)) {
+            continue
+        }
+        throw new Error(
+            `markdown must not contain a component tag (found ${line.trim().slice(0, 40)}). Add cells with notebooks-add-cell, which assigns identity, names the dataframe, and runs the cell. To show a tag as an example, put it in a fenced code block.`
+        )
+    }
+    // An unclosed fence flips the fence state of everything after this block, which decides
+    // whether the tags already in the document open cells.
+    if (insideFence) {
+        throw new Error('markdown must not leave a code fence open. Close every ``` block in the replacement.')
+    }
+}
+
+async function updateProseCell(
     context: Context,
     params: z.infer<typeof NotebooksUpdateCellSchema>
-) => {
+): Promise<UpdateProseCellResult> {
+    if (params.visualization !== undefined) {
+        throw new Error(`Cell ${params.node_id} is a markdown cell. visualization applies to sql cells only.`)
+    }
+    if (params.code !== undefined) {
+        throw new Error(
+            `Cell ${params.node_id} is a markdown cell. Pass its replacement as \`markdown\`, not \`code\`.`
+        )
+    }
+    const next = params.markdown
+    if (next === undefined || !next.trim()) {
+        throw new Error('markdown must be non-empty. Remove a cell with notebooks-delete-cell.')
+    }
+    assertNoComponentTag(next)
+
+    await replaceMarkdownCell(context, params.notebook_id, params.node_id, next.trim())
+    return { node_id: params.node_id, updated: true }
+}
+
+export const updateCellHandler: ToolBase<
+    typeof NotebooksUpdateCellSchema,
+    UpdateCellResult | UpdateProseCellResult | UpdateVisualizationResult
+>['handler'] = async (context: Context, params: z.infer<typeof NotebooksUpdateCellSchema>) => {
+    if (params.visualization !== undefined && params.markdown !== undefined) {
+        throw new Error('visualization applies to sql cells only. A markdown cell has no chart.')
+    }
+    if (params.code !== undefined && params.markdown !== undefined) {
+        throw new Error(
+            'Pass either code (a SQL or Python cell) or markdown (a markdown cell), not both. The cell type follows from node_id; read it from notebooks-get.'
+        )
+    }
+    // A prefix only hints at the cell type. A tag holds its id in a prop, and nothing stops that
+    // prop from reading like a markdown block id, so the document decides when the two disagree.
+    const looksLikeProse = PROSE_NODE_ID_PREFIXES.some((prefix) => params.node_id.startsWith(prefix))
+    if (looksLikeProse && (params.code !== undefined || params.visualization !== undefined)) {
+        const { markdown } = await fetchMarkdownNotebook(context, params.notebook_id)
+        if (!findCellTag(markdown, params.node_id)) {
+            return await updateProseCell(context, params)
+        }
+    } else if (looksLikeProse || params.markdown !== undefined) {
+        return await updateProseCell(context, params)
+    }
     if (params.code !== undefined && !params.code.trim()) {
         throw new Error('code must be non-empty; omit it to re-run the cell unchanged.')
     }
@@ -51,17 +159,39 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
             `Cell ${params.node_id} is a ${existing.tagName} cell and cannot be updated with this tool — delete and re-add it instead.`
         )
     }
+    if (params.visualization !== undefined && existing.tagName !== 'SQLV2') {
+        throw new Error(
+            `visualization applies to sql cells only, and ${params.node_id} is a python cell. A python cell plots with matplotlib.`
+        )
+    }
 
     let markdown = initial.markdown
     let notebook = initial.notebook
-    if (params.code !== undefined && params.code !== existing.code) {
+    const codeChanged = params.code !== undefined && params.code !== existing.code
+    if (codeChanged || params.visualization !== undefined) {
         const applied = await applyMarkdownEdit(context, params.notebook_id, (current) => {
             const block = findCellTag(current, params.node_id)
             if (!block) {
                 throw new Error(`No cell with node_id ${params.node_id} in notebook ${params.notebook_id}.`)
             }
-            return replaceCellTag(current, block, upsertProp(block.source, 'code', params.code))
+            let source = block.tagName === 'SQLV2' ? materializeLegacySqlProps(block.source) : block.source
+            if (codeChanged) {
+                source = upsertProp(source, 'code', params.code)
+            }
+            if (params.visualization !== undefined) {
+                source = applyVisualization(source, params.visualization)
+            }
+            return replaceCellTag(current, block, source)
         })
+        if (params.code === undefined) {
+            const updated = findCellTag(applied.markdown, params.node_id)
+            const warnings = updated ? storedVisualizationWarnings(updated.source) : []
+            return wrapRunResultAsInformational({
+                node_id: params.node_id,
+                updated: true as const,
+                ...(warnings.length ? { visualization_warnings: warnings } : {}),
+            })
+        }
         markdown = applied.markdown
         // The save response carries the notebook as it stood when the save committed, so it holds a
         // variable edit that landed after the read above.
@@ -73,39 +203,19 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
         throw new Error(`Cell ${params.node_id} has no code to run.`)
     }
 
-    const projectId = await context.stateManager.getProjectId()
-    const notebookPath = notebookPathFor(projectId, params.notebook_id)
-    const cells = parseCellTags(markdown)
-    const runId = await dispatchRun(context, notebookPath, {
-        node_id: params.node_id,
-        node_type: existing.tagName === 'SQLV2' ? 'hogql' : 'python',
-        code,
-        output_name: existing.returnVariable,
-        refs: collectRunRefs(cells, params.node_id),
-        variables: notebook.variables,
-    })
-    const outcome = await awaitRun(context, notebookPath, runId)
-    await applyMarkdownEdit(context, params.notebook_id, (current) => {
-        const block = findCellTag(current, params.node_id)
-        if (!block) {
-            return current
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-        }
-        return replaceCellTag(current, block, source)
-    })
-
-    return wrapRunResultAsInformational({
-        node_id: params.node_id,
-        run: shapeRunForModel(outcome),
-        stale_dependents:
-            outcome.status === 'done' ? directDependents(cells, existing.returnVariable, params.node_id) : [],
-    })
+    return await runExistingCell(
+        context,
+        params.notebook_id,
+        { nodeId: params.node_id, tagName: existing.tagName, code, returnVariable: existing.returnVariable },
+        markdown,
+        notebook.variables
+    )
 }
 
-const tool = (): ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult> => ({
+const tool = (): ToolBase<
+    typeof NotebooksUpdateCellSchema,
+    UpdateCellResult | UpdateProseCellResult | UpdateVisualizationResult
+> => ({
     name: 'notebooks-update-cell',
     schema: NotebooksUpdateCellSchema,
     handler: updateCellHandler,

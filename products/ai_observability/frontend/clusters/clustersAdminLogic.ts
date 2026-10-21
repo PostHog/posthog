@@ -149,9 +149,9 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
             null as ClusteringRunResponse | null,
             {
                 triggerClusteringRun: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringRunsCreate() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.create(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
                         values.params
                     )
                     return response as ClusteringRunResponse

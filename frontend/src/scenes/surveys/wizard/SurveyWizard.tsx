@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
@@ -14,22 +13,28 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/types'
+import { SurveyMatchType, SurveyType } from '~/types'
 
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { SurveyPublicContentNotice } from '../components/SurveyPublicContentNotice'
-import { NewSurvey } from '../constants'
+import { SurveysDisabledLaunchWarning } from '../components/SurveysDisabledLaunchWarning'
+import { INTRO_SCREEN_PAGE_INDEX, NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
+import { getNextPreviewPageIndex } from '../surveyPreviewNavigation'
 import { surveysLogic } from '../surveysLogic'
 import { getSurveyWithTranslatedContent } from '../surveyTranslationUtils'
-import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
+import {
+    canUseSurveyWizard,
+    doesSurveyHaveDisplayConditions,
+    getFirstPreviewPageIndex,
+    getSurveyAudienceSummaryValue,
+} from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
 import { QuestionsStep } from './steps/QuestionsStep'
@@ -109,21 +114,22 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         },
     })
 
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
     const [guidedEditingLanguage, setGuidedEditingLanguage] = useState<string | null>(null)
     const activeEditingLanguage = surveyTranslationsEnabled ? guidedEditingLanguage : null
 
+    const minPreviewIndex = getFirstPreviewPageIndex(survey)
     const maxPreviewIndex = survey.appearance?.displayThankYouMessage
         ? survey.questions.length
         : survey.questions.length - 1
 
     useEffect(() => {
-        setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
-    }, [maxPreviewIndex])
+        setPreviewPageIndex((current) =>
+            Math.min(Math.max(current, minPreviewIndex), Math.max(minPreviewIndex, maxPreviewIndex))
+        )
+    }, [minPreviewIndex, maxPreviewIndex])
 
     useEffect(() => {
         if (!surveyTranslationsEnabled && guidedEditingLanguage !== null) {
@@ -261,6 +267,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
             content: (
                 <div className="space-y-2">
                     <SdkVersionWarnings warnings={surveyWarnings} />
+                    <SurveysDisabledLaunchWarning surveyType={survey.type} />
                     {isHostedSurvey ? (
                         <div className="flex flex-col gap-3">
                             <p className="text-secondary m-0">
@@ -298,31 +305,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const handleLaunchClick = (): void => {
-        if (!currentTeam?.surveys_opt_in) {
-            LemonDialog.open({
-                title: 'Enable surveys?',
-                content: (
-                    <p className="text-secondary">
-                        Surveys are currently disabled for this project. Would you like to enable them and launch your
-                        survey?
-                    </p>
-                ),
-                primaryButton: {
-                    children: 'Enable & continue',
-                    type: 'primary',
-                    onClick: () => {
-                        updateCurrentTeam({ surveys_opt_in: true })
-                        showLaunchConfirmation(launchSurvey)
-                    },
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                    type: 'tertiary',
-                },
-            })
-        } else {
-            showLaunchConfirmation(launchSurvey)
-        }
+        showLaunchConfirmation(launchSurvey)
     }
 
     const handleSaveClick = (): void => {
@@ -460,6 +443,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                 <QuestionsStep
                                     editingLanguage={guidedEditingLanguage}
                                     setEditingLanguage={setGuidedEditingLanguage}
+                                    onIntroScreenEnabled={() => setPreviewPageIndex(INTRO_SCREEN_PAGE_INDEX)}
                                 />
                             )}
                             {currentStep === 'where' && <WhereStep onOpenFullEditor={handleCustomizeMore} />}
@@ -523,33 +507,34 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                     survey={previewSurvey}
                                     previewPageIndex={previewPageIndex}
                                     onPreviewSubmit={(response) => {
-                                        const next = getNextSurveyStep(previewSurvey, previewPageIndex, response)
-                                        if (
-                                            next === SurveyQuestionBranchingType.End &&
-                                            !previewSurvey.appearance?.displayThankYouMessage
-                                        ) {
-                                            return
-                                        }
-                                        setPreviewPageIndex(
-                                            next === SurveyQuestionBranchingType.End
-                                                ? previewSurvey.questions.length
-                                                : next
+                                        const nextPageIndex = getNextPreviewPageIndex(
+                                            previewSurvey,
+                                            previewPageIndex,
+                                            response
                                         )
+                                        if (nextPageIndex !== null) {
+                                            setPreviewPageIndex(nextPageIndex)
+                                        }
                                     }}
                                 />
                             </div>
                             {(previewSurvey.questions.length > 1 ||
-                                previewSurvey.appearance?.displayThankYouMessage) && (
+                                previewSurvey.appearance?.displayThankYouMessage ||
+                                previewSurvey.appearance?.displayIntroScreen) && (
                                 <div className="flex items-center justify-center gap-2 mt-2">
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         icon={<IconChevronLeft />}
-                                        onClick={() => setPreviewPageIndex(Math.max(0, previewPageIndex - 1))}
-                                        disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
+                                        onClick={() =>
+                                            setPreviewPageIndex(Math.max(minPreviewIndex, previewPageIndex - 1))
+                                        }
+                                        disabledReason={
+                                            previewPageIndex <= minPreviewIndex ? 'First screen' : undefined
+                                        }
                                     />
                                     <span className="text-muted text-xs min-w-[60px] text-center">
-                                        {`${previewPageIndex + 1} / ${maxPreviewIndex + 1}`}
+                                        {`${previewPageIndex - minPreviewIndex + 1} / ${maxPreviewIndex - minPreviewIndex + 1}`}
                                     </span>
                                     <LemonButton
                                         type="secondary"

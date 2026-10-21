@@ -1,5 +1,6 @@
 """Query runners for the MCP analytics dashboard's interval-bucketed charts."""
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -17,7 +18,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -25,7 +25,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
-from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.hogql_queries.base import (
+    mcp_query_date_range,
+    shared_filter_exprs,
+    validate_mcp_analytics_access,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -36,7 +40,7 @@ _IS_ERROR = "toBool(properties.$mcp_is_error)"
 
 def _dashboard_where(
     date_range: QueryDateRange,
-    properties: list[AnyPropertyFilterDiscriminated] | None,
+    properties: Sequence[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool | None,
     team: "Team",
 ) -> ast.Expr:
@@ -47,12 +51,8 @@ def _dashboard_where(
         parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
         parse_expr("properties.$mcp_tool_name IS NOT NULL"),
         parse_expr("properties.$mcp_tool_name != ''"),
+        *shared_filter_exprs(team, properties, filter_test_accounts),
     ]
-    all_properties = list(properties or [])
-    if filter_test_accounts:
-        all_properties += team.test_account_filters or []
-    if all_properties:
-        exprs.append(property_to_expr(all_properties, team))
     return ast.And(exprs=exprs)
 
 

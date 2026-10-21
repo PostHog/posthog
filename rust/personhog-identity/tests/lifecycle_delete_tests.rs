@@ -3,17 +3,21 @@
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
-use common::TestContext;
+use common::{RecordingSink, TestContext};
+use personhog_common::partitioning::partition_for_person;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::publish::messages::DistinctIdRow;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePersonsRequest};
@@ -21,12 +25,20 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
+        self.lifecycle_service_with(OutboxWrites::Disabled)
+    }
+
+    fn lifecycle_service_with(&self, outbox_writes: OutboxWrites) -> PersonHogLifecycleService {
         let engine = Arc::new(self.engine());
-        let leader = Arc::new(SimLeader::new(
-            self.pool.clone(),
-            self.tables.person.clone(),
-        ));
-        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone())
+        let leader = Arc::new(SimLeader::new(self.pool.clone(), self.tables.clone()));
+        PersonHogLifecycleService::new(
+            engine,
+            leader.clone(),
+            self.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+            common::NUM_PARTITIONS,
+            outbox_writes,
+        )
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -162,7 +174,8 @@ fn outcomes(
 #[tokio::test]
 async fn delete_destroys_the_person_and_its_satellite_rows() {
     let ctx = TestContext::new().await;
-    let service = ctx.lifecycle_service();
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let service = ctx.lifecycle_service_with(OutboxWrites::Enabled);
 
     let person_id = ctx.insert_person_with_distinct_id("victim-primary").await;
     sqlx::query(
@@ -229,6 +242,33 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
         .collect();
     assert_eq!(moved_ids.len(), 2);
     assert!(moved_ids.contains(&"victim-primary") && moved_ids.contains(&"victim-extra"));
+
+    // One publish pass resolves the op's pointer to the tombstones at their
+    // tombstoned versions, flagged deleted and still owned by the victim's
+    // uuid, never as live rows.
+    let sink = RecordingSink::default();
+    ctx.publisher(sink.clone(), 100)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    let victim_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(person_id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    let mut published = sink.rows_for_team(ctx.team_id);
+    published.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(
+        published,
+        [("victim-extra", 2), ("victim-primary", 1)].map(|(did, version)| DistinctIdRow {
+            person_id: victim_uuid,
+            team_id: ctx.team_id,
+            distinct_id: did.to_string(),
+            version,
+            is_deleted: 1,
+        })
+    );
+    assert!(ctx.outbox_rows().await.is_empty(), "the pointer is deleted");
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -305,7 +345,7 @@ async fn a_person_marked_by_another_live_op_is_skipped() {
     .await
     .expect("insert other op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(other_op)
     .bind(ctx.team_id as i32)
@@ -374,8 +414,8 @@ async fn a_victim_destroyed_between_liveness_check_and_mark_settles_as_not_found
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked', true)",
     )
     .bind(op_id)
     .bind(ctx.team_id as i32)
@@ -552,8 +592,14 @@ impl FencedHarness {
     async fn new() -> Self {
         let ctx = TestContext::new().await;
         let engine = ctx.engine();
-        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
-        let driver = DeleteDriver::new(leader.clone(), ctx.tables.clone());
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
+        let driver = DeleteDriver::new(
+            leader.clone(),
+            ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+            common::NUM_PARTITIONS,
+            OutboxWrites::Disabled,
+        );
         Self {
             ctx,
             engine,
@@ -625,6 +671,114 @@ async fn fenced_delete_seals_the_exact_version_and_produces_the_death_document()
         .position(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
         .expect("a committed release call");
     assert!(fence_at < release_at);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The person ids every batch call of one kind carried, in call order.
+fn batch_calls(calls: &[LeaderCall], fence: bool) -> Vec<Vec<i64>> {
+    calls
+        .iter()
+        .filter_map(|call| match call {
+            LeaderCall::FenceBatch { person_ids } if fence => Some(person_ids.clone()),
+            LeaderCall::ReleaseBatch { person_ids } if !fence => Some(person_ids.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Sealing fences and completion releases the victims one call per
+/// partition: a leader refuses a batch that mixes partitions, so the saga
+/// must group by the leaders' own hash before it calls.
+#[tokio::test]
+async fn a_fenced_delete_fences_and_releases_one_batch_per_partition() {
+    let h = FencedHarness::new().await;
+    // Enough victims that the hash spreads them over more than one
+    // partition; the bound only guards against a pathological sequence.
+    let mut person_ids = Vec::new();
+    let mut expected: BTreeMap<u32, Vec<i64>> = BTreeMap::new();
+    while person_ids.len() < 4 || expected.len() < 2 {
+        assert!(
+            person_ids.len() < 32,
+            "victims never spread over two partitions"
+        );
+        let distinct_id = format!("batched-victim-{}-{}", person_ids.len(), Uuid::now_v7());
+        let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+        person_ids.push(person_id);
+        expected
+            .entry(partition_for_person(
+                h.ctx.team_id,
+                person_id,
+                common::NUM_PARTITIONS,
+            ))
+            .or_default()
+            .push(person_id);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("fenced delete completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let calls = h.leader.calls();
+    for (label, fence) in [("fence", true), ("release", false)] {
+        let mut batched: BTreeMap<u32, Vec<i64>> = BTreeMap::new();
+        for mut batch in batch_calls(&calls, fence) {
+            batch.sort_unstable();
+            let partition = partition_for_person(h.ctx.team_id, batch[0], common::NUM_PARTITIONS);
+            assert!(
+                batched.insert(partition, batch).is_none(),
+                "one {label} call per partition"
+            );
+        }
+        assert_eq!(
+            batched, expected,
+            "each {label} call carries its partition's victims"
+        );
+    }
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A router or leader that predates the batch RPCs answers UNIMPLEMENTED;
+/// the saga must still complete, fencing and releasing one person at a
+/// time.
+#[tokio::test]
+async fn a_fleet_without_batch_rpcs_falls_back_to_single_calls() {
+    let h = FencedHarness::new().await;
+    h.leader.disable_batch_rpcs();
+    let mut person_ids = Vec::new();
+    for i in 0..2 {
+        let distinct_id = format!("single-call-{i}-{}", Uuid::now_v7());
+        person_ids.push(h.ctx.create_person_via_stub(&distinct_id).await);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("delete completes without the batch RPCs");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let calls = h.leader.calls();
+    assert!(!calls.iter().any(|c| matches!(
+        c,
+        LeaderCall::FenceBatch { .. } | LeaderCall::ReleaseBatch { .. }
+    )));
+    let fences = calls
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::Fence { .. }))
+        .count();
+    assert_eq!(fences, person_ids.len());
+    let releases = calls
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
+        .count();
+    assert_eq!(releases, person_ids.len());
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -855,6 +1009,12 @@ async fn full_flow_works_on_a_configured_person_table() {
         .await
         .expect("resolve succeeds");
     assert_eq!(resolved.get(&key).map(|p| p.id), Some(person_id));
+    let resolved_ids = ctx
+        .storage
+        .resolve_person_ids(std::slice::from_ref(&key))
+        .await
+        .expect("ids-only resolve succeeds");
+    assert_eq!(resolved_ids.get(&key), Some(&person_id));
 
     // Distinct id expansion must read the configured mapping table too.
     let mappings = ctx
@@ -930,6 +1090,15 @@ async fn full_flow_works_on_a_configured_person_table() {
         .await
         .expect("resolve after delete succeeds");
     assert!(resolved.is_empty(), "tombstoned person must not resolve");
+    let resolved_ids = ctx
+        .storage
+        .resolve_person_ids(std::slice::from_ref(&key))
+        .await
+        .expect("ids-only resolve after delete succeeds");
+    assert!(
+        resolved_ids.is_empty(),
+        "a tombstoned mapping must not resolve"
+    );
 
     // The tmp mapping row tombstoned; the colliding real one untouched.
     let tmp_mapping_deleted: bool = sqlx::query_scalar(

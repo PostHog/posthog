@@ -27,19 +27,27 @@ export interface signalTeamConfigLogicValues {
     addBaseBranchOverrideDisabledReason: string | null
     autostartEnabled: boolean
     baseBranchOverrides: BaseBranchOverride[]
+    baseBranchPickerOpen: boolean
     dailyReportLimitReached: boolean
     defaultAutostartPriority: SignalReportPriority
+    defaultOpenPullRequestReady: boolean
     draftBaseBranchBranch: string
     draftBaseBranchIntegrationId: number | null
     draftBaseBranchRepo: string
     draftIssueTrackerIntegrationId: number | null
     draftMaxReportsPerDay: number | null
+    draftPullRequestLabel: string
+    githubIssueWritebackEnabled: boolean
     issueTrackerConfig: Record<string, string>
     issueTrackerIntegrationId: number | null
+    issueTrackerTargetPickerOpen: boolean
     maxReportsPerDay: number | null
     patchesInFlight: number
+    pullRequestLabel: string
+    pullRequestLabelEnabled: boolean
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null
+    savePullRequestLabelDisabledReason: string | null
     selectedIssueTrackerIntegrationId: number | null
     teamConfig: SignalTeamConfig | null
     teamConfigLoading: boolean
@@ -102,6 +110,12 @@ export interface signalTeamConfigLogicActions {
     saveDraftMaxReportsPerDay: () => {
         value: true
     }
+    saveDraftPullRequestLabel: () => {
+        value: true
+    }
+    setBaseBranchPickerOpen: (open: boolean) => {
+        open: boolean
+    }
     setDraftBaseBranchBranch: (branch: string) => {
         branch: string
     }
@@ -116,6 +130,12 @@ export interface signalTeamConfigLogicActions {
     }
     setDraftMaxReportsPerDay: (value: number | null) => {
         value: number | null
+    }
+    setDraftPullRequestLabel: (value: string) => {
+        value: string
+    }
+    setIssueTrackerTargetPickerOpen: (open: boolean) => {
+        open: boolean
     }
     updateBaseBranchOverride: (
         repo: string,
@@ -133,6 +153,10 @@ export interface signalTeamConfigLogicMeta {
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
+        defaultOpenPullRequestReady: (teamConfig: SignalTeamConfig | null) => boolean
+        githubIssueWritebackEnabled: (teamConfig: SignalTeamConfig | null) => boolean
+        pullRequestLabelEnabled: (teamConfig: SignalTeamConfig | null) => boolean
+        pullRequestLabel: (teamConfig: SignalTeamConfig | null) => string
         issueTrackerIntegrationId: (teamConfig: SignalTeamConfig | null) => number | null
         issueTrackerConfig: (teamConfig: SignalTeamConfig | null) => Record<string, string>
         selectedIssueTrackerIntegrationId: (
@@ -146,6 +170,7 @@ export interface signalTeamConfigLogicMeta {
             draftMaxReportsPerDay: number | null,
             maxReportsPerDay: number | null
         ) => string | null
+        savePullRequestLabelDisabledReason: (draftPullRequestLabel: string, pullRequestLabel: string) => string | null
         addBaseBranchOverrideDisabledReason: (
             draftBaseBranchRepo: string,
             draftBaseBranchBranch: string
@@ -188,7 +213,11 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         removeBaseBranchOverride: (repo: string) => ({ repo }),
         setDraftMaxReportsPerDay: (value: number | null) => ({ value }),
         saveDraftMaxReportsPerDay: true,
+        setDraftPullRequestLabel: (value: string) => ({ value }),
+        saveDraftPullRequestLabel: true,
         setDraftIssueTrackerIntegrationId: (integrationId: number | null) => ({ integrationId }),
+        setBaseBranchPickerOpen: (open: boolean) => ({ open }),
+        setIssueTrackerTargetPickerOpen: (open: boolean) => ({ open }),
     }),
     loaders(() => {
         // Every patch of `autostart_base_branches` sends the whole map, so two in flight at once let the
@@ -250,6 +279,25 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 clearDraftBaseBranch: () => '',
             },
         ],
+        // The pickers below fetch their option lists on mount, and Linear and Jira do so from the
+        // provider. They mount only after a person asks to add or change a value, so a view of
+        // the section costs no integration request. Closing also drops the base branch draft.
+        baseBranchPickerOpen: [
+            false,
+            {
+                setBaseBranchPickerOpen: (_, { open }) => open,
+                clearDraftBaseBranch: () => false,
+            },
+        ],
+        issueTrackerTargetPickerOpen: [
+            false,
+            {
+                setIssueTrackerTargetPickerOpen: (_, { open }) => open,
+                setDraftIssueTrackerIntegrationId: () => false,
+                patchTeamConfigSuccess: (state, { payload }) =>
+                    payload?.patch && 'issue_tracking_config' in payload.patch ? false : state,
+            },
+        ],
         // A save is in flight while this is above zero. Tracked explicitly rather than read off
         // teamConfigLoading, because that flag also flips for the initial load and the background
         // tab-return refresh (both plain GETs), neither of which should disable the save controls.
@@ -288,6 +336,18 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                         : state,
             },
         ],
+        // The label input's draft, anchored the same way as the daily limit above: seeded once on
+        // first load, and re-read from the server only when its own save settles.
+        draftPullRequestLabel: [
+            '',
+            {
+                setDraftPullRequestLabel: (_, { value }) => value,
+                patchTeamConfigSuccess: (state: string, { teamConfig, payload }) =>
+                    payload?.patch && 'pull_request_label' in payload.patch
+                        ? (teamConfig?.pull_request_label ?? '')
+                        : state,
+            },
+        ],
     }),
     selectors({
         // Master switch for autonomous inbox PRs: only an explicit false disables
@@ -311,6 +371,22 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         maxReportsPerDay: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.max_reports_per_day ?? null,
+        ],
+        defaultOpenPullRequestReady: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.default_open_pull_request_ready ?? false,
+        ],
+        githubIssueWritebackEnabled: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.github_issue_writeback_enabled ?? false,
+        ],
+        pullRequestLabelEnabled: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.pull_request_label_enabled ?? false,
+        ],
+        pullRequestLabel: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): string => teamConfig?.pull_request_label ?? '',
         ],
         issueTrackerIntegrationId: [
             (s) => [s.teamConfig],
@@ -350,6 +426,13 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 }
                 return draftMaxReportsPerDay === maxReportsPerDay ? 'No changes to save' : null
             },
+        ],
+        // Doubles as the save button's tooltip, in the same shape as the daily limit above. A blank
+        // name is a valid save: it means "use the default label".
+        savePullRequestLabelDisabledReason: [
+            (s) => [s.draftPullRequestLabel, s.pullRequestLabel],
+            (draftPullRequestLabel: string, pullRequestLabel: string): string | null =>
+                draftPullRequestLabel.trim() === pullRequestLabel.trim() ? 'No changes to save' : null,
         ],
         // Doubles as the add button's tooltip, so what blocks the add is stated once rather than
         // derived separately for the guard and for the copy.
@@ -416,12 +499,21 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 }
                 actions.patchTeamConfig({ max_reports_per_day: values.draftMaxReportsPerDay })
             },
+            saveDraftPullRequestLabel: () => {
+                // Same double-submission guard as the daily limit above: Enter bypasses the button's
+                // own disabled state, and a save must not race a concurrent GET or PATCH.
+                if (values.savePullRequestLabelDisabledReason || values.teamConfigLoading) {
+                    return
+                }
+                actions.patchTeamConfig({ pull_request_label: values.draftPullRequestLabel.trim() || null })
+            },
             loadTeamConfigSuccess: ({ teamConfig }) => {
-                // Seed the draft from the server only on the first load, so a later reload (e.g. the
+                // Seed the drafts from the server only on the first load, so a later reload (e.g. the
                 // one triggered when an unrelated setting's save fails) can't wipe an unsaved edit.
-                if (!cache.maxReportsDraftSeeded) {
-                    cache.maxReportsDraftSeeded = true
+                if (!cache.draftsSeeded) {
+                    cache.draftsSeeded = true
                     actions.setDraftMaxReportsPerDay(teamConfig?.max_reports_per_day ?? null)
+                    actions.setDraftPullRequestLabel(teamConfig?.pull_request_label ?? '')
                 }
             },
             patchTeamConfigSuccess: ({ payload }) => {

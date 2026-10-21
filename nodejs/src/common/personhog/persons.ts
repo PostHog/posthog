@@ -93,6 +93,25 @@ export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
     }
 }
 
+/** An identity answer: no properties, because the partition leader owns them. */
+export type PersonIdentity = Omit<
+    InternalPerson,
+    'properties' | 'properties_last_updated_at' | 'properties_last_operation'
+>
+
+export function protoPersonToIdentity(proto: ProtoPerson): PersonIdentity {
+    return {
+        id: String(proto.id),
+        uuid: proto.uuid,
+        team_id: Number(proto.teamId),
+        created_at: epochMsToDateTime(proto.createdAt),
+        version: Number(proto.version),
+        is_identified: proto.isIdentified,
+        is_user_id: proto.isUserId != null ? (proto.isUserId ? 1 : 0) : null,
+        last_seen_at: proto.lastSeenAt != null ? epochMsToDateTime(proto.lastSeenAt) : null,
+    }
+}
+
 const PERSONHOG_BATCH_SIZE = 250
 
 export class PersonHogPersonOperations {

@@ -1,16 +1,20 @@
-import { compactHomePath } from "@posthog/shared";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
+import { getPostHogExecDisplay } from "@posthog/core/sessions/posthogExecDisplay";
+import {
+  compactHomePath,
+  formatPiMcpToolName,
+  readMcpProxyCallDetails,
+  readMcpToolDescriptor,
+  readPiMcpCallDetails,
+} from "@posthog/shared";
+import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { ToolRow } from "./ToolRow";
 import {
-  ContentPre,
   compactInput,
-  formatInput,
-  getContentText,
   getFilename,
   iconForToolCall,
-  stripCodeFences,
   ToolTitle,
   type ToolViewProps,
+  toolCallDetails,
   useToolCallStatus,
 } from "./toolCallUtils";
 
@@ -36,6 +40,48 @@ interface ToolCallViewProps extends ToolViewProps {
   agentToolName?: string;
 }
 
+function mcpProxyDisplay(
+  toolCall: ToolCall,
+): { title: string; input?: string } | undefined {
+  const details =
+    readPiMcpCallDetails(toolCall.details) ??
+    readMcpProxyCallDetails(toolCall._meta);
+  if (details?.kind === "search") {
+    return { title: "Search MCP tools", input: details.query };
+  }
+  if (details?.kind === "tool") {
+    const posthogDisplay = getPostHogExecDisplay({
+      tool: details.name,
+      args: details.args,
+    });
+    const descriptor = readMcpToolDescriptor(toolCall._meta);
+    const label = posthogDisplay?.label ?? descriptor?.title;
+    if (label) {
+      return {
+        title: formatPiMcpToolName(details.name, label),
+        ...(posthogDisplay?.input ? { input: posthogDisplay.input } : {}),
+      };
+    }
+    return { title: formatPiMcpToolName(details.name) };
+  }
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
+  if (descriptor) {
+    return {
+      title: formatPiMcpToolName(
+        `mcp__${descriptor.server}__${descriptor.tool}`,
+        descriptor.title,
+      ),
+    };
+  }
+  if (toolCall.title.startsWith("mcp_")) {
+    return { title: formatPiMcpToolName(toolCall.title) };
+  }
+  if (toolCall.title === "mcp") {
+    return { title: "MCP" };
+  }
+  return undefined;
+}
+
 export function ToolCallView({
   toolCall,
   turnCancelled,
@@ -50,10 +96,6 @@ export function ToolCallView({
     turnComplete,
   );
   const KindIcon = iconForToolCall(toolCall, agentToolName);
-  // New thread drops the input/output divider (ContentPre carries its own border); the legacy thread
-  // keeps it so ConversationView is unchanged when the chat thread is toggled off.
-  const chatChrome = useChatThreadChrome();
-
   const filePath = kind === "read" && locations?.[0]?.path;
   const toolDisplay = agentToolName
     ? toolNameDisplays[agentToolName]
@@ -66,42 +108,23 @@ export function ToolCallView({
     toolDisplay && typeof highlightValue === "string"
       ? { ...toolDisplay, value: highlightValue }
       : undefined;
+  const mcpDisplay = mcpProxyDisplay(toolCall);
 
-  // New thread reads back in past tense once the tool has finished ("Reading" → "Read"); the legacy
-  // thread keeps the original present-tense prefix so ConversationView is unchanged when toggled off.
-  const displayText = specialDisplay
-    ? chatChrome && !isLoading
-      ? specialDisplay.pastPrefix
-      : specialDisplay.prefix
-    : filePath
-      ? `Read ${getFilename(filePath)}`
-      : title
-        ? compactHomePath(title)
-        : undefined;
+  const displayText =
+    mcpDisplay?.title ??
+    (specialDisplay
+      ? isLoading
+        ? specialDisplay.prefix
+        : specialDisplay.pastPrefix
+      : filePath
+        ? `Read ${getFilename(filePath)}`
+        : title
+          ? compactHomePath(title)
+          : undefined);
 
-  const inputPreview = specialDisplay?.value ?? compactInput(rawInput);
-  const fullInput = formatInput(rawInput);
-
-  const output = stripCodeFences(getContentText(content) ?? "");
-  const hasOutput = output.trim().length > 0;
-  // Surface output for failures too, otherwise a failed call shows "(Failed)"
-  // with no reason — the error text lives in `content`.
-  const showOutput = (isComplete || isFailed) && hasOutput;
-
-  const body =
-    fullInput || showOutput ? (
-      <>
-        {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput &&
-          (chatChrome ? (
-            <ContentPre>{output}</ContentPre>
-          ) : (
-            <div className={fullInput ? "border-gray-6 border-t" : undefined}>
-              <ContentPre>{output}</ContentPre>
-            </div>
-          ))}
-      </>
-    ) : undefined;
+  const inputPreview = mcpDisplay
+    ? mcpDisplay.input
+    : (specialDisplay?.value ?? compactInput(rawInput));
 
   return (
     <ToolRow
@@ -110,22 +133,12 @@ export function ToolCallView({
       isFailed={isFailed}
       wasCancelled={wasCancelled}
       defaultOpen={expanded}
-      content={body}
+      content={toolCallDetails({ rawInput, content, isComplete, isFailed })}
     >
       {displayText && <ToolTitle>{displayText}</ToolTitle>}
       {inputPreview && (
-        // `min-w-0 shrink` overrides the title's default `shrink-0`: the input preview is the
-        // flexible piece of the header, so it gives way (and truncates) instead of overflowing.
-        <ToolTitle className="min-w-0 shrink">
-          <span
-            className={
-              chatChrome
-                ? "font-mono text-primary text-sm"
-                : "font-mono text-accent-11"
-            }
-          >
-            {inputPreview}
-          </span>
+        <ToolTitle>
+          <span className="font-mono text-primary text-sm">{inputPreview}</span>
         </ToolTitle>
       )}
       {specialDisplay && <ToolTitle>{specialDisplay.suffix}</ToolTitle>}

@@ -12,6 +12,11 @@ export function parsePositiveInt(raw: string | undefined, fallback: number): num
     return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
+export function parseFraction(raw: string | undefined, fallback: number): number {
+    const n = parseFloat(raw ?? '')
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : fallback
+}
+
 export const config = {
     // Temporal
     temporalHost: process.env.TEMPORAL_HOST || '127.0.0.1',
@@ -25,6 +30,10 @@ export const config = {
     // Worker
     logLevel: (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error',
     maxConcurrentActivities: parsePositiveInt(process.env.MAX_CONCURRENT_ACTIVITIES, 4),
+    // Above these fractions of the cgroup limit, the worker takes no activity beyond its first slot.
+    tunerTargetMemoryUsage: parseFraction(process.env.TUNER_TARGET_MEMORY_USAGE, 0.7),
+    tunerTargetCpuUsage: parseFraction(process.env.TUNER_TARGET_CPU_USAGE, 0.9),
+    tunerRampThrottleMs: parsePositiveInt(process.env.TUNER_RAMP_THROTTLE_MS, 10_000),
     browserRecycleAfter: parsePositiveInt(process.env.BROWSER_RECYCLE_AFTER, 100),
     // Browsers held warm beyond this are closed on release: each idle Chromium pins 100-250MB RSS,
     // and a pod that once ran at full concurrency would otherwise keep that footprint forever.
@@ -45,6 +54,11 @@ export const config = {
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
     s3Region: process.env.VIDEO_EXPORT_OBJECT_STORAGE_REGION || 'us-east-1',
+    // `s3://bucket/prefix/` entries a render's source_s3_uri may point into. Empty disables file sources.
+    sourceS3Prefixes: parseList(process.env.RASTERIZER_SOURCE_S3_PREFIXES ?? '').filter(Boolean),
+    // Bounds a zstd source's decompressed size, which its compressed size under the gate above does not. The
+    // body reaches the page as base64 text, so it has to stay well under V8's string limit.
+    maxSourceDecompressedBytes: parsePositiveInt(process.env.MAX_SOURCE_DECOMPRESSED_BYTES, 256 * 1024 * 1024),
 
     // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',

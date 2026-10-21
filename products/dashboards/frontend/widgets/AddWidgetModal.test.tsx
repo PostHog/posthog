@@ -2,14 +2,14 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardType } from '~/types'
 
 import { AddWidgetModal } from './AddWidgetModal'
 
@@ -21,7 +21,7 @@ jest.mock('./previews/dashboardWidgetPreviews', () => ({
     },
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -77,6 +77,7 @@ describe('AddWidgetModal', () => {
         expect(screen.getByText('Error tracking', { selector: 'h5' })).toBeInTheDocument()
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
+        expect(screen.queryByText('Notebook widget')).not.toBeInTheDocument()
     })
 
     it('shows alphabetized badges for each widget product section', () => {
@@ -92,6 +93,25 @@ describe('AddWidgetModal', () => {
             'Support',
             'Surveys',
         ])
+    })
+
+    it('filters widget sections to the selected product badges', async () => {
+        renderAddWidgetModal()
+
+        const badges = screen.getByTestId('dashboard-widget-product-badges')
+        const sectionHeadings = (): string[] =>
+            screen.getAllByRole('heading', { level: 5 }).map((heading) => heading.textContent ?? '')
+
+        await userEvent.click(within(badges).getByText('Logs'))
+        expect(sectionHeadings()).toEqual(['Logs'])
+
+        await userEvent.click(within(badges).getByText('Error tracking'))
+        expect(sectionHeadings()).toEqual(expect.arrayContaining(['Error tracking', 'Logs']))
+        expect(sectionHeadings()).toHaveLength(2)
+
+        await userEvent.click(within(badges).getByText('Logs'))
+        await userEvent.click(within(badges).getByText('Error tracking'))
+        expect(sectionHeadings()).toHaveLength(7)
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {

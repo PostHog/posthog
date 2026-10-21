@@ -1,14 +1,15 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.better_stack import (
     BetterStackResumeConfig,
     better_stack_source,
@@ -19,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
     BETTER_STACK_ENDPOINTS,
+    BETTER_STACK_V2,
+    BETTER_STACK_V3,
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -40,8 +43,40 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResumeConfig]):
-    supported_versions = ("v2",)
-    default_version = "v2"
+    # Logtail is Better Stack's log product - same account, same source.
+    codebase_detection = detect(
+        env=(
+            "^BETTERSTACK_",
+            "^BETTER_STACK_",
+            "^LOGTAIL_",
+            "^NEXT_PUBLIC_BETTER_STACK_",
+            "^BETTERUPTIME_API_TOKEN$",
+            "^NEXT_PUBLIC_LOGTAIL_SOURCE_TOKEN$",
+            "^NEXT_PUBLIC_LOGTAIL_URL$",
+        ),
+        script_hosts=("betterstack.net", "uptime.betterstack.com", "betteruptime.com"),
+        npm=(
+            "@logtail/node",
+            "@logtail/js",
+            "@logtail/browser",
+            "@logtail/next",
+            "@logtail/winston",
+            "@logtail/pino",
+            "@logtail/bunyan",
+            "@logtail/edge",
+            "@logtail/koa",
+            "@logtail/core",
+        ),
+        pypi=("logtail-python",),
+        composer=("logtail/monolog-logtail",),
+        go=("github.com/BetterStackHQ/slog-betterstack",),
+        maven=("com.logtail:logback-logtail",),
+        rubygems=("logtail", "logtail-rails", "logtail-rack", "logtail-ruby", "fluent-plugin-logtail"),
+        alternative_to=(ProductKey.LOGS,),
+    )
+
+    supported_versions = (BETTER_STACK_V2, BETTER_STACK_V3)
+    default_version = BETTER_STACK_V3
     api_docs_url = "https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -52,10 +87,10 @@ class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BETTER_STACK,
+            name=ExternalDataSourceType.BETTERSTACK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Better Stack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Better Stack API token to automatically pull your uptime monitoring and incident data into the PostHog Data warehouse.
 
 You can create an Uptime API token in your [Better Stack dashboard](https://uptime.betterstack.com) under Integrations → API tokens. A team-scoped token syncs that team's data; a global token spans all teams.""",
@@ -85,8 +120,15 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
             # No retry can satisfy a credential problem. Match the stable status text + base host,
             # not the per-request path/query.
+            # Team members and roles are served from betterstack.com rather than the Uptime
+            # subdomain, so both hosts need an entry.
             "401 Client Error: Unauthorized for url: https://uptime.betterstack.com": "Your Better Stack API token is invalid or has been revoked. Create a new Uptime API token in your Better Stack dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://uptime.betterstack.com": "Your Better Stack API token does not have access to this resource. Check the token's team scope in your Better Stack dashboard, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://betterstack.com": "Your Better Stack API token is invalid or has been revoked. Create a new Uptime API token in your Better Stack dashboard, then reconnect.",
+            "403 Client Error: Forbidden for url: https://betterstack.com": "Your Better Stack API token does not have access to this resource. Check the token's team scope in your Better Stack dashboard, then reconnect.",
+            # Team members are listed per team, so a token spanning several teams cannot resolve
+            # which one to read and no retry will change that.
+            "422 Client Error: Unprocessable Entity for url: https://betterstack.com/api/v2/team-members": "Team members can only be synced with a team-scoped Uptime API token. Create one for the team you want to sync in your Better Stack dashboard, then reconnect.",
         }
 
     def get_schemas(
@@ -102,6 +144,14 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             ENDPOINTS,
             {name: endpoint_config.incremental_fields for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()},
             names,
+            # Fan-out children re-request each parent's whole child collection every sync, because
+            # neither child endpoint takes a server-side time filter. Appending that would
+            # duplicate every row the previous sync wrote, so they only offer incremental merge.
+            merge_only=[
+                name
+                for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
+                if endpoint_config.fanout is not None and endpoint_config.incremental_fields
+            ],
             should_sync_default={
                 name: endpoint_config.should_sync_default for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
             },
@@ -114,7 +164,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        status = probe_credentials(config.api_token, schema_name)
+        status = probe_credentials(config.api_token, self.resolve_api_version(api_version), schema_name)
 
         if status == 200:
             return True, None
@@ -143,6 +193,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

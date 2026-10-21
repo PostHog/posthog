@@ -1,19 +1,18 @@
 from datetime import UTC, date, datetime
-from typing import Any
-from urllib.parse import parse_qs, urlparse
+from typing import Any, Literal
 
 import pytest
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights import (
     CircleciInsightsResumeConfig,
     CircleciInsightsRetryableError,
     _format_start_date,
-    circleci_insights_source,
+    _format_start_date_param,
     get_rows,
-    org_slugs_from_projects,
     parse_project_slugs,
     validate_credentials,
 )
@@ -21,8 +20,48 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     CIRCLECI_INSIGHTS_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source import (
+    CircleciInsightsSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+    source_inputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
+    CircleciInsightsSourceConfig,
+)
 
 PATCH_SESSION = "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights.make_tracked_session"
+
+
+def _driver(
+    project_slugs: str = "gh/a/one",
+    reporting_window: Literal["last-24-hours", "last-7-days", "last-30-days", "last-60-days", "last-90-days"] = (
+        "last-90-days"
+    ),
+    branch_scope: Literal["default_branch", "all_branches"] = "default_branch",
+) -> SourceDriver:
+    return SourceDriver(
+        CircleciInsightsSource(),
+        CircleciInsightsSourceConfig(
+            api_token="token",
+            project_slugs=project_slugs,
+            reporting_window=reporting_window,
+            branch_scope=branch_scope,
+        ),
+    )
+
+
+def _page(items: list[dict[str, Any]], next_token: str | None) -> dict[str, Any]:
+    return {"items": items, "next_page_token": next_token}
+
+
+def _scripted_page(items: list[dict[str, Any]], next_token: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json=_page(items, next_token))
 
 
 def _make_manager(resume_state: CircleciInsightsResumeConfig | None = None) -> mock.MagicMock:
@@ -39,30 +78,6 @@ def _response(body: dict[str, Any], status_code: int = 200, headers: dict[str, s
     response.headers = headers or {}
     response.json.return_value = body
     return response
-
-
-def _page(items: list[dict[str, Any]], next_token: str | None) -> dict[str, Any]:
-    return {"items": items, "next_page_token": next_token}
-
-
-def _route_session(mock_session: mock.MagicMock, routes: dict[str, list[dict[str, Any]] | dict[str, Any]]) -> None:
-    """Route GET calls by path; values are either a body dict or a list of bodies consumed in order."""
-    state: dict[str, int] = {}
-
-    def get(url: str, **kwargs: Any) -> mock.MagicMock:
-        path = urlparse(url).path
-        body = routes[path]
-        if isinstance(body, list):
-            index = min(state.get(path, 0), len(body) - 1)
-            state[path] = index + 1
-            return _response(body[index])
-        return _response(body)
-
-    mock_session.return_value.get.side_effect = get
-
-
-def _requested_urls(mock_session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in mock_session.return_value.get.call_args_list]
 
 
 def _rows(batches: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -84,9 +99,6 @@ class TestSlugParsing:
     def test_parse_project_slugs(self, raw, expected):
         assert parse_project_slugs(raw) == expected
 
-    def test_org_slugs_deduped_in_order(self):
-        assert org_slugs_from_projects(["gh/a/one", "gh/a/two", "bb/b/three"]) == ["gh/a", "bb/b"]
-
 
 class TestFormatStartDate:
     @parameterized.expand(
@@ -101,23 +113,33 @@ class TestFormatStartDate:
     def test_formats_as_date_only(self, value, expected):
         assert _format_start_date(value) == expected
 
+    @parameterized.expand(
+        [
+            (datetime(2026, 7, 1, 13, 30, tzinfo=UTC), False, "2026-07-01"),
+            (datetime(2026, 7, 1, 13, 30, tzinfo=UTC), True, "2026-07-01T00:00:00Z"),
+            (None, True, None),
+        ]
+    )
+    def test_timestamp_form_keeps_the_same_watermark_day(self, value, needs_timestamp, expected):
+        assert _format_start_date_param(value, needs_timestamp) == expected
+
 
 class TestValidateCredentials:
-    @mock.patch(PATCH_SESSION)
-    def test_bad_slug_format_short_circuits_without_network(self, mock_session):
-        is_valid, error = validate_credentials("token", "not-a-slug")
+    def test_bad_slug_format_short_circuits_without_network(self):
+        with scripted_network([]) as network:
+            is_valid, error = validate_credentials("token", "not-a-slug")
 
         assert is_valid is False
         assert error is not None and "not-a-slug" in error
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
-    @mock.patch(PATCH_SESSION)
-    def test_empty_slugs_rejected(self, mock_session):
-        is_valid, error = validate_credentials("token", "  ")
+    def test_empty_slugs_rejected(self):
+        with scripted_network([]) as network:
+            is_valid, error = validate_credentials("token", "  ")
 
         assert is_valid is False
         assert error is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -127,319 +149,316 @@ class TestValidateCredentials:
             (200, 200, True),
         ]
     )
-    @mock.patch(PATCH_SESSION)
-    def test_status_mapping(self, me_status, project_status, expected, mock_session):
-        responses = [_response({}, status_code=me_status)]
+    def test_status_mapping(self, me_status, project_status, expected):
+        responses = [ScriptedResponse(status=me_status, json={})]
         if project_status is not None:
-            responses.append(_response(_page([], None), status_code=project_status))
-        mock_session.return_value.get.side_effect = responses
+            responses.append(ScriptedResponse(status=project_status, json={"items": [], "next_page_token": None}))
 
-        is_valid, error = validate_credentials("token", "gh/posthog/posthog")
+        with scripted_network(responses) as network:
+            is_valid, error = validate_credentials("token", "gh/posthog/posthog")
 
         assert is_valid is expected
         assert (error is None) is expected
+        expected_paths = ["/api/v2/me"]
+        if project_status is not None:
+            expected_paths.append("/api/v2/insights/gh/posthog/posthog/workflows")
+        assert [request.path for request in network.requests_log] == expected_paths
 
-    @mock.patch(PATCH_SESSION)
-    def test_probes_every_project_and_names_the_broken_one(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({}, status_code=200),  # /me
-            _response(_page([], None), status_code=200),  # first project ok
-            _response({}, status_code=404),  # second project missing
-        ]
-
-        is_valid, error = validate_credentials("token", "gh/posthog/posthog, gh/posthog/nope")
-
-        assert is_valid is False
-        assert error is not None and "gh/posthog/nope" in error
-
-    @mock.patch(PATCH_SESSION)
-    def test_swallows_connection_errors(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        is_valid, error = validate_credentials("token", "gh/posthog/posthog")
+    def test_swallows_connection_errors(self):
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            is_valid, error = validate_credentials("token", "gh/posthog/posthog")
 
         assert is_valid is False
         assert error is not None
-
-    @mock.patch(PATCH_SESSION)
-    def test_sends_circle_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
-
-        validate_credentials("token", "gh/posthog/posthog")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Circle-Token"] == "token"
+        assert {request.path for request in network.requests_log} == {"/api/v2/me"}
 
 
 class TestWorkflowMetricsRows:
-    @mock.patch(PATCH_SESSION)
-    def test_paginates_and_injects_project_slug_across_projects(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": [
-                    _page([{"name": "ci"}], "token-2"),
-                    _page([{"name": "release"}], None),
-                ],
-                "/api/v2/insights/gh/a/two/workflows": _page([{"name": "deploy"}], None),
-            },
+    def test_paginates_and_injects_project_slug_across_projects(self):
+        result = _driver("gh/a/one, gh/a/two").run(
+            "workflow_metrics",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [
+                        _scripted_page([{"name": "ci"}], "token-2"),
+                        _scripted_page([{"name": "release"}], None),
+                    ],
+                    "/api/v2/insights/gh/a/two/workflows": [_scripted_page([{"name": "deploy"}], None)],
+                }
+            ),
         )
 
-        manager = _make_manager()
-        batches = list(get_rows("token", "gh/a/one, gh/a/two", "workflow_metrics", mock.MagicMock(), manager))
-        rows = _rows(batches)
-
-        assert [(row["project_slug"], row["name"]) for row in rows] == [
+        assert result.raised is None
+        assert [(row["project_slug"], row["name"]) for row in result.rows] == [
             ("gh/a/one", "ci"),
             ("gh/a/one", "release"),
             ("gh/a/two", "deploy"),
         ]
-        first_url = _requested_urls(mock_session)[0]
-        assert parse_qs(urlparse(first_url).query)["reporting-window"] == ["last-90-days"]
-        second_url = _requested_urls(mock_session)[1]
-        assert parse_qs(urlparse(second_url).query)["page-token"] == ["token-2"]
+        assert result.paths == [
+            "/api/v2/insights/gh/a/one/workflows",
+            "/api/v2/insights/gh/a/one/workflows",
+            "/api/v2/insights/gh/a/two/workflows",
+        ]
+        assert result.requests[0].param("reporting-window") == "last-90-days"
+        assert result.requests[1].param("page-token") == "token-2"
 
-    @mock.patch(PATCH_SESSION)
-    def test_reporting_window_and_all_branches_passed_through(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([], None)})
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "token",
-                "gh/a/one",
-                "workflow_metrics",
-                mock.MagicMock(),
-                manager,
-                reporting_window="last-7-days",
-                all_branches=True,
-            )
+    def test_state_saved_after_each_page_and_on_project_completion(self):
+        result = _driver().run(
+            "workflow_metrics",
+            [_scripted_page([{"name": "ci"}], "token-2"), _scripted_page([{"name": "release"}], None)],
         )
 
-        query = parse_qs(urlparse(_requested_urls(mock_session)[0]).query)
-        assert query["reporting-window"] == ["last-7-days"]
-        assert query["all-branches"] == ["true"]
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["ci", "release"]
+        assert result.saved_states == [
+            CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2"),
+            CircleciInsightsResumeConfig(slug="gh/a/one", slug_done=True),
+        ]
+        assert result.committed_states == [CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2")]
+        assert result.final_state == CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2")
 
-    @mock.patch(PATCH_SESSION)
-    def test_state_saved_after_each_page_and_on_project_completion(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": [
-                    _page([{"name": "ci"}], "token-2"),
-                    _page([{"name": "release"}], None),
-                ]
-            },
+    def test_resume_skips_completed_project(self):
+        result = _driver("gh/a/one, gh/a/two").run(
+            "workflow_metrics",
+            [_scripted_page([{"name": "deploy"}], None)],
+            resume_state=CircleciInsightsResumeConfig(slug="gh/a/one", slug_done=True),
         )
 
-        manager = _make_manager()
-        rows = get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), manager)
+        assert result.raised is None
+        assert [row["project_slug"] for row in result.rows] == ["gh/a/two"]
+        assert result.paths == ["/api/v2/insights/gh/a/two/workflows"]
 
-        next(rows)
-        manager.save_state.assert_not_called()
-        next(rows)
-        saved = manager.save_state.call_args.args[0]
-        assert saved.next_page_token == "token-2"
-        with pytest.raises(StopIteration):
-            next(rows)
-        final = manager.save_state.call_args.args[0]
-        assert final.slug == "gh/a/one"
-        assert final.slug_done is True
+    def test_resume_with_unknown_slug_starts_over(self):
+        result = _driver().run(
+            "workflow_metrics",
+            [_scripted_page([{"name": "ci"}], None)],
+            resume_state=CircleciInsightsResumeConfig(slug="gh/gone/away", next_page_token="stale"),
+        )
 
-    @mock.patch(PATCH_SESSION)
-    def test_resume_skips_completed_project(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/two/workflows": _page([{"name": "deploy"}], None)})
-
-        manager = _make_manager(CircleciInsightsResumeConfig(slug="gh/a/one", slug_done=True))
-        batches = list(get_rows("token", "gh/a/one, gh/a/two", "workflow_metrics", mock.MagicMock(), manager))
-
-        assert [row["project_slug"] for row in _rows(batches)] == ["gh/a/two"]
-        assert all("gh/a/one" not in url for url in _requested_urls(mock_session))
-
-    @mock.patch(PATCH_SESSION)
-    def test_resume_mid_project_starts_at_saved_token(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None)})
-
-        manager = _make_manager(CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="resume-token"))
-        list(get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), manager))
-
-        first_url = _requested_urls(mock_session)[0]
-        assert parse_qs(urlparse(first_url).query)["page-token"] == ["resume-token"]
-
-    @mock.patch(PATCH_SESSION)
-    def test_resume_with_unknown_slug_starts_over(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None)})
-
-        manager = _make_manager(CircleciInsightsResumeConfig(slug="gh/gone/away", next_page_token="stale"))
-        batches = list(get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), manager))
-
-        assert [row["name"] for row in _rows(batches)] == ["ci"]
-        first_url = _requested_urls(mock_session)[0]
-        assert "page-token" not in parse_qs(urlparse(first_url).query)
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["ci"]
+        assert result.requests[0].param("page-token") is None
 
     def test_unknown_endpoint_raises(self):
+        manager = CircleciInsightsSource().get_resumable_source_manager(source_inputs("nope"))
         with pytest.raises(ValueError, match="Unknown CircleCI Insights endpoint"):
-            list(get_rows("token", "gh/a/one", "nope", mock.MagicMock(), _make_manager()))
+            list(get_rows("token", "gh/a/one", "nope", mock.MagicMock(), manager))
 
 
 class TestWorkflowRunsFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_runs_fetched_per_discovered_workflow_with_parent_fields(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}, {"name": "release"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": _page(
-                    [{"id": "r1", "created_at": "2026-07-01T00:00:00Z"}], None
-                ),
-                "/api/v2/insights/gh/a/one/workflows/release": _page(
-                    [{"id": "r2", "created_at": "2026-07-02T00:00:00Z"}], None
-                ),
-            },
+    def test_resume_mid_workflow_skips_earlier_workflows(self):
+        result = _driver().run(
+            "workflow_runs",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [
+                        _scripted_page([{"name": "ci"}, {"name": "release"}, {"name": "deploy"}], None)
+                    ],
+                    "/api/v2/insights/gh/a/one/workflows/release": [_scripted_page([{"id": "r2"}], None)],
+                    "/api/v2/insights/gh/a/one/workflows/deploy": [_scripted_page([{"id": "r3"}], None)],
+                }
+            ),
+            resume_state=CircleciInsightsResumeConfig(
+                slug="gh/a/one", workflow_name="release", next_page_token="wf-token"
+            ),
         )
 
-        batches = list(get_rows("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager()))
-        rows = _rows(batches)
-
-        assert [(row["id"], row["project_slug"], row["workflow_name"]) for row in rows] == [
-            ("r1", "gh/a/one", "ci"),
-            ("r2", "gh/a/one", "release"),
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r2", "r3"]
+        assert result.paths == [
+            "/api/v2/insights/gh/a/one/workflows",
+            "/api/v2/insights/gh/a/one/workflows/release",
+            "/api/v2/insights/gh/a/one/workflows/deploy",
         ]
-
-    @mock.patch(PATCH_SESSION)
-    def test_incremental_passes_start_date_to_run_pages_only(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": _page([], None),
-            },
-        )
-
-        list(
-            get_rows(
-                "token",
-                "gh/a/one",
-                "workflow_runs",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
-            )
-        )
-
-        urls = _requested_urls(mock_session)
-        discovery_query = parse_qs(urlparse(urls[0]).query)
-        runs_query = parse_qs(urlparse(urls[1]).query)
-        # Discovery always scans the full retention window so no workflow is missed.
-        assert discovery_query["reporting-window"] == ["last-90-days"]
-        assert "start-date" not in discovery_query
-        assert runs_query["start-date"] == ["2026-07-01"]
-
-    @mock.patch(PATCH_SESSION)
-    def test_full_refresh_sends_no_start_date(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": _page([], None),
-            },
-        )
-
-        list(get_rows("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager()))
-
-        runs_query = parse_qs(urlparse(_requested_urls(mock_session)[1]).query)
-        assert "start-date" not in runs_query
-
-    @mock.patch(PATCH_SESSION)
-    def test_resume_mid_workflow_skips_earlier_workflows(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page(
-                    [{"name": "ci"}, {"name": "release"}, {"name": "deploy"}], None
-                ),
-                "/api/v2/insights/gh/a/one/workflows/release": _page([{"id": "r2"}], None),
-                "/api/v2/insights/gh/a/one/workflows/deploy": _page([{"id": "r3"}], None),
-            },
-        )
-
-        manager = _make_manager(
-            CircleciInsightsResumeConfig(slug="gh/a/one", workflow_name="release", next_page_token="wf-token")
-        )
-        batches = list(get_rows("token", "gh/a/one", "workflow_runs", mock.MagicMock(), manager))
-
-        assert [row["id"] for row in _rows(batches)] == ["r2", "r3"]
-        assert any(url.endswith("release?page-token=wf-token") for url in _requested_urls(mock_session))
+        assert result.requests[1].param("page-token") == "wf-token"
         # Workflows after the resume point start from their first page.
-        deploy_urls = [url for url in _requested_urls(mock_session) if "/workflows/deploy" in url]
-        assert "page-token" not in parse_qs(urlparse(deploy_urls[0]).query)
+        assert result.requests[2].param("page-token") is None
 
-    @mock.patch(PATCH_SESSION)
-    def test_state_saved_with_workflow_position(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": [
-                    _page([{"id": "r1"}], "run-token-2"),
-                    _page([{"id": "r2"}], None),
-                ],
-            },
+    def test_state_saved_with_workflow_position(self):
+        result = _driver().run(
+            "workflow_runs",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [_scripted_page([{"name": "ci"}], None)],
+                    "/api/v2/insights/gh/a/one/workflows/ci": [
+                        _scripted_page([{"id": "r1"}], "run-token-2"),
+                        _scripted_page([{"id": "r2"}], None),
+                    ],
+                }
+            ),
         )
 
-        manager = _make_manager()
-        list(get_rows("token", "gh/a/one", "workflow_runs", mock.MagicMock(), manager))
-
-        mid_save = manager.save_state.call_args_list[0].args[0]
-        assert mid_save.slug == "gh/a/one"
-        assert mid_save.workflow_name == "ci"
-        assert mid_save.next_page_token == "run-token-2"
+        assert result.raised is None
+        assert result.saved_states[0] == CircleciInsightsResumeConfig(
+            slug="gh/a/one", workflow_name="ci", next_page_token="run-token-2"
+        )
 
 
 class TestJobMetricsFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_job_rows_carry_parents_and_reporting_window(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci/jobs": _page([{"name": "build"}, {"name": "test"}], None),
-            },
+    def test_job_rows_carry_parents_and_reporting_window(self):
+        result = _driver(reporting_window="last-30-days").run(
+            "job_metrics",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [_scripted_page([{"name": "ci"}], None)],
+                    "/api/v2/insights/gh/a/one/workflows/ci/jobs": [
+                        _scripted_page([{"name": "build"}, {"name": "test"}], None)
+                    ],
+                }
+            ),
         )
 
-        batches = list(
-            get_rows(
-                "token", "gh/a/one", "job_metrics", mock.MagicMock(), _make_manager(), reporting_window="last-30-days"
-            )
-        )
-        rows = _rows(batches)
-
-        assert [(row["project_slug"], row["workflow_name"], row["name"]) for row in rows] == [
+        assert result.raised is None
+        assert [(row["project_slug"], row["workflow_name"], row["name"]) for row in result.rows] == [
             ("gh/a/one", "ci", "build"),
             ("gh/a/one", "ci", "test"),
         ]
-        jobs_url = next(url for url in _requested_urls(mock_session) if "/jobs" in url)
-        assert parse_qs(urlparse(jobs_url).query)["reporting-window"] == ["last-30-days"]
+        assert result.requests[1].param("reporting-window") == "last-30-days"
+
+
+class TestJobTimeseriesFanOut:
+    def test_all_branches_widens_discovery_but_not_the_timeseries_request(self):
+        logger = mock.MagicMock()
+        result = _driver(branch_scope="all_branches").run(
+            "job_timeseries",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [_scripted_page([{"name": "ci"}], None)],
+                    "/api/v2/insights/time-series/gh/a/one/workflows/ci/jobs": [_scripted_page([], None)],
+                }
+            ),
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("all-branches") == "true"
+        assert result.requests[1].param("all-branches") is None
+        # The setting silently cannot reach these rows, so the sync log has to say so.
+        assert "default branch only" in logger.warning.call_args.args[0]
+
+    @parameterized.expand([(True, ["2026-07-01T00:00:00Z"]), (False, None)])
+    def test_start_date_sent_only_on_incremental(self, incremental, expected):
+        result = _driver().run(
+            "job_timeseries",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [_scripted_page([{"name": "ci"}], None)],
+                    "/api/v2/insights/time-series/gh/a/one/workflows/ci/jobs": [_scripted_page([], None)],
+                }
+            ),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        start_date = result.requests[1].query.get("start-date")
+        assert (list(start_date) if start_date is not None else None) == expected
+
+
+class TestWorkflowSummaryFanOut:
+    def test_state_saved_per_workflow_and_resume_skips_earlier_ones(self):
+        result = _driver().run(
+            "workflow_summary",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [
+                        _scripted_page([{"name": "ci"}, {"name": "release"}, {"name": "deploy"}], None)
+                    ],
+                    "/api/v2/insights/gh/a/one/workflows/release/summary": [
+                        ScriptedResponse(json={"metrics": {}, "trends": {}})
+                    ],
+                    "/api/v2/insights/gh/a/one/workflows/deploy/summary": [
+                        ScriptedResponse(json={"metrics": {}, "trends": {}})
+                    ],
+                }
+            ),
+            resume_state=CircleciInsightsResumeConfig(slug="gh/a/one", workflow_name="release"),
+        )
+
+        assert result.raised is None
+        assert [row["workflow_name"] for row in result.rows] == ["release", "deploy"]
+        assert "/api/v2/insights/gh/a/one/workflows/ci/summary" not in result.paths
+        assert [state.workflow_name for state in result.saved_states[:2]] == ["release", "deploy"]
+
+
+class TestWorkflowTestMetricsFanOut:
+    def test_merges_the_two_test_lists_on_test_identity(self):
+        shared = {"job_name": "test", "classname": "suite.A", "test_name": "t1", "failed_runs": 4, "p95_duration": 9.0}
+        result = _driver().run(
+            "workflow_test_metrics",
+            route(
+                {
+                    "/api/v2/insights/gh/a/one/workflows": [_scripted_page([{"name": "ci"}], None)],
+                    "/api/v2/insights/gh/a/one/workflows/ci/test-metrics": [
+                        ScriptedResponse(
+                            json={
+                                "average_test_count": 12,
+                                "most_failed_tests": [shared],
+                                "slowest_tests": [
+                                    shared,
+                                    {
+                                        "job_name": "test",
+                                        "classname": "suite.B",
+                                        "test_name": "t2",
+                                        "p95_duration": 30.0,
+                                    },
+                                ],
+                            }
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # The same test appears in both lists; the delta merge only dedupes across syncs, so a
+        # duplicate here would seed duplicate rows under the composite primary key.
+        assert [(row["classname"], row["test_name"]) for row in result.rows] == [("suite.A", "t1"), ("suite.B", "t2")]
+        assert all(row["project_slug"] == "gh/a/one" and row["workflow_name"] == "ci" for row in result.rows)
+
+
+class TestBranchesRows:
+    def test_branch_names_become_rows_with_project_identifiers(self):
+        result = _driver().run(
+            "branches",
+            [
+                ScriptedResponse(
+                    json={"org_id": "org-1", "project_id": "proj-1", "branches": ["master", "feature/x", "", None]}
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"project_slug": "gh/a/one", "branch": "master", "org_id": "org-1", "project_id": "proj-1"},
+            {"project_slug": "gh/a/one", "branch": "feature/x", "org_id": "org-1", "project_id": "proj-1"},
+        ]
+
+    def test_unexpected_shape_syncs_zero_rows(self):
+        logger = mock.MagicMock()
+        result = _driver().run("branches", [ScriptedResponse(json={"message": "no insights"})], logger=logger)
+
+        assert result.raised is None
+        assert result.rows == []
+        logger.warning.assert_called_once()
 
 
 class TestFlakyTestsRows:
-    @mock.patch(PATCH_SESSION)
-    def test_unwraps_envelope_and_injects_project_slug(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/flaky-tests": {
-                    "flaky_tests": [{"test_name": "t1", "classname": "c", "job_name": "j", "workflow_name": "w"}],
-                    "total_flaky_tests": 1,
-                }
-            },
+    def test_unwraps_envelope_and_injects_project_slug(self):
+        result = _driver().run(
+            "flaky_tests",
+            [
+                ScriptedResponse(
+                    json={
+                        "flaky_tests": [{"test_name": "t1", "classname": "c", "job_name": "j", "workflow_name": "w"}],
+                        "total_flaky_tests": 1,
+                    }
+                )
+            ],
         )
 
-        batches = list(get_rows("token", "gh/a/one", "flaky_tests", mock.MagicMock(), _make_manager()))
-        rows = _rows(batches)
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "test_name": "t1",
                 "classname": "c",
@@ -449,44 +468,33 @@ class TestFlakyTestsRows:
             }
         ]
 
-    @mock.patch(PATCH_SESSION)
-    def test_no_flaky_tests_yields_nothing(self, mock_session):
-        _route_session(
-            mock_session, {"/api/v2/insights/gh/a/one/flaky-tests": {"flaky_tests": [], "total_flaky_tests": 0}}
-        )
-
-        assert list(get_rows("token", "gh/a/one", "flaky_tests", mock.MagicMock(), _make_manager())) == []
-
 
 class TestOrgSummaryRows:
-    @mock.patch(PATCH_SESSION)
-    def test_projects_collapse_to_one_org_fetch(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/summary": {
-                    "org_data": {"metrics": {}},
-                    "org_project_data": [{"project_name": "one"}, {"project_name": "two"}],
-                }
-            },
+    def test_projects_collapse_to_one_org_fetch(self):
+        result = _driver("gh/a/one, gh/a/two").run(
+            "org_summary_metrics",
+            [
+                ScriptedResponse(
+                    json={
+                        "org_data": {"metrics": {}},
+                        "org_project_data": [{"project_name": "one"}, {"project_name": "two"}],
+                    }
+                )
+            ],
         )
 
-        batches = list(
-            get_rows("token", "gh/a/one, gh/a/two", "org_summary_metrics", mock.MagicMock(), _make_manager())
-        )
-        rows = _rows(batches)
+        assert result.raised is None
+        assert [(row["org_slug"], row["project_name"]) for row in result.rows] == [("gh/a", "one"), ("gh/a", "two")]
+        assert result.paths == ["/api/v2/insights/gh/a/summary"]
 
-        assert [(row["org_slug"], row["project_name"]) for row in rows] == [("gh/a", "one"), ("gh/a", "two")]
-        assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch(PATCH_SESSION)
-    def test_unexpected_shape_syncs_zero_rows(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/summary": {"message": "no insights"}})
+    def test_unexpected_shape_syncs_zero_rows(self):
         logger = mock.MagicMock()
+        result = _driver().run(
+            "org_summary_metrics", [ScriptedResponse(json={"message": "no insights"})], logger=logger
+        )
 
-        batches = list(get_rows("token", "gh/a/one", "org_summary_metrics", logger, _make_manager()))
-
-        assert batches == []
+        assert result.raised is None
+        assert result.rows == []
         logger.warning.assert_called_once()
 
 
@@ -506,54 +514,43 @@ class TestRetryBehavior:
         assert [row["name"] for row in _rows(batches)] == ["ci"]
         mock_sleep.assert_called_once_with(7)
 
-    @mock.patch(PATCH_SESSION)
-    def test_5xx_retries_then_succeeds(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({}, status_code=503),
-            _response(_page([{"name": "ci"}], None)),
-        ]
+    def test_5xx_retries_then_succeeds(self):
+        result = _driver().run(
+            "workflow_metrics",
+            [ScriptedResponse(status=503), _scripted_page([{"name": "ci"}], None)],
+        )
 
-        batches = list(get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), _make_manager()))
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["ci"]
+        assert result.paths == ["/api/v2/insights/gh/a/one/workflows"] * 2
 
-        assert [row["name"] for row in _rows(batches)] == ["ci"]
-        assert mock_session.return_value.get.call_count == 2
+    def test_persistent_5xx_raises_after_max_retries(self):
+        result = _driver().run("workflow_metrics", always(ScriptedResponse(status=500)))
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights.MAX_RETRIES",
-        2,
-    )
-    @mock.patch(PATCH_SESSION)
-    def test_persistent_5xx_raises_after_max_retries(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=500)
+        assert isinstance(result.raised, CircleciInsightsRetryableError)
+        assert len(result.requests) > 5
+        assert set(result.paths) == {"/api/v2/insights/gh/a/one/workflows"}
 
-        with pytest.raises(CircleciInsightsRetryableError):
-            list(get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), _make_manager()))
+    def test_4xx_raises_immediately(self):
+        result = _driver().run("workflow_metrics", [ScriptedResponse(status=401, json={})])
 
-    @mock.patch(PATCH_SESSION)
-    def test_4xx_raises_immediately(self, mock_session):
-        response = _response({}, status_code=401)
-        response.raise_for_status.side_effect = Exception("401 Client Error")
-        mock_session.return_value.get.return_value = response
-
-        with pytest.raises(Exception, match="401 Client Error"):
-            list(get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), _make_manager()))
-
-        assert mock_session.return_value.get.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error" in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestPageCap:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights.MAX_METRIC_PAGES",
-        2,
-    )
-    @mock.patch(PATCH_SESSION)
-    def test_page_cap_stops_pagination_and_logs(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], "always-more")})
+    def test_page_cap_stops_pagination_and_logs(self):
         logger = mock.MagicMock()
+        result = _driver().run(
+            "workflow_metrics",
+            always(_scripted_page([{"name": "ci"}], "always-more")),
+            logger=logger,
+        )
 
-        batches = list(get_rows("token", "gh/a/one", "workflow_metrics", logger, _make_manager()))
-
-        assert len(batches) == 2
+        assert result.raised is None
+        assert len(result.items) == 100
+        assert len(result.requests) == 100
         logger.warning.assert_called_once()
         assert "page cap" in logger.warning.call_args.args[0]
 
@@ -562,8 +559,11 @@ class TestCircleciInsightsSourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint):
         config = CIRCLECI_INSIGHTS_ENDPOINTS[endpoint]
-        response = circleci_insights_source("token", "gh/a/one", endpoint, mock.MagicMock(), _make_manager())
+        result = _driver(project_slugs="").run(endpoint, [])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.partition_key:
@@ -573,8 +573,12 @@ class TestCircleciInsightsSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_workflow_runs_declares_desc_sort(self):
-        # The runs listing returns newest-first; declaring asc would corrupt the
-        # incremental watermark checkpointing.
-        response = circleci_insights_source("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager())
-        assert response.sort_mode == "desc"
+    @parameterized.expand([("workflow_runs",), ("job_timeseries",)])
+    def test_row_level_endpoints_declare_desc_sort(self, endpoint):
+        # These are the incremental endpoints. Desc defers the watermark commit to the end of
+        # the sync; asc would checkpoint per batch, which fan-out over workflows makes unsafe.
+        result = _driver(project_slugs="").run(endpoint, [])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"

@@ -7,9 +7,10 @@ import { LemonBanner, LemonButton, LemonInput, LemonTable } from '@posthog/lemon
 import { pngHoggie } from 'lib/brand/hoggies'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { TZLabel } from 'lib/components/TZLabel'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { McpDateFilter } from '../components/McpDateFilter'
 import { HarnessLogo } from '../dashboard/harness'
@@ -154,7 +155,9 @@ function ClientCell({ harness }: { harness: string }): JSX.Element {
     return (
         <span className="flex items-center gap-1.5">
             <HarnessLogo category={harness} className="h-3.5 w-3.5" />
-            <span className="truncate">{harness}</span>
+            <span className="truncate" title={harness}>
+                {harness}
+            </span>
         </span>
     )
 }

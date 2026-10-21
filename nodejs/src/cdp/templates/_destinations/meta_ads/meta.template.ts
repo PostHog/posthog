@@ -48,8 +48,9 @@ const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 
 // Meta's _fbp cookie value, `fb.<subdomainIndex>.<creationTimeMs>.<randomNumber>`. It identifies a
-// browser rather than a click, so PostHog cannot derive it and this reads a value the site mints.
-const fbp = "{person.properties.fbp ?? ''}"
+// browser rather than a click, so PostHog cannot derive it. Sources in order: a value the site
+// stores itself, and the $fbp the SDK reads from the cookie the pixel mints.
+const fbp = "{person.properties.fbp ?? person.properties.$fbp ?? ''}"
 
 export const template: HogFunctionTemplate = {
     free: false,

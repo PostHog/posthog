@@ -37,6 +37,9 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import { MessageAudience, cohortAudienceProperties } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+
 /**
  * Single source of truth for whether a HaveProperty/NotHaveProperty criterion targets a
  * top-level persons-table column (PersonMetadata) or the JSON properties blob (Person).
@@ -164,6 +167,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
@@ -682,9 +686,51 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
     return `cohort_${cohortId}_persons`
 }
 
+export function urlForCohortWorkflow(cohort: CohortType): string {
+    return urlForNewWorkflowWithTrigger(
+        {
+            type: 'batch',
+            filters: { properties: cohortAudienceProperties({ id: cohort.id as number, name: cohort.name }) },
+        },
+        'cohort'
+    )
+}
+
 export const COHORT_MATCHING_DAYS = {
     '1': 'day',
     '7': 'week',
     '14': '2 weeks',
     '30': 'month',
+}
+
+function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+    if ('values' in group && Array.isArray(group.values)) {
+        return (group.values as (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[]).some(hasBehavioralCriteria)
+    }
+    return group.type === BehavioralFilterKey.Behavioral
+}
+
+/** Why a broadcast can't send to this cohort, mirroring the batch audience check on the server. */
+export function cohortBroadcastDisabledReason(cohort: CohortType): string | null {
+    if (typeof cohort.id !== 'number') {
+        return 'Save the cohort first'
+    }
+    if (cohort.deleted) {
+        return 'Restore the cohort first'
+    }
+    if (!cohort.is_static && cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
+        return "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort."
+    }
+    return null
+}
+
+export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>): MessageAudience {
+    if (typeof cohort.id !== 'number') {
+        return { properties: [], source: 'cohort' }
+    }
+    return {
+        properties: cohortAudienceProperties({ id: cohort.id, name: cohort.name }),
+        source: 'cohort',
+        draftSource: { source: 'cohort', source_id: String(cohort.id) },
+    }
 }

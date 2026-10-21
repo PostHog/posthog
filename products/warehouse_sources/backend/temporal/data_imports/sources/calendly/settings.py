@@ -1,10 +1,20 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+PAGE_SIZE = 100
 
-@dataclass
+# Binding values derived from a fan-out parent's `uri` (see `_with_parent_lookup_fields`), because
+# no Calendly resource carries its own UUID or an escaped copy of its URI.
+PARENT_UUID_FIELD = "_uuid"
+PARENT_URI_PARAM_FIELD = "_uri_param"
+
+
+@dataclass(frozen=True)
 class CalendlyEndpointConfig:
     name: str
     path: str
@@ -18,6 +28,15 @@ class CalendlyEndpointConfig:
     incremental_filter_param: Optional[str] = None
     # Sort value passed to keep pagination ordering stable/monotonic.
     sort: Optional[str] = None
+    # Set when the endpoint is scoped to one parent resource and has to be fanned out over it.
+    fanout: Optional[DependentEndpointConfig] = None
+    # Read by the shared fan-out helper for the `count` param and the incremental cursor.
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
+    primary_keys: list[str] = field(default_factory=lambda: ["uri"])
+    # Set on a fan-out child that returns one object under `resource` rather than a paginated
+    # `collection`, so the child request carries no `count` param and reads no `next_page`.
+    single_resource: bool = False
 
 
 CALENDLY_ENDPOINTS: dict[str, CalendlyEndpointConfig] = {
@@ -34,6 +53,7 @@ CALENDLY_ENDPOINTS: dict[str, CalendlyEndpointConfig] = {
         path="/scheduled_events",
         incremental_filter_param="min_start_time",
         sort="start_time:asc",
+        default_incremental_field="start_time",
         incremental_fields=[
             {
                 "label": "start_time",
@@ -42,6 +62,22 @@ CALENDLY_ENDPOINTS: dict[str, CalendlyEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    # Fanned out over `scheduled_events`: the invitee is the person who booked the meeting, with
+    # their answers, tracking and cancellation. The endpoint takes no organization param and no
+    # server-side time filter, so every sync re-reads each event's invitees and merges on `uri`.
+    "invitees": CalendlyEndpointConfig(
+        name="invitees",
+        path="/scheduled_events/{uuid}/invitees",
+        scope_param=None,
+        sort="created_at:asc",
+        fanout=DependentEndpointConfig(
+            parent_name="scheduled_events",
+            resolve_param="uuid",
+            resolve_field=PARENT_UUID_FIELD,
+            # The invitee row already carries `event`, the parent's URI — nothing to copy down.
+            include_from_parent=[],
+        ),
     ),
     "groups": CalendlyEndpointConfig(
         name="groups",
@@ -54,6 +90,97 @@ CALENDLY_ENDPOINTS: dict[str, CalendlyEndpointConfig] = {
     "routing_forms": CalendlyEndpointConfig(
         name="routing_forms",
         path="/routing_forms",
+    ),
+    # Fanned out over `routing_forms`. The parent URI rides in a query param rather than the path,
+    # which the fan-out helper only binds through a `{placeholder}`, hence the query in `path`.
+    "routing_form_submissions": CalendlyEndpointConfig(
+        name="routing_form_submissions",
+        path="/routing_form_submissions?form={form}",
+        scope_param=None,
+        sort="created_at:asc",
+        fanout=DependentEndpointConfig(
+            parent_name="routing_forms",
+            resolve_param="form",
+            resolve_field=PARENT_URI_PARAM_FIELD,
+            # The submission row already carries `routing_form`, the parent's URI.
+            include_from_parent=[],
+        ),
+    ),
+    # Calendly calls these event type hosts; the path is `/event_type_memberships`. Fanned out over
+    # `event_types`, and the only list endpoint here that accepts no `sort` param.
+    "event_type_memberships": CalendlyEndpointConfig(
+        name="event_type_memberships",
+        path="/event_type_memberships?event_type={event_type}",
+        scope_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="event_types",
+            resolve_param="event_type",
+            resolve_field=PARENT_URI_PARAM_FIELD,
+            # The membership row embeds the whole parent event type object.
+            include_from_parent=[],
+        ),
+    ),
+    # Account-scoped: `/contacts` takes no `organization` param, unlike every other table here.
+    "contacts": CalendlyEndpointConfig(
+        name="contacts",
+        path="/contacts",
+        scope_param=None,
+        sort="created_at:asc",
+    ),
+    "group_relationships": CalendlyEndpointConfig(
+        name="group_relationships",
+        path="/group_relationships",
+    ),
+    # Needs an Enterprise plan. Entries are immutable and carry no `created_at`, so they partition
+    # and advance on `occurred_at`, which `min_occurred_at` filters on server-side.
+    "activity_log_entries": CalendlyEndpointConfig(
+        name="activity_log_entries",
+        path="/activity_log_entries",
+        partition_key="occurred_at",
+        incremental_filter_param="min_occurred_at",
+        sort="occurred_at:asc",
+        default_incremental_field="occurred_at",
+        incremental_fields=[
+            {
+                "label": "occurred_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "occurred_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Needs an Enterprise plan. The rows carry no `uri` or other id, so the key combines the
+    # fields that tell two messages apart. The endpoint accepts `min_created_at` but no `sort`,
+    # and its order is undocumented, so it stays full refresh.
+    "outgoing_communications": CalendlyEndpointConfig(
+        name="outgoing_communications",
+        path="/outgoing_communications",
+        primary_keys=["type", "to", "event_uri", "created_at"],
+    ),
+    # Account-scoped like `/contacts`. The API returns only recaps whose status is `available`
+    # unless a `status` is passed, which is the set that has a transcript.
+    "meeting_recaps": CalendlyEndpointConfig(
+        name="meeting_recaps",
+        path="/meeting_recaps",
+        scope_param=None,
+    ),
+    # Fanned out over `meeting_recaps`, one transcript per recap. A transcript has no timestamp
+    # to partition on, so it carries the recap URI instead for the join back.
+    "meeting_recap_transcripts": CalendlyEndpointConfig(
+        name="meeting_recap_transcripts",
+        path="/meeting_recaps/{uuid}/transcript",
+        scope_param=None,
+        partition_key=None,
+        single_resource=True,
+        fanout=DependentEndpointConfig(
+            parent_name="meeting_recaps",
+            resolve_param="uuid",
+            resolve_field=PARENT_UUID_FIELD,
+            include_from_parent=["uri"],
+            parent_field_renames={"uri": "meeting_recap"},
+            # Calendly can list a recap before its transcript is ready; skip it until then.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

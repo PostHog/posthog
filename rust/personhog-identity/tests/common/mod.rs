@@ -4,16 +4,34 @@
 
 pub mod sim_leader;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rand::Rng;
 use sqlx::postgres::PgPool;
+use uuid::Uuid;
 
-use personhog_identity::config::IdentityTables;
+use personhog_identity::config::{IdentityTables, OutboxWrites};
+use personhog_identity::pools::IdentityPools;
+use personhog_identity::publish::config::MergeEventsAllowlist;
+use personhog_identity::publish::messages::{DistinctIdRow, PersonMergeEvent};
+use personhog_identity::publish::sink::{PublishBatch, PublishError, PublishSink};
+use personhog_identity::publish::{DrainConfig, Publisher};
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+
+/// Serializes every test that drains the publish outbox, across the
+/// processes nextest runs tests in: the drain claims the oldest pending
+/// rows of every team, so two concurrent drains would take each other's
+/// rows. See [`TestContext::hold_drain_lock`].
+const DRAIN_LOCK_KEY: i64 = 0x5048_5055_424c_4953;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
+/// Leader fan-out width the suites run with; production reads it from config.
+pub const FAN_OUT_CONCURRENCY: usize = 8;
+/// Partition count the delete driver groups its fence batches by.
+pub const NUM_PARTITIONS: u32 = 4;
+
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
 }
@@ -25,6 +43,7 @@ pub fn tmp_tables() -> IdentityTables {
 
 pub struct TestContext {
     pub pool: PgPool,
+    pub pools: IdentityPools,
     pub storage: Arc<PostgresIdentityStorage>,
     pub team_id: i64,
     pub tables: IdentityTables,
@@ -42,10 +61,16 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone(), tables.clone()));
+        let pools = IdentityPools::shared(pool.clone());
+        let storage = Arc::new(PostgresIdentityStorage::new(
+            pools.clone(),
+            tables.clone(),
+            OutboxWrites::Disabled,
+        ));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,
+            pools,
             storage,
             team_id,
             tables,
@@ -97,7 +122,7 @@ impl TestContext {
     /// explicit lease_expires_at values instead of waiting this out.
     pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
         personhog_identity::lifecycle::engine::Engine::new(
-            self.pool.clone(),
+            self.pools.clone(),
             personhog_identity::lifecycle::engine::EngineConfig {
                 lease: std::time::Duration::from_secs(300),
                 execute_timeout: std::time::Duration::from_secs(10),
@@ -105,6 +130,7 @@ impl TestContext {
                 attempt_alert_threshold: 5,
                 gc_batch_limit: 10_000,
             },
+            self.tables.clone(),
         )
     }
 
@@ -187,11 +213,111 @@ impl TestContext {
         Ok(())
     }
 
+    /// Storage that writes the publish outbox, for tests that assert on the
+    /// rows a create or attach leaves there; `storage` never writes it.
+    /// Take [`hold_drain_lock`](Self::hold_drain_lock) before the first
+    /// write through it.
+    pub fn storage_with(&self, outbox_writes: OutboxWrites) -> PostgresIdentityStorage {
+        PostgresIdentityStorage::new(self.pools.clone(), self.tables.clone(), outbox_writes)
+    }
+
+    /// A transaction-level advisory lock that every test writing outbox
+    /// rows takes before it writes any row it will assert on, and holds
+    /// until its assertions are done. Dropping the returned transaction
+    /// releases it, on a panic too.
+    ///
+    /// Once the lock is held, every other team's outbox row is a leftover
+    /// of a test that panicked before its cleanup, because every writer
+    /// takes this lock first. They are deleted here: the claim takes the
+    /// oldest rows across all teams, and leftovers would spend this test's
+    /// pass budget and change what its own rows resolve to.
+    pub async fn hold_drain_lock(&self) -> sqlx::Transaction<'static, sqlx::Postgres> {
+        let mut tx = self.pool.begin().await.expect("begin lock transaction");
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(DRAIN_LOCK_KEY)
+            .execute(&mut *tx)
+            .await
+            .expect("take the drain lock");
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id <> $1",
+            self.tables.person_publish_outbox
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await
+        .expect("clear leftover outbox rows");
+        tx
+    }
+
+    /// A publisher over this context's pool and table set. The batch is
+    /// large so rows another test left behind when it crashed before its
+    /// cleanup cannot crowd this test's rows out of a pass; they drain into
+    /// the sink, where [`RecordingSink::rows_for_team`] ignores them. The
+    /// row budget is the caller's, so a test can make it small enough that
+    /// its own pointer drains in chunks.
+    pub fn publisher<S: PublishSink>(&self, sink: S, max_rows_per_pass: i64) -> Publisher<S> {
+        self.build_publisher(sink, max_rows_per_pass, None)
+    }
+
+    pub fn publisher_with_merge_events<S: PublishSink>(
+        &self,
+        sink: S,
+        max_rows_per_pass: i64,
+        allowlist: MergeEventsAllowlist,
+    ) -> Publisher<S> {
+        self.build_publisher(sink, max_rows_per_pass, Some(allowlist))
+    }
+
+    fn build_publisher<S: PublishSink>(
+        &self,
+        sink: S,
+        max_rows_per_pass: i64,
+        merge_events: Option<MergeEventsAllowlist>,
+    ) -> Publisher<S> {
+        Publisher::new(
+            self.pool.clone(),
+            self.tables.clone(),
+            sink,
+            DrainConfig {
+                batch_size: 10_000,
+                max_rows_per_pass,
+                interval: Duration::from_millis(10),
+                lag_alert: Duration::from_secs(300),
+                merge_events,
+            },
+        )
+    }
+
+    pub async fn outbox_rows(&self) -> Vec<OutboxRow> {
+        sqlx::query_as(&format!(
+            r#"
+            SELECT id, kind, op_id, cursor_person_id, cursor_mapping_ordinal, attempts,
+                   given_up_at IS NOT NULL AS given_up, last_error
+            FROM {} WHERE team_id = $1 ORDER BY id
+            "#,
+            self.tables.person_publish_outbox
+        ))
+        .bind(self.team_id as i32)
+        .fetch_all(&self.pool)
+        .await
+        .expect("read outbox rows")
+    }
+
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.person_publish_outbox
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.lifecycle_op
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
             self.tables.person_distinct_id
@@ -210,10 +336,81 @@ impl TestContext {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct OutboxRow {
+    pub id: i64,
+    pub kind: String,
+    pub op_id: Option<Uuid>,
+    pub cursor_person_id: i64,
+    pub cursor_mapping_ordinal: i64,
+    pub attempts: i32,
+    pub given_up: bool,
+    pub last_error: Option<String>,
+}
+
+/// A sink that keeps every batch it acked. Clones share the record, so a
+/// test hands one clone to the publisher and reads the other.
+#[derive(Default, Clone)]
+pub struct RecordingSink {
+    batches: Arc<Mutex<Vec<PublishBatch>>>,
+}
+
+impl RecordingSink {
+    pub fn batches(&self) -> Vec<PublishBatch> {
+        self.batches.lock().unwrap().clone()
+    }
+
+    /// Every distinct id row published for `team_id`, in publish order.
+    /// Rows of other teams are leftovers of other tests and are ignored.
+    pub fn rows_for_team(&self, team_id: i64) -> Vec<DistinctIdRow> {
+        self.batches()
+            .into_iter()
+            .flat_map(|b| b.distinct_id_rows)
+            .filter(|r| r.team_id == team_id)
+            .collect()
+    }
+
+    pub fn merge_events_for_team(&self, team_id: i64) -> Vec<PersonMergeEvent> {
+        self.batches()
+            .into_iter()
+            .flat_map(|b| b.merge_events)
+            .filter(|e| i64::from(e.team_id) == team_id)
+            .collect()
+    }
+}
+
+#[async_trait::async_trait]
+impl PublishSink for RecordingSink {
+    async fn send(&self, batch: &PublishBatch) -> Result<(), PublishError> {
+        self.batches.lock().unwrap().push(batch.clone());
+        Ok(())
+    }
+}
+
+pub struct FailingSink;
+
+#[async_trait::async_trait]
+impl PublishSink for FailingSink {
+    async fn send(&self, _batch: &PublishBatch) -> Result<(), PublishError> {
+        Err(PublishError::Kafka("brokers unreachable".to_string()))
+    }
+}
+
 /// Leader-surface stubs for test binaries whose flows never reach the
 /// leader: an accidental call surfaces as a clean unimplemented error
 /// instead of a hang or a panic mid-transaction.
 pub struct UnusedLeader;
+
+#[async_trait::async_trait]
+impl personhog_identity::leader::PersonStateReader for UnusedLeader {
+    async fn is_identified(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+    ) -> Result<Option<bool>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
 
 #[async_trait::async_trait]
 impl personhog_identity::leader::PropertyWriter for UnusedLeader {
@@ -235,10 +432,24 @@ impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
+    async fn fence_persons(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FencePersonsRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FencePersonsResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
     async fn release_fence(
         &self,
         _request: personhog_proto::personhog::types::v1::ReleaseFenceRequest,
     ) -> Result<personhog_proto::personhog::types::v1::ReleaseFenceResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn release_fences(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFencesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFencesResponse, tonic::Status> {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
@@ -263,6 +474,14 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
     ) -> personhog_identity::storage::StorageResult<
         std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
     > {
+        panic!("not exercised by this test")
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        _keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
         panic!("not exercised by this test")
     }
 
@@ -343,6 +562,14 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
             .unwrap()
             .extend(keys.iter().cloned());
         self.inner.resolve_distinct_ids(keys).await
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
+        self.inner.resolve_person_ids(keys).await
     }
 
     async fn get_distinct_ids_for_persons(

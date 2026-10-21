@@ -80,6 +80,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "waiting": "Number of PRs queued but not yet being processed.",
         },
     },
+    "branches": {
+        "description": "Base branches configured on each repository's merge queue, as glob patterns with their pause state.",
+        "docs_url": "https://docs.aviator.co/api/reference/json-api",
+        "columns": {
+            "org": "GitHub organization that owns the repository.",
+            "repo": "Repository name.",
+            "pattern": "Glob pattern matching the base branch, for example `master` or `release-*`.",
+            "paused": "Whether merging into branches matching this pattern is currently paused.",
+            "paused_message": "Custom message posted on the top pull request while the branch is paused.",
+        },
+    },
+    "bot_pull_requests": {
+        "description": "Batch (bot) pull requests Aviator creates in parallel mode, linking each batch to the queued pull requests it carries.",
+        "docs_url": "https://docs.aviator.co/api/reference/json-api",
+        "columns": {
+            "org": "GitHub organization that owns the repository.",
+            "repo": "Repository name.",
+            "number": "Pull request number of the bot PR itself.",
+            "github_url": "GitHub URL of the bot PR.",
+            "target_branch": "Branch the bot PR merges into.",
+            "head_commit_sha": "Commit SHA at the head of the bot PR's branch.",
+            "codemix_pre_batch_sha": "Commit SHA just before the validating pull requests joined the bot branch, so it includes dependent changes but not the validating ones.",
+            "pull_request_numbers": "JSON array of the numbers of the pull requests batched into this bot PR.",
+        },
+    },
+    "user_actions": {
+        "description": "Audit log of actions taken by users in the Aviator account. Requires an Aviator Enterprise plan.",
+        "docs_url": "https://docs.aviator.co/api/reference/json-api",
+        "columns": {
+            "timestamp": "ISO 8601 timestamp, with timezone, for when the action was performed.",
+            "actor": "Email address of the user who performed the action.",
+            "action": "Type of action the user performed.",
+            "entity": "Type of entity that changed, such as user, merge_queue, repository, account, billing, integrations or flexreview.",
+            "target": "Entity the action was performed on, or null when the action has no specific target.",
+        },
+    },
     "config_history": {
         "description": "History of merge-queue YAML config changes per repository, as diffs.",
         "docs_url": "https://docs.aviator.co/api/reference/json-api",

@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
 import type { ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -63,6 +64,42 @@ describe('CustomerAnalyticsScene', () => {
         customerAnalyticsSceneLogic.unmount()
         sceneLogic.unmount()
         featureFlagLogic.unmount()
+    })
+
+    it.each([
+        [
+            'customerAnalyticsTasks',
+            '/customer_analytics/tasks',
+            'Feature requests',
+            '/customer_analytics/feature-requests',
+        ],
+        [
+            'customerAnalyticsFeatureRequests',
+            '/customer_analytics/feature-requests',
+            'Tasks',
+            '/customer_analytics/tasks',
+        ],
+    ])('does not carry task filters across tabs from %s', (scene, path, label, destination) => {
+        router.actions.push(path, { status: 'open', archive: 'active', due: 'overdue', assignee: 'me' })
+        sceneLogic.actions.setScene(Scene.CustomerAnalytics, scene, emptySceneParams)
+        featureFlagLogic.actions.setFeatureFlags(
+            [
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS,
+            ],
+            {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]: true,
+            }
+        )
+        render(
+            <Provider>
+                <CustomerAnalyticsScene />
+            </Provider>
+        )
+        expect(screen.getByText(label).closest('a')).toHaveAttribute('href', `/project/997${destination}`)
     })
 
     it('shows the Tasks tab and inbox only when the tasks flag is enabled', () => {

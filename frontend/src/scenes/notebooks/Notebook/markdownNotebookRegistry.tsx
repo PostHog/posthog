@@ -42,6 +42,7 @@ import {
     useEffect,
     useMemo,
     useRef,
+    useState,
 } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -211,6 +212,12 @@ const INLINE_QUERY_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = 
         isDefaultFilterApplied: KNOWN_NODES[NotebookNodeType.Query].attributes.isDefaultFilterApplied,
         showSettings: KNOWN_NODES[NotebookNodeType.Query].attributes.showSettings,
         outputTab: KNOWN_NODES[NotebookNodeType.Query].attributes.outputTab,
+        returnVariable: KNOWN_NODES[NotebookNodeType.Query].attributes.returnVariable,
+        dataframeSource: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeSource,
+        dataframeQuery: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeQuery,
+        runId: KNOWN_NODES[NotebookNodeType.Query].attributes.runId,
+        result: KNOWN_NODES[NotebookNodeType.Query].attributes.result,
+        runStatus: KNOWN_NODES[NotebookNodeType.Query].attributes.runStatus,
     },
     defaultView: undefined,
     views: undefined,
@@ -253,12 +260,22 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         label: 'Python',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
+            // Sits next to SQL in the menu's top group, because the two cells do the same job in
+            // a notebook. A separate "Code" group sits below the fold, where a person who is not
+            // already looking for Python does not find it. Only the menu grouping moves. The
+            // definition's category still drives the node's styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'New',
             aliases: ['python', 'py'],
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
@@ -277,11 +294,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `sql_df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     {
@@ -291,6 +312,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         ToolbarComponent: NotebookGeneratedWidgetRunButton,
         insertCommand: {
             category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'BETA',
             aliases: ['visualization', 'widget', '3d'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
@@ -350,6 +372,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
+            persistNodeId: ['Widget', 'SQLV2', 'PythonV2', 'Insight', 'Query'].includes(definition.tagName),
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,
@@ -389,9 +412,6 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
         hiddenTags.push('SQLV2', 'PythonV2')
-    }
-    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) {
-        hiddenTags.push('Widget')
     }
 
     if (hiddenTags.length === 0) {
@@ -581,7 +601,7 @@ export function RealNotebookNodeIdentityAndViewEdit({
     notebookNodeType: NotebookNodeType
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element | null {
-    const hasId = 'id' in options.attributes
+    const hasId = notebookNodeType !== NotebookNodeType.GeneratedWidget && 'id' in options.attributes
     if (!hasId && !options.views) {
         return null
     }
@@ -764,6 +784,27 @@ export function RealNotebookNodeComponent({
     )
 }
 
+const scrollContainersByNotebook = new WeakMap<Element, Element | null>()
+
+function findScrollContainer(element: Element): Element | null {
+    const notebook = element.closest('.MarkdownNotebook')
+    const cached = notebook ? scrollContainersByNotebook.get(notebook) : undefined
+    if (cached !== undefined) {
+        return cached
+    }
+    let container: Element | null = null
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (/auto|scroll|overlay/.test(getComputedStyle(parent).overflowY)) {
+            container = parent
+            break
+        }
+    }
+    if (notebook) {
+        scrollContainersByNotebook.set(notebook, container)
+    }
+    return container
+}
+
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
@@ -781,16 +822,25 @@ export function MountedRealNotebookNodeComponent({
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const [scrollContainer, setScrollContainer] = useState<Element | null | undefined>(undefined)
     const { ref: inViewRef, inView } = useInView({
         triggerOnce: !options.unmountWhenOutOfView,
         fallbackInView: true,
+        // The observer clips targets to every scrolling ancestor, so the margin only reaches beyond
+        // the visible area when the notebook's own scroll container is the root.
+        ...(options.deferUntilInView
+            ? { root: scrollContainer, rootMargin: '100% 0px', skip: scrollContainer === undefined }
+            : {}),
     })
     const setContentRefs = useCallback(
         (element: HTMLDivElement | null): void => {
             contentRef.current = element
             inViewRef(element)
+            if (element && options.deferUntilInView) {
+                setScrollContainer(findScrollContainer(element))
+            }
         },
-        [inViewRef]
+        [inViewRef, options.deferUntilInView]
     )
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
@@ -954,7 +1004,7 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            {!options.unmountWhenOutOfView || inView ? (
+                            {!(options.unmountWhenOutOfView || options.deferUntilInView) || inView ? (
                                 <Component attributes={attributes} updateAttributes={updateAttributes} />
                             ) : (
                                 <LemonSkeleton className="h-full w-full" />

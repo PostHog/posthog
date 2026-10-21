@@ -6,9 +6,9 @@ For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even 
 
 Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
 
-Syntax: `learn [skills|-s <query>|-d <name...>|(posthog|project):<skill> [path...] [-s <query>|--lines <start>:<end>]]`
+Syntax: `learn [skills|-s "<up to 8 keywords>"|-d <name...>|(posthog|project):<skill> [path...] [-s "<up to 8 keywords>"|--lines <start>:<end>]]`
 
 <example>
 User: At what exposure share does the experiment bias warning fire?
-Assistant: [Runs only `learn -s "experiment bias warning"`; waits. Loads `posthog:diagnosing-experiment-results`, reads `references/bias-and-skew.md`, answers from it — no web search, no source clone.]
+Assistant: [Runs only `learn -s "experiment bias warning"`; waits. Loads `posthog:diagnosing-experiment-health`, reads `references/bias-and-skew.md`, answers from it — no web search, no source clone.]
 </example>

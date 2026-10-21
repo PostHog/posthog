@@ -33,6 +33,17 @@ describe('GuidedWizardStepper', () => {
         expect(screen.getByText('Third').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
+    it('renders each step dataAttr as a data-attr on its button', () => {
+        render(
+            <GuidedWizardStepper
+                steps={STEPS.map((step) => ({ ...step, dataAttr: `wizard-step-${step.step}` }))}
+                currentStep="first"
+            />
+        )
+
+        expect(screen.getByText('Second').closest('button')).toHaveAttribute('data-attr', 'wizard-step-second')
+    })
+
     it.each([
         ['before the steps (e.g. a template picker)', 'intro', 'start', ['1', '2', '3']],
         ['after the steps (e.g. a success screen)', 'done', 'end', []],
@@ -64,6 +75,45 @@ describe('GuidedWizardStepper', () => {
 
         fireEvent.click(screen.getByText('Third'))
         expect(onStepClick).toHaveBeenCalledWith('third')
+    })
+
+    it('shows the error messages as a tooltip on the errored current step', async () => {
+        render(
+            <GuidedWizardStepper steps={STEPS} currentStep="second" stepErrors={{ second: ['Something is wrong'] }} />
+        )
+
+        const warningIcon = screen.getByText('Second').closest('button')!.querySelector('svg')!
+        fireEvent.pointerEnter(warningIcon, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(warningIcon)
+        // The tooltip's hover-intent detection needs pointer movement, not just enter
+        fireEvent.pointerMove(warningIcon, { pointerType: 'mouse' })
+        fireEvent.mouseMove(warningIcon)
+
+        expect(await screen.findByText('Something is wrong')).toBeInTheDocument()
+    })
+
+    it('ignores clicks on a disabled step and explains why in a tooltip', async () => {
+        const onStepClick = jest.fn()
+        render(
+            <GuidedWizardStepper
+                steps={STEPS}
+                currentStep="second"
+                onStepClick={onStepClick}
+                disabledSteps={{ first: 'This step is locked' }}
+            />
+        )
+
+        const disabledButton = screen.getByText('First').closest('button')!
+        expect(disabledButton).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(disabledButton)
+        expect(onStepClick).not.toHaveBeenCalled()
+
+        // aria-disabled (not disabled) keeps the button hoverable so the tooltip can explain the lock
+        fireEvent.pointerEnter(disabledButton, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(disabledButton)
+        fireEvent.pointerMove(disabledButton, { pointerType: 'mouse' })
+        fireEvent.mouseMove(disabledButton)
+        expect(await screen.findByText('This step is locked')).toBeInTheDocument()
     })
 
     it('blocks forward navigation but allows going back when the current step has errors', () => {

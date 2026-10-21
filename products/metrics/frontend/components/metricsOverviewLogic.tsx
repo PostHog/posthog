@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,6 +23,7 @@ export const STALE_AFTER_MS = 15 * 60 * 1000
 export interface metricsOverviewLogicValues {
     currentTeamId: number | null // teamLogic
     overview: _MetricsOverviewResponseApi | null
+    overviewLoadFailed: boolean
     overviewLoading: boolean
 }
 
@@ -97,14 +98,24 @@ export const metricsOverviewLogic = kea<metricsOverviewLogicType>([
             },
         },
     })),
+    reducers({
+        // Only a success clears the flag. The poll and the retry button both call
+        // loadOverview, and clearing on each call would swap the error banner for the
+        // skeleton every 30 seconds while the endpoint keeps failing.
+        overviewLoadFailed: [
+            false,
+            {
+                loadOverviewFailure: () => true,
+                loadOverviewSuccess: () => false,
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
-        // A service row click lands the user on that service's catalog of metric
-        // cards, already narrowed to the service, so there is something to scan
-        // before picking a name. The catalog reuses the viewer's filter + picker
-        // scope, and a card click from there opens the viewer with the metric set.
+        // A service row click lands in the viewer with that service already
+        // selected. The viewer reuses the filter to scope its metric picker.
         viewService: ({ serviceName }) => {
             actions.setFilterGroup(serviceFilterGroup(serviceName))
-            actions.setActiveTab('explore')
+            actions.setActiveTab('viewer')
         },
     })),
     afterMount(({ actions, cache }) => {

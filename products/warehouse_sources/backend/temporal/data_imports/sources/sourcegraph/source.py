@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SourcegraphSource(ResumableSource[SourcegraphSourceConfig, SourcegraphResumeConfig]):
+    codebase_detection = detect(
+        env=("^SOURCEGRAPH_", "^SRC_ACCESS_TOKEN$", "^SRC_ENDPOINT$"), npm=("@sourcegraph/src",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -53,10 +56,10 @@ class SourcegraphSource(ResumableSource[SourcegraphSourceConfig, SourcegraphResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SOURCEGRAPH,
+            name=ExternalDataSourceType.SOURCEGRAPH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sourcegraph",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Sourcegraph instance URL and an access token to pull your Sourcegraph data into the PostHog Data warehouse.
 
 You can create an access token in Sourcegraph under **Settings > Access tokens**.

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -24,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    VEEQO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo import (
     VeeqoResumeConfig,
@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VeeqoSource(ResumableSource[VeeqoSourceConfig, VeeqoResumeConfig]):
+    codebase_detection = detect(env=("^VEEQO_",))
+
     # Veeqo's API is unversioned (no version path segment, header, or param).
     api_docs_url = "https://developers.veeqo.com/api"
 
@@ -47,7 +49,7 @@ class VeeqoSource(ResumableSource[VeeqoSourceConfig, VeeqoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.VEEQO,
+            name=ExternalDataSourceType.VEEQO,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Veeqo",
             caption="""Enter your Veeqo API key to automatically pull your Veeqo inventory, order and shipping data into the PostHog Data warehouse.
@@ -58,7 +60,7 @@ The API key gives full account access, so store it securely.
 """,
             iconPath="/static/services/veeqo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/veeqo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -101,7 +103,9 @@ The API key gives full account access, so store it securely.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Fan-out tables make one request per shipment or bundle, so they are opt-in.
+        should_sync_default = {name: False for name, config in VEEQO_ENDPOINTS.items() if config.fanout is not None}
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=should_sync_default)
 
     def validate_credentials(
         self, config: VeeqoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

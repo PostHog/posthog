@@ -9,6 +9,7 @@ import { LemonModal } from '~/lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from '~/lib/lemon-ui/LemonSkeleton'
 import { Link } from '~/lib/lemon-ui/Link'
 
+import { TerraformLockToggle } from './TerraformLockToggle'
 import {
     TerraformExportResource,
     TerraformExportResult,
@@ -29,6 +30,9 @@ function getBaseName(resource: TerraformExportResource): string {
     if (resource.type === 'dashboard') {
         return resource.data.name || `dashboard_${resource.data.id}`
     }
+    if (resource.type === 'access_control') {
+        return `access_control_project_${resource.data.projectId}`
+    }
     return resource.data.name || resource.data.derived_name || 'insight'
 }
 
@@ -37,7 +41,25 @@ function getDescription(resource: TerraformExportResource, result: TerraformExpo
     const exampleRepoUrl =
         'https://github.com/PostHog/posthog/tree/master/terraform/us/project-2/team-analytics-platform'
 
+    if (resource.type === 'access_control') {
+        return (
+            <>
+                Export the access rules of {resource.data.projectName} to a Terraform configuration. It covers default
+                project access, role and member project access, and rules for whole resource types. Rules on single
+                objects, such as one dashboard, are not included yet. The import blocks let Terraform take over the
+                existing rules without recreating them. See the{' '}
+                <Link to={providerDocsUrl} target="_blank">
+                    PostHog Terraform provider
+                </Link>{' '}
+                docs for every option.
+            </>
+        )
+    }
+
     const getExportPrefix = (): string => {
+        if (!result || !('alerts' in result.resourceCounts)) {
+            return ''
+        }
         const hasRelatedResources =
             result && (result.resourceCounts.alerts > 0 || result.resourceCounts.hogFunctions > 0)
 
@@ -111,6 +133,13 @@ export function TerraformExportModal({
             }
         >
             <div className="space-y-4">
+                {resource.type === 'access_control' && (
+                    <TerraformLockToggle
+                        organizationId={resource.data.organizationId}
+                        projectId={resource.data.projectId}
+                    />
+                )}
+
                 {state.loading && (
                     <div className="space-y-2">
                         <LemonSkeleton className="h-4 w-1/2" />

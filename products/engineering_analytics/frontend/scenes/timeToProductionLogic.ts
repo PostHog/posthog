@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -6,7 +6,7 @@ import { ApiConfig } from 'lib/api'
 import { engineeringAnalyticsRepoOverview } from '../generated/api'
 import type { RepoOverviewApi } from '../generated/api.schemas'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { awaitsRepoForward, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -17,6 +17,7 @@ export interface timeToProductionLogicValues {
     scopeRepo: string | null // engineeringAnalyticsLogic
     sourceId: string | null // engineeringAnalyticsLogic
     timing: RepoOverviewApi | null
+    timingFailed: boolean
     timingLoading: boolean
 }
 
@@ -73,6 +74,17 @@ export const timeToProductionLogic = kea<timeToProductionLogicType>([
         ],
     })),
 
+    reducers({
+        timingFailed: [
+            false,
+            {
+                loadTiming: () => false,
+                loadTimingSuccess: () => false,
+                loadTimingFailure: () => true,
+            },
+        ],
+    }),
+
     listeners(({ actions }) => ({
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => actions.loadTiming(),
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => actions.loadTiming(),
@@ -80,6 +92,8 @@ export const timeToProductionLogic = kea<timeToProductionLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadTiming()
+        if (!awaitsRepoForward()) {
+            actions.loadTiming()
+        }
     }),
 ])

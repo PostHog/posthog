@@ -12,19 +12,10 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { NewCategoryModal } from './NewCategoryModal'
-import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
-
-interface MessageCategory {
-    id: string
-    key: string
-    name: string
-    description: string
-    public_description: string
-    category_type: string
-}
 
 export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
@@ -57,7 +48,7 @@ export function OptOutCategories(): JSX.Element {
                                 <div className="text-xs text-muted">{category.description}</div>
                             </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
-                                {category.category_type.toUpperCase()}
+                                {(category.category_type ?? '').toUpperCase()}
                             </LemonTag>
                         </div>
                         <More

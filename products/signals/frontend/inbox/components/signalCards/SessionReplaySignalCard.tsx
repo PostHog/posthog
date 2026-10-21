@@ -10,6 +10,9 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import type {
     SessionProblemEventEntryApi,
@@ -105,6 +108,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
     const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
 
     const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const recordingExists = getRecordingExists(extra.session_id)
     const recordingExistsLoading = isRecordingExistsLoading(extra.session_id)
 
@@ -131,7 +135,11 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 <RecordingPreview
                     sessionId={extra.session_id}
                     seekTime={segmentSeekTime}
-                    exportedAssetId={extra.exported_asset_id}
+                    thumbnailSrc={
+                        currentTeamId !== null
+                            ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id)
+                            : undefined
+                    }
                     alt={`Recording preview for ${extra.segment_title}`}
                 />
             ) : (

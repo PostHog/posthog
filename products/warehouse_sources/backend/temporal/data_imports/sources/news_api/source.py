@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
+    codebase_detection = detect(env=("^(NEWS_API|NEWSAPI)_",), npm=("newsapi",), pypi=("newsapi-python",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://newsapi.org/docs"
@@ -50,10 +51,10 @@ class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NEWS_API,
+            name=ExternalDataSourceType.NEWSAPI,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="NewsAPI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["newsapi", "news api"],
             caption="""Enter your NewsAPI key to pull live and historical news articles into the PostHog Data warehouse.
 

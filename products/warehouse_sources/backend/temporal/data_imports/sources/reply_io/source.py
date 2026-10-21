@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ReplyIoSource(ResumableSource[ReplyIoSourceConfig, ReplyIoResumeConfig]):
+    codebase_detection = detect(env=("^(REPLY_IO|REPLYIO)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -51,10 +52,10 @@ class ReplyIoSource(ResumableSource[ReplyIoSourceConfig, ReplyIoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REPLY_IO,
+            name=ExternalDataSourceType.REPLYIO,
             category=DataWarehouseSourceCategory.SALES,
             label="Reply.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Reply API key to pull your sales engagement data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API Keys** in [Reply](https://run.reply.io). To sync every table the key needs the `contacts:read`, `sequences:read`, `tasks:read`, `channels:read`, and `inbox:read` scopes (or broader scopes that include them) — tables whose scope is missing can be deselected in the table picker.

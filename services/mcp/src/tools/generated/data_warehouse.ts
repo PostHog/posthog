@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/data_warehouse/api'
+import hooks_viewGet from '@/tools/dataWarehouse/viewGetHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import {
     withPostHogUrl,
     pickResponseFields,
@@ -51,6 +53,56 @@ const managedWarehouseMonitoringGet = (): ToolBase<
         const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSnapshotResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-monitoring/`,
+        })
+        return result
+    },
+})
+
+const ManagedWarehouseTrinoMetricHistoryGetSchema = () => {
+    const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams =
+        orvalSchemas.DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams()
+    return DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams
+}
+
+const managedWarehouseTrinoMetricHistoryGet = (): ToolBase<
+    ReturnType<typeof ManagedWarehouseTrinoMetricHistoryGetSchema>,
+    Schemas.ManagedWarehouseMonitoringSeriesResponse
+> => ({
+    name: 'managed-warehouse-trino-metric-history-get',
+    schema: ManagedWarehouseTrinoMetricHistoryGetSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ManagedWarehouseTrinoMetricHistoryGetSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSeriesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-trino-monitoring-timeseries/`,
+            query: {
+                metric: params.metric,
+                window: params.window,
+            },
+        })
+        return result
+    },
+})
+
+const ManagedWarehouseTrinoMonitoringGetSchema = () => z.object({})
+
+const managedWarehouseTrinoMonitoringGet = (): ToolBase<
+    ReturnType<typeof ManagedWarehouseTrinoMonitoringGetSchema>,
+    Schemas.ManagedWarehouseTrinoMonitoringSnapshotResponse
+> => ({
+    name: 'managed-warehouse-trino-monitoring-get',
+    schema: ManagedWarehouseTrinoMonitoringGetSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof ManagedWarehouseTrinoMonitoringGetSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ManagedWarehouseTrinoMonitoringSnapshotResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-trino-monitoring/`,
         })
         return result
     },
@@ -257,9 +309,6 @@ const viewCreate = (): ToolBase<
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
-        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -277,15 +326,14 @@ const ViewDeleteSchema = () => {
     return WarehouseSavedQueriesDestroyParams.omit({ project_id: true })
 }
 
-const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, Schemas.DataWarehouseSavedQuery> => ({
+const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, unknown> => ({
     name: 'view-delete',
     schema: ViewDeleteSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
-            method: 'PATCH',
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
         })
         return result
     },
@@ -299,14 +347,17 @@ const ViewGetSchema = () => {
 const viewGet = (): ToolBase<ReturnType<typeof ViewGetSchema>, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-get',
     schema: ViewGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
-    },
+    handler: withToolHooks(
+        hooks_viewGet,
+        async (context: Context, params: z.infer<ReturnType<typeof ViewGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        }
+    ),
 })
 
 const ViewListSchema = () => {
@@ -326,6 +377,7 @@ const viewList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             query: {
+                include_columns: params.include_columns,
                 page: params.page,
                 search: params.search,
             },
@@ -435,9 +487,6 @@ const viewUnmaterialize = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewUnmaterializeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -461,9 +510,6 @@ const viewUnmaterialize = (): ToolBase<
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
-        }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -521,9 +567,6 @@ const viewUpdate = (): ToolBase<
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
-        }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -725,6 +768,8 @@ const warehouseTablesRefreshSchemaCreate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'managed-warehouse-metric-history-get': managedWarehouseMetricHistoryGet,
     'managed-warehouse-monitoring-get': managedWarehouseMonitoringGet,
+    'managed-warehouse-trino-metric-history-get': managedWarehouseTrinoMetricHistoryGet,
+    'managed-warehouse-trino-monitoring-get': managedWarehouseTrinoMonitoringGet,
     'saved-query-column-annotations-create': savedQueryColumnAnnotationsCreate,
     'saved-query-column-annotations-list': savedQueryColumnAnnotationsList,
     'sql-variables-create': sqlVariablesCreate,

@@ -28,7 +28,6 @@ jest.mock('../cards/ReportCard', () => ({
 jest.mock('../shell/InboxReportFilters', () => ({ InboxReportFilters: () => null }))
 jest.mock('../shell/InboxScopeFilter', () => ({ InboxScopeFilter: () => null }))
 jest.mock('../shell/InboxBulkSelectionBar', () => ({ InboxBulkSelectionBar: () => null }))
-jest.mock('../SelfDrivingInstallingHint', () => ({ SelfDrivingInstallingHint: () => null }))
 
 interface SectionCountStub {
     match: (params: URLSearchParams) => boolean
@@ -38,8 +37,9 @@ interface SectionCountStub {
 // One count per state's fixed filter, so the summed total is unambiguous.
 const COUNT_BY_FILTER: SectionCountStub[] = [
     { match: (p) => p.get('has_implementation_pr') === 'true', count: 4 },
-    { match: (p) => p.get('has_implementation_pr') === 'false', count: 7 },
-    { match: (p) => (p.get('status') ?? '').includes('suppressed'), count: 2 },
+    { match: (p) => p.get('view') === 'needs_decision', count: 7 },
+    { match: (p) => p.get('view') === 'dismissed', count: 2 },
+    { match: (p) => p.get('view') === 'held_back', count: 1 },
 ]
 
 // Only `ready` + `not_actionable` reports: the pipeline's actionability judgment leaves the status
@@ -51,6 +51,8 @@ const ONLY_NOT_ACTIONABLE: SectionCountStub[] = [
 function mockReportCounts(stubs: SectionCountStub[]): void {
     useMocks({
         get: {
+            '/api/projects/:team_id/signals/source_configs': { results: [] },
+            '/api/projects/:team_id/signals/scout/configs': [],
             '/api/projects/:team_id/signals/reports/available_reviewers': {},
             '/api/projects/:team_id/signals/reports/': ({ request }) => {
                 const params = new URL(request.url).searchParams
@@ -69,7 +71,6 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
         status,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',
@@ -84,6 +85,7 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
 function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: () => void }): void {
     const withPr = makeReport('with-pr', SignalReportStatus.READY)
     const needsPr = makeReport('needs-pr', SignalReportStatus.READY)
+    const failed = makeReport('failed', SignalReportStatus.FAILED)
     const resolved = makeReport('resolved', SignalReportStatus.RESOLVED)
     useMocks({
         get: {
@@ -98,8 +100,8 @@ function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: ()
                 const results =
                     params.get('has_implementation_pr') === 'true'
                         ? [withPr]
-                        : params.get('has_implementation_pr') === 'false'
-                          ? [needsPr]
+                        : params.get('view') === 'needs_decision'
+                          ? [needsPr, failed]
                           : isResolved
                             ? [resolved]
                             : []
@@ -136,16 +138,20 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
-            // Needs decision + Review and merge + Resolved + Dismissed. Not actionable is staff-only triage.
-            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 13, is_empty: false })
+            // Needs decision + Review and merge + Resolved + Dismissed + Held back. Not actionable is staff-only triage.
+            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 14, is_empty: false })
         })
     })
 
     // The empty verdict must cover every state the current user can see, not only the counted
     // ones: a staff user on a project whose reports are all judged not actionable still has work
-    // to review, so "nothing yet" would be wrong for them and right for everyone else.
+    // to review, so the waiting state would be wrong for them and right for everyone else.
     it.each([
-        { name: 'staff is not told "nothing yet" when only Not actionable has reports', isStaff: true, empty: false },
+        {
+            name: 'staff does not see the waiting state when only Not actionable has reports',
+            isStaff: true,
+            empty: false,
+        },
         { name: 'non-staff sees the empty state for the same project', isStaff: false, empty: true },
     ])('$name', async ({ isStaff, empty }) => {
         mockReportCounts(ONLY_NOT_ACTIONABLE)
@@ -156,11 +162,11 @@ describe('ReportsTab', () => {
         render(<ReportsTab />)
         await waitForCountsToSettle()
 
-        expect(screen.queryByText('Nothing in your inbox yet') !== null).toBe(empty)
+        expect(screen.queryByText('Your agents are working in the background') !== null).toBe(empty)
     })
 
-    // "Nothing yet" claims the project has no reports. A search or scope that matches nothing must
-    // not make that claim, or the user loses the way back to the full list.
+    // A search or scope that matches nothing must keep the filter controls available so the user
+    // can get back to the full list.
     it.each([
         {
             name: 'a search that matches nothing',
@@ -181,7 +187,7 @@ describe('ReportsTab', () => {
         await waitForCountsToSettle()
 
         await waitFor(() => expect(screen.getByText(copy)).toBeInTheDocument())
-        expect(screen.queryByText('Nothing in your inbox yet')).toBeNull()
+        expect(screen.queryByText('Your agents are working in the background')).toBeNull()
     })
 
     // The whole point of the flat list: one merged run over the selected states. The default
@@ -206,6 +212,10 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull()
+            expect(document.querySelector('[data-attr="report-card-failed"]')).toHaveAttribute(
+                'data-section',
+                'needs-decision'
+            )
         })
         expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
 
@@ -226,6 +236,7 @@ describe('ReportsTab', () => {
 
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).toBeNull()
+            expect(document.querySelector('[data-attr="report-card-failed"]')).toBeNull()
         })
         expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
     })
@@ -247,6 +258,7 @@ describe('ReportsTab', () => {
             sortField: 'priority',
             sortDirection: 'asc',
             searchQuery: '',
+            createdWindow: null,
         })
 
         render(<ReportsTab />)

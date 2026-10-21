@@ -41,6 +41,8 @@ from posthog.exceptions import (
 )
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+
 # =============================================================================
 # Export Failure Classification
 # =============================================================================
@@ -108,6 +110,10 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     "DATA_LOAD_FAILED": FAILURE_TYPE_SYSTEM,
     "S3_UPLOAD_UNDECODABLE_RESPONSE": FAILURE_TYPE_SYSTEM,
     "S3_UPLOAD_FAILED": FAILURE_TYPE_SYSTEM,
+    "S3_DOWNLOAD_FAILED": FAILURE_TYPE_SYSTEM,
+    "S3_DOWNLOAD_EMPTY": FAILURE_TYPE_SYSTEM,
+    "THUMBNAIL_EXTRACT_FAILED": FAILURE_TYPE_SYSTEM,
+    "THUMBNAIL_EMPTY_OUTPUT": FAILURE_TYPE_SYSTEM,
     "INIT_FAILED": FAILURE_TYPE_SYSTEM,
     "BLOCK_LISTING_FAILED": FAILURE_TYPE_SYSTEM,
     "TARGET_CLOSED": FAILURE_TYPE_SYSTEM,
@@ -133,6 +139,10 @@ _RASTERIZATION_MESSAGES: dict[str, str] = {
     "DATA_LOAD_FAILED": "We could not load this recording's data. Try the export again in a few minutes.",
     "S3_UPLOAD_UNDECODABLE_RESPONSE": "The finished video could not be saved. Try the export again.",
     "S3_UPLOAD_FAILED": "The finished video could not be saved. Try the export again.",
+    "S3_DOWNLOAD_FAILED": "The source video could not be read. Try again.",
+    "S3_DOWNLOAD_EMPTY": "The source video is no longer stored. Render it again to create a new one.",
+    "THUMBNAIL_EXTRACT_FAILED": "A still frame could not be taken from the video. Try again.",
+    "THUMBNAIL_EMPTY_OUTPUT": "The video has no frame at that point. Pick an earlier time.",
     "INIT_FAILED": "The video renderer could not start. Try the export again.",
     "BLOCK_LISTING_FAILED": "We could not read this recording. Try the export again in a few minutes.",
     "TARGET_CLOSED": "The video renderer stopped before it finished. Try the export again.",
@@ -175,7 +185,11 @@ class ExcelColumnLimitExceeded(Exception):
 class InvalidExportContext(Exception):
     """Raised when an export's export_context lacks a renderable target."""
 
-    pass
+    def __init__(self, message: str, *, reportable: bool = False):
+        super().__init__(message)
+        # Set when PostHog built the context wrong (no target, no handler), not the customer. The SLO
+        # still counts it as a user failure, but error tracking must see it.
+        self.reportable = reportable
 
 
 class RetryableExportError(Exception):
@@ -219,6 +233,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
     InvalidExportContext,
+    UserAccessControlError,  # The export creator has no access to a resource the query needs
 )
 
 TIMEOUT_ERRORS = (
@@ -284,6 +299,12 @@ def classify_failure_type(exception: Exception | str) -> str:
         if exception_type in SYSTEM_ERROR_NAMES:
             return FAILURE_TYPE_SYSTEM
     return FAILURE_TYPE_UNKNOWN
+
+
+def is_reportable_export_failure(exception: Exception) -> bool:
+    if isinstance(exception, InvalidExportContext) and exception.reportable:
+        return True
+    return classify_failure_type(exception) != FAILURE_TYPE_USER
 
 
 def is_user_query_error_type(exception_type: str | None) -> bool:

@@ -4,12 +4,17 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
-if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from posthog.egress.limiter.policies import Priority
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
+if TYPE_CHECKING:
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,9 +24,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
-
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -62,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     validate_credentials as validate_github_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (
+    normalize_repository,
     qualified_schema_name,
     resolve_schema_repo_endpoint,
     schema_metadata_for,
@@ -136,6 +139,11 @@ GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
 
 _REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
 
+RATE_LIMITED_MESSAGE = (
+    "This sync used up the GitHub request limit for your connection before it finished. The next "
+    "sync runs on schedule, and if this keeps happening, sync fewer tables or repositories."
+)
+
 
 def _join_validation_failures(failures: list[str]) -> str:
     """Join the per-repository failures, with one next step for the whole list rather than one each."""
@@ -151,6 +159,105 @@ class GithubSource(
     WebhookSource[GithubSourceConfig],
     OAuthMixin,
 ):
+    # 'Github' (not 'GitHub') - matches the ExternalDataSourceType value.
+    # Default auth is the GitHub App integration (OAuth), so deep-link.
+    codebase_detection = detect(
+        env=(
+            "^GITHUB_TOKEN$",
+            "^GH_TOKEN$",
+            "^GH_ENTERPRISE_TOKEN$",
+            "^GITHUB_ENTERPRISE_TOKEN$",
+            "^GH_HOST$",
+            "^GITHUB_PERSONAL_ACCESS_TOKEN$",
+            "^GITHUB_PAT$",
+            "^GITHUB_CLIENT_ID$",
+            "^GITHUB_CLIENT_SECRET$",
+            "^GITHUB_ID$",
+            "^GITHUB_SECRET$",
+            "^AUTH_GITHUB_ID$",
+            "^AUTH_GITHUB_SECRET$",
+            "^GHE_HOST$",
+        ),
+        npm=(
+            "@octokit/rest",
+            "@octokit/core",
+            "@octokit/graphql",
+            "octokit",
+            "@octokit/app",
+            "@octokit/request",
+            "@octokit/endpoint",
+            "@octokit/types",
+            "@octokit/webhooks",
+            "@octokit/webhooks-methods",
+            "@octokit/webhooks-types",
+            "@octokit/auth-token",
+            "@octokit/auth-app",
+            "@octokit/auth-oauth-app",
+            "@octokit/auth-oauth-user",
+            "@octokit/auth-oauth-device",
+            "@octokit/auth-action",
+            "@octokit/auth-unauthenticated",
+            "@octokit/auth-callback",
+            "@octokit/auth-basic",
+            "@octokit/oauth-app",
+            "@octokit/oauth-methods",
+            "@octokit/oauth-authorization-url",
+            "@octokit/plugin-rest-endpoint-methods",
+            "@octokit/plugin-paginate-rest",
+            "@octokit/plugin-paginate-graphql",
+            "@octokit/plugin-throttling",
+            "@octokit/plugin-retry",
+            "@octokit/plugin-request-log",
+            "@octokit/plugin-enterprise-rest",
+            "@octokit/plugin-enterprise-server",
+            "@octokit/plugin-enterprise-cloud",
+            "@octokit/plugin-enterprise-compatibility",
+            "@octokit/plugin-create-or-update-text-file",
+            "@octokit/plugin-scim",
+            "@octokit/action",
+            "@octokit/graphql-schema",
+            "github",
+            "@actions/github",
+            "@actions/core",
+            "@actions/artifact",
+            "@actions/cache",
+            "@actions/attest",
+            "probot",
+            "@probot/adapter-github-actions",
+            "@probot/adapter-aws-lambda-serverless",
+            "@probot/adapter-azure-functions",
+            "octokit-auth-probot",
+            "universal-github-app-jwt",
+            "passport-github",
+            "passport-github2",
+            "github-api",
+            "@pulumi/github",
+        ),
+        pypi=("pygithub", "githubkit", "github3-py", "ghapi", "gidgethub", "pulumi-github"),
+        cargo=("octocrab", "octorust", "hubcaps"),
+        cocoapods=("OctoKit.swift", "OctoKit"),
+        composer=("knplabs/github-api", "graham-campbell/github", "league/oauth2-github"),
+        go=(
+            "github.com/google/go-github",
+            "github.com/shurcooL/githubv4",
+            "github.com/octokit/go-sdk",
+            "github.com/octokit/go-octokit",
+            "github.com/bradleyfalzon/ghinstallation",
+            "github.com/cli/go-gh",
+            "github.com/palantir/go-githubapp",
+            "github.com/sethvargo/go-githubactions",
+        ),
+        hex=("tentacat",),
+        maven=(
+            "org.kohsuke:github-api",
+            "com.spotify:github-client",
+            "org.eclipse.mylyn.github:org.eclipse.egit.github.core",
+        ),
+        pub=("github",),
+        rubygems=("octokit", "github_api", "omniauth-github"),
+        swiftpm=("github.com/nerdishbynature/octokit.swift",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
@@ -186,7 +293,7 @@ class GithubSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITHUB,
+            name=ExternalDataSourceType.GITHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             featured=True,
             label="GitHub",
@@ -351,7 +458,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
             "Missing GitHub integration ID": "No GitHub account is connected. Connect a GitHub account and try again.",
-            "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
+            "Missing personal access token": "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
             "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
             "Too many repositories configured": "Too many repositories are selected for this source. Please reduce the list and try again.",
@@ -368,7 +475,36 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
-        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
+        #
+        # A TLS session cut at the socket, or a read that outran its 10s deadline, while minting the
+        # installation access token (``GitHubIntegrationBase.client_request``, called from
+        # ``_get_access_token``) has no in-process retry of its own — unlike ``_fetch_page``'s data
+        # requests, whose tenacity retry already covers ``requests.ConnectionError`` (the base class
+        # ``SSLError`` subclasses) and ``requests.ReadTimeout`` directly. Either way it's a transient
+        # network blip, not a GitHub or customer problem, so once Temporal retries the activity the
+        # failure is self-recovering. Mirrors ClickHouse's equivalent classification of the same
+        # urllib3/OpenSSL wording.
+        #
+        # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
+        # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
+        # least surprising failure the source has; tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
+        return {
+            "GitHub API rate limit exceeded",
+            "GitHub egress budget exhausted",
+            "Github API error (retryable)",
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+            "Read timed out",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a rate limit that outlasts every retry leaves the raw limiter text on the
+        # job, which names an internal budget and the installation id rather than a next step.
+        return {
+            "GitHub egress budget exhausted": RATE_LIMITED_MESSAGE,
+            "GitHub API rate limit exceeded": RATE_LIMITED_MESSAGE,
+        }
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
@@ -386,9 +522,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # query (server-side) and cap the page — the picker searches as the user types rather than
         # loading every repo at once.
         try:
-            repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
-                search=search or "", limit=100, offset=0
-            )
+            repositories, _has_more = GitHubIntegration(
+                integration, source="warehouse", priority=Priority.CRITICAL
+            ).list_cached_repositories(search=search or "", limit=100, offset=0)
         except GitHubIntegrationError as e:
             # The refresh talks to GitHub, which can reject the credentials, report a suspended
             # installation, or return a transient non-JSON/5xx body from its edge. None of these are
@@ -428,7 +564,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         storage_owners: dict[str, str] = {}
         repositories: list[str] = []
         for repo in raw:
-            normalized = repo.strip().lower()
+            normalized = normalize_repository(repo).lower()
             if not normalized or normalized in seen:
                 continue
             storage_key = NamingConvention.normalize_identifier(normalized)
@@ -453,7 +589,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def is_legacy_bare_repo(config: GithubSourceConfig, repository: str) -> bool:
         """True when `repository` is the pre-multi-repo repo whose schemas keep bare, unqualified
         names (`issues`, not `owner/repo.issues`)."""
-        return bool(config.repository) and repository == (config.repository or "").strip().lower()
+        return bool(config.repository) and repository == normalize_repository(config.repository or "").lower()
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "pat":
@@ -465,7 +601,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             raise ValueError("Missing GitHub integration ID")
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
 
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(integration, source="warehouse", priority=Priority.CRITICAL)
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
 
@@ -482,7 +618,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
             return GithubEgressIdentity()
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
-        return GithubEgressIdentity(installation_id=GitHubIntegration(integration).github_installation_id)
+        return GithubEgressIdentity(
+            installation_id=GitHubIntegration(
+                integration, source="warehouse", priority=Priority.BATCH
+            ).github_installation_id
+        )
 
     @staticmethod
     def _schema_for_endpoint(endpoint: str, repository: str | None = None) -> SourceSchema:
@@ -599,7 +739,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 continue
             if endpoint not in ORG_SCOPED_ENDPOINTS:
                 continue
-            org_endpoints[name] = (repository or config.repository or "").strip().lower()
+            org_endpoints[name] = normalize_repository(repository or config.repository or "").lower()
         if not org_endpoints:
             return result
         try:
@@ -646,11 +786,15 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
             repositories = self.effective_repositories(config)
             failures: list[str] = []
             for repository in repositories[: self.MAX_VALIDATED_REPOSITORIES]:
                 is_valid, message = validate_github_credentials(
-                    access_token, repository, api_version=self.resolve_api_version(api_version)
+                    access_token,
+                    repository,
+                    egress_identity=egress_identity,
+                    api_version=self.resolve_api_version(api_version),
                 )
                 if is_valid:
                     continue
@@ -692,7 +836,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # Pin the legacy repository (the one whose rows keep bare event keys) so the template's
         # bare-key fallback only fires for its events. Empty when there's no legacy repo (pure
         # multi-repo sources have no bare keys, so nothing to bind).
-        return {"legacy_repository": (config.repository or "").strip().lower()}
+        return {"legacy_repository": normalize_repository(config.repository or "").lower()}
 
     def get_desired_webhook_events(
         self, config: GithubSourceConfig, eligible_schema_names: list[str]
@@ -817,7 +961,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # against it, and the failed repos' manual setup instructions tell the user to reuse it.
         return WebhookCreationResult(
             success=False,
-            error="Failed to create the webhook in some repositories — " + "; ".join(failures),
+            error="Couldn't create the webhook in some repositories. " + "; ".join(failures),
             extra_inputs={"signing_secret": secret} if any_success else {},
         )
 
@@ -890,8 +1034,17 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def get_external_webhook_info(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Same customer-side state as in delete_webhook: the OAuth integration is gone or the token
+            # is unset. Report it as status so the settings page can say so, instead of raising into
+            # the view's catch-all, which captures it as an exception.
+            return ExternalWebhookInfo(
+                exists=False,
+                error="Couldn't check the GitHub webhook because the connected account is no longer available. Reconnect your GitHub account, then reload.",
+            )
         # exists=True only when every repo carries the hook; partial coverage surfaces the
         # missing repos so the UI can prompt a re-create (which is idempotent per repo).
         missing: list[str] = []

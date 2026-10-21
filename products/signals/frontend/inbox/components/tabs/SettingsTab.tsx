@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { AgentSteeringSection } from '../config/AgentSteeringSection'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
@@ -41,6 +42,7 @@ export function SettingsTab(): JSX.Element {
             >
                 <SelfDrivingSection />
             </SettingsSection>
+            <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
                 description="Connect GitHub so agents can read repositories and open pull requests."

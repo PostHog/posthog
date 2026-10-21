@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
+    codebase_detection = detect(env=("^(NO_CRM|NOCRM)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -51,10 +52,10 @@ class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NO_CRM,
+            name=ExternalDataSourceType.NOCRM,
             category=DataWarehouseSourceCategory.CRM,
             label="noCRM.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your noCRM.io account subdomain and API key to automatically pull your noCRM.io data into the PostHog Data warehouse.
 
 Your subdomain is the first part of your noCRM.io URL — for `acme.nocrm.io`, enter `acme`.

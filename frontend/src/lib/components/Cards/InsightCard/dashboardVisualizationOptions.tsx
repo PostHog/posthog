@@ -5,12 +5,11 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter/ChartFilter'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isDisplayTabSupported } from '~/queries/nodes/DataVisualization/Components/SideBar'
-import { DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
@@ -20,13 +19,15 @@ import {
 } from '~/queries/utils'
 import { ChartDisplayType, InsightType, RetentionDashboardDisplayType } from '~/types'
 
+import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'
+
 import { DashboardSqlChartType, DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
 
 export interface DashboardVisualizationPersistence {
     saving: 'chart-type' | 'display-options' | null
     version: number
     persistChartType: (display: ChartDisplayType) => void
-    persistDisplayOptions: (query: DataVisualizationNode) => void
+    persistDisplayOptions: (query: VisualizationNode) => void
 }
 
 type ProductAnalyticsChartPicker = 'chart-filter' | 'retention'
@@ -65,8 +66,10 @@ function DashboardRetentionChartPicker({ disabledReason }: { disabledReason?: st
     return <RetentionChartPicker fullWidth disabledReason={disabledReason} onSelect={selectChart} />
 }
 
-export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {
-    return canPersist && query && isDataVisualizationNodeWithHogQLQuery(query) ? query : null
+export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): VisualizationNode | null {
+    return canPersist && query?.kind === NodeKind.DataVisualizationNode && isDataVisualizationNodeWithHogQLQuery(query)
+        ? query
+        : null
 }
 
 export function useDashboardVisualizationOptions({

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.aviator import (
     AviatorResumeConfig,
     aviator_source,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AviatorSource(ResumableSource[AviatorSourceConfig, AviatorResumeConfig]):
+    codebase_detection = detect(env=("^AVIATOR_API_TOKEN$", "^AV_API_TOKEN$"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.aviator.co/api/reference"
 
@@ -45,10 +46,10 @@ class AviatorSource(ResumableSource[AviatorSourceConfig, AviatorResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AVIATOR,
+            name=ExternalDataSourceType.AVIATOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Aviator",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Aviator API token to pull your merge-queue data into the PostHog Data warehouse.
 
 Create a user access token (it starts with `av_uat_`) from your [Aviator account settings](https://www.aviator.co/), then paste it below. The token inherits your account's repository access, so no extra scopes are required.""",

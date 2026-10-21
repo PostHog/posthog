@@ -97,12 +97,20 @@ export function getActivitySelection(): ActivitySelection | null {
   return toSelection(match.search as ActivitySearch);
 }
 
+export function clearActivitySelection(): void {
+  void getRouterOrNull()?.navigate({
+    to: "/activity",
+    search: {},
+    replace: true,
+  });
+}
+
 export function selectActivityItem(item: TaskActivityItem): void {
   void getRouterOrNull()?.navigate({
     to: "/activity",
     search: {
       item: item.id,
-      session: item.taskId,
+      session: item.taskId ?? undefined,
       ...(item.channelId ? { space: item.channelId } : {}),
     },
   });

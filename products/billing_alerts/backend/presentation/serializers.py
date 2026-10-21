@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -11,13 +10,14 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.exceptions import as_drf_validation_error
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 
-from products.alerts.backend.facade.api import (
+from products.alerts.backend.facade.destinations import validate_destination_data
+from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
-    validate_destination_data,
 )
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import (
@@ -130,9 +130,7 @@ class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
         try:
             validate_destination_data(data, allowed_destination_types=billing_alerts_api.BILLING_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
-            if error.field:
-                raise ValidationError({error.field: error.message})
-            raise ValidationError(error.message)
+            raise as_drf_validation_error(error)
 
         # URL-shape checks beyond the shared required-field validation.
         webhook_url = attrs.get("webhook_url")
@@ -206,29 +204,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Absolute value or absolute increase that triggers absolute threshold alerts.",
     )
-    minimum_value = serializers.DecimalField(
-        max_digits=20,
-        decimal_places=6,
-        required=False,
-        help_text="Minimum current value before the alert can fire.",
-    )
     baseline_window_days = serializers.IntegerField(
         required=False,
         min_value=1,
         max_value=90,
         help_text="Reserved for future increase-over-baseline rules. Not used by absolute value alerts.",
-    )
-    evaluation_delay_hours = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        max_value=72,
-        help_text="Hours after a UTC billing date ends before it becomes eligible for evaluation.",
-    )
-    cooldown_hours = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        max_value=24 * 30,
-        help_text="Minimum hours between repeated firing notifications.",
     )
     snoozed_until = serializers.DateTimeField(
         required=False,
@@ -261,11 +241,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
-            "minimum_value",
             "baseline_window_days",
-            "evaluation_delay_hours",
             "state",
-            "cooldown_hours",
             "snoozed_until",
             "next_check_at",
             "last_checked_at",
@@ -335,13 +312,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             current.threshold_percentage if current else None,
         )
         threshold_value = attrs.get("threshold_value", current.threshold_value if current else None)
-        minimum_value = attrs.get("minimum_value", current.minimum_value if current else Decimal("0"))
 
         errors = validate_threshold_configuration(
             threshold_type=threshold_type,
             threshold_percentage=threshold_percentage,
             threshold_value=threshold_value,
-            minimum_value=minimum_value,
         )
         if errors:
             raise ValidationError(errors)
@@ -364,9 +339,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             alert = super().create(validated_data)
             billing_alerts_api.initialize_billing_alert_lifecycle(alert)
             if destination_changes:
-                billing_alerts_api.apply_destination_changes(
-                    alert, request=self.context["request"], changes=destination_changes
-                )
+                try:
+                    billing_alerts_api.apply_destination_changes(
+                        alert, request=self.context["request"], changes=destination_changes
+                    )
+                except AlertDestinationValidationError as error:
+                    raise as_drf_validation_error(error)
             return alert
 
     def update(
@@ -380,14 +358,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
-            "minimum_value",
             "baseline_window_days",
-            "evaluation_delay_hours",
         }
         revision_fields = evaluation_fields | {
             "enabled",
             "snoozed_until",
-            "cooldown_hours",
         }
         with transaction.atomic():
             locked = BillingAlertConfiguration.objects.select_for_update().get(
@@ -418,9 +393,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                 configuration_changed=configuration_changed,
             )
             if destination_changes:
-                billing_alerts_api.apply_destination_changes(
-                    updated, request=self.context["request"], changes=destination_changes
-                )
+                try:
+                    billing_alerts_api.apply_destination_changes(
+                        updated, request=self.context["request"], changes=destination_changes
+                    )
+                except AlertDestinationValidationError as error:
+                    raise as_drf_validation_error(error)
             return updated
 
 

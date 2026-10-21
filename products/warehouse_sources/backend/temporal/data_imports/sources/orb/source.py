@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,6 +28,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
+    codebase_detection = detect(
+        env=("^ORB_",),
+        npm=("orb-billing",),
+        pypi=("orb-billing",),
+        go=("github.com/orbcorp/orb-go",),
+        maven=("com.withorb.api:orb-java",),
+        rubygems=("orb-billing",),
+    )
+
     api_docs_url = "https://docs.withorb.com/"
 
     @property
@@ -38,10 +46,10 @@ class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ORB,
+            name=ExternalDataSourceType.ORB,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Orb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Orb API key to automatically pull your Orb billing data into the PostHog Data warehouse.
 
 You can create an API key in your [Orb account settings](https://app.withorb.com/settings). A read-only key is sufficient.""",

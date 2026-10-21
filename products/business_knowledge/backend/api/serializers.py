@@ -2,10 +2,11 @@
 
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.security.url_validation import is_url_allowed
@@ -23,10 +24,13 @@ from ..models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
     EmbeddingStatus,
+    KnowledgeLibrarySource,
     KnowledgeSource,
     RefreshInterval,
+    SafetyVerdict,
     SourceType,
 )
+from ..sandbox import SandboxPollStatus, SandboxToolName
 
 
 def _derive_scope_globs(url: str) -> list[str]:
@@ -104,6 +108,19 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`."
         ),
     )
+    learned_from_ticket_number = serializers.IntegerField(
+        source="_learned_ticket_number",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Support ticket number this learned source came from. Null for sources you added yourself.",
+    )
+    learned_from_ticket_url = serializers.SerializerMethodField(
+        help_text="App URL of the originating support ticket. Null for sources you added yourself.",
+    )
+    library_ids = serializers.SerializerMethodField(
+        help_text="Libraries this source belongs to. Empty when the source is in none.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -127,12 +144,15 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "next_refresh_at",
             "has_unsafe_documents",
             "embedding_status",
+            "learned_from_ticket_number",
+            "learned_from_ticket_url",
             "crawl_mode",
             "crawl_config",
             "original_filename",
             "file_content_type",
             "file_size_bytes",
             "always_include",
+            "library_ids",
         ]
         read_only_fields = fields
 
@@ -150,6 +170,30 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     def get_has_unsafe_documents(self, obj: KnowledgeSource) -> bool:
         # Annotated by the logic layer to avoid an N+1 in list responses.
         return bool(getattr(obj, "_has_unsafe_documents", False))
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_learned_from_ticket_url(self, obj: KnowledgeSource) -> str | None:
+        ticket_number = getattr(obj, "_learned_ticket_number", None)
+        if ticket_number is None:
+            return None
+        source_team_id = getattr(obj, "_learned_source_team_id", None)
+        team_id = source_team_id if source_team_id is not None else obj.team_id
+        return f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket_number}"
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_library_ids(self, obj: KnowledgeSource) -> list[str]:
+        # The list annotation is NULL when a source is in no library, and
+        # missing entirely when a create or update returns the row directly.
+        if "_library_ids" in obj.__dict__:
+            raw = obj.__dict__["_library_ids"] or []
+        else:
+            raw = (
+                KnowledgeLibrarySource.objects.for_team(obj.team_id)
+                .filter(source_id=obj.id)
+                .order_by("library_id")
+                .values_list("library_id", flat=True)
+            )
+        return [str(item) for item in raw]
 
     @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
     def get_embedding_status(self, obj: KnowledgeSource) -> str:
@@ -227,6 +271,11 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         required=False,
         help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
+    library_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library.",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -238,8 +287,10 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs:
-            raise serializers.ValidationError("Provide at least one of `name`, `text`, or `always_include`.")
+        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs and "library_ids" not in attrs:
+            raise serializers.ValidationError(
+                "Provide at least one of `name`, `text`, `always_include`, or `library_ids`."
+            )
         return attrs
 
 
@@ -330,10 +381,7 @@ class CreateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
     )
     url = serializers.URLField(
         max_length=2048,
-        help_text=(
-            "Public HTTP(S) URL to fetch. Private / internal hosts are rejected. "
-            "Stage 2a fetches this URL once at create time; Stage 5 will refresh it on a schedule."
-        ),
+        help_text="Public HTTP(S) URL to fetch. Private or internal hosts are rejected.",
     )
     refresh_interval = serializers.ChoiceField(
         choices=RefreshInterval.choices,
@@ -400,7 +448,7 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         default=DEFAULT_MAX_PAGES,
         min_value=1,
         max_value=MAX_URLS_PER_SOURCE,
-        help_text=f"Max pages to fetch. Capped at {MAX_URLS_PER_SOURCE} for inline crawls.",
+        help_text=f"Max pages to fetch. Capped at {MAX_URLS_PER_SOURCE}.",
     )
     max_depth = serializers.IntegerField(
         required=False,
@@ -423,6 +471,25 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
             "max_depth": attrs.pop("max_depth"),
         }
         return attrs
+
+
+class KnowledgeSourceDocumentSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Document id.")
+    url = serializers.URLField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Fetched page URL after redirects. Empty for text and file documents.",
+    )
+    title = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Page title extracted while indexing. Falls back to empty when the page had none.",
+    )
+    safety_verdict = serializers.ChoiceField(
+        choices=SafetyVerdict.choices,
+        read_only=True,
+        help_text="Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.",
+    )
 
 
 class KnowledgeDocumentWindowSerializer(serializers.Serializer):
@@ -457,6 +524,10 @@ class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     document_title = serializers.CharField(
         read_only=True,
         help_text="Title of the document this chunk belongs to.",
+    )
+    url = serializers.CharField(
+        read_only=True,
+        help_text="Fetched page URL. Empty for text and file sources.",
     )
 
 
@@ -503,6 +574,14 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     content = serializers.CharField(
         read_only=True,
         help_text="The chunk's text content.",
+    )
+    is_generated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when this chunk comes from a generated source learned from a past support ticket.",
+    )
+    url = serializers.CharField(
+        read_only=True,
+        help_text="Fetched page URL. Empty for text and file sources.",
     )
 
 
@@ -584,3 +663,126 @@ class GapTopicActionResultSerializer(serializers.Serializer):
         read_only=True, help_text="The normalized topic cluster that was acted on."
     )
     updated = serializers.IntegerField(read_only=True, help_text="Number of gap rows whose status changed.")
+
+
+# ---------------------------------------------------------------------------
+# Learning settings
+# ---------------------------------------------------------------------------
+
+
+@extend_schema_serializer(component_name="BusinessKnowledgeSettings")
+class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
+    learn_from_support_enabled = serializers.BooleanField(
+        help_text=(
+            "When true, PostHog learns reusable knowledge from public human replies on resolved "
+            "support tickets. Requires Support to be enabled for this environment."
+        ),
+    )
+    support_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
+    )
+
+
+class BusinessKnowledgeSettingsUpdateSerializer(serializers.Serializer):
+    learn_from_support_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, PostHog learns reusable knowledge from public human replies on resolved "
+            "support tickets. Rejected when Support is off for this environment."
+        ),
+    )
+
+    def validate_learn_from_support_enabled(self, value: bool) -> bool:
+        if value and not bool(getattr(self.context.get("team"), "conversations_enabled", False)):
+            raise serializers.ValidationError("Turn on Support to learn from resolved tickets.")
+        return value
+
+
+class SandboxQuestionSerializer(serializers.Serializer):
+    question = serializers.CharField(
+        max_length=4_000,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.",
+    )
+
+
+class SandboxRunStartedSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Sandbox task id. Poll this id until the run finishes.")
+    run_id = serializers.UUIDField(help_text="Run id for this question.")
+
+
+class SandboxSourceSerializer(serializers.Serializer):
+    ref = serializers.CharField(help_text="Source reference the reply relies on.")
+    excerpt = serializers.CharField(help_text="Short excerpt that supports the reply.")
+
+
+class SandboxSearchSerializer(serializers.Serializer):
+    tool = serializers.ChoiceField(
+        choices=SandboxToolName.choices,
+        help_text="Business knowledge tool the agent called.",
+    )
+    input = serializers.CharField(help_text="Tool input the agent sent.")
+
+
+class SandboxRunSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Sandbox task id.")
+    run_id = serializers.UUIDField(help_text="Latest run id for this task.")
+    status = serializers.ChoiceField(
+        choices=SandboxPollStatus.choices,
+        help_text="running while the agent works. completed carries reply and sources. failed and cancelled carry error.",
+    )
+    reply = serializers.CharField(
+        allow_null=True,
+        help_text="Answer text when status is completed. Null otherwise.",
+    )
+    sources = SandboxSourceSerializer(
+        many=True,
+        help_text="Sources cited in a completed answer. Empty when the run has not completed.",
+    )
+    searches = SandboxSearchSerializer(
+        many=True,
+        help_text="Business knowledge search and window calls observed in the run log.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the run did not produce an answer. Null while running and on a completed answer.",
+    )
+    docs_search_called = serializers.BooleanField(
+        help_text="True when the run log contains an exact docs-search call. That tool is not granted to this sandbox.",
+    )
+
+
+class PlaygroundChatListSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Playground chat id.")
+    title = serializers.CharField(
+        help_text="First question, truncated. Empty until someone asks.",
+    )
+    created_at = serializers.DateTimeField(help_text="When this chat was created.")
+    updated_at = serializers.DateTimeField(help_text="When this chat was last asked in.")
+    has_open_turn = serializers.BooleanField(
+        help_text="True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes.",
+    )
+
+
+class PlaygroundTurnSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Turn id.")
+    question = serializers.CharField(help_text="Question that started this turn's sandbox run.")
+    task_id = serializers.UUIDField(help_text="Sandbox task id for this turn.")
+    position = serializers.IntegerField(help_text="Order of this turn in the chat, starting at 0.")
+    run = SandboxRunSerializer(
+        allow_null=True,
+        help_text="Current sandbox run for this turn. Null when the run cannot be loaded.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Why this turn could not be loaded. Null when run is present.",
+    )
+
+
+class PlaygroundChatSerializer(PlaygroundChatListSerializer):
+    turns = PlaygroundTurnSerializer(
+        many=True,
+        help_text="Questions in this chat, oldest first. Each turn's answer comes from its sandbox run.",
+    )

@@ -14,7 +14,6 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isKeyOf } from 'lib/utils/guards'
 import { isURL } from 'lib/utils/url'
-import { NewProperty } from 'scenes/persons/NewProperty'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -27,6 +26,8 @@ import {
 } from '~/taxonomy/taxonomy'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
+
+import { NewProperty } from 'products/persons/frontend/components/NewProperty'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { JSONViewer } from '../JSONViewer'

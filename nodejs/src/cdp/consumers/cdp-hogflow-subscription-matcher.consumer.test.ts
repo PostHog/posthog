@@ -1,6 +1,8 @@
 import '../../../tests/helpers/mocks/consumer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
+import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import * as posthogUtils from '~/common/utils/posthog'
@@ -238,6 +240,47 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
     afterEach(() => {
         matcher.clearWatcherTimers()
+    })
+
+    describe('consumer wiring', () => {
+        it('reads internal events from the cluster the wakes are produced to, not the events cluster', () => {
+            const createConsumer = jest.mocked(createKafkaConsumer)
+            createConsumer.mockClear()
+            new CdpHogflowSubscriptionMatcherConsumer(
+                {
+                    CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
+                    CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: 'cyclotron:9092',
+                } as any,
+                {} as any
+            )
+            const byTopic = Object.fromEntries(
+                createConsumer.mock.calls.map(([config, rdKafka]) => [config.topic, rdKafka])
+            )
+            expect(byTopic[KAFKA_CDP_INTERNAL_EVENTS]).toMatchObject({ 'metadata.broker.list': 'cyclotron:9092' })
+            expect(byTopic[KAFKA_EVENTS_JSON]?.['metadata.broker.list']).toBeUndefined()
+        })
+
+        it.each(['', 'realtime_only_events_json'])(
+            'creates the realtime-only events consumer only when its topic is configured (%j)',
+            (topic) => {
+                const createConsumer = jest.mocked(createKafkaConsumer)
+                createConsumer.mockClear()
+                new CdpHogflowSubscriptionMatcherConsumer(
+                    {
+                        CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
+                        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: topic,
+                    } as any,
+                    {} as any
+                )
+                const realtimeOnlyTopics = createConsumer.mock.calls
+                    .filter(
+                        ([config]) =>
+                            config.groupId === 'cdp-hogflow-subscription-matcher-realtime-only-events-consumer'
+                    )
+                    .map(([config]) => config.topic)
+                expect(realtimeOnlyTopics).toEqual(topic ? [topic] : [])
+            }
+        )
     })
 
     describe('wakeMatchingWorkflows', () => {
@@ -525,7 +568,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     id: 'flow-1',
                     exit_condition: 'exit_on_conversion',
                     conversion: {
-                        window_minutes: null,
                         filters: {},
                         bytecode: [],
                         events: [
@@ -1421,6 +1463,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Not attributed as a merge re-key: counterHogflowRekeyWake measures whether waking on a merge
             // is wasted churn, so a first-mapping fill must stay out of that ratio.
             expect(newState.state.currentAction?.rekeyWake).toBeUndefined()
+            // Flagged as a matcher wake instead, which is what keeps the poll-only counter off it.
+            expect(newState.state.currentAction?.anchorWake).toBe(true)
         })
 
         it('scopes a first mapping to jobs with no anchor, leaving anchored waits alone', async () => {

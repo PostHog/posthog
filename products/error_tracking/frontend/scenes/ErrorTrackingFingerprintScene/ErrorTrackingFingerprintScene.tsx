@@ -15,7 +15,7 @@ import {
 export const scene: SceneExport<ErrorTrackingFingerprintSceneLogicProps> = {
     component: ErrorTrackingFingerprintScene,
     logic: errorTrackingFingerprintSceneLogic,
-    // `_` is the wildcard capture from the `/error_tracking/fingerprint/*` route.
+    // `_` is the wildcard capture from the `/error-tracking/fingerprint/*` route.
     paramsToProps: ({ params: { _: wildcard }, searchParams: { timestamp } }) => ({
         // Decode from the raw pathname, not the router's already-decodeURI'd capture — decoding that
         // a second time crashes on a literal `%` and mangles `%XX` fingerprints.

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith import (
     CloudsmithResumeConfig,
     cloudsmith_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudsmithSource(ResumableSource[CloudsmithSourceConfig, CloudsmithResumeConfig]):
+    codebase_detection = detect(env=("^CLOUDSMITH_",), pypi=("cloudsmith-cli", "cloudsmith-api"))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # `/v1` is the only API Cloudsmith publishes and it is not a version the caller selects, so
     # the framework's unversioned default applies.
@@ -112,10 +113,10 @@ class CloudsmithSource(ResumableSource[CloudsmithSourceConfig, CloudsmithResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOUDSMITH,
+            name=ExternalDataSourceType.CLOUDSMITH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cloudsmith",
-            caption="""Sync your Cloudsmith repositories, packages, entitlements, webhooks, vulnerability scans, audit log, members and teams.
+            caption="""Sync your Cloudsmith repositories, packages, package dependencies, entitlements, webhooks, vulnerability scans, audit logs, quota history, members and teams.
 
 Create an API key in Cloudsmith under **Account settings → API settings**. The key inherits your own access, so use a key from a user who can see every repository you want to sync. The workspace is the slug in your Cloudsmith URLs, for example `acme` in `https://cloudsmith.io/~acme/`.
 """,
@@ -143,5 +144,5 @@ Create an API key in Cloudsmith under **Account settings → API settings**. The
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

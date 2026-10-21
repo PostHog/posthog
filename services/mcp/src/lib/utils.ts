@@ -84,7 +84,7 @@ export type McpMode = 'tools' | 'cli'
 // Caller-supplied selection between the tool-based MCP (each PostHog tool registered
 // individually) and the CLI-based MCP (a single `posthog` CLI-like tool that wraps
 // all tools). Anything other than `tools` or `cli` returns undefined and lets
-// `resolveMode` pick: cli by default, tools for allow-listed clients (Cursor, ChatGPT).
+// `resolveMode` pick: cli by default, tools for allow-listed clients (Cursor).
 export function parseMcpMode(raw: string | null | undefined): McpMode | undefined {
     const value = raw?.trim().toLowerCase()
     return value === 'tools' ? 'tools' : value === 'cli' ? 'cli' : undefined

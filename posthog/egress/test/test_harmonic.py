@@ -1,13 +1,16 @@
+import time
 import uuid
 
+import pytest
 from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.harmonic.limiter import HARMONIC_ACCOUNT_KEY, consume_harmonic
-from posthog.egress.harmonic.observability import _parse_harmonic_rate_limit
+from posthog.egress.harmonic.observability import _parse_harmonic_rate_limit, harmonic_egress
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.backends import LimitsBackend
 from posthog.egress.limiter.outbound import OutboundRateLimiter
@@ -66,25 +69,11 @@ class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
             ("empty_headers", {}, RateLimitSnapshot(resource="account")),
             (
                 "garbage_values",
-                {"X-RateLimit-Remaining": "not-a-number", "X-RateLimit-Limit": "", "X-RateLimit-Reset": "soon"},
+                {"X-Ratelimit-Remaining-Second": "not-a-number", "X-Ratelimit-Limit-Second": ""},
                 RateLimitSnapshot(resource="account"),
             ),
             (
-                "standard_names",
-                {"X-RateLimit-Remaining": "42", "X-RateLimit-Limit": "100", "X-RateLimit-Reset": "1700000000"},
-                RateLimitSnapshot(resource="account", remaining=42.0, limit=100.0, reset_at=1700000000.0),
-            ),
-            (
-                "second_variant_preferred_over_standard",
-                {
-                    "X-Ratelimit-Remaining-Second": "5",
-                    "X-RateLimit-Remaining": "500",
-                    "X-Ratelimit-Limit-Second": "15",
-                },
-                RateLimitSnapshot(resource="account", remaining=5.0, limit=15.0),
-            ),
-            (
-                "second_variant_alone",
+                "documented_names",
                 {"X-Ratelimit-Remaining-Second": "9", "X-Ratelimit-Limit-Second": "15"},
                 RateLimitSnapshot(resource="account", remaining=9.0, limit=15.0),
             ),
@@ -96,9 +85,17 @@ class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
 
 async def test_request_gates_before_sending_and_records_the_response() -> None:
     session = _fake_session(status=201, headers={"X-Ratelimit-Remaining-Second": "9"})
+    duration_labels = {"source": "other", "priority": "critical", "endpoint": "/graphql", "outcome": "response"}
+    duration_before = REGISTRY.get_sample_value("harmonic_api_request_duration_seconds_sum", duration_labels) or 0
+
+    def grant(_priority: Priority, _source: str) -> bool:
+        time.perf_counter()
+        return True
+
     with (
-        patch("posthog.egress.harmonic.transport.acquire_harmonic", AsyncMock(return_value=True)) as acquire,
-        patch("posthog.egress.harmonic.transport.record_harmonic_api_response") as record_response,
+        patch("posthog.egress.harmonic.transport.acquire_harmonic", AsyncMock(side_effect=grant)) as acquire,
+        patch.object(harmonic_egress, "record_response") as record_response,
+        patch("posthog.egress.harmonic.transport.time.perf_counter", side_effect=[100, 105, 106.25]),
     ):
         response = await harmonic_request(
             session,
@@ -115,8 +112,50 @@ async def test_request_gates_before_sending_and_records_the_response() -> None:
     session.request.assert_awaited_once()
     assert session.request.call_args.kwargs["headers"]["apikey"] == "secret"
     record_response.assert_called_once_with(
-        201, {"X-Ratelimit-Remaining-Second": "9"}, source="test", method="POST", endpoint="/graphql"
+        201, {"X-Ratelimit-Remaining-Second": "9"}, source="test", scope="default", method="POST", endpoint="/graphql"
     )
+    duration_after = REGISTRY.get_sample_value("harmonic_api_request_duration_seconds_sum", duration_labels) or 0
+    assert duration_after - duration_before == 1.25
+
+
+async def test_request_duration_records_transport_timeout() -> None:
+    session = _fake_session()
+    session.request.side_effect = TimeoutError()
+    duration_labels = {"source": "other", "priority": "batch", "endpoint": "/graphql", "outcome": "exception"}
+    duration_before = REGISTRY.get_sample_value("harmonic_api_request_duration_seconds_sum", duration_labels) or 0
+    with (
+        patch("posthog.egress.harmonic.transport.acquire_harmonic", AsyncMock(return_value=True)),
+        patch("posthog.egress.harmonic.transport.time.perf_counter", side_effect=[10, 12]),
+        pytest.raises(TimeoutError),
+    ):
+        await harmonic_request(
+            session,
+            "POST",
+            "https://api.harmonic.ai/graphql",
+            source="test",
+            priority=Priority.BATCH,
+            endpoint="/graphql",
+        )
+    duration_after = REGISTRY.get_sample_value("harmonic_api_request_duration_seconds_sum", duration_labels) or 0
+    assert duration_after - duration_before == 2
+
+
+async def test_request_keeps_transport_error_when_duration_recording_fails() -> None:
+    session = _fake_session()
+    session.request.side_effect = TimeoutError("network")
+    with (
+        patch("posthog.egress.harmonic.transport.acquire_harmonic", AsyncMock(return_value=True)),
+        patch("posthog.egress.harmonic.transport.record_harmonic_request_duration", side_effect=RuntimeError("metric")),
+        pytest.raises(TimeoutError, match="network"),
+    ):
+        await harmonic_request(
+            session,
+            "POST",
+            "https://api.harmonic.ai/graphql",
+            source="test",
+            priority=Priority.BATCH,
+            endpoint="/graphql",
+        )
 
 
 async def test_request_raises_for_a_sheddable_call_when_the_budget_is_denied() -> None:

@@ -7,10 +7,8 @@ import { ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/Sce
 import { debugLogsLogic } from '../../../logics/debugLogsLogic'
 
 /**
- * Scene-panel twin of `TaskDebugLogsMenu` — the same debug-logs toggle for users without the scene
- * menu bar. Both surfaces read and write the one persisted preference, so the menu bar and the panel
- * never disagree. Renders nothing (not even its divider) unless the current user may control debug
- * logs: impersonated sessions force debug logs on and have no toggle.
+ * Renders nothing, including its divider, unless the current user may control debug logs.
+ * Impersonated sessions force debug logs on and do not show the toggle.
  */
 export function TaskDebugLogsPanelToggle(): JSX.Element | null {
     const { canControlDebugLogs, debugLogsEnabled } = useValues(debugLogsLogic)

@@ -7,5 +7,8 @@ class ConversationsConfig(AppConfig):
     label = "conversations"
     verbose_name = "Support"
 
-    def ready(self):
+    def ready(self) -> None:
         from . import signals  # noqa: F401
+        from .learning_provider import register_conversations_learning_provider
+
+        register_conversations_learning_provider()

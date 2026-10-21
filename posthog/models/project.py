@@ -1,10 +1,13 @@
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
 from uuid import UUID
 
 from django.core.validators import MinLengthValidator
 from django.db import models, transaction
+from django.utils import timezone
 
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UpdatedMetaFields, sane_repr
 
 if TYPE_CHECKING:
@@ -68,7 +71,7 @@ class ProjectManager(models.Manager["Project"]):
             return project, team
 
 
-class Project(UpdatedMetaFields):
+class Project(Taggable, UpdatedMetaFields):
     id = models.BigIntegerField(primary_key=True, verbose_name="ID")  # Same as Team.id field
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -81,6 +84,15 @@ class Project(UpdatedMetaFields):
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    logo_media = models.ForeignKey(
+        "posthog.UploadedMedia",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     # Deprecated in favor of CoreMemory
     product_description = models.TextField(null=True, blank=True, max_length=1000)
@@ -90,8 +102,22 @@ class Project(UpdatedMetaFields):
         blank=True,
         help_text="Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.",
     )
+    deletion_scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the scheduled project deletion will run.",
+    )
 
     objects: ProjectManager = ProjectManager()
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["logo_media"],
+                name="posthog_project_logo_media_idx",
+                condition=models.Q(logo_media__isnull=False),
+            ),
+        ]
 
     def __str__(self):
         if self.name:
@@ -99,6 +125,20 @@ class Project(UpdatedMetaFields):
         return str(self.pk)
 
     __repr__ = sane_repr("id", "name")
+
+    def is_deletion_pending(self) -> bool:
+        return bool(self.is_pending_deletion)
+
+    def has_ingested_data(self) -> bool:
+        """True when any environment of this project has ever ingested an event."""
+        return self.teams.filter(ingested_event=True).exists()
+
+    def can_cancel_deletion(self, *, at: datetime | None = None) -> bool:
+        return bool(
+            self.is_deletion_pending()
+            and self.deletion_scheduled_at
+            and self.deletion_scheduled_at > (at or timezone.now())
+        )
 
     @property
     def team_id(self) -> int:

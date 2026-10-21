@@ -8,10 +8,9 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
-
-from products.dashboards.backend.facade import enums
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -40,7 +39,7 @@ class DashboardManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -55,11 +54,6 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "unlisted",
             "Unlisted (product-embedded)",
         )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
-
-    # Aliases of the facade enums, which is where callers outside this product read them from.
-    # Kept on the model so `Dashboard.PrivilegeLevel` and the `choices=` below stay unchanged.
-    RestrictionLevel = enums.RestrictionLevel
-    PrivilegeLevel = enums.PrivilegeLevel
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
@@ -77,10 +71,6 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         "posthog.DataColorTheme", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
-    restriction_level = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        choices=RestrictionLevel,
-    )
     insights = models.ManyToManyField(
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField

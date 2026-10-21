@@ -7,7 +7,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -20,6 +19,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightModel } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { useInsightsLegendConfig } from './useInsightsLegendConfig'
 
@@ -120,7 +121,13 @@ describe('useInsightsLegendConfig', () => {
         const groupOf = result.current.visibilityGroupKey!
 
         expect(groupOf(String(current.id))).toBe(groupOf(String(previous.id)))
-        expect(groupOf(String(current.id))).toBe(getTrendResultCustomizationKey(ResultCustomizationBy.Value, current))
+        expect(groupOf(String(current.id))).toBe(
+            getTrendResultCustomizationKey(
+                ResultCustomizationBy.Value,
+                current,
+                trendsDataLogic(insightProps).values.querySource
+            )
+        )
     })
 
     it.each([

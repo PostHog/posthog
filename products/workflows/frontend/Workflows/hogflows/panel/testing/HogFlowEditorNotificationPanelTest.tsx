@@ -21,9 +21,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { isEmail } from 'lib/utils/url'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
-import { asDisplay } from 'scenes/persons/person-utils'
 
 import { PersonType } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
 import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'

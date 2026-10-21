@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from opentelemetry import trace
 
+from posthog.logging.exceptions import add_otel_exception_attributes
 from posthog.settings.base_variables import DEBUG, IS_INTERACTIVE_SHELL, TEST
 
 # Setup logging
@@ -74,7 +75,6 @@ foreign_pre_chain: list[structlog.types.Processor] = [
     add_otel_trace_context,
     structlog.stdlib.PositionalArgumentsFormatter(),
     structlog.processors.StackInfoRenderer(),
-    structlog.processors.format_exc_info,
     structlog.processors.UnicodeDecoder(),
 ]
 
@@ -98,12 +98,18 @@ LOGGING: dict[str, Any] = {
     "formatters": {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
-            "processor": structlog.dev.ConsoleRenderer(colors=DEBUG),
+            # The default rich formatter prints local variables, which can contain secrets.
+            "processor": structlog.dev.ConsoleRenderer(colors=DEBUG, exception_formatter=structlog.dev.plain_traceback),
             "foreign_pre_chain": foreign_pre_chain,
         },
+        # Each formatter renders `exc_info` itself, so the shared chain must leave it in place.
         "json": {
             "()": structlog.stdlib.ProcessorFormatter,
-            "processor": structlog.processors.JSONRenderer(),
+            "processors": [
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                add_otel_exception_attributes,
+                structlog.processors.JSONRenderer(),
+            ],
             "foreign_pre_chain": foreign_pre_chain,
         },
     },
@@ -140,6 +146,7 @@ LOGGING: dict[str, Any] = {
     },
     "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     "loggers": {
+        "posthog.github_diagnostics": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
         "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {

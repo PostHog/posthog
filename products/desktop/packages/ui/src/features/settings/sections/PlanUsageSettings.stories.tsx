@@ -47,6 +47,8 @@ const meta: Meta<typeof PlanUsageContent> = {
     billingUrl: "https://app.posthog.com/organization/billing",
     usage,
     usageLoading: false,
+    spendTotals: { todayUsd: 3.42, monthUsd: 41.18, avgDailyUsd: 1.37 },
+    spendTotalsLoading: false,
   },
 };
 
@@ -97,5 +99,26 @@ export const OrganizationLimitReached: Story = {
 };
 
 export const Loading: Story = {
-  args: { usage: null, usageLoading: true },
+  args: {
+    usage: null,
+    usageLoading: true,
+    spendTotals: null,
+    spendTotalsLoading: true,
+  },
+};
+
+export const BillingPeriodEndUnknown: Story = {
+  args: {
+    usage: { ...usage, billing_period_end: null },
+  },
+};
+
+export const FreeTierValveBucket: Story = {
+  args: {
+    usage: {
+      ...usage,
+      code_usage_subscribed: false,
+      ai_credits: { exhausted: false, used_usd: null, limit_usd: null },
+    },
+  },
 };

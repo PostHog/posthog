@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -49,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -57,6 +56,16 @@ class SparkPostSource(
     ResumableSource[SparkPostSourceConfig, SparkPostResumeConfig],
     WebhookSource[SparkPostSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^SPARKPOST_",),
+        npm=("sparkpost",),
+        pypi=("sparkpost",),
+        composer=("sparkpost/sparkpost", "sparkpost/php-sparkpost"),
+        go=("github.com/SparkPost/gosparkpost",),
+        maven=("com.sparkpost:sparkpost-lib", "com.sparkpost:sparkpost"),
+        rubygems=("sparkpost",),
+    )
+
     api_docs_url = "https://developers.sparkpost.com/api/"
 
     @property
@@ -72,10 +81,10 @@ class SparkPostSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SPARK_POST,
+            name=ExternalDataSourceType.SPARKPOST,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SparkPost",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: the implementation follows the public SparkPost docs but its
             # end-to-end sync behaviour hasn't been exercised against a live account yet.
             caption="""Connect your SparkPost account to sync message events, suppression lists, recipient lists, templates, sending domains, subaccounts, and webhooks into the PostHog Data warehouse.

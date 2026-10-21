@@ -5,12 +5,15 @@
     },
     "dependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:",
+        "react-intersection-observer": "9.5.3"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
@@ -19,6 +22,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "react": "*"
     }

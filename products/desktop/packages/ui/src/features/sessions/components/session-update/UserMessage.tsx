@@ -4,7 +4,10 @@ import { motion } from "framer-motion";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
-import type { UserMessageAttachment } from "../../userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "../../userMessageTypes";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
 import { InjectedBlockChips } from "./InjectedBlockChips";
@@ -47,7 +50,7 @@ export const UserMessage = memo(function UserMessage({
   content,
   timestamp,
   sourceUrl,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   animate = true,
   taskId,
   keyboardFocused = false,
@@ -55,14 +58,18 @@ export const UserMessage = memo(function UserMessage({
   // A message relayed from another agent run renders with a provenance chip and
   // neutral accent instead of masquerading as this run's user. The envelope
   // boilerplate never renders; only the sender-authored body flows on.
-  const { peerAgentMessage, blocks, displayContent } = useMemo(
-    () => splitUserMessage(content),
-    [content],
+  const {
+    peerAgentMessage,
+    blocks,
+    displayContent,
+    attachments: visibleAttachments,
+  } = useMemo(
+    () => splitUserMessage(content, attachments),
+    [content, attachments],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
 
   const containsFileMentions = hasFileMentions(displayContent);
-  const showAttachmentChips = attachments.length > 0 && !containsFileMentions;
   const [copied, setCopied] = useState(false);
 
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -91,6 +98,11 @@ export const UserMessage = memo(function UserMessage({
         }}
       >
         <CollapsibleMessageContent contentClassName="font-medium text-[13px] [&_p]:leading-[1.9]">
+          {visibleAttachments.length > 0 && (
+            <div className={displayContent ? "mb-1.5" : ""}>
+              <UserMessageAttachments attachments={visibleAttachments} />
+            </div>
+          )}
           {containsFileMentions ? (
             parseFileMentions(displayContent)
           ) : (
@@ -107,11 +119,6 @@ export const UserMessage = memo(function UserMessage({
                 />
               )}
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
-            </div>
-          )}
-          {showAttachmentChips && (
-            <div className={content.trim() ? "mt-1.5" : ""}>
-              <UserMessageAttachments attachments={attachments} />
             </div>
           )}
         </CollapsibleMessageContent>

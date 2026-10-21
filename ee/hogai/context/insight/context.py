@@ -8,8 +8,8 @@ from posthog.sync import database_sync_to_async
 
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.hogai.context.insight.query_executor import execute_and_format_query
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.context.insight.query_executor import execute_and_format_query, get_clickhouse_error_code
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -45,10 +45,12 @@ class InsightContext:
         filters_override: dict | None = None,
         variables_override: dict | None = None,
         event_source: EventSource = EventSource.POSTHOG_AI,
-    ):
+        max_sql_result_chars: int | None = None,
+    ) -> None:
         self.team = team
         self.user = user
         self.event_source = event_source
+        self.max_sql_result_chars = max_sql_result_chars
         self.query = query
         self.name = name
         self.description = description
@@ -100,13 +102,18 @@ class InsightContext:
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
                 event_source=self.event_source,
+                max_sql_result_chars=self.max_sql_result_chars,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"
             if return_exceptions:
                 results = error_message
+            elif isinstance(e, MaxToolError):
+                raise
             else:
-                raise MaxToolRetryableError(error_message)
+                raise MaxToolRetryableError(
+                    error_message, error_type="internal", error_code=get_clickhouse_error_code(e.__cause__)
+                ) from e
 
         return format_prompt_string(
             prompt_template,

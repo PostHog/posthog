@@ -27,9 +27,34 @@ import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lem
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { IntegrationType } from '~/types'
+
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { githubIntegrationLogic } from './githubIntegrationLogic'
+
+/**
+ * The project's GitHub integration for anything that runs on the team's behalf rather than one
+ * person's: scheduled work, and settings a whole project shares.
+ *
+ * Must pick the same one as the backend's `resolve_team_github_integration` (org accounts first,
+ * then oldest; broken installs skipped), or a picker built on this offers repositories the
+ * server-side validation then rejects.
+ */
+export function resolveTeamGitHubIntegration(integrations: IntegrationType[]): IntegrationType | undefined {
+    return integrations
+        .filter(
+            (integration) =>
+                integration.errors !== 'TOKEN_REFRESH_FAILED' && !integration.config?.installation_unavailable_since
+        )
+        .sort(
+            (a, b) =>
+                // Missing account type sorts last, like Postgres NULLS LAST.
+                (a.config?.account?.type ?? '\uffff').localeCompare(b.config?.account?.type ?? '\uffff') ||
+                a.created_at.localeCompare(b.created_at) ||
+                a.id - b.id
+        )[0]
+}
 
 export type GitHubRepositoryPickerProps = {
     integrationId: number
@@ -176,7 +201,15 @@ export function useRepositories(
             // Most-recently-pushed first so the repo the user is working in floats to the top.
             [...repositories]
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                .map((r) => ({ key: r[valueKey], label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
+                // A qualified-name key is lowercased because the stored value is. The API lowercases
+                // a repository filter on save, while GitHub reports `full_name` in the owner's
+                // casing. Compared as-is, the stored value matches no option, so LemonInputSelect
+                // shows it as a custom value beside the real repository and drops the rich label.
+                .map((r) => ({
+                    key: valueKey === 'full_name' ? r[valueKey].toLowerCase() : r[valueKey],
+                    label: r.full_name,
+                    labelComponent: <RepoOptionLabel repo={r} />,
+                })),
         [repositories, valueKey]
     )
 

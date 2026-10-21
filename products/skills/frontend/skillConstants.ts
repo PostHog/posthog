@@ -17,6 +17,8 @@ export const PRODUCT_OWNED_SKILL_NAME_PREFIXES = ['signals-scout-', 'review-hog-
 // Names that collide with reserved /skills routes: 'new' (the create form) and the tab slugs
 // registered under /skills/<slug> in manifest.tsx. A skill with one of these names would be
 // shadowed by its route. Kept in sync with RESERVED_SKILL_NAMES in the backend skill_serializers.
+// The names of the skills PostHog bundles are refused too, but only by the server: the list is
+// read from the repository tree at products/*/skills/, so the client cannot hold a copy.
 const RESERVED_SKILL_NAMES = new Set(['new', 'scouts', 'review-hog', 'community'])
 
 export function validateSkillName(name: string): string | undefined {

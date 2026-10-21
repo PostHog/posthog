@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class K6CloudSource(ResumableSource[K6CloudSourceConfig, K6CloudResumeConfig]):
+    codebase_detection = detect(env=("^(K6_CLOUD|K6CLOUD)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v6",)
     default_version = "v6"
@@ -57,10 +58,10 @@ class K6CloudSource(ResumableSource[K6CloudSourceConfig, K6CloudResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.K6_CLOUD,
+            name=ExternalDataSourceType.K6CLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Grafana Cloud k6",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Grafana Cloud k6 API token and stack ID to pull your load testing data into the PostHog Data warehouse.
 
 Create a Personal API token (or use a Grafana Stack API token) and find your stack ID under **Testing & synthetics → Performance → Settings** in Grafana Cloud.""",

@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -20,6 +24,9 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -80,13 +87,16 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
-    const { tableSorting, filters, filedDashboardIds } = useValues(dashboardsLogic)
+    const { tableSortingChanged, setFilters, moveDashboardsToFolder, bulkDeleteDashboards } =
+        useActions(dashboardsLogic)
+    const { tableSorting, filters, filedDashboardIds, bulkDeleteResponseLoading } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
     const effectiveTableSorting = filters.search ? null : tableSorting
     const { currentTeam } = useValues(teamLogic)
+    const { homepage, homepageSaving } = useValues(sceneLogic)
+    const { setHomepage } = useActions(sceneLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
@@ -113,7 +123,7 @@ export function DashboardsTable({
         {
             title: 'Name',
             dataIndex: 'name',
-            width: '40%',
+            width: 540,
             render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = accessLevelSatisfied(
@@ -170,12 +180,13 @@ export function DashboardsTable({
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
+            width: 140,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
                     <ObjectTags
                         tags={[...tags].sort()}
                         staticOnly
-                        maxVisibleTags={5}
+                        wrap
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}
                     />
@@ -290,17 +301,37 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <LemonRow
-                                          icon={<IconHome className="size-4 text-warning" />}
-                                          fullWidth
-                                          status="warning"
-                                      >
-                                          <span className="text-secondary">
-                                              Change the default dashboard
-                                              <br />
-                                              from the <Link to={urls.projectHomepage()}>project home page</Link>.
-                                          </span>
-                                      </LemonRow>
+                                      {homepage?.id === `homepage-dashboard-${id}` ? (
+                                          <LemonRow fullWidth>Your homepage</LemonRow>
+                                      ) : (
+                                          <LemonButton
+                                              onClick={() => {
+                                                  setHomepage(
+                                                      {
+                                                          id: `homepage-dashboard-${id}`,
+                                                          pathname: urls.dashboard(id),
+                                                          search: '',
+                                                          hash: '',
+                                                          title: name || 'Untitled',
+                                                          iconType: 'dashboard',
+                                                          sceneId: Scene.Dashboard,
+                                                          sceneKey: `dashboard-${id}`,
+                                                          sceneParams: emptySceneParams,
+                                                      },
+                                                      'dashboards list'
+                                                  )
+                                                  posthog.capture('dashboard set as homepage clicked', {
+                                                      source: 'dashboards list',
+                                                  })
+                                              }}
+                                              fullWidth
+                                              data-attr="dashboard-set-as-homepage"
+                                              loading={homepageSaving}
+                                              disabled={homepageSaving}
+                                          >
+                                              Set as my homepage
+                                          </LemonButton>
+                                      )}
 
                                       <LemonDivider />
 
@@ -335,6 +366,7 @@ export function DashboardsTable({
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 tableLayout="fixed"
+                tableStyle={{ minWidth: '1400px' }}
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
@@ -342,7 +374,7 @@ export function DashboardsTable({
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
-                    barClassName: 'mb-2',
+                    barClassName: 'mb-2 flex-wrap',
                     getKey: (dashboard: DashboardType): number => dashboard.id,
                     isRowSelectable: (dashboard: DashboardType) =>
                         accessLevelSatisfied(
@@ -369,6 +401,49 @@ export function DashboardsTable({
                                     dashboardsModel.actions.loadDashboards()
                                 }}
                             />
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                status="danger"
+                                icon={<IconTrash />}
+                                loading={bulkDeleteResponseLoading || dashboardsLoading}
+                                disabledReason={
+                                    ctx.selectedKeys.length > 100 ? 'Select at most 100 dashboards' : undefined
+                                }
+                                data-attr="dashboards-bulk-delete"
+                                onClick={() => {
+                                    const ids = [...ctx.selectedKeys]
+                                    const noun = ids.length === 1 ? 'dashboard' : 'dashboards'
+                                    LemonDialog.openForm({
+                                        title: `Delete ${ids.length} ${noun}?`,
+                                        initialValues: { deleteInsights: false },
+                                        content: (
+                                            <LemonField
+                                                name="deleteInsights"
+                                                help="This only deletes insights that are not on any remaining dashboard."
+                                            >
+                                                {({ value, onChange }) => (
+                                                    <LemonCheckbox
+                                                        checked={!!value}
+                                                        onChange={onChange}
+                                                        label="Delete the selected dashboards' insights"
+                                                        data-attr="bulk-delete-dashboard-insights-checkbox"
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        ),
+                                        onSubmit: ({ deleteInsights }) =>
+                                            bulkDeleteDashboards({
+                                                ids,
+                                                deleteInsights,
+                                                onStillSelected: ctx.setSelectedKeys,
+                                            }),
+                                        primaryButtonProps: { children: 'Delete dashboards', status: 'danger' },
+                                    })
+                                }}
+                            >
+                                Delete selected
+                            </LemonButton>
                         </>
                     ),
                 }}

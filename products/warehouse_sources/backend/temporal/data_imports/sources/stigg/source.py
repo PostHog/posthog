@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
+    codebase_detection = detect(
+        env=("^STIGG_",),
+        npm=("@stigg/node-server-sdk", "@stigg/js-client-sdk", "@stigg/react-sdk", "@stigg/typescript"),
+        pypi=("stigg", "stigg-api-client"),
+        go=("github.com/stiggio/api-client-go", "github.com/stiggio/stigg-cli", "github.com/stiggio/stigg-go"),
+        maven=(
+            "io.stigg:stigg-api-client",
+            "io.stigg:stigg-java",
+            "io.stigg:stigg-java-client-okhttp",
+            "io.stigg:stigg-java-core",
+            "io.stigg:stigg-sidecar-sdk",
+        ),
+        rubygems=("stigg-api-client", "stigg", "stigg-sidecar-sdk"),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.stigg.io"
@@ -48,10 +62,10 @@ class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.STIGG,
+            name=ExternalDataSourceType.STIGG,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Stigg",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Stigg server API key to pull your pricing, packaging, and monetization data into the PostHog Data warehouse.
 
 You can find your server API key under **Settings → Integrations → API keys** in [Stigg](https://app.stigg.io). The key grants read access to your customers, subscriptions, products, plans, addons, features, and coupons.

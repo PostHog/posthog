@@ -33,6 +33,7 @@ import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { transactionalEmailRequestsTotal } from './services/hogflows/transactional-email'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -1269,6 +1270,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1317,6 +1320,51 @@ describe('CDP API', () => {
             }
         })
 
+        it.each([
+            ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
+            ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],
+            ['a non-string deadline', { id: 7, team_id: 1, wait_until: 1234 }, 400, undefined],
+        ])(
+            'parks a realtime cohort resolver only on a valid deadline: %s',
+            async (_desc, cohort, status, parkedUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = {
+                    createJob: createJobMock,
+                    countInFlightJobs: jest.fn(),
+                    rescheduleParkedJobs: jest.fn(),
+                    cancelJobs: jest.fn(),
+                    resumeParkedSteps: jest.fn(),
+                    resumeParkedBatchResolver: jest.fn(),
+                    disconnect: jest.fn().mockResolvedValue(undefined),
+                }
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-793`
+                        )
+                        .send({ realtime_cohort: cohort })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    expect(arg.scheduled?.toISOString()).toEqual(parkedUntil)
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.realtimeCohort).toEqual({
+                        id: 7,
+                        teamId: 1,
+                        ...(parkedUntil ? { waitUntil: parkedUntil } : {}),
+                    })
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
         it('resolves the audience from the posted snapshot, not the live trigger filters', async () => {
             // The snapshot was validated at confirm time - re-reading the trigger here would let an
             // edit racing the dispatch widen the send past what was previewed.
@@ -1328,6 +1376,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1336,13 +1386,64 @@ describe('CDP API', () => {
                     .post(
                         `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
                     )
-                    .send({ filters: { properties: snapshotProperties } })
+                    .send({ filters: { properties: snapshotProperties, assignment_status: 'assigned' } })
 
                 expect(res.status).toEqual(200)
                 const arg = createJobMock.mock.calls[0][0]
                 const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
                 expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.assignment_status).toEqual('assigned')
+                expect(state.filters.all_roles_unassigned).toBeUndefined()
                 expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('takes the whole assignment filter from the snapshot instead of one key at a time', async () => {
+            // A snapshot saved before assignment statuses existed carries assignee ids and no status.
+            // If the status came off the live trigger instead, Django would reject 'unassigned'
+            // paired with those ids and the run would fail.
+            const statusFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow with an assignment status',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        audience_type: 'accounts',
+                        properties: [],
+                        assignment_status: 'unassigned',
+                        assigned_to_user_ids: [],
+                    },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${statusFlow.team_id}/hog_flows/${statusFlow.id}/batch_invocations/job-792`)
+                    .send({ filters: { audience_type: 'accounts', properties: [], assigned_to_user_ids: [7] } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters.assigned_to_user_ids).toEqual([7])
+                expect(state.filters.assignment_status).toBeUndefined()
             } finally {
                 api['batchResolverProducer'] = null
             }
@@ -1389,6 +1490,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1452,6 +1555,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1548,6 +1653,57 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        it('stamps the run start into the state before the invocation is queued', async () => {
+            // Snapshot at call time, so a stamp applied after queueInvocations does not count.
+            let stateWhenQueued: string | undefined
+            mockQueueInvocations.mockImplementation((invocations: any[]) => {
+                stateWhenQueued = JSON.stringify(invocations[0].state)
+                return Promise.resolve()
+            })
+            // `hub` is shared across this file, so the flag is restored rather than left on.
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                expect(parseJSON(stateWhenQueued!).firstScheduledAt).toEqual(expect.any(String))
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
+        it('drops the buffered lifecycle row when the invocation cannot be queued', async () => {
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const rowsService = api['invocationResultsService'].invocationResultsRowsService
+            const produceSpy = jest.spyOn(rowsService['outputs'], 'produce').mockResolvedValue(undefined as any)
+            mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(500)
+
+                // The row outlives the request on the shared service, so a later flush would
+                // publish a run that never entered cyclotron.
+                await rowsService.flush()
+                expect(produceSpy).not.toHaveBeenCalled()
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                produceSpy.mockRestore()
+            }
+        })
+
         it('queues invocation with empty variables when none provided', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
@@ -1574,6 +1730,8 @@ describe('CDP API', () => {
                 countInFlightJobs: mockCountInFlightJobs,
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1667,6 +1825,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: mockRescheduleParkedJobs,
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({
@@ -1817,6 +1977,311 @@ describe('CDP API', () => {
         })
     })
 
+    describe('workflow step resume', () => {
+        let mockResumeParkedSteps: jest.Mock
+        const jobId = new UUIDT().toString().toLowerCase()
+        const originKey = `${jobId}:task_node:3`
+        const body = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_STEP_RESUME_JWT_PURPOSE, so drift on either side breaks here.
+        const mintResumeToken = (
+            teamId: number,
+            key: string,
+            { secret = 'local-dev-workflows-step-resume-jwt', audience = 'posthog:workflows:step_resume' } = {}
+        ) => jwt.sign({ team_id: teamId, origin_key: key }, secret, { audience, expiresIn: '2m' })
+        const resumeAuth = (teamId: number, key: string) => ({
+            Authorization: `Bearer ${mintResumeToken(teamId, key)}`,
+        })
+
+        beforeEach(() => {
+            mockResumeParkedSteps = jest.fn().mockResolvedValue(new Map([[jobId, 'delivered']]))
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: mockResumeParkedSteps,
+                resumeParkedBatchResolver: jest.fn(),
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('accepts a Django-minted token and wakes the parked step', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(resumeAuth(team.id, originKey))
+                .send(body)
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ outcome: 'delivered' })
+            expect(mockResumeParkedSteps).toHaveBeenCalledWith(team.id, [{ ...body, jobId, actionId: 'task_node' }])
+        })
+
+        it('asks the caller to retry while the worker still holds the job', async () => {
+            mockResumeParkedSteps.mockResolvedValue(new Map([[jobId, 'job_running']]))
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(resumeAuth(team.id, originKey))
+                .send(body)
+
+            expect(res.status).toEqual(409)
+            expect(res.body).toEqual({ outcome: 'job_running' })
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                'a token signed with the wrong key',
+                () => ({ Authorization: `Bearer ${mintResumeToken(team.id, originKey, { secret: 'wrong-key' })}` }),
+            ],
+            [
+                "another step's token",
+                () => ({ Authorization: `Bearer ${mintResumeToken(team.id, `${jobId}:task_node:2`)}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintResumeToken(team.id + 1, originKey)}` })],
+            [
+                'a cancel-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintResumeToken(team.id, originKey, {
+                        audience: 'posthog:workflows:cancel_invocations',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(headers())
+                .send(body)
+
+            expect(res.status).toEqual(401)
+            expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+        })
+
+        it('rejects a body whose origin key is not a dispatch key', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(resumeAuth(team.id, 'nope'))
+                .send({ ...body, origin_key: 'nope' })
+
+            expect(res.status).toEqual(400)
+            expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the step resume JWT key is not provisioned', async () => {
+            const savedJwt = api['stepResumeJwt']
+            api['stepResumeJwt'] = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_STEP_RESUME, '')
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                    .set(resumeAuth(team.id, originKey))
+                    .send(body)
+
+                expect(res.status).toEqual(503)
+                expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+            } finally {
+                api['stepResumeJwt'] = savedJwt
+            }
+        })
+    })
+
+    describe('transactional email', () => {
+        let mockQueueInvocations: jest.Mock
+        let hogFlow: HogFlow
+        const body = {
+            to: 'user@example.com',
+            distinct_id: 'distinct_A_1',
+            variables: { reset_link: 'https://example.com/reset' },
+        }
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE, so drift on either side breaks here.
+        const mintToken = (
+            teamId: number,
+            hogFlowId: string,
+            {
+                secret = 'local-dev-workflows-transactional-email-jwt',
+                audience = 'posthog:workflows:send_transactional_email',
+            } = {}
+        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
+
+        const transactionalFlow = (trigger: 'api' | 'schedule', status: HogFlow['status']): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus(status)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: trigger } },
+                        email: { type: 'function_email', config: { template_id: 'template-email', inputs: {} } },
+                    },
+                    edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                })
+                .build()
+
+        // The alerts on this endpoint key on these outcome labels.
+        const outcomeCount = async (outcome: string): Promise<number> =>
+            (await transactionalEmailRequestsTotal.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+
+        const send = (flowId: string, headers: Record<string, string>) =>
+            supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email`)
+                .set(headers)
+                .send(body)
+
+        beforeEach(async () => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
+        })
+
+        it('queues one run on the email fast lane with the recipient and the data', async () => {
+            const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
+            const queuedBefore = await outcomeCount('queued')
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({
+                id: res.body.invocation_id,
+                teamId: team.id,
+                functionId: hogFlow.id,
+                queue: 'email',
+                queuePriority: 0,
+                state: {
+                    event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
+                    variables: { reset_link: 'https://example.com/reset' },
+                },
+            })
+            // The run counts as started in the workflow's metrics, like an event-triggered run.
+            expect(queueAppMetric).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
+                'hog_flow'
+            )
+        })
+
+        it('refuses a send when the team is over its email quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            const limitedBefore = await outcomeCount('quota_limited')
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(429)
+            expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['a workflow with another trigger', 'schedule', 'active'],
+            ['a transactional email that is not active', 'api', 'draft'],
+        ] as const)('refuses to run %s', async (_desc, trigger, status) => {
+            const other = await insertHogFlow(transactionalFlow(trigger, status))
+
+            const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
+
+            expect(res.status).toEqual(400)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                "another workflow's token",
+                () => ({ Authorization: `Bearer ${mintToken(team.id, new UUIDT().toString())}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintToken(team.id + 1, hogFlow.id)}` })],
+            [
+                'a step-resume-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintToken(team.id, hogFlow.id, {
+                        audience: 'posthog:workflows:step_resume',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await send(hogFlow.id, headers())
+
+            expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('hogflow batch job resume', () => {
+        let mockResume: jest.Mock
+        const batchJobId = new UUIDT().toString().toLowerCase()
+        const flowId = new UUIDT().toString().toLowerCase()
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.
+        const mintBatchResumeToken = (
+            claims: Record<string, unknown>,
+            { secret = 'local-dev-workflows-step-resume-jwt', audience = 'posthog:workflows:resume_batch' } = {}
+        ) => jwt.sign(claims, secret, { audience, expiresIn: '2m' })
+        const resumeAuth = (teamId: number, claims: Record<string, unknown> = {}) => ({
+            Authorization: `Bearer ${mintBatchResumeToken({
+                team_id: teamId,
+                hog_flow_id: flowId,
+                batch_job_id: batchJobId,
+                ...claims,
+            })}`,
+        })
+
+        beforeEach(() => {
+            mockResume = jest.fn()
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: mockResume,
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it.each([
+            ['resumed', 200],
+            ['already_resumed', 200],
+            ['job_running', 409],
+            ['job_completed', 200],
+            ['job_failed', 200],
+            ['job_missing', 200],
+        ])('answers %s with %s, so only a running resolver is retried', async (outcome, status) => {
+            mockResume.mockResolvedValue(outcome)
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/batch_jobs/${batchJobId}/resume`)
+                .set(resumeAuth(team.id))
+                .send({})
+
+            expect(res.status).toEqual(status)
+            expect(res.body).toEqual({ outcome })
+            expect(mockResume).toHaveBeenCalledWith({ teamId: team.id, functionId: flowId, batchJobId })
+        })
+
+        it("rejects another run's token", async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/batch_jobs/${batchJobId}/resume`)
+                .set(resumeAuth(team.id, { batch_job_id: new UUIDT().toString() }))
+                .send({})
+
+            expect(res.status).toEqual(401)
+            expect(mockResume).not.toHaveBeenCalled()
+        })
+    })
+
     describe('hogflow cancel invocations auth', () => {
         let mockCancelJobs: jest.Mock
 
@@ -1843,6 +2308,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 
@@ -1861,6 +2328,26 @@ describe('CDP API', () => {
             expect(mockCancelJobs).toHaveBeenCalledWith(
                 expect.objectContaining({ teamId: team.id, functionId: cancelFlowId, all: true })
             )
+        })
+
+        // A version-aware id check rejects every id the runs list hands the Cancel action,
+        // because the invocation store issues UUIDTs. Only the shape must hold, to keep a
+        // malformed id away from cancelJobs' ::uuid[] bind.
+        it.each([
+            ['ids the invocation store issues', [new UUIDT().toString(), new UUIDT().toString()], 200],
+            ['an id that is not UUID-shaped', ['not-a-uuid'], 400],
+        ])('cancelling by %s', async (_desc, invocationIds, expectedStatus) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${cancelFlowId}/invocations/cancel`)
+                .set(cancelAuth(team.id, cancelFlowId))
+                .send({ invocation_ids: invocationIds })
+
+            expect(res.status).toEqual(expectedStatus)
+            if (expectedStatus === 200) {
+                expect(mockCancelJobs).toHaveBeenCalledWith(expect.objectContaining({ jobIds: invocationIds }))
+            } else {
+                expect(mockCancelJobs).not.toHaveBeenCalled()
+            }
         })
 
         it.each([
@@ -1958,6 +2445,8 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 

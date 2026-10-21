@@ -1,16 +1,19 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    ValidateDatabaseHostMixin,
+    unbracket_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -33,7 +36,52 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
+class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
+    # NOTE: these signals also match a self-hosted Temporal cluster, but the
+    # source wants Temporal Cloud mTLS certificates.
+    codebase_detection = detect(
+        env=("^TEMPORAL_",),
+        npm=("@temporalio/client", "@temporalio/worker", "@temporalio/workflow", "@temporalio/activity"),
+        pypi=("temporalio",),
+        cargo=(
+            "temporalio-sdk",
+            "temporal-sdk-core",
+            "temporalio-client",
+            "temporalio-common",
+            "temporalio-common-wasm",
+            "temporalio-macros",
+            "temporalio-protos",
+            "temporalio-sdk-core",
+            "temporalio-workflow",
+        ),
+        composer=("temporal/sdk",),
+        go=("go.temporal.io/sdk",),
+        maven=(
+            "io.temporal:temporal-sdk",
+            "io.temporal:temporal-aws-lambda",
+            "io.temporal:temporal-envconfig",
+            "io.temporal:temporal-gcp-cloud-run",
+            "io.temporal:temporal-gcp-cloud-run-id",
+            "io.temporal:temporal-gcp-cloud-run-opentelemetry",
+            "io.temporal:temporal-kotlin",
+            "io.temporal:temporal-opentelemetry",
+            "io.temporal:temporal-opentracing",
+            "io.temporal:temporal-payload-storage-s3driver",
+            "io.temporal:temporal-payload-storage-s3driver-awssdkv2",
+            "io.temporal:temporal-remote-data-encoder",
+            "io.temporal:temporal-serviceclient",
+            "io.temporal:temporal-shaded",
+            "io.temporal:temporal-spring-ai",
+            "io.temporal:temporal-spring-boot-autoconfigure",
+            "io.temporal:temporal-spring-boot-autoconfigure-alpha",
+            "io.temporal:temporal-spring-boot-starter",
+            "io.temporal:temporal-spring-boot-starter-alpha",
+            "io.temporal:temporal-workflowcheck",
+            "io.temporal:temporal-workflowstreams",
+        ),
+        rubygems=("temporalio",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.temporal.io"
 
@@ -93,6 +141,16 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TemporalIOResumeConfig]:
         return ResumableSourceManager[TemporalIOResumeConfig](inputs, TemporalIOResumeConfig)
 
+    def validate_credentials(
+        self,
+        config: TemporalIOSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        # An IPv6 host is entered in brackets because `connect()` joins host and port with a colon.
+        return self.is_database_host_valid(unbracket_host(config.host), team_id)
+
     def source_for_pipeline(
         self,
         config: TemporalIOSourceConfig,
@@ -107,13 +165,14 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             else None,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            team_id=inputs.team_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TEMPORAL_IO,
+            name=ExternalDataSourceType.TEMPORALIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["temporal"],
             label="Temporal.io",
@@ -133,7 +192,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                     SourceFieldInputConfig(
                         name="port",
                         label="Port",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="",
                         secret=False,

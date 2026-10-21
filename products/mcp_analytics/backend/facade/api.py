@@ -3,8 +3,10 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.schema import AnyPropertyFilterDiscriminated
+
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 
 from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
@@ -16,11 +18,20 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
 )
+from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
 from .constants import MCP_MISSING_CAPABILITY_EVENT
 from .enums import SubmissionKind
+
+
+def mcp_harness_virtual_field_expr() -> ast.Expr:
+    # nosemgrep: hogql-fstring-audit (both SQL fragments are fixed server-side expressions)
+    return parse_expr(
+        f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h')}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
+        cache_origin=CacheOrigin.BUILTIN,
+    )
 
 
 def _to_submission(instance: MCPAnalyticsSubmission) -> contracts.Submission:
@@ -99,9 +110,23 @@ def list_mcp_sessions(
     order_by: str = "",
     date_from: str | None = None,
     date_to: str | None = None,
+    has_errors: bool | None = None,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPSessionsPage:
     return logic.list_mcp_sessions(
-        team, limit=limit, offset=offset, search=search, order_by=order_by, date_from=date_from, date_to=date_to
+        team,
+        limit=limit,
+        offset=offset,
+        search=search,
+        order_by=order_by,
+        date_from=date_from,
+        date_to=date_to,
+        has_errors=has_errors,
+        properties=properties,
+        filter_test_accounts=filter_test_accounts,
+        user=user,
     )
 
 
@@ -111,8 +136,20 @@ def list_mcp_tool_calls(
     limit: int,
     offset: int,
     date_from: datetime | None = None,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPToolCallsPage:
-    return logic.list_mcp_tool_calls(team, session_id=session_id, limit=limit, offset=offset, date_from=date_from)
+    return logic.list_mcp_tool_calls(
+        team,
+        session_id=session_id,
+        limit=limit,
+        offset=offset,
+        date_from=date_from,
+        properties=properties,
+        filter_test_accounts=filter_test_accounts,
+        user=user,
+    )
 
 
 def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
@@ -136,13 +173,20 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     return logic.generate_intent_digest(team)
 
 
-def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+def get_activity_overview(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
+) -> contracts.ActivityOverview:
     """Compute the activity view's aggregates and recent-call feed in one pass.
 
     Bounded to the last 30 days; always computed fresh (the view polls to watch
-    data arrive).
+    data arrive). ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
     """
-    return logic.get_activity_overview(team)
+    return logic.get_activity_overview(
+        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user
+    )
 
 
 def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:

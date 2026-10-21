@@ -8,7 +8,6 @@ from django.core.management.base import CommandError
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.user import default_ui_configuration_for_new_users
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -19,10 +18,6 @@ class TestUser(BaseTest):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
-
-    def test_create_user_sets_slim_ui_configuration_default(self):
-        user = User.objects.create_user(first_name="Tim", email="tim-ui@gmail.com", password=None)
-        self.assertEqual(user.ui_configuration, default_ui_configuration_for_new_users())
 
     def test_create_superuser_raises_with_guidance(self):
         with self.assertRaises(CommandError) as ctx:
@@ -194,9 +189,21 @@ class TestUser(BaseTest):
         newer.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
         newer.save(update_fields=["last_login"])
 
-        # Exact match wins over case-insensitive fallback when a row matches the typed casing.
-        self.assertEqual(User.objects.get_by_natural_key("dup@example.com"), older)
-        self.assertEqual(User.objects.get_by_natural_key("Dup@example.com"), newer)
+        # Every typed casing resolves to the account in active use, so a login, a password reset,
+        # and the login precheck cannot disagree about who is signing in.
+        for typed_email in ("dup@example.com", "Dup@example.com", "DUP@example.com"):
+            with self.subTest(email=typed_email):
+                self.assertEqual(User.objects.get_by_natural_key(typed_email), newer)
 
-        # When the typed casing matches no row exactly, fallback picks the most recent login.
-        self.assertEqual(User.objects.get_by_natural_key("DUP@example.com"), newer)
+    def test_get_by_natural_key_prefers_the_active_case_variant(self):
+        active = User.objects.create(email="Shadow@example.com")
+        active.last_login = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+        active.save(update_fields=["last_login"])
+
+        deactivated = User.objects.create(email="shadow@example.com", is_active=False)
+        deactivated.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+        deactivated.save(update_fields=["last_login"])
+
+        for typed_email in ("shadow@example.com", "Shadow@example.com"):
+            with self.subTest(email=typed_email):
+                self.assertEqual(User.objects.get_by_natural_key(typed_email), active)

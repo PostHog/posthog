@@ -1,4 +1,3 @@
-import os
 import json
 import asyncio
 import datetime as dt
@@ -22,16 +21,15 @@ from products.batch_exports.backend.temporal.record_batch_model import SessionsR
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
-SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
+SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.requires_vendor_credentials(
+    "GOOGLE_APPLICATION_CREDENTIALS"
 )
 
 TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
-        name="a-custom-model",
+        name="events",
         schema={
             "fields": [
                 {"expression": "event", "alias": "event"},
@@ -137,7 +135,7 @@ async def assert_clickhouse_records_in_bigquery(
                 batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -222,6 +220,9 @@ async def assert_clickhouse_records_in_bigquery(
         inserted_records = [record for record in inserted_records if not is_record_seen(record)]
 
     assert len(inserted_records) == len(expected_records)
+
+    if model_name == "events" and fields is None and expected_fields is None:
+        assert "person_id" in inserted_records[0]
 
     # Ordering is not guaranteed, so we sort before comparing.
     inserted_records.sort(key=operator.itemgetter(sort_key))

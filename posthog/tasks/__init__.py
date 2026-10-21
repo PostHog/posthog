@@ -17,6 +17,7 @@ from . import (
     process_scheduled_changes,
     proxy,
     push_notifications,
+    query_scan,
     remote_config,
     split_person,
     surveys,
@@ -24,6 +25,7 @@ from . import (
     sync_billing,
     tasks,
     team_access_cache_tasks,
+    transactional_email,
     usage_report,
 )
 
@@ -44,6 +46,7 @@ __all__ = [
     "process_scheduled_changes",
     "proxy",
     "push_notifications",
+    "query_scan",
     "remote_config",
     "split_person",
     "surveys",
@@ -51,5 +54,6 @@ __all__ = [
     "sync_billing",
     "tasks",
     "team_access_cache_tasks",
+    "transactional_email",
     "usage_report",
 ]

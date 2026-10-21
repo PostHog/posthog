@@ -1,7 +1,11 @@
 import clsx from 'clsx'
+import { useCallback, useMemo } from 'react'
 
+import { BarChart, type BarChartConfig, type Series, ValueLabels } from '@posthog/quill-charts'
+
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 const formatCount = (count: number, total: number): string => {
@@ -12,7 +16,7 @@ const formatCount = (count: number, total: number): string => {
 }
 
 // Define a type for the color classes to ensure type safety
-type ColorClass = 'bg-brand-blue' | 'bg-warning' | 'bg-success' | 'bg-danger'
+type ColorClass = 'bg-brand-blue' | 'bg-warning' | 'bg-success' | 'bg-danger' | 'bg-muted'
 
 export interface StackedBarSegment {
     count: number
@@ -21,11 +25,21 @@ export interface StackedBarSegment {
     tooltip?: string
 }
 
+const COLOR_VARIABLES: Record<ColorClass, string> = {
+    'bg-brand-blue': 'brand-blue',
+    'bg-warning': 'warning',
+    'bg-success': 'success',
+    'bg-danger': 'danger',
+    'bg-muted': 'muted-3000',
+}
+
+const CHART_LABELS = ['']
+
 type StackedBarSize = 'md' | 'sm'
 
-const SIZE_CONFIG: Record<StackedBarSize, { bar: string; label: string; legend: string }> = {
-    md: { bar: 'h-10', label: 'leading-10 text-base', legend: 'text-secondary' },
-    sm: { bar: 'h-8', label: 'leading-8 text-sm', legend: 'text-xs text-secondary' },
+const SIZE_CONFIG: Record<StackedBarSize, { bar: string; legend: string }> = {
+    md: { bar: 'h-10', legend: 'text-secondary' },
+    sm: { bar: 'h-2', legend: 'text-sm' },
 }
 
 export function StackedBarSkeleton({
@@ -37,15 +51,21 @@ export function StackedBarSkeleton({
 }): JSX.Element {
     const sizeClasses = SIZE_CONFIG[size]
     return (
-        <div className={clsx('flex flex-col gap-2', className)}>
+        <div className={clsx('@container/stacked-bar flex flex-col gap-2', className)}>
             <div className={clsx('relative w-full flex mx-auto', sizeClasses.bar)}>
                 <LemonSkeleton className={clsx('w-1/4 rounded-r-none opacity-60', sizeClasses.bar)} />
                 <LemonSkeleton className={clsx('w-1/2 rounded-none opacity-80', sizeClasses.bar)} />
                 <LemonSkeleton className={clsx('w-1/4 rounded-l-none opacity-100', sizeClasses.bar)} />
             </div>
-            <div className="flex items-center gap-4 justify-center">
+            <div
+                className={clsx(
+                    size === 'sm'
+                        ? 'grid grid-cols-1 @min-[48rem]/stacked-bar:grid-cols-3 gap-x-4 gap-y-2'
+                        : 'flex flex-wrap items-center gap-4 justify-center'
+                )}
+            >
                 {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={index} className="flex items-center gap-2">
+                    <div key={index} className="flex items-center gap-2 min-w-0">
                         <LemonSkeleton className="size-3 rounded-full" />
                         <LemonSkeleton className="h-4 w-20" />
                     </div>
@@ -70,76 +90,99 @@ export function StackedBar({
 }): JSX.Element | null {
     const sizeClasses = SIZE_CONFIG[size]
     const total = segments.reduce((sum, segment) => sum + segment.count, 0)
-    let accumulatedPercentage = 0
+    const theme = useChartTheme()
+    const series = useMemo<Series[]>(
+        () =>
+            segments.map(({ label, count, colorClass }) => ({
+                key: label,
+                label,
+                data: [count],
+                color: getColorVar(COLOR_VARIABLES[colorClass]),
+            })),
+        // Theme changes also update the semantic colors read from CSS variables.
+        [segments, theme]
+    )
+    const config = useChartConfig<BarChartConfig>(
+        () => ({
+            barLayout: 'percent',
+            axisOrientation: 'horizontal',
+            hideXAxis: true,
+            hideYAxis: true,
+            showGrid: false,
+            showAxisLines: false,
+            showTickMarks: false,
+            showCrosshair: false,
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+            bars: { bandPadding: 0, minBandSize: 0, roundStackEnds: true },
+            barCornerRadius: 4,
+            tooltip: {
+                enabled: showTooltips,
+                pinnable: false,
+                showTotal: false,
+                valueFormatter: (value, entry) =>
+                    segments.find((segment) => segment.label === entry.series.key)?.tooltip ??
+                    `${humanFriendlyNumber(entry.series.data[0])} (${(value * 100).toFixed(1)}%)`,
+            },
+        }),
+        [segments, showTooltips]
+    )
+    const valueFormatter = useCallback(
+        (_value: number, seriesIndex: number): string => barValueFormatter(segments[seriesIndex].count, total),
+        [barValueFormatter, segments, total]
+    )
 
     if (total === 0) {
         return null
     }
 
     return (
-        <div className={clsx('flex flex-col gap-2', className)}>
-            <div className={clsx('relative w-full mx-auto', sizeClasses.bar)}>
-                {segments.map(({ count, label, colorClass, tooltip }, index) => {
-                    const percentage = (count / total) * 100
-                    const left = accumulatedPercentage
-                    accumulatedPercentage += percentage
-
-                    const isFirst = index === 0
-                    const isLast = index === segments.length - 1
-                    const isOnly = segments.length === 1
-
-                    const segmentContent = (
-                        <div
-                            key={`stacked-bar-${label}`}
-                            className={clsx(
-                                'text-white text-center absolute cursor-pointer',
-                                sizeClasses.bar,
-                                colorClass,
-                                isFirst || isOnly ? 'rounded-l' : '',
-                                isLast || isOnly ? 'rounded-r' : ''
-                            )}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                width: `${percentage}%`,
-                                left: `${left}%`,
-                            }}
-                        >
-                            <span
-                                className={clsx(
-                                    'inline-flex font-semibold max-w-full px-1 truncate',
-                                    sizeClasses.label
-                                )}
-                            >
-                                {barValueFormatter(count, total)}
-                            </span>
-                        </div>
-                    )
-
-                    return showTooltips ? (
-                        <Tooltip
-                            key={`stacked-bar-tooltip-${label}`}
-                            title={tooltip || `${label}: ${count} (${percentage.toFixed(1)}%)`}
-                            delayMs={0}
-                            placement="top"
-                        >
-                            {segmentContent}
-                        </Tooltip>
-                    ) : (
-                        segmentContent
-                    )
-                })}
+        <div className={clsx('@container/stacked-bar flex flex-col gap-2', className)}>
+            <div className={clsx('relative w-full mx-auto flex flex-col', sizeClasses.bar)}>
+                <BarChart
+                    series={series}
+                    labels={CHART_LABELS}
+                    config={config}
+                    theme={theme}
+                    dataAttr="survey-stacked-bar"
+                >
+                    {size !== 'sm' && <ValueLabels position="center" valueFormatter={valueFormatter} />}
+                </BarChart>
             </div>
-            <div className="w-full flex justify-center">
-                <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2">
+            <div className="w-full">
+                <div
+                    className={clsx(
+                        size === 'sm'
+                            ? 'grid grid-cols-1 @min-[48rem]/stacked-bar:grid-cols-3 gap-x-4 gap-y-2'
+                            : 'flex flex-wrap justify-center gap-x-8 gap-y-2'
+                    )}
+                >
                     {segments.map(
                         ({ count, label, colorClass }) =>
-                            count > 0 && (
-                                <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2">
-                                    <div className={clsx('size-3 rounded-full', colorClass)} />
-                                    <span className={clsx('font-semibold', sizeClasses.legend)}>{`${label} (${(
-                                        (count / total) *
-                                        100
-                                    ).toFixed(1)}%)`}</span>
+                            (size === 'sm' || count > 0) && (
+                                <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2 min-w-0">
+                                    <div
+                                        className={clsx(
+                                            'shrink-0 rounded-full',
+                                            size === 'sm' ? 'size-2' : 'size-3',
+                                            colorClass
+                                        )}
+                                    />
+                                    {size === 'sm' ? (
+                                        <div className="flex flex-1 flex-wrap items-baseline justify-between gap-x-2">
+                                            <span className="text-secondary">{label}</span>
+                                            <span className="tabular-nums whitespace-nowrap">
+                                                <span className="font-semibold">{humanFriendlyNumber(count)}</span>{' '}
+                                                <span className="text-secondary ml-2">
+                                                    {((count / total) * 100).toFixed(1)}%
+                                                </span>
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className={clsx('font-semibold', sizeClasses.legend)}>{`${label} (${(
+                                            (count / total) *
+                                            100
+                                        ).toFixed(1)}%)`}</span>
+                                    )}
                                 </div>
                             )
                     )}

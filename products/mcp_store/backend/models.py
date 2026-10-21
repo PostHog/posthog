@@ -8,6 +8,8 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from .oauth_credentials import oauth_credentials_source_is_allowed
+
 
 class MCPAuthType(models.TextChoices):
     API_KEY = "api_key", "API Key"
@@ -173,6 +175,16 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_credentials_source = models.CharField(max_length=64, blank=True, default="", db_default="")
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
+
+    @classmethod
+    def available_for_team(cls, team_id: int) -> models.QuerySet["MCPServerTemplate"]:
+        templates = cls.objects.filter(is_active=True)
+        if not oauth_credentials_source_is_allowed("slack_dev_app", team_id):
+            templates = templates.exclude(oauth_credentials_source="slack_dev_app")
+        return templates
+
+    def oauth_credentials_source_is_allowed_for_team(self, team_id: int) -> bool:
+        return oauth_credentials_source_is_allowed(self.oauth_credentials_source, team_id)
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")

@@ -1,0 +1,534 @@
+import time
+from collections.abc import Callable, Collection
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import field
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from functools import partial
+from threading import RLock
+from typing import Literal, TypedDict
+
+from django.conf import settings
+
+import structlog
+import posthoganalytics
+from cachetools import TTLCache, cached
+from prometheus_client import Counter, Gauge
+
+from posthog.dataclasses import frozen
+from posthog.utils import DayRange
+
+logger = structlog.get_logger(__name__)
+
+SHADOW_FAILURES = Counter("usage_counter_shadow_failures_total", "Usage counter shadow failures", ["caller", "stage"])
+SHADOW_MISSING_ORGS = Gauge(
+    "usage_counter_shadow_missing_organizations", "Organizations with shadow usage but no report", ["caller"]
+)
+REALTIME_BLOCKED = Counter(
+    "usage_counter_realtime_blocked_total",
+    "Realtime mode requests resolved to both for a producer discrepancy",
+    ["counter"],
+)
+
+
+class UsageCounter(StrEnum):
+    EVENTS = "teams_with_event_count_in_period"
+    ENHANCED_PERSON_EVENTS = "teams_with_enhanced_persons_event_count_in_period"
+    RECORDINGS = "teams_with_recording_count_in_period"
+    MOBILE_RECORDINGS = "teams_with_mobile_recording_count_in_period"
+    MOBILE_BILLABLE_RECORDINGS = "teams_with_mobile_billable_recording_count_in_period"
+    SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
+    AI_EVENTS = "teams_with_ai_event_count_in_period"
+    EXCEPTIONS = "teams_with_exceptions_captured_in_period"
+    CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
+    FEATURE_FLAG_REQUESTS = "teams_with_decide_requests_count_in_period"
+    FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS = "teams_with_local_evaluation_requests_count_in_period"
+    WORKFLOW_EMAILS = "teams_with_workflow_emails_sent_in_period"
+    WORKFLOW_PUSH = "teams_with_workflow_push_sent_in_period"
+    WORKFLOW_SMS = "teams_with_workflow_sms_sent_in_period"
+    WORKFLOW_INVOCATIONS = "teams_with_workflow_billable_invocations_in_period"
+    ROWS_SYNCED = "teams_with_rows_synced_in_period"
+    FREE_HISTORICAL_ROWS_SYNCED = "teams_with_free_historical_rows_synced_in_period"
+    ROWS_EXPORTED = "teams_with_rows_exported_in_period"
+    LOGS_BYTES = "teams_with_logs_bytes_in_period"
+    LOGS_RETENTION_30D_BYTES = "teams_with_logs_retention_30d_bytes_in_period"
+    LOGS_RETENTION_BYTE_DAYS = "teams_with_logs_retention_byte_days_in_period"
+    AI_CREDITS = "teams_with_ai_credits_used_in_period"
+    SIGNALS_CREDITS = "teams_with_signals_credits_used_in_period"
+    POSTHOG_CODE_CREDITS = "teams_with_posthog_code_credits_used_in_period"
+    SANDBOX_COMPUTE_CREDITS = "teams_with_sandbox_compute_credits_used_in_period"
+    REPLAY_VISION_CREDITS = "teams_with_replay_vision_credits_used_in_period"
+
+
+UsageCounterQuery = Callable[[datetime, datetime], list[tuple[int, int]]]
+UsageCounterCounts = dict[str, list[tuple[int, int]]]
+LegacyCounterQuery = Callable[[], UsageCounterCounts]
+LegacyCounterRunner = Callable[[str, LegacyCounterQuery], UsageCounterCounts]
+LEGACY_QUERY_NAMES = {
+    UsageCounter.EXCEPTIONS: "exceptions_captured",
+    UsageCounter.LOGS_RETENTION_30D_BYTES: "logs_retention_bytes",
+    UsageCounter.SANDBOX_COMPUTE_CREDITS: "sandbox_compute_usage",
+}
+
+
+class UsageCounterMode(StrEnum):
+    LEGACY = "legacy"
+    BOTH = "both"
+    REALTIME = "realtime"
+
+
+UsageCounterCaller = Literal["daily_report", "usage_reports_v2", "quota_limiting"]
+
+
+@frozen
+class UsageRecordTotal:
+    team_id: int
+    organization_id: str
+    usage_key: str
+    quantity: int
+
+
+@frozen
+class UsageRecordTotals:
+    totals: list[UsageRecordTotal]
+    errors: dict[str, str] = field(default_factory=dict)
+
+
+RECORD_USAGE_KEYS = {
+    UsageCounter.EVENTS: "events",
+    UsageCounter.ENHANCED_PERSON_EVENTS: "enhanced_person_events",
+    UsageCounter.RECORDINGS: "session_replay_recordings",
+    UsageCounter.MOBILE_RECORDINGS: "mobile_replay_recordings",
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile_replay_recordings",
+    UsageCounter.SURVEY_RESPONSES: "survey_responses",
+    UsageCounter.AI_EVENTS: "ai_events",
+    UsageCounter.EXCEPTIONS: "exceptions",
+    UsageCounter.CDP_INVOCATIONS: "cdp_billable_invocations",
+    UsageCounter.FEATURE_FLAG_REQUESTS: "feature_flag_requests",
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: "feature_flag_local_evaluation_requests",
+    UsageCounter.WORKFLOW_EMAILS: "workflow_emails_sent",
+    UsageCounter.WORKFLOW_PUSH: "workflow_push_sent",
+    UsageCounter.WORKFLOW_SMS: "workflow_sms_sent",
+    UsageCounter.WORKFLOW_INVOCATIONS: "workflow_billable_invocations",
+}
+RECORD_USAGE_UNITS = {
+    "events": "events",
+    "enhanced_person_events": "events",
+    "session_replay_recordings": "recordings",
+    "mobile_replay_recordings": "recordings",
+    "survey_responses": "events",
+    "ai_events": "events",
+    "exceptions": "events",
+    "cdp_billable_invocations": "invocations",
+    "feature_flag_requests": "requests",
+    "feature_flag_local_evaluation_requests": "requests",
+    "workflow_emails_sent": "invocations",
+    "workflow_push_sent": "invocations",
+    "workflow_sms_sent": "invocations",
+    "workflow_billable_invocations": "invocations",
+}
+COUNTER_FLAG_NAMES = {
+    UsageCounter.EVENTS: "events",
+    UsageCounter.ENHANCED_PERSON_EVENTS: "enhanced-persons",
+    UsageCounter.RECORDINGS: "recordings",
+    UsageCounter.MOBILE_RECORDINGS: "mobile-recordings",
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile-billable-recordings",
+    UsageCounter.SURVEY_RESPONSES: "survey-responses",
+    UsageCounter.AI_EVENTS: "ai-events",
+    UsageCounter.EXCEPTIONS: "exceptions",
+    UsageCounter.CDP_INVOCATIONS: "cdp-invocations",
+    UsageCounter.FEATURE_FLAG_REQUESTS: "feature-flag-requests",
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: "feature-flag-local-evaluation-requests",
+    UsageCounter.WORKFLOW_EMAILS: "workflow-emails",
+    UsageCounter.WORKFLOW_PUSH: "workflow-push",
+    UsageCounter.WORKFLOW_SMS: "workflow-sms",
+    UsageCounter.WORKFLOW_INVOCATIONS: "workflow-invocations",
+}
+_REPLAY_UNDERCOUNT = (
+    "The replay pipeline marks a session as seen before it parses the first message. "
+    "When that message fails, the session writes no usage record, even when later messages record."
+)
+_WORKFLOW_PUSH_UNDERCOUNT = (
+    "The legacy count bills fetch and push dispatches as workflow invocations. "
+    "Push dispatches write `workflow_push_sent` records, so `workflow_billable_invocations` holds only fetches."
+)
+_EVENT_DATE_ATTRIBUTION = (
+    "Event usage records use capture time; legacy queries use source event time. "
+    "A cutover must prevent counting the same event under both dates or omitting it from both."
+)
+_FLAG_REQUEST_DATE_ATTRIBUTION = (
+    "Flag usage records use Rust flush time; legacy billing events use the later Celery export time. "
+    "A cutover must reconcile these dates to avoid missing or double-counting requests."
+)
+_CDP_DATE_ATTRIBUTION = (
+    "CDP and workflow usage records and legacy app metrics use independent flush-time clocks. "
+    "A cutover must reconcile dispatches across those dates to avoid missing or double-counting them."
+)
+_LOCAL_EVALUATION_UNDERCOUNT = (
+    "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
+    "Only the Rust definitions endpoint contributes to the record total."
+)
+# Keep legacy totals authoritative until producer discrepancies are resolved or confirmed as intended billing behavior.
+RECORD_REALTIME_BLOCKERS = {
+    UsageCounter.EVENTS: _EVENT_DATE_ATTRIBUTION,
+    UsageCounter.ENHANCED_PERSON_EVENTS: _EVENT_DATE_ATTRIBUTION,
+    UsageCounter.EXCEPTIONS: _EVENT_DATE_ATTRIBUTION,
+    UsageCounter.CDP_INVOCATIONS: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.WORKFLOW_EMAILS: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.WORKFLOW_PUSH: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.WORKFLOW_SMS: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.WORKFLOW_INVOCATIONS: f"{_WORKFLOW_PUSH_UNDERCOUNT} {_CDP_DATE_ATTRIBUTION}",
+    UsageCounter.FEATURE_FLAG_REQUESTS: _FLAG_REQUEST_DATE_ATTRIBUTION,
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: _LOCAL_EVALUATION_UNDERCOUNT,
+    UsageCounter.SURVEY_RESPONSES: "Survey usage records include product-tour responses that legacy billing exempts.",
+    UsageCounter.AI_EVENTS: "AI usage records omit the legacy exemptions for wallet-billed gateway and sponsored relay events.",
+}
+
+
+def validate_usage_record_window(period: DayRange) -> None:
+    if period.start.tzinfo is None or period.end.tzinfo is None:
+        raise ValueError("Usage record windows must be timezone-aware")
+    start = period.start.astimezone(UTC)
+    end = period.end.astimezone(UTC)
+    next_midnight = start.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    if end <= start or end > next_midnight:
+        raise ValueError("Usage record windows must stay within one UTC day")
+
+
+@frozen
+class UsageCounterPlan:
+    period: DayRange
+    caller: UsageCounterCaller
+    modes: dict[UsageCounter, UsageCounterMode]
+    # True when the period is a past day. Temporal decodes a plan without this field as a partial day.
+    complete: bool = False
+
+    def __post_init__(self) -> None:
+        validate_usage_record_window(self.period)
+
+    @property
+    def query_names(self) -> set[str]:
+        return {LEGACY_QUERY_NAMES.get(counter, counter.value) for counter in self.modes}
+
+    @property
+    def legacy_counters(self) -> list[UsageCounter]:
+        # Realtime counters only need legacy queries for complete-day comparisons or report breakdowns.
+        return [
+            counter
+            for counter, mode in self.modes.items()
+            if mode != UsageCounterMode.REALTIME
+            or self.complete
+            or (
+                counter in LEGACY_QUERY_NAMES
+                and not (counter == UsageCounter.EXCEPTIONS and self.caller == "quota_limiting")
+            )
+        ]
+
+
+@frozen
+class UsageCounterComparisonRows:
+    legacy_by_team: dict[int, int]
+    realtime_by_team: dict[int, dict[str, int]]
+
+
+class UsageCounterComparison(TypedDict):
+    legacy: int
+    realtime: int
+
+
+@frozen
+class UsageCounterReport:
+    counts: dict[str, list[tuple[int, int]]]
+    usage_sources: dict[str, UsageCounterMode] | None = None
+    # A missing counter means its comparison failed or did not run; empty totals mean a successful zero.
+    counter_comparisons: dict[str, UsageCounterComparisonRows] | None = None
+
+
+def record_shadow_failure(caller: UsageCounterCaller, stage: str) -> None:
+    try:
+        SHADOW_FAILURES.labels(caller=caller, stage=stage).inc()
+    except Exception:
+        logger.exception("usage_counter_shadow_metric_failed", caller=caller, stage=stage)
+
+
+def log_usage_counter_comparisons(report: UsageCounterReport, *, caller: UsageCounterCaller, date: str) -> None:
+    if report.usage_sources is None:
+        return
+    try:
+        logger.info("usage_counter_sources", caller=caller, date=date, usage_sources=report.usage_sources)
+        for counter, rows in (report.counter_comparisons or {}).items():
+            realtime = {team: sum(orgs.values()) for team, orgs in rows.realtime_by_team.items()}
+            differing_teams = 0
+            absolute_difference = 0
+            for team in rows.legacy_by_team.keys() | realtime.keys():
+                difference = abs(rows.legacy_by_team.get(team, 0) - realtime.get(team, 0))
+                differing_teams += int(difference != 0)
+                absolute_difference += difference
+            logger.info(
+                "usage_counter_comparison",
+                caller=caller,
+                date=date,
+                counter=counter,
+                source=report.usage_sources[counter],
+                legacy=sum(rows.legacy_by_team.values()),
+                realtime=sum(realtime.values()),
+                differing_teams=differing_teams,
+                absolute_difference=absolute_difference,
+            )
+    except Exception:
+        logger.exception("usage_counter_comparison_logging_failed", caller=caller, date=date)
+        record_shadow_failure(caller, "diagnostics")
+
+
+_mode_cache: TTLCache[tuple[UsageCounter, str], UsageCounterMode] = TTLCache(
+    maxsize=128, ttl=60, timer=lambda: time.monotonic()
+)
+
+
+@cached(_mode_cache, key=lambda counter, overrides, caller: (counter, overrides), lock=RLock())
+def _resolve_counter_mode(counter: UsageCounter, overrides: str, caller: UsageCounterCaller) -> UsageCounterMode:
+    flag_name = COUNTER_FLAG_NAMES.get(counter)
+    if flag_name is None:
+        return UsageCounterMode.LEGACY
+    override = dict(item.strip().split(":", 1) for item in overrides.split(",") if ":" in item)
+    mode: str | bool | None
+    if flag_name in override:
+        mode = override[flag_name].strip()
+    else:
+        try:
+            mode = posthoganalytics.get_feature_flag(f"usage-counter-realtime-{flag_name}", "internal_billing_events")
+        except Exception:
+            logger.exception("usage_counter_flag_resolution_failed", counter=counter)
+            record_shadow_failure(caller, "flags")
+            return UsageCounterMode.LEGACY
+    if not isinstance(mode, str):
+        return UsageCounterMode.LEGACY
+    try:
+        resolved = UsageCounterMode(mode)
+    except ValueError:
+        return UsageCounterMode.LEGACY
+    if resolved == UsageCounterMode.REALTIME and counter in RECORD_REALTIME_BLOCKERS:
+        logger.warning("usage_counter_realtime_blocked", counter=counter, reason=RECORD_REALTIME_BLOCKERS[counter])
+        REALTIME_BLOCKED.labels(counter=counter.value).inc()
+        return UsageCounterMode.BOTH
+    return resolved
+
+
+def resolve_modes(caller: UsageCounterCaller) -> dict[UsageCounter, UsageCounterMode]:
+    return {
+        counter: _resolve_counter_mode(counter, settings.USAGE_COUNTER_REALTIME_MODES, caller)
+        for counter in UsageCounter
+    }
+
+
+class UsageCounterService:
+    def __init__(
+        self,
+        *,
+        record_query: Callable[[str], AbstractContextManager[object]] | None = None,
+        run_legacy_query: LegacyCounterRunner | None = None,
+        check_cancelled: Callable[[], None] | None = None,
+    ) -> None:
+        # The legacy query module imports this service for report assembly.
+        from posthog.tasks import usage_report
+
+        self._record_query = record_query or (lambda _: nullcontext())
+        self._run_legacy_query = run_legacy_query or (lambda _name, query: query())
+        self._check_cancelled = check_cancelled or (lambda: None)
+        self._queries: dict[UsageCounter, UsageCounterQuery] = {
+            UsageCounter.EVENTS: lambda begin, end: usage_report.get_teams_with_billable_event_count_in_period(
+                begin, end, count_distinct=True
+            ),
+            UsageCounter.ENHANCED_PERSON_EVENTS: lambda begin, end: (
+                usage_report.get_teams_with_billable_enhanced_persons_event_count_in_period(
+                    begin, end, count_distinct=True
+                )
+            ),
+            UsageCounter.RECORDINGS: lambda begin, end: usage_report.get_teams_with_recording_count_in_period(
+                begin, end, snapshot_source="web"
+            ),
+            UsageCounter.MOBILE_RECORDINGS: lambda begin, end: usage_report.get_teams_with_recording_count_in_period(
+                begin, end, snapshot_source="mobile"
+            ),
+            UsageCounter.MOBILE_BILLABLE_RECORDINGS: usage_report.get_teams_with_mobile_billable_recording_count_in_period,
+            UsageCounter.SURVEY_RESPONSES: usage_report.get_teams_with_survey_responses_count_in_period,
+            UsageCounter.AI_EVENTS: usage_report.get_teams_with_ai_event_count_in_period,
+            UsageCounter.EXCEPTIONS: lambda begin, end: [
+                (team_id, count) for team_id, count in self._exceptions_query(begin, end)[1]
+            ],
+            UsageCounter.CDP_INVOCATIONS: usage_report.get_teams_with_cdp_billable_invocations_in_period,
+            UsageCounter.FEATURE_FLAG_REQUESTS: lambda begin, end: (
+                usage_report.get_teams_with_feature_flag_requests_count_in_period(
+                    begin, end, usage_report.FlagRequestType.DECIDE
+                )
+            ),
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: lambda begin, end: (
+                usage_report.get_teams_with_feature_flag_requests_count_in_period(
+                    begin, end, usage_report.FlagRequestType.LOCAL_EVALUATION
+                )
+            ),
+            UsageCounter.WORKFLOW_EMAILS: usage_report.get_teams_with_workflow_emails_sent_in_period,
+            UsageCounter.WORKFLOW_PUSH: usage_report.get_teams_with_workflow_push_sent_in_period,
+            UsageCounter.WORKFLOW_SMS: usage_report.get_teams_with_workflow_sms_sent_in_period,
+            UsageCounter.WORKFLOW_INVOCATIONS: usage_report.get_teams_with_workflow_billable_invocations_in_period,
+            UsageCounter.ROWS_SYNCED: usage_report.get_teams_with_rows_synced_in_period,
+            UsageCounter.FREE_HISTORICAL_ROWS_SYNCED: usage_report.get_teams_with_free_historical_rows_synced_in_period,
+            UsageCounter.ROWS_EXPORTED: usage_report.get_teams_with_rows_exported_in_period,
+            UsageCounter.LOGS_BYTES: usage_report.get_teams_with_logs_bytes_in_period,
+            UsageCounter.LOGS_RETENTION_30D_BYTES: lambda begin, end: self._logs_retention_query(begin, end)["30d"],
+            UsageCounter.LOGS_RETENTION_BYTE_DAYS: usage_report.get_teams_with_logs_retention_byte_days_in_period,
+            UsageCounter.AI_CREDITS: usage_report.get_teams_with_ai_credits_used_in_period,
+            UsageCounter.SIGNALS_CREDITS: usage_report.get_teams_with_signals_credits_used_in_period,
+            UsageCounter.POSTHOG_CODE_CREDITS: usage_report.get_teams_with_posthog_code_credits_used_in_period,
+            UsageCounter.SANDBOX_COMPUTE_CREDITS: lambda begin, end: self._sandbox_compute_query(begin, end).credits,
+            UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,
+        }
+        self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
+        self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
+        self._logs_retention_query = usage_report.get_teams_with_logs_retention_bytes_in_period
+        self._sandbox_compute_query = usage_report.get_teams_with_billable_sandbox_compute_usage_in_period
+        self._records_query = usage_report.get_usage_records_in_period
+        self._team_counts = usage_report.convert_team_usage_rows_to_dict
+
+    def resolve_plan(
+        self,
+        period: DayRange,
+        *,
+        caller: UsageCounterCaller,
+        complete: bool,
+        counters: Collection[UsageCounter] | None = None,
+    ) -> UsageCounterPlan:
+        modes = resolve_modes(caller)
+        return UsageCounterPlan(
+            period=period,
+            caller=caller,
+            modes={counter: mode for counter, mode in modes.items() if counters is None or counter in counters},
+            complete=complete,
+        )
+
+    def get_legacy(
+        self, counter: UsageCounter, begin: datetime, end: datetime, *, caller: UsageCounterCaller = "daily_report"
+    ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- Legacy query contract: (team_id, count).
+        if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
+            rows = self._quota_events_query(begin, end, count_distinct=False)
+        else:
+            rows = self._queries[counter](begin, end)
+        # Flag readers return string team IDs, and the rows synced and exported readers return dictionaries.
+        return list(self._team_counts(rows).items())
+
+    def _fetch_legacy_counter(self, counter: UsageCounter, plan: UsageCounterPlan) -> UsageCounterCounts:
+        if counter == UsageCounter.EXCEPTIONS and plan.caller != "quota_limiting":
+            # The records have no library breakdown, which reports still need after the total switches.
+            libraries, totals = self._exceptions_query(plan.period.start, plan.period.end)
+            return {
+                counter.value: [(team_id, count) for team_id, count in totals],
+                **{
+                    f"teams_with_{'js_lite' if library == 'web_lite' else library}_exceptions_captured_in_period": [
+                        (team_id, count) for team_id, count in rows
+                    ]
+                    for library, rows in libraries.items()
+                },
+            }
+        if counter == UsageCounter.LOGS_RETENTION_30D_BYTES:
+            retention = self._logs_retention_query(plan.period.start, plan.period.end)
+            return {f"teams_with_logs_retention_{tier}_bytes_in_period": rows for tier, rows in retention.items()}
+        if counter == UsageCounter.SANDBOX_COMPUTE_CREDITS:
+            sandbox_compute = self._sandbox_compute_query(plan.period.start, plan.period.end)
+            return {
+                counter.value: sandbox_compute.credits,
+                "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute.cpu_millicore_seconds,
+                "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute.memory_mib_seconds,
+            }
+        return {counter.value: self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)}
+
+    def fetch_legacy(self, plan: UsageCounterPlan) -> UsageCounterCounts:
+        counts: UsageCounterCounts = {}
+        for counter in plan.legacy_counters:
+            mode = plan.modes[counter]
+            requires_breakdown = counter in LEGACY_QUERY_NAMES and not (
+                counter == UsageCounter.EXCEPTIONS and plan.caller == "quota_limiting"
+            )
+            self._check_cancelled()
+            try:
+                with self._record_query(LEGACY_QUERY_NAMES.get(counter, counter.value)):
+                    counts.update(
+                        self._run_legacy_query(
+                            LEGACY_QUERY_NAMES.get(counter, counter.value),
+                            partial(self._fetch_legacy_counter, counter, plan),
+                        )
+                    )
+            except Exception:
+                if mode != UsageCounterMode.REALTIME or requires_breakdown:
+                    raise
+                logger.exception("usage_counter_legacy_comparison_failed", caller=plan.caller, counter=counter)
+                record_shadow_failure(plan.caller, "legacy_comparison")
+        return counts
+
+    def _fetch_records(self, plan: UsageCounterPlan, record_counters: list[UsageCounter]) -> UsageRecordTotals | None:
+        self._check_cancelled()
+        try:
+            with self._record_query("usage_records"):
+                records = self._records_query(
+                    plan.period,
+                    tuple(dict.fromkeys(RECORD_USAGE_KEYS[counter] for counter in record_counters)),
+                    plan.caller,
+                )
+                self._check_cancelled()
+        except Exception:
+            if UsageCounterMode.REALTIME in plan.modes.values():
+                raise
+            logger.exception("usage_counter_shadow_scan_failed", caller=plan.caller)
+            record_shadow_failure(plan.caller, "scan")
+            return None
+        for counter in record_counters:
+            error = records.errors.get(RECORD_USAGE_KEYS[counter])
+            if error is not None and plan.modes[counter] == UsageCounterMode.REALTIME:
+                raise ValueError(error)
+        for usage_key, error in records.errors.items():
+            logger.error("usage_counter_shadow_validation_failed", caller=plan.caller, usage_key=usage_key, error=error)
+            record_shadow_failure(plan.caller, "validation")
+        return records
+
+    def fetch_report(
+        self,
+        period: DayRange,
+        *,
+        plan: UsageCounterPlan | None = None,
+        legacy_counts: UsageCounterCounts | None = None,
+    ) -> UsageCounterReport:
+        if plan is None:
+            plan = UsageCounterPlan(
+                period=period,
+                caller="daily_report",
+                modes=dict.fromkeys(UsageCounter, UsageCounterMode.LEGACY),
+                complete=True,
+            )
+        if plan.period != period:
+            raise ValueError("A usage counter plan cannot be shared across periods")
+        counts = self.fetch_legacy(plan) if legacy_counts is None else legacy_counts
+        record_counters = [counter for counter, mode in plan.modes.items() if mode != UsageCounterMode.LEGACY]
+        if not record_counters:
+            return UsageCounterReport(counts=counts)
+        sources = {counter.value.removeprefix("teams_with_"): mode for counter, mode in plan.modes.items()}
+        records = self._fetch_records(plan, record_counters)
+        if records is None:
+            return UsageCounterReport(counts=counts, usage_sources=sources)
+        by_team: dict[str, dict[int, dict[str, int]]] = {RECORD_USAGE_KEYS[counter]: {} for counter in record_counters}
+        for row in records.totals:
+            orgs = by_team[row.usage_key].setdefault(row.team_id, {})
+            orgs[row.organization_id] = orgs.get(row.organization_id, 0) + row.quantity
+        comparisons: dict[str, UsageCounterComparisonRows] = {}
+        for counter in record_counters:
+            if RECORD_USAGE_KEYS[counter] in records.errors:
+                continue
+            teams = by_team[RECORD_USAGE_KEYS[counter]]
+            if counter.value in counts:
+                comparisons[counter.value.removeprefix("teams_with_")] = UsageCounterComparisonRows(
+                    legacy_by_team=dict(counts[counter.value]), realtime_by_team=teams
+                )
+            if plan.modes[counter] == UsageCounterMode.REALTIME:
+                counts[counter.value] = [(team_id, sum(orgs.values())) for team_id, orgs in teams.items()]
+        return UsageCounterReport(counts=counts, usage_sources=sources, counter_comparisons=comparisons or None)

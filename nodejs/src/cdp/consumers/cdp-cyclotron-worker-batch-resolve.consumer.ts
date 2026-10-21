@@ -16,7 +16,11 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
-import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
+import {
+    AudienceFetchTimeoutError,
+    HogFlowBatchPersonQueryService,
+} from '../services/hogflows/hogflow-batch-person-query.service'
+import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
@@ -28,7 +32,25 @@ import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filterin
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
 
+/**
+ * Reason text for a permanently failed audience fetch. The text goes on the batch run's log
+ * stream, so a timeout says what the customer can change. Any other error stays generic,
+ * because its text describes our internals. Only the last attempt's error arrives here, and
+ * the earlier attempts may have failed for another reason, so the text claims the timeout for
+ * that attempt alone.
+ */
+const audienceFailureReason = (error: unknown): string => {
+    if (error instanceof AudienceFetchTimeoutError) {
+        return (
+            `Audience query timed out after ${Math.round(error.timeoutMs / 1000)}s on the last of ` +
+            `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`
+        )
+    }
+    return `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
+}
+
 const RETRY_BACKOFF_MS = 5_000
+const HEARTBEAT_INTERVAL_MS = 10_000
 
 const counterBatchHogFlowAudienceTruncated = new Counter({
     name: 'cdp_batch_hog_flow_audience_truncated',
@@ -40,6 +62,12 @@ const counterBatchHogFlowResolverPagesProcessed = new Counter({
     name: 'cdp_batch_hog_flow_resolver_pages_processed',
     help: 'Total pages processed by the cyclotron-based batch resolver',
     labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure | invalid_state
+})
+
+const counterBatchHogFlowResolverCohortWait = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_cohort_wait',
+    help: 'Batch resolvers parked on a realtime cohort that is still calculating, by what woke them',
+    labelNames: ['outcome'], // early_wake | timed_out
 })
 
 const counterBatchHogFlowResolverJobs = new Counter({
@@ -68,7 +96,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         private internalFetchService: InternalFetchService
     ) {
         super(config, deps)
+        this.realtimeCohortAudience = new RealtimeCohortAudienceService(deps.postgres)
     }
+
+    private realtimeCohortAudience: RealtimeCohortAudienceService
 
     public override async start(): Promise<void> {
         await super.start()
@@ -137,6 +168,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
+        // Heartbeat the lock while the page (or terminal write) runs: the audience fetch alone
+        // can hold this job for the full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget,
+        // which is on the order of the janitor's stall threshold — without heartbeats the
+        // janitor would reclaim the lock mid-page and the commit would be refused.
+        const heartbeat = setInterval(() => {
+            job.heartbeat().catch((err) => {
+                logger.warn('⚠️', `${this.name} - failed to heartbeat resolver job`, {
+                    jobId: job.id,
+                    error: String(err),
+                })
+            })
+        }, HEARTBEAT_INTERVAL_MS)
+
         try {
             if (state.pendingTerminal) {
                 try {
@@ -158,6 +202,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 return
             }
 
+            const waitUntil = state.realtimeCohort?.waitUntil
+            if (waitUntil) {
+                await this.handleCohortWait(job, state, new Date(waitUntil))
+                return
+            }
+
             if (state.totalEnqueued >= state.maxAudienceSize) {
                 await this.transitionToTruncatedTerminal(job, state)
                 return
@@ -165,6 +215,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
             await this.processOnePage(job, state)
         } finally {
+            clearInterval(heartbeat)
             // Flush monitoring every dequeue, not just on terminal-write. Non-terminal
             // paths (truncation log queued in processOnePage, failure log in
             // transitionToFailedTerminal) would otherwise wait for a later terminal
@@ -179,6 +230,29 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 })
             })
         }
+    }
+
+    /**
+     * A resolver parked on a realtime cohort runs here only when nothing resumed it: Django clears
+     * the wait from its state when the cohort is ready. Before the deadline that is an early wake,
+     * so it parks again; at the deadline the cohort never finished, and the run fails.
+     */
+    private async handleCohortWait(
+        job: CyclotronV2DequeuedJob,
+        state: BatchResolverState,
+        waitUntil: Date
+    ): Promise<void> {
+        if (Date.now() < waitUntil.getTime()) {
+            counterBatchHogFlowResolverCohortWait.labels({ outcome: 'early_wake' }).inc()
+            await job.reschedule({ scheduledAt: waitUntil })
+            return
+        }
+        counterBatchHogFlowResolverCohortWait.labels({ outcome: 'timed_out' }).inc()
+        await this.transitionToFailedTerminal(
+            job,
+            state,
+            "the cohort didn't finish calculating in time, so nobody was sent this run. Start it again once the cohort is ready."
+        )
     }
 
     /**
@@ -253,16 +327,52 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     accountGroupType: accountPage.group_type,
                 }
             } else {
-                const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
-                    this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                        team,
-                        state.filters,
-                        state.groupTypeIndex,
-                        state.cursor,
-                        state.dedupeKey
+                // An audience of one realtime cohort reads that cohort's members from the realtime
+                // pipeline's Postgres table, which is the source of truth. It skips the email dedupe,
+                // because Postgres holds no emails.
+                const realtimeCohort = state.realtimeCohort
+                if (realtimeCohort && !this.config.BEHAVIORAL_COHORTS_DATABASE_URL) {
+                    // Without its own URL the router reads the main database, which has no
+                    // cohort_membership table, so every retry would fail the same way.
+                    logger.error(
+                        '🔴',
+                        `${this.name} - realtime cohort audience without a behavioral cohorts database`,
+                        {
+                            batchJobId: state.batchJobId,
+                            cohortId: realtimeCohort.id,
+                        }
                     )
-                )
-                page = { ids: personsPage.users_affected, cursor: personsPage.cursor, has_more: personsPage.has_more }
+                    await this.transitionToFailedTerminal(
+                        job,
+                        state,
+                        "Sending to a realtime cohort isn't available here yet. Use a different audience."
+                    )
+                    return
+                }
+                if (realtimeCohort) {
+                    page = await instrumentFn('cdpBatchResolve.getRealtimeCohortMemberPage', () =>
+                        this.realtimeCohortAudience.getMemberPage(
+                            realtimeCohort.teamId,
+                            realtimeCohort.id,
+                            state.cursor
+                        )
+                    )
+                } else {
+                    const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
+                        this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
+                            team,
+                            state.filters,
+                            state.groupTypeIndex,
+                            state.cursor,
+                            state.dedupeKey
+                        )
+                    )
+                    page = {
+                        ids: personsPage.users_affected,
+                        cursor: personsPage.cursor,
+                        has_more: personsPage.has_more,
+                    }
+                }
             }
         } catch (err) {
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
@@ -278,11 +388,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         error: serializeError(err),
                     }
                 )
-                await this.transitionToFailedTerminal(
-                    job,
-                    state,
-                    `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
-                )
+                await this.transitionToFailedTerminal(job, state, audienceFailureReason(err))
                 return
             }
             logger.warn('⚠️', `${this.name} - page fetch failed, will retry`, {
@@ -443,7 +549,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
     private emitTruncationLog(state: BatchResolverState): void {
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
-        const message = `Audience reached the max cap of ${state.maxAudienceSize}, ${state.totalEnqueued} persons enqueued; the remainder did not receive this workflow.`
+        const message = `This batch reached its audience limit of ${state.maxAudienceSize}. The rest of the audience did not receive this workflow.`
         logger.warn('⚠️', `${this.name} - audience truncated`, {
             batchJobId: state.batchJobId,
             totalEnqueued: state.totalEnqueued,
@@ -614,6 +720,7 @@ export function buildAccountHogFlowInvocation(params: {
             event: invocationGlobals.event,
             accountAudience: true,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
@@ -658,6 +765,7 @@ function buildHogFlowInvocation(params: {
             event: invocationGlobals.event,
             personId: params.personId,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.

@@ -18,15 +18,14 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   type ModelAccess,
-  PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   subscriptionModelAccess,
   useAdapterSubscription,
@@ -63,6 +62,10 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
+import {
+  cloudTaskCarriesLocalInstructions,
+  getLocalInstructionsContent,
+} from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -139,6 +142,7 @@ interface UseTaskCreationReturn {
 
 async function trackTaskCreated(
   input: TaskCreationInput,
+  taskId: string,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
   codexModelAccess?: ModelAccess,
@@ -164,6 +168,7 @@ async function trackTaskCreated(
     }
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
+      task_id: taskId,
       auto_run: !!input.executionMode,
       created_from: "command-menu",
       repository_provider: input.repository ? "github" : "none",
@@ -260,17 +265,11 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me channel so they
-  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
-  // cannot collide across teammates; before the list loads the task is created unfiled.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
-  const { personalChannel } = useTaskChannels({ enabled: bluebirdEnabled });
+  const { personalChannel } = useTaskChannels();
 
   const hasRequiredPath = allowNoRepo
     ? true
@@ -311,6 +310,18 @@ export function useTaskCreation({
       const plainPromptText = promptRecord.promptText;
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
+
+      // History is where the person recovers a prompt when creation fails, so
+      // it must be written before any preflight call that can fail. The write
+      // persists to local storage, which throws when the quota is full, and
+      // history is only a recovery aid, so it must not block the task.
+      if (plainPromptText) {
+        try {
+          useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+        } catch (error) {
+          log.warn("Failed to save the prompt to history", { error });
+        }
+      }
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
@@ -436,17 +447,13 @@ export function useTaskCreation({
         };
 
         try {
-          if (!contentOverride) {
-            if (plainPromptText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
-            }
-          }
-
           const settings = useSettingsStore.getState();
+          // Tasks created without a channel default into the user's private #me
+          // channel so they surface in the Channels space instead of staying
+          // unfiled. #me is per-user, so this cannot collide across teammates;
+          // before the list loads the task is created unfiled.
           const defaultedChannelId =
-            bluebirdEnabled && !channelId && !channelName
-              ? personalChannel?.id
-              : undefined;
+            !channelId && !channelName ? personalChannel?.id : undefined;
 
           const localMcpServersForRun = partitionLocalMcpServersForRun(
             localMcpServers,
@@ -478,6 +485,8 @@ export function useTaskCreation({
             claudeModelAccess,
             claudeCloudModelAccess:
               workspaceMode === "cloud" ? claudeModelAccess : undefined,
+            codexCloudModelAccess:
+              workspaceMode === "cloud" ? codexModelAccess : undefined,
             runtime,
             model,
             reasoningLevel,
@@ -493,7 +502,19 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
-            customInstructions: getEffectiveCustomInstructions(settings),
+            // The server adds "My instructions" to cloud runs, so a cloud
+            // task in sync carries only the Simplified Technical English line.
+            customInstructions:
+              workspaceMode === "cloud" &&
+              !cloudTaskCarriesLocalInstructions({
+                projectId: currentProjectId,
+                onServer: settings.customInstructionsOnServer,
+                local: getLocalInstructionsContent(settings),
+              })
+                ? settings.ste100Enabled
+                  ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
+                  : undefined
+                : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
             allowNoRepo,
@@ -614,6 +635,7 @@ export function useTaskCreation({
             }
             void trackTaskCreated(
               input,
+              result.data.task.id,
               selectedDirectory,
               hostClient,
               input.codexModelAccess,
@@ -666,6 +688,7 @@ export function useTaskCreation({
     [
       canSubmit,
       canSubmitBase,
+      currentProjectId,
       editorRef,
       sessionId,
       selectedDirectory,
@@ -693,7 +716,6 @@ export function useTaskCreation({
       channelId,
       channelContextId,
       allowNoRepo,
-      bluebirdEnabled,
       personalChannel?.id,
       localMcpServers,
       localMcpServersLoading,

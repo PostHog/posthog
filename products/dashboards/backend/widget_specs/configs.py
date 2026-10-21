@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator, model_validator
 
-from posthog.schema import PropertyOperator
+from posthog.schema import ErrorTrackingOrderBy, PropertyOperator
 
 from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.dashboards.backend.constants import (
@@ -36,6 +36,35 @@ EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
 CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
+NOTEBOOK_WIDGET_TYPE = "notebook_widget"
+CANVAS_APP_WIDGET_TYPE = "canvas_app"
+
+
+class CanvasAppWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    canvasId: UUID | None = Field(
+        default=None,
+        description="Canvas to render in the tile. Null until the user picks one in the widget settings.",
+    )
+
+
+class NotebookWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notebookShortId: str | None = Field(
+        default=None, min_length=1, max_length=128, description="Source notebook short ID."
+    )
+    snapshotId: UUID | None = Field(
+        default=None, description="Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+    )
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> Self:
+        if bool(self.notebookShortId) != bool(self.snapshotId):
+            raise ValueError("Provide both the notebook and its widget snapshot.")
+        return self
+
 
 ActivityEventsPropertyKey = Annotated[
     str,
@@ -49,7 +78,6 @@ ActivityEventsPropertyValues = Annotated[
     Field(max_length=ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES),
 ]
 
-ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
 SessionReplayOrderBy = Literal[
     "start_time", "activity_score", "recording_duration", "duration", "click_count", "console_error_count"
@@ -140,7 +168,7 @@ class ActivityEventsPropertyFilter(BaseModel):
 
 class ErrorTrackingListWidgetConfig(WidgetListConfigBase):
     limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of issues to return.")
-    orderBy: ErrorTrackingOrderBy = Field(default="occurrences", description="Issue ranking column.")
+    orderBy: ErrorTrackingOrderBy = Field(default=ErrorTrackingOrderBy.OCCURRENCES, description="Issue ranking column.")
     orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
     status: ErrorTrackingWidgetStatus = Field(default="active", description="Issue status filter.")
     assignee: WidgetAssigneeFilter | None = Field(

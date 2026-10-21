@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd import (
     BugherdResumeConfig,
     bugherd_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BugherdSource(ResumableSource[BugherdSourceConfig, BugherdResumeConfig]):
+    codebase_detection = detect(env=("^BUGHERD_",), script_hosts=("www.bugherd.com",))
+
     # `get_schemas` iterates a static endpoint catalog with no I/O -- safe for public docs.
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.bugherd.com/api"
@@ -102,10 +103,10 @@ class BugherdSource(ResumableSource[BugherdSourceConfig, BugherdResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUGHERD,
+            name=ExternalDataSourceType.BUGHERD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="BugHerd",
-            caption="""Enter your BugHerd API key to sync your organization, projects, tasks, and users into the PostHog Data warehouse.
+            caption="""Enter your BugHerd API key to sync your organization, projects, tasks, task comments, board columns, and users into the PostHog Data warehouse.
 
 Find your API key in BugHerd under **Settings > General Settings** (organization owner/admin access is required).""",
             docsUrl="https://posthog.com/docs/cdp/sources/bugherd",
@@ -124,5 +125,5 @@ Find your API key in BugHerd under **Settings > General Settings** (organization
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

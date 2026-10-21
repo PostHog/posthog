@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -41,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SecureframeSource(ResumableSource[SecureframeSourceConfig, SecureframeResumeConfig]):
+    codebase_detection = detect(env=("^SECUREFRAME_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -56,7 +57,7 @@ class SecureframeSource(ResumableSource[SecureframeSourceConfig, SecureframeResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SECUREFRAME,
+            name=ExternalDataSourceType.SECUREFRAME,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Secureframe",
             caption="""Enter your Secureframe API credentials to pull your compliance data (controls, tests, personnel, devices, vendors, and more) into the PostHog Data warehouse.
@@ -64,7 +65,7 @@ class SecureframeSource(ResumableSource[SecureframeSourceConfig, SecureframeResu
 You can create an API key and secret in the Secureframe Console under **Your Profile → Company settings → API keys**. The key's role-based permissions govern which tables you can sync.""",
             iconPath="/static/services/secureframe.png",
             docsUrl="https://posthog.com/docs/cdp/sources/secureframe",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["compliance", "grc", "soc2", "audit"],
             fields=cast(
                 list[FieldType],

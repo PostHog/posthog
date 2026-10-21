@@ -11,8 +11,8 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from dateutil.rrule import DAILY, rrule
-from django_deprecate_fields import deprecate_field
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -25,6 +25,7 @@ from products.actions.backend.models.action import Action
 # and cause performance issues, so we are extra careful with this value
 # NB this is enforced in the UI too
 MAX_ITERATION_COUNT = 500
+MAX_ITERATION_FREQUENCY_DAYS = 365
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -287,7 +288,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # The SDK does not read this field — base text is always the rendering fallback when no translation matches.
     base_language = models.CharField(max_length=20, default="en")
     # Translations for multi-language support
-    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
+    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, introScreenHeader: string, introScreenDescription: string, introScreenButtonText: string, backButtonText: string, ... } }
     # Language codes must be canonical BCP-47-ish strings (e.g. "es", "es-MX"). Aliases like "english" or "default" are rejected by the API.
     translations = models.JSONField(blank=True, null=True)
 

@@ -8,6 +8,7 @@ packages:
     - common/replay-headless
     - common/tailwind
     - packages/llm-normalizer
+    - packages/owners-yaml
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -21,7 +22,7 @@ packages:
     - '!products/desktop'
     - docs/onboarding
     - services/agent-proxy
-    - services/integration-service
+    - services/credentials-service
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
@@ -32,6 +33,17 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+# Maintenance releases published without the provenance of an earlier release.
+trustPolicyExclude:
+    - semver@5.7.2 || 6.3.1
+    - undici-types@6.21.0
+# `pnpm run` must not start an install, because Docker builds install a filtered subset.
+verifyDepsBeforeRun: false
+# Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
+# it rebuilds node_modules after a store or layout change, so rebuild without asking.
+confirmModulesPurge: false
+# A cold install fetches every package, so retry past brief registry errors.
+fetchRetries: 3
 
 # Fix React versions across the monorepo.
 overrides:
@@ -102,51 +114,61 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    # Browser process shims must not select v86's Node-only scheduler.
+    v86@0.5.458: patches/v86@0.5.458.patch
+    jest-junit@16.0.0: patches/jest-junit@16.0.0.patch
     '@connectrpc/connect-node@2.1.1': patches/@connectrpc__connect-node@2.1.1.patch
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
+    html-to-image@1.11.13: patches/html-to-image@1.11.13.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
-onlyBuiltDependencies:
-    - '@modelcontextprotocol/ext-apps'
-    - '@mongodb-js/zstd'
-    - '@parcel/watcher'
-    - chartjs-plugin-stacked100
-    - '@swc/core'
-    - core-js
-    - core-js-pure
-    - cpu-features
-    - esbuild
-    - lmdb
-    - lz4
-    - msgpackr-extract
-    - msw
-    - node-gyp
-    - node-rdkafka
-    - protobufjs
-    - re2
-    - sharp
-    - ssh2
-    - unrs-resolver
-    - workerd
+allowBuilds:
+    '@modelcontextprotocol/ext-apps': true
+    '@mongodb-js/zstd': true
+    '@parcel/watcher': true
+    chartjs-plugin-stacked100: true
+    '@swc/core': true
+    core-js: true
+    core-js-pure: true
+    cpu-features: true
+    esbuild: true
+    lmdb: true
+    lz4: true
+    msgpackr-extract: true
+    msw: true
+    node-gyp: true
+    node-rdkafka: true
+    protobufjs: true
+    re2: true
+    sharp: true
+    ssh2: true
+    unrs-resolver: true
+    workerd: true
+    # These install without their build scripts.
+    '@datadog/pprof': false
+    ffmpeg-static: false
+    free-email-domains: false
+    puppeteer: false
 
 catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.6
+    kea-disposables: ^1.0.0
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
-    kea-router: ^3.4.1
+    kea-router: ^3.4.2
     kea-subscriptions: ^3.0.1
     kea-test-utils: ^0.2.4
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.11.0
-    '@posthog/react': ^1.10.6
-    posthog-js: ^1.429.2
+    '@posthog/brand': 0.12.3
+    '@posthog/react': ^1.11.3
+    posthog-js: ^1.438.12
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -174,7 +196,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.6.0
+    '@base-ui/react': 1.8.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3
@@ -191,6 +213,7 @@ minimumReleaseAgeExclude:
     - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.6
+    - kea-router@3.4.2
     - kea-typegen@3.8.3
     - '@earendil-works/*'
     - typebox

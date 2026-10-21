@@ -31,7 +31,7 @@ from posthog.redis import get_client
 from posthog.storage import object_storage
 
 from products.context_layer.backend import repo_lint
-from products.context_layer.backend.models import ContextLayerConfig
+from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
 from products.context_layer.backend.repo_lint import lint_repo
 from products.context_layer.backend.scaffold import generate_index, generate_project_indexes, write_default_structure
 
@@ -149,7 +149,7 @@ def _lock_key(organization_id: uuid.UUID | str) -> str:
 
 # Renewal and release must check ownership and act atomically: after TTL expiry
 # another writer may hold the key, and a plain get-then-expire/delete could
-# extend or drop that writer's lock. Same scripts as posthog/api/query_coalescer.py.
+# extend or drop that writer's lock.
 _RENEW_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("pexpire", KEYS[1], ARGV[2])
@@ -667,7 +667,11 @@ def _assert_dream_paths(workdir: Path, base: str, tip: str) -> None:
 
 def _dream_may_edit(path: str, *, status: str = "M") -> bool:
     parts = Path(path).parts
-    if not path.endswith(".md") or not parts or Path(path).name == "index.md":
+    if (
+        not path.endswith(".md")
+        or not parts
+        or any(part.lower() in {"agents.md", "claude.md", "index.md"} for part in parts)
+    ):
         return False
     if parts[0] in {"org", "areas", "decisions"}:
         return True
@@ -735,6 +739,7 @@ def land_dream_branch(
     *,
     branch: str,
     summary: str | None = None,
+    task_run_id: uuid.UUID | None = None,
 ) -> str:
     """Land a night's `dream/<YYYY-MM-DD>` branch as one two-parent merge commit
     (`dream: <date>`), keeping the branch ref, so every night stays trackable
@@ -758,6 +763,8 @@ def land_dream_branch(
             merge_args = ["merge", "--no-ff", "--quiet", "-m", f"dream: {branch.removeprefix('dream/')}"]
             if summary:
                 merge_args.extend(["-m", summary])
+            if task_run_id is not None:
+                merge_args.extend(["-m", f"Task-Run-Id: {task_run_id}"])
             _run_git([*merge_args, branch], cwd=workdir)
         except ContextLayerStoreError as error:
             raise BundleConflictError(f"the dream branch conflicts with the current head: {error}") from error
@@ -788,6 +795,7 @@ def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purg
     with repo_writer_lock(organization_id):
         head_sha = get_config(organization_id).head_sha
         try:
+            WikiPageProposal.objects.unscoped().filter(team__organization_id=organization_id).delete()
             _prune_bundles_except(organization_id, head_sha)
         except Exception:
             # The rewrite landed but old bundles with the purged content are

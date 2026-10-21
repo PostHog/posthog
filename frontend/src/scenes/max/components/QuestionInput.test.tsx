@@ -1,11 +1,16 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -64,6 +69,21 @@ describe('QuestionInput', () => {
     const slashCommandItem = (): HTMLElement | null => screen.queryByText('/init')
 
     const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+    it('offers file selection before the first message and preserves the current draft', async () => {
+        expect(screen.queryByText('Attach', { exact: true })).not.toBeInTheDocument()
+        act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }))
+        expect(screen.getByText('Attach', { exact: true })).toBeInTheDocument()
+        const file = new File(['demo'], 'notes.txt', { type: 'text/plain' })
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Read these notes' } })
+        const fileInput = document.querySelector('[data-attr="max-new-chat-attach-input"]') as HTMLInputElement
+        fireEvent.change(fileInput, { target: { files: [file] } })
+        expect(composerSeedLogic().values.seed).toMatchObject({
+            prompt: 'Read these notes',
+            files: [file],
+            autoSubmit: false,
+        })
+    })
 
     it('does not release a sandbox pre-warm when blur moves to the send button', async () => {
         // Simulate a completed warm; a release would clear the flag (and relay-cancel the warm Run).
@@ -136,17 +156,23 @@ describe('QuestionInput', () => {
             expect(screen.queryByText(/\/ 40,000$/)).not.toBeInTheDocument()
         })
 
-        it('sends the whole suggestion when the send lands mid-animation', async () => {
-            const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
-            const suggestion = 'What is the retention in the last two weeks?'
+        it('sends the whole suggestion when the send lands mid-animation', () => {
+            jest.useFakeTimers()
+            try {
+                const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+                const suggestion = 'What is the retention in the last two weeks?'
 
-            maxLogicInstance.actions.runSuggestion({ content: suggestion })
-            // The typewriter has only written the first character, so the composer shows a prefix.
-            await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('W'))
+                act(() => {
+                    maxLogicInstance.actions.runSuggestion({ content: suggestion })
+                })
+                expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('W')
 
-            fireEvent.click(sendButton() as HTMLElement)
+                fireEvent.click(sendButton() as HTMLElement)
 
-            expect(askMaxSpy).toHaveBeenCalledWith(suggestion)
+                expect(askMaxSpy).toHaveBeenCalledWith(suggestion)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

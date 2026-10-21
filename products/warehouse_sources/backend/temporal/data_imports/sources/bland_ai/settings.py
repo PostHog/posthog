@@ -43,6 +43,56 @@ class BlandAIEndpointConfig:
 #
 # - `pathways` — GET /v1/pathway. Small (name/description/nodes/edges per pathway), no timestamp
 #   filters, so full refresh only.
+#
+# - `sms_conversations` — GET /v1/sms/conversations. The messaging counterpart to `calls`: one row
+#   per SMS/RCS/WhatsApp conversation. Page-number pagination (`page` + `pageSize`) with
+#   `extra.pagination.totalPages` in the response. `sortBy=created_at&sortDir=asc` plus a
+#   `filters` entry of `{"field": "created_at", "operator": "gte", "value": <iso>}` give a genuine
+#   server-side incremental cursor on `created_at`. `updated_at` is filterable too, but it moves
+#   whenever a message lands, which would rewrite partitions every sync.
+#
+# - `sms_messages` — the individual messages of a conversation. The list endpoint returns only
+#   `message_count` and `last_message`, so this endpoint lists conversations (same
+#   pagination/filtering as `sms_conversations`) and hydrates each via
+#   GET /v1/sms/conversations/{id}, emitting one row per message. One extra request per
+#   conversation, so it's off by default. Rows carry the parent `conversation_id` (message ids are
+#   documented per conversation, hence the composite key) and `conversation_created_at`, the
+#   parent conversation's creation time — the incremental/partition field, since a long-running
+#   conversation's messages can postdate the next conversation's creation.
+#
+# - `inbound_numbers` — GET /v1/inbound. The phone numbers configured on the account, resolving the
+#   `to`/`from` numbers on call rows. A handful of rows per account, no pagination or timestamp
+#   filters, so full refresh with no partitioning.
+#
+# - `personas` — GET /v1/personas. The agent identities attached to inbound numbers, including
+#   their production and draft version configs. Page-number pagination (`page` + `limit`, max 100)
+#   and no timestamp filters, so full refresh only.
+#
+# - `voices` — GET /v1/voices. Every voice the account can use (Bland curated, cloned, and library
+#   voices), resolving the `voice_id` referenced by calls and persona call configs. Single
+#   unpaginated page, no timestamp filters, so full refresh only.
+#
+# - `call_events` — GET /v1/event_stream/{call_id}. The queue- and call-level event log of a call
+#   (info, performance and error messages). Lists calls like `call_transcripts` and hydrates each,
+#   one extra request per call, so it's off by default. Events carry no id, so rows are keyed on
+#   the parent `call_id` plus `event_index`, the event's position in the call's chronological
+#   stream. Incremental/partitioned on `call_created_at` for the same reason as `call_transcripts`.
+#
+# - `web_agents` — GET /v1/agents. The web (browser) agents on the account, the non-phone
+#   counterpart to inbound numbers. Single unpaginated page, no timestamp filters, so full refresh.
+#
+# - `pathway_versions` — GET /v1/pathway/{pathway_id}/versions, fanned out over GET /v1/pathway.
+#   Version ids aren't documented as globally unique, so rows carry the parent `pathway_id` in a
+#   composite key. No timestamp filters, so full refresh only.
+#
+# - `eval_runs` — GET /v1/evals/runs. Batches of calls scored by LLM judges, with the aggregate
+#   score summary. Cursor pagination (`starting_after` + `data.next_cursor`) and no timestamp
+#   filters, so full refresh only. Off by default: Evals must be enabled on the organization.
+#
+# - `eval_call_results` — GET /v1/evals/runs/{run_id}/call-results, fanned out over the eval runs.
+#   One row per scored call per run, with the normalized scores. Same cursor pagination as
+#   `eval_runs`; rows carry their own `eval_run_id`, which goes in the composite key. Off by
+#   default for the same reason as `eval_runs`.
 BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
     "calls": BlandAIEndpointConfig(
         name="calls",
@@ -88,6 +138,128 @@ BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
         description=(
             "Your conversational pathways — the node/edge graphs that drive agent conversations. "
             "Full refresh only (the API has no timestamp filters for pathways)."
+        ),
+    ),
+    "sms_conversations": BlandAIEndpointConfig(
+        name="sms_conversations",
+        primary_keys=["id"],
+        partition_key="created_at",
+        supports_incremental=True,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        description=(
+            "One row per SMS, RCS or WhatsApp conversation: the numbers involved, the pathway "
+            "driving it, message counts, and the outcome. Message bodies live in sms_messages. "
+            "SMS is an Enterprise-only Bland feature."
+        ),
+    ),
+    "sms_messages": BlandAIEndpointConfig(
+        name="sms_messages",
+        primary_keys=["conversation_id", "id"],
+        partition_key="conversation_created_at",
+        supports_incremental=True,
+        incremental_fields=[
+            {
+                "label": "conversation_created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "conversation_created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        should_sync_default=False,
+        description=(
+            "One row per message sent or received in an SMS conversation, with its delivery status. "
+            "Requires one extra API request per conversation (the conversation list returns only a "
+            "message count), so syncs are slower than the sms_conversations table."
+        ),
+    ),
+    "inbound_numbers": BlandAIEndpointConfig(
+        name="inbound_numbers",
+        primary_keys=["phone_number"],
+        description=(
+            "The inbound phone numbers configured on your account and their agent settings. Join to "
+            "calls on the number that received the call. Full refresh only."
+        ),
+    ),
+    "personas": BlandAIEndpointConfig(
+        name="personas",
+        primary_keys=["id"],
+        description=(
+            "Your personas — the reusable agent identities attached to phone numbers, with their "
+            "production and draft version configuration. Full refresh only."
+        ),
+    ),
+    "voices": BlandAIEndpointConfig(
+        name="voices",
+        primary_keys=["id"],
+        description=(
+            "Every voice your account can use, including Bland's curated voices, your clones, and "
+            "library voices. Resolves the voice_id referenced by calls. Full refresh only."
+        ),
+    ),
+    "call_events": BlandAIEndpointConfig(
+        name="call_events",
+        primary_keys=["call_id", "event_index"],
+        partition_key="call_created_at",
+        supports_incremental=True,
+        incremental_fields=[
+            {
+                "label": "call_created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "call_created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        should_sync_default=False,
+        description=(
+            "One row per event logged during a call: queue and call events with their category "
+            "(info, performance or error). Requires one extra API request per call, so syncs are "
+            "slower than the calls table."
+        ),
+    ),
+    "web_agents": BlandAIEndpointConfig(
+        name="web_agents",
+        primary_keys=["agent_id"],
+        description=(
+            "Your web agents — the voice agents that talk to visitors in a browser instead of over "
+            "the phone — with their prompt, voice and model settings. Full refresh only."
+        ),
+    ),
+    "pathway_versions": BlandAIEndpointConfig(
+        name="pathway_versions",
+        primary_keys=["pathway_id", "id"],
+        partition_key="created_at",
+        description=(
+            "The version history of each conversational pathway: version number, name, creation "
+            "time and whether it is the latest. Full refresh only."
+        ),
+    ),
+    "eval_runs": BlandAIEndpointConfig(
+        name="eval_runs",
+        primary_keys=["id"],
+        partition_key="created_at",
+        should_sync_default=False,
+        description=(
+            "Your eval runs — batches of calls scored by LLM judges — with their status, cost and "
+            "aggregate score summary. Requires Evals to be enabled on your Bland organization. "
+            "Full refresh only."
+        ),
+    ),
+    "eval_call_results": BlandAIEndpointConfig(
+        name="eval_call_results",
+        primary_keys=["eval_run_id", "id"],
+        partition_key="created_at",
+        should_sync_default=False,
+        description=(
+            "One row per call scored in an eval run, with its overall, text and audio scores "
+            "normalized to 0-100. Requires Evals to be enabled on your Bland organization. "
+            "Full refresh only."
         ),
     ),
 }

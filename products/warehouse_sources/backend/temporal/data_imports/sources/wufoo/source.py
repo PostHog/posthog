@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
+    codebase_detection = detect(
+        env=("^WUFOO_",), script_hosts=("secure.wufoo.com",), rubygems=("wuparty", "wufoo_party")
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://www.wufoo.com/docs/api/v3/"
@@ -120,7 +123,7 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WUFOO,
+            name=ExternalDataSourceType.WUFOO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Wufoo",
             caption="""Enter your Wufoo subdomain and API key to pull your Wufoo form data into the PostHog Data warehouse.
@@ -130,7 +133,7 @@ Your **subdomain** is the account name in your Wufoo URL — e.g. `acme` for `ac
 Your **API key** is on the **API Information** page of any form (log in, open a form in the Form Manager, then click **API Information**). The same key works across every form on the account.""",
             iconPath="/static/services/wufoo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wufoo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

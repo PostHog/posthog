@@ -6,7 +6,7 @@
 //! copy is still stashed alongside.
 
 use posthog_replay_anonymizer::{
-    anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, ImagePolicy, UrlCollection,
+    anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, UrlCollection,
 };
 use serde_json::{json, Value};
 
@@ -48,11 +48,12 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
             &mut bytes,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
             None,
             Some(UrlCollection {
+                reference_namespace: None,
                 url_key: URL_KEY.to_string(),
             }),
         )
@@ -160,11 +161,12 @@ fn picture_source_srcset_is_collected_when_its_parent_is_known() {
             &mut bytes,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
             None,
             Some(UrlCollection {
+                reference_namespace: None,
                 url_key: URL_KEY.to_string(),
             }),
         )
@@ -210,6 +212,7 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
     for byte_walk in [true, false] {
         let mut bytes = payload(attrs.clone());
         let collection = collect.then(|| UrlCollection {
+            reference_namespace: None,
             url_key: URL_KEY.to_string(),
         });
         let msg = anonymize_kafka_payload_collecting(
@@ -217,7 +220,7 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
             &mut bytes,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
             None,
@@ -396,11 +399,12 @@ fn an_escaped_or_repeated_dimension_key_still_declines_a_hidden_pixel() {
                 &mut bytes,
                 AnonymizeOpts {
                     byte_walk,
-                    image_policy: ImagePolicy::Inline,
+                    ..Default::default()
                 },
                 None,
                 None,
                 Some(UrlCollection {
+                    reference_namespace: None,
                     url_key: URL_KEY.to_string(),
                 }),
             )
@@ -520,7 +524,7 @@ fn unusable_srcset_keeps_the_src_fallback() {
         "https://cdn.example.com/a.png?token=secret 2x",
         "https://127.0.0.1/a.png 2x",
         "data:image/png;base64,%%% 2x",
-        "data:image/svg+xml;base64,PHN2Zz4= 2x",
+        "data:image/svg+xml;base64,bm90IHN2Zw== 2x",
     ] {
         for (engine, result) in run(
             json!({
@@ -621,6 +625,7 @@ fn a_refusal_is_counted_with_a_reason() {
         None,
         None,
         Some(UrlCollection {
+            reference_namespace: None,
             url_key: URL_KEY.to_string(),
         }),
     )
@@ -634,4 +639,64 @@ fn a_refusal_is_counted_with_a_reason() {
         .map(|d| d.reason.as_str())
         .collect();
     assert!(reasons.contains(&"non_public_host"), "{reasons:?}");
+}
+
+#[test]
+fn monthly_refs_survive_compressed_snapshot_fields() {
+    use posthog_replay_anonymizer::{compression, ImageCollection};
+    let namespace = "v2:7:2026-09";
+    let snapshot = json!({"node": {"type": 2, "tagName": "div", "id": 1,
+        "attributes": {}, "childNodes": [
+            {"type": 2, "tagName": "img", "id": 2, "attributes": {"src": "https://cdn.example.com/a.png"}, "childNodes": []},
+            {"type": 2, "tagName": "img", "id": 3, "attributes": {"src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l1sAAAAASUVORK5CYII="}, "childNodes": []}
+        ]}, "initialOffset": {"top": 0, "left": 0}});
+    let compressed = zstd::stream::encode_all(snapshot.to_string().as_bytes(), 1).unwrap();
+    let wire: String = compressed.iter().map(|byte| char::from(*byte)).collect();
+    for byte_walk in [true, false] {
+        let data = json!({"event": "$snapshot_items", "properties": {"$session_id": "s", "$window_id": "w",
+            "$snapshot_items": [{"type": 2, "timestamp": TS0, "cv": "2024-10", "data": wire}]}});
+        let mut payload = json!({"distinct_id": "d", "data": data.to_string()})
+            .to_string()
+            .into_bytes();
+        let output = anonymize_kafka_payload_collecting(
+            &AllowLists::default(),
+            &mut payload,
+            AnonymizeOpts {
+                byte_walk,
+                ..Default::default()
+            },
+            None,
+            Some(ImageCollection::new(
+                namespace.to_string(),
+                URL_KEY.to_string(),
+            )),
+            Some(UrlCollection {
+                url_key: URL_KEY.to_string(),
+                reference_namespace: Some(namespace.to_string()),
+            }),
+        )
+        .unwrap();
+        let event: Value =
+            serde_json::from_slice(output.lines.split(|byte| *byte == b'\n').next().unwrap())
+                .unwrap();
+        let stored: Vec<u8> = event[1]["data"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .map(|character| character as u8)
+            .collect();
+        let decoded: Value =
+            serde_json::from_slice(&compression::decompress_by_magic(&stored).unwrap()).unwrap();
+        let nodes = &decoded["node"]["childNodes"];
+        assert!(nodes[0]["attributes"]["data-anon-image-ref-src"]
+            .as_str()
+            .unwrap()
+            .starts_with("imageurl:v2:7:2026-09:"));
+        assert!(nodes[1]["attributes"]["src"]
+            .as_str()
+            .unwrap()
+            .starts_with("image:v2:7:2026-09:"));
+        assert_eq!(output.meta.urls.len(), 1);
+        assert_eq!(output.meta.images.len(), 1);
+    }
 }

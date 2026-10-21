@@ -61,7 +61,7 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "ISO8601 date string."
+                            "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day."
                         }
                     },
                     "required": ["date_from"],
@@ -748,6 +748,7 @@
                                                         "in",
                                                         "not_in",
                                                         "is_cleaned_path_exact",
+                                                        "is_cleaned_path_not_exact",
                                                         "flag_evaluates_to",
                                                         "semver_eq",
                                                         "semver_neq",
@@ -845,6 +846,7 @@
                                                         "in",
                                                         "not_in",
                                                         "is_cleaned_path_exact",
+                                                        "is_cleaned_path_not_exact",
                                                         "flag_evaluates_to",
                                                         "semver_eq",
                                                         "semver_neq",
@@ -943,6 +945,7 @@
                                                         "in",
                                                         "not_in",
                                                         "is_cleaned_path_exact",
+                                                        "is_cleaned_path_not_exact",
                                                         "flag_evaluates_to",
                                                         "semver_eq",
                                                         "semver_neq",
@@ -1039,6 +1042,7 @@
                                                         "in",
                                                         "not_in",
                                                         "is_cleaned_path_exact",
+                                                        "is_cleaned_path_not_exact",
                                                         "flag_evaluates_to",
                                                         "semver_eq",
                                                         "semver_neq",

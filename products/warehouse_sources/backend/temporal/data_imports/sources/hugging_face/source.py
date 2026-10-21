@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResumeConfig]):
+    codebase_detection = detect(
+        env=("^HUGGINGFACE_", "^HF_TOKEN$", "^HUGGING_FACE_HUB_TOKEN$", "^HF_HUB_"),
+        npm=("@huggingface/inference", "@huggingface/hub"),
+        pypi=("huggingface-hub",),
+        cargo=("hf-hub",),
+    )
+
     api_docs_url = "https://huggingface.co/docs/hub/api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -54,10 +60,10 @@ class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HUGGING_FACE,
+            name=ExternalDataSourceType.HUGGINGFACE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hugging Face",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Hugging Face access token to pull your Hub repositories into the PostHog Data warehouse.
 
 Create a token in your [Hugging Face access token settings](https://huggingface.co/settings/tokens). A read token is enough for public repos; grant read access to your namespace's repo contents (and `read-org` if you're syncing an organization) to include private repos.

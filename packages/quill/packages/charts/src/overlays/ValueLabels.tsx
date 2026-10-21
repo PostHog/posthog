@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartHover, useChartLayout } from '../core/chart-context'
-import { barColorAt } from '../core/color-utils'
+import { barColorAt, perceivedLuminance } from '../core/color-utils'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartDimensions, ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -38,6 +38,14 @@ export interface ValueLabelsProps {
     valueFormatter?: ValueLabelFormatter
     minGap?: number
     mode?: ValueLabelsMode
+    /** Per-segment labels only: place labels at the bar end (default) or inside the segment's center. */
+    position?: 'end' | 'center'
+    /** Draw a series-colored badge behind the text. Defaults to true. */
+    background?: boolean
+    /** Label size in pixels, clamped to 8..32. */
+    fontSize?: number
+    /** Label rotation in degrees, clamped to -90..90. */
+    rotation?: number
     /** Gap in px between the bar tip and the label, applied along the value axis in the outward
      *  direction (right/above the tip, or inward for labels flipped inside a clipped bar). Ignored
      *  for centered (`percent`) labels. Defaults to 0 — the label's edge sits on the bar tip. */
@@ -61,6 +69,7 @@ interface Candidate {
     x: number
     y: number
     width: number
+    height: number
     color: string
     above: boolean
     /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
@@ -81,6 +90,7 @@ interface BuildCandidatesArgs {
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
+    position: 'end' | 'center'
     isPercent: boolean
 }
 
@@ -108,6 +118,7 @@ function pushCandidate(
         x: isHorizontal ? valueCoord : categoricalCoord,
         y: isHorizontal ? categoricalCoord : valueCoord,
         width,
+        height: LABEL_HEIGHT,
         color,
         above,
         centerAnchor,
@@ -212,7 +223,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent, position } = args
     const out: Candidate[] = []
 
     // Stack denominator — for percent-layout fraction placement and for the `bandValues` handed to
@@ -258,7 +269,8 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             // label on its own bar rather than the band center between bars. Other chart
             // types ignore the second arg and fall back to the band/point center.
             const categoricalCoord = scales.x(labels[dIdx], s.key)
-            const valueCoord = yScale(yValue)
+            const centerInSegment = position === 'center' && s.type !== 'line'
+            const valueCoord = centerInSegment ? (yScale(yValue) + yScale(yValue - displayValue)) / 2 : yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
@@ -284,7 +296,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 categoricalCoord,
                 valueCoord,
                 above,
-                isPercent
+                isPercent || centerInSegment
             )
         }
     }
@@ -300,7 +312,7 @@ interface Rect {
 
 function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     if (isHorizontal) {
-        const halfH = LABEL_HEIGHT / 2
+        const halfH = c.height / 2
         let left: number
         if (c.centerAnchor) {
             left = c.x - c.width / 2
@@ -312,11 +324,11 @@ function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     const halfW = c.width / 2
     let top: number
     if (c.centerAnchor) {
-        top = c.y - LABEL_HEIGHT / 2
+        top = c.y - c.height / 2
     } else {
-        top = c.above ? c.y - LABEL_HEIGHT : c.y
+        top = c.above ? c.y - c.height : c.y
     }
-    return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
+    return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + c.height }
 }
 
 function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
@@ -339,8 +351,8 @@ function fitsWithinWrapper(c: Candidate, above: boolean, dimensions: ChartDimens
         const left = above ? c.x : c.x - c.width
         return left >= 0 && left + c.width <= dimensions.width
     }
-    const top = above ? c.y - LABEL_HEIGHT : c.y
-    return top >= 0 && top + LABEL_HEIGHT <= dimensions.height
+    const top = above ? c.y - c.height : c.y
+    return top >= 0 && top + c.height <= dimensions.height
 }
 
 // If the default placement (above/right of the bar) would push the label past the chart
@@ -456,7 +468,11 @@ export function ValueLabels({
     valueFormatter,
     minGap = 4,
     mode = 'per-segment',
+    position = 'end',
     offset = 0,
+    background = true,
+    fontSize = 12,
+    rotation = 0,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
     const { hoverIndex } = useChartHover()
@@ -464,6 +480,9 @@ export function ValueLabels({
     const isPercent = axis.isPercent
 
     const formatter = valueFormatter ?? defaultLocaleFormatter
+    const resolvedFontSize = Number.isFinite(fontSize) ? Math.min(32, Math.max(8, fontSize)) : 12
+    const resolvedRotation = Number.isFinite(rotation) ? Math.min(90, Math.max(-90, rotation)) : 0
+    const labelHeight = resolvedFontSize + 10
 
     const visible = useMemo(
         () =>
@@ -477,15 +496,43 @@ export function ValueLabels({
                         valueFormatter: formatter,
                         isHorizontal,
                         mode,
+                        position,
                         isPercent,
-                    }).filter((c) => withinPlotArea(c, dimensions, isHorizontal)),
+                    })
+                        .map((candidate) => {
+                            const width =
+                                ((candidate.width - LABEL_HORIZONTAL_CHROME) * resolvedFontSize) / 12 +
+                                LABEL_HORIZONTAL_CHROME
+                            const radians = (resolvedRotation * Math.PI) / 180
+                            return {
+                                ...candidate,
+                                width: Math.abs(Math.cos(radians) * width) + Math.abs(Math.sin(radians) * labelHeight),
+                                height: Math.abs(Math.sin(radians) * width) + Math.abs(Math.cos(radians) * labelHeight),
+                            }
+                        })
+                        .filter((c) => withinPlotArea(c, dimensions, isHorizontal)),
                     dimensions,
                     isHorizontal
                 ),
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
+        [
+            series,
+            labels,
+            scales,
+            resolvePositionValue,
+            formatter,
+            minGap,
+            isHorizontal,
+            mode,
+            position,
+            isPercent,
+            dimensions,
+            resolvedFontSize,
+            resolvedRotation,
+            labelHeight,
+        ]
     )
 
     // Skip the lift when a dataIndex has labels at multiple distinct x positions
@@ -524,15 +571,38 @@ export function ValueLabels({
                         data-attr="hog-chart-value-label"
                         style={{
                             ...LABEL_STYLE_BASE,
-                            backgroundColor: c.color,
-                            borderColor,
+                            width: c.width,
+                            height: c.height,
+                            padding: 0,
+                            backgroundColor: background && resolvedRotation === 0 ? c.color : 'transparent',
+                            borderColor: background && resolvedRotation === 0 ? borderColor : 'transparent',
+                            borderWidth: background && resolvedRotation === 0 ? LABEL_BORDER : 0,
                             left: Math.round(c.x),
                             top: Math.round(c.y),
                             transform: transformFor(c, isHorizontal, isHovered, offset),
                             willChange: isHovered ? 'transform' : undefined,
                         }}
                     >
-                        {c.text}
+                        <span
+                            style={{
+                                ...LABEL_STYLE_BASE,
+                                position: 'static',
+                                flexShrink: 0,
+                                height: labelHeight,
+                                fontSize: resolvedFontSize,
+                                color:
+                                    background || c.centerAnchor
+                                        ? perceivedLuminance(c.color) < 0.5
+                                            ? 'white'
+                                            : 'black'
+                                        : theme.axisColor,
+                                backgroundColor: background && resolvedRotation !== 0 ? c.color : 'transparent',
+                                borderColor: background && resolvedRotation !== 0 ? borderColor : 'transparent',
+                                transform: `rotate(${resolvedRotation}deg)`,
+                            }}
+                        >
+                            {c.text}
+                        </span>
                     </div>
                 )
             })}

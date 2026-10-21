@@ -10,6 +10,7 @@ use posthog_cli::{
 };
 
 use anyhow::Result;
+use posthog_symbol_data::{read_symbol_data, SourceAndMap};
 use serde_json::json;
 
 use std::{
@@ -518,13 +519,17 @@ fn test_event_mode_content_hash_tracks_the_snippet_variant() {
 const BUNDLER_DEBUG_ID: &str = "11111111-2222-4333-8444-555555555555";
 
 fn make_pair(source_content: &str, map_json: serde_json::Value) -> SourcePair {
+    make_named_pair("chunk.js", source_content, map_json)
+}
+
+fn make_named_pair(name: &str, source_content: &str, map_json: serde_json::Value) -> SourcePair {
     SourcePair {
         source: MinifiedSourceFile {
-            inner: SourceFile::new(PathBuf::from("chunk.js"), source_content.to_string()),
+            inner: SourceFile::new(PathBuf::from(name), source_content.to_string()),
         },
         sourcemap: SourceMapFile {
             inner: SourceFile::new(
-                PathBuf::from("chunk.js.map"),
+                PathBuf::from(format!("{name}.map")),
                 serde_json::from_value(map_json).expect("Failed to build SourceMapContent"),
             ),
         },
@@ -659,6 +664,126 @@ fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
     assert_eq!(fresh.chunk_id, BUNDLER_DEBUG_ID);
     assert_eq!(transitioned.chunk_id, BUNDLER_DEBUG_ID);
     assert_eq!(fresh.content_hash, transitioned.content_hash);
+}
+
+const ENTRY_DEBUG_ID: &str = "22222222-3333-4444-8555-666666666666";
+const LAZY_DEBUG_ID: &str = "33333333-4444-4555-8666-777777777777";
+
+/// The debug ids stand in for chunk ids that stay the same across releases, like the ones
+/// `@posthog/rollup-plugin` derives.
+fn content_named_release(
+    release_id: &str,
+    entry_name: &str,
+    lazy_name: &str,
+    lazy_code: &str,
+) -> Vec<SourcePair> {
+    let chunk = |name: &str, code: &str, debug_id: &str| {
+        make_named_pair(
+            name,
+            &format!("{code}\n//# debugId={debug_id}\n//# sourceMappingURL={name}.map\n"),
+            json!({
+                "version": 3,
+                "file": name,
+                "sources": ["../src/index.js"],
+                "sourcesContent": ["import('./lazy.js')\n"],
+                "names": [],
+                "mappings": "AAAA",
+                "debugId": debug_id,
+            }),
+        )
+    };
+    inject_pairs(
+        vec![
+            chunk(
+                entry_name,
+                &format!("import(\"./{lazy_name}\");"),
+                ENTRY_DEBUG_ID,
+            ),
+            chunk(lazy_name, lazy_code, LAZY_DEBUG_ID),
+        ],
+        Some(release_id),
+    )
+    .expect("Failed to inject pairs")
+}
+
+fn event_mode_hashes(pairs: Vec<SourcePair>) -> Vec<String> {
+    pairs
+        .into_iter()
+        .map(|pair| {
+            pair.into_upload(ReleaseMode::Event)
+                .expect("Failed to convert to SymbolSetUpload")
+                .content_hash
+                .expect("event mode always sets a content hash")
+        })
+        .collect()
+}
+
+#[test]
+fn test_event_mode_content_hash_ignores_chunk_file_names() {
+    let release = |release_id, entry_name, lazy_name| {
+        content_named_release(release_id, entry_name, lazy_name, "console.log(1);")
+    };
+
+    assert_eq!(
+        event_mode_hashes(release(
+            "release-a",
+            "index-C3e2Htc9.js",
+            "lazy-BrAf3own.js"
+        )),
+        event_mode_hashes(release(
+            "release-b",
+            "index-CSi0TbGB.js",
+            "lazy-CGeNrzqs.js"
+        ))
+    );
+}
+
+#[test]
+fn test_event_mode_content_hash_still_tracks_code_changes() {
+    let before = event_mode_hashes(content_named_release(
+        "release-a",
+        "index-C3e2Htc9.js",
+        "lazy-BrAf3own.js",
+        "console.log(1);",
+    ));
+    let after = event_mode_hashes(content_named_release(
+        "release-b",
+        "index-CSi0TbGB.js",
+        "lazy-CGeNrzqs.js",
+        "console.log(2);",
+    ));
+
+    assert_eq!(
+        before[0], after[0],
+        "the entry changed only in the lazy chunk's name"
+    );
+    assert_ne!(before[1], after[1], "the lazy chunk's code changed");
+}
+
+#[test]
+fn test_event_mode_upload_keeps_the_file_names() {
+    let pair = content_named_release(
+        "release-a",
+        "index-C3e2Htc9.js",
+        "lazy-BrAf3own.js",
+        "console.log(1);",
+    )
+    .into_iter()
+    .next()
+    .unwrap();
+    let (source, map) = (
+        pair.source.inner.content.clone(),
+        serde_json::to_string(&pair.sourcemap.inner.content).unwrap(),
+    );
+
+    let upload = pair
+        .into_upload(ReleaseMode::Event)
+        .expect("Failed to convert to SymbolSetUpload");
+    let stored: SourceAndMap = read_symbol_data(&upload.data).expect("Failed to read upload");
+
+    assert!(source.contains("./lazy-BrAf3own.js"));
+    assert_eq!(stored.minified_source, source);
+    assert_eq!(stored.sourcemap, map);
 }
 
 #[test]

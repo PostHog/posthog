@@ -4,6 +4,11 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import {
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    deserializeResolverState,
+    serializeResolverState,
+} from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
@@ -808,6 +813,122 @@ describe('Cyclotron V2', () => {
                 await expect(manager.createJob({ id, teamId: 1, queueName: QUEUE })).rejects.toThrow(
                     /duplicate key value/i
                 )
+            })
+        })
+
+        describe('resumeParkedSteps', () => {
+            const parkedState = (jobId: string, actionId = 'task_node'): Buffer =>
+                Buffer.from(
+                    JSON.stringify({
+                        state: {
+                            currentAction: { id: actionId, awaitingResume: { key: `${jobId}:${actionId}:3` } },
+                        },
+                    })
+                )
+            const resumeFor = (jobId: string) => ({
+                origin_key: `${jobId}:task_node:3`,
+                status: 'completed' as const,
+                result: { final_message: 'done' },
+                jobId,
+                actionId: 'task_node',
+            })
+
+            it('wakes a parked step of the team and stamps the result on it', async () => {
+                const jobId = uuidv7()
+                await manager.createJob({
+                    id: jobId,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId: uuidv7(),
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: parkedState(jobId),
+                })
+
+                const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
+
+                expect(outcomes.get(jobId)).toBe('delivered')
+                expect(await jobIsDue(jobId)).toBe(true)
+                const row = await queryJob(jobId)
+                expect(parseJSON(row.state!.toString()).state.currentAction.resumeResult).toEqual({
+                    key: `${jobId}:task_node:3`,
+                    status: 'completed',
+                    result: { final_message: 'done' },
+                })
+            })
+
+            it("reports another team's job as missing rather than waking it", async () => {
+                const jobId = uuidv7()
+                await manager.createJob({
+                    id: jobId,
+                    teamId: 2,
+                    queueName: QUEUE,
+                    functionId: uuidv7(),
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: parkedState(jobId),
+                })
+
+                const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
+
+                expect(outcomes.get(jobId)).toBe('job_missing')
+                expect(await jobIsDue(jobId)).toBe(false)
+            })
+        })
+
+        describe('resumeParkedBatchResolver', () => {
+            const parkResolver = async (teamId: number, functionId: string, batchJobId: string): Promise<string> =>
+                await manager.createJob({
+                    teamId,
+                    queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    functionId,
+                    parentRunId: batchJobId,
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: serializeResolverState({
+                        batchJobId,
+                        teamId,
+                        hogFlowId: functionId,
+                        filters: { properties: [] },
+                        variables: {},
+                        realtimeCohort: { id: 7, teamId, waitUntil: new Date(Date.now() + 3600 * 1000).toISOString() },
+                        maxAudienceSize: 100,
+                        cursor: null,
+                        totalEnqueued: 0,
+                        pagesProcessed: 0,
+                        attempts: 0,
+                        startedAt: new Date().toISOString(),
+                    }),
+                })
+
+            it('wakes the parked resolver of the batch and clears its wait, once', async () => {
+                const functionId = uuidv7()
+                const batchJobId = uuidv7()
+                const jobId = await parkResolver(1, functionId, batchJobId)
+
+                const first = await manager.resumeParkedBatchResolver({ teamId: 1, functionId, batchJobId })
+                const second = await manager.resumeParkedBatchResolver({ teamId: 1, functionId, batchJobId })
+
+                expect([first, second]).toEqual(['resumed', 'already_resumed'])
+                expect(await jobIsDue(jobId)).toBe(true)
+                const state = deserializeResolverState((await queryJob(jobId)).state)
+                // Without the wait cleared, the resolver would park again and time out.
+                expect(state.realtimeCohort).toEqual({ id: 7, teamId: 1 })
+            })
+
+            it.each([
+                ['another team', 2, true],
+                ['another batch', 1, false],
+            ])('leaves the resolver of %s parked', async (_name, teamId, sameBatch) => {
+                const functionId = uuidv7()
+                const parkedBatchJobId = uuidv7()
+                const jobId = await parkResolver(teamId, functionId, parkedBatchJobId)
+
+                const outcome = await manager.resumeParkedBatchResolver({
+                    teamId: 1,
+                    functionId,
+                    batchJobId: sameBatch ? parkedBatchJobId : uuidv7(),
+                })
+
+                expect(outcome).toBe('job_missing')
+                expect(await jobIsDue(jobId)).toBe(false)
             })
         })
 

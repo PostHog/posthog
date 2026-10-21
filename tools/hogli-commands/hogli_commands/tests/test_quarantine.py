@@ -21,6 +21,12 @@ def pin_today_utc(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(core, "today_utc", lambda: TODAY)
 
 
+@pytest.fixture
+def batch_exports_product(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "products" / "batch_exports").mkdir(parents=True)
+    monkeypatch.setattr(core, "REPO_ROOT", tmp_path)
+
+
 def make_entry(**overrides: Any) -> core.Entry:
     defaults: dict[str, Any] = {
         "id": "posthog/api/test/test_foo.py::TestFoo::test_bar",
@@ -111,6 +117,7 @@ def test_selector_matches(selector: str, test_id: str, expected: bool) -> None:
         ("anything at all", "some-future-runner", True),  # unadapted runner: not validated
     ],
 )
+@pytest.mark.usefixtures("batch_exports_product")
 def test_validate_selector_by_runner(selector: str, runner: str, valid: bool) -> None:
     assert (core.validate_selector(selector, runner) is None) is valid
 
@@ -437,6 +444,7 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         ([raw_entry(id="product:batch_exports")], 1, "dashed product name"),
     ],
 )
+@pytest.mark.usefixtures("batch_exports_product")
 def test_check(
     runner: CliRunner, tmp_path: Path, entries: list[dict[str, Any]], expected_exit: int, expected_fragment: str
 ) -> None:
@@ -457,6 +465,49 @@ def test_check_fails_on_malformed_file(runner: CliRunner, tmp_path: Path) -> Non
 def test_check_passes_on_missing_file(runner: CliRunner, tmp_path: Path) -> None:
     result = cli(runner, tmp_path / "missing.json", "check")
     assert result.exit_code == 0
+
+
+DUE_TOMORROW = "• `posthog/test_tomorrow.py` (@team-devex): quarantine ended 2026-06-03, `check` fails on 2026-06-11"
+DUE_WEEK_OUT = "• `posthog/test_week_out.py` (@team-devex): quarantine ended 2026-06-09, `check` fails on 2026-06-17"
+
+
+@pytest.mark.parametrize(
+    "args, expected_lines",
+    [
+        (("--in-days", "7", "--in-days", "1"), [DUE_TOMORROW, DUE_WEEK_OUT]),
+        (
+            ("--in-days", "9"),
+            ["• `posthog/test_active.py` (@team-devex): quarantine ends 2026-06-11, `check` fails on 2026-06-19"],
+        ),
+        (
+            ("--in-days", "7", "--in-days", "1", "--max-chars", str(len(f"{DUE_TOMORROW}\n• 1 more not shown"))),
+            [DUE_TOMORROW, "• 1 more not shown"],
+        ),
+    ],
+)
+def test_due_lists_entries_that_fail_check_in_the_requested_days(
+    runner: CliRunner, tmp_path: Path, args: tuple[str, ...], expected_lines: list[str]
+) -> None:
+    entries = [
+        raw_entry(
+            id=f"posthog/test_{name}.py",
+            added=(TODAY - timedelta(days=20)).isoformat(),
+            expires=(TODAY + timedelta(days=expires_in_days)).isoformat(),
+        )
+        for name, expires_in_days in (("week_out", -1), ("not_due", -3), ("tomorrow", -7), ("active", 1))
+    ]
+    path = write_file(tmp_path / "q.json", entries)
+    result = cli(runner, path, "due", *args)
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == expected_lines
+
+
+def test_due_fails_on_malformed_file(runner: CliRunner, tmp_path: Path) -> None:
+    path = tmp_path / "q.json"
+    path.write_text("not json{")
+    result = cli(runner, path, "due", "--in-days", "1")
+    assert result.exit_code == 1
+    assert "invalid JSON" in result.output
 
 
 def test_repo_quarantine_file_is_valid(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:

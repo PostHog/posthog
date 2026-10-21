@@ -3,10 +3,15 @@ import { createHash } from 'node:crypto'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { EVENTS_USAGE_KEY, UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
+import {
+    EVENTS_USAGE_KEY,
+    SURVEY_RESPONSES_USAGE_KEY,
+    UsageKeyResolver,
+} from '~/ingestion/common/usage-records/billable-events'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { Properties } from '~/plugin-scaffold'
 import { EventHeaders, Person } from '~/types'
 
 export interface EventUsageBatchContext {
@@ -27,7 +32,14 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 }
 
 export interface RecordEventUsageInput {
-    preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
+    preparedEvent: {
+        teamId: number
+        event: string
+        eventUuid: string
+        distinctId: string
+        timestamp: string
+        properties: Properties
+    }
     headers: Pick<EventHeaders, 'now'>
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
@@ -35,24 +47,43 @@ export interface RecordEventUsageInput {
 }
 
 /**
+ * Hashed rather than joined: event names and distinct IDs are client-supplied and together
+ * exceed the 512-byte identifier the service accepts, and one oversized record makes the
+ * service reject the whole request. The timestamp is UTC-normalized upstream, so its first
+ * ten characters are the source day used in the events table's sorting key.
+ */
+function hashedRecordId(timestamp: string, identity: string[]): string {
+    const day = timestamp.slice(0, 10)
+    // JSON rather than a separator, so `a\nb` + `c` and `a` + `b\nc` hash differently.
+    return `${day}:${createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 32)}`
+}
+
+/**
  * Mirrors the events table's dedup identity, `(team_id, toDate(timestamp), event,
  * distinct_id, uuid)`, minus the team the billing sorting key already carries. The UUID alone
  * is not that identity: two events sharing one but differing in day, name or distinct_id are
  * separate rows there, and the nightly report counts them separately, so billing must too.
- *
- * Hashed rather than joined, because event names and distinct IDs are client-supplied and
- * together exceed the 512-byte identifier the service accepts. One oversized record makes the
- * service reject the whole request, which would drop every record batched with it.
- *
- * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
- * `toDate` resolves.
  */
 function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
-    const day = preparedEvent.timestamp.slice(0, 10)
-    // JSON rather than a separator: an event name and a distinct ID can both contain any
-    // character, so `a\nb` with `c` and `a` with `b\nc` would hash the same and bill once.
-    const identity = JSON.stringify([preparedEvent.event, preparedEvent.distinctId, preparedEvent.eventUuid])
-    return `${day}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
+    return hashedRecordId(preparedEvent.timestamp, [
+        preparedEvent.event,
+        preparedEvent.distinctId,
+        preparedEvent.eventUuid,
+    ])
+}
+
+/**
+ * Each answered step of a multi-question survey emits its own `survey sent` event. The nightly
+ * report bills one row per `($survey_id, $survey_submission_id)`, so sharing that identity lets
+ * the billing table's ReplacingMergeTree collapse the steps the same way.
+ */
+function surveyResponseRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
+    const surveyId = preparedEvent.properties.$survey_id
+    const submissionId = preparedEvent.properties.$survey_submission_id
+    if (typeof submissionId !== 'string' || submissionId === '') {
+        return analyticsRecordId(preparedEvent)
+    }
+    return hashedRecordId(preparedEvent.timestamp, [typeof surveyId === 'string' ? surveyId : '', submissionId])
 }
 
 export interface EventUsageRecord {
@@ -75,15 +106,9 @@ export interface EventUsageRecordContext {
  * separates, and it waits on the same acknowledgement: an event that never lands should not bill
  * for the person work either.
  *
- * TODO: decide how usage records should treat events dated in the past. This step bills every
- * billable event at the moment it is processed, including a historical migration. The nightly
- * report does not: `get_teams_with_billable_event_count_in_period` filters the events table on
- * the event's own `timestamp`, so an event backdated outside the current period lands in a
- * period that has already been billed and is charged for nowhere. The two systems therefore
- * disagree on exactly the imports customers run deliberately, and the choice — bill regardless
- * of event age, or mirror the report and skip old events — is a pricing decision rather than an
- * implementation one. `historicalMigration` is available upstream in the pipeline if we pick
- * the second.
+ * Capture time assigns usage to the period that receives it, including historical imports.
+ * Source event time cannot move newly received usage into a closed billing period.
+ * The record ID retains the source date for event identity and comparison with legacy reports.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
@@ -97,7 +122,10 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
             return Promise.resolve(ok({ ...input, eventUsageRecords: undefined }))
         }
         const { teamId } = input.preparedEvent
-        const recordId = analyticsRecordId(input.preparedEvent)
+        const recordId =
+            usageKey === SURVEY_RESPONSES_USAGE_KEY
+                ? surveyResponseRecordId(input.preparedEvent)
+                : analyticsRecordId(input.preparedEvent)
         const captureTimestampMs = input.headers.now?.getTime()
         const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
         const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]

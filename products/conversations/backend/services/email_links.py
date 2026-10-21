@@ -23,6 +23,8 @@ import re
 import structlog
 from bs4 import BeautifulSoup
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 _HTTP_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -33,6 +35,7 @@ _URL_TRAILING_PUNCTUATION = ".,;:!?"
 # Cap the anchors we scan so a large marketing email can't turn one message into
 # an expensive parse.
 _MAX_ANCHORS = 100
+_MAX_ANGLE_LABEL_LENGTH = 200
 # A bare URL, scanned in one linear pass so a hostile body can't force quadratic
 # work. The class keeps parentheses so a URL like `.../Markdown_(language)` stays
 # whole; any unbalanced trailing parenthesis (from a `(url)` wrapper) is peeled back
@@ -128,28 +131,45 @@ def _recover_from_html(text: str, html: str) -> str:
         return text
 
     candidates: list[tuple[str, str]] = []
+    angle_links: list[tuple[str, str]] = []
     seen_labels: set[str] = set()
     for anchor in soup.find_all("a")[:_MAX_ANCHORS]:
         href = (anchor.get("href") or "").strip()
         if not href or not _HTTP_SCHEME_RE.match(href):
             continue
         label = anchor.get_text(separator=" ", strip=True)
-        # Skip an unusable label, a URL that already survived into the text, or a
-        # label seen already (its first anchor wins).
-        if not label or "[" in label or "]" in label or href in text or label in seen_labels:
+        if not label or "[" in label or "]" in label:
+            continue
+        # A URL that survived into the text needs no recovery, but a plain-text
+        # part may still write it as `label <href>` (Gmail does this).
+        if href in text:
+            if label != href and f"<{href}>" in text:
+                angle_links.append((label, href))
+            continue
+        # Skip a label seen already (its first anchor wins).
+        if label in seen_labels:
             continue
         seen_labels.add(label)
         candidates.append((label, href))
 
-    if not candidates:
-        return text
+    # Fold confirmed `label <href>` pairs first, then recover missing URLs only
+    # outside them, so a repeated label cannot steal a link that is already present.
+    used: set[str] = set()
+    segments: list[str] = []
+    for segment, is_link in _split_angle_links(text, angle_links):
+        segments.append(segment if is_link else _link_labels(segment, candidates, used))
+    return "".join(segments)
 
-    # Rewrite left to right on the not-yet-emitted suffix only, so a later label
-    # can never match inside a link or URL we already inserted. Each pass links
-    # the earliest remaining label occurrence; earliest position wins on ties.
+
+def _link_labels(text: str, candidates: list[tuple[str, str]], used: set[str]) -> str:
+    """Rewrite the earliest occurrence of each unused candidate label to `[label](href)`.
+
+    Rewrites go left to right on the not-yet-emitted suffix only, so a later label
+    can never match inside a link or URL we already inserted. Each pass links the
+    earliest remaining label occurrence. The earliest position wins on ties.
+    """
     parts: list[str] = []
     remaining = text
-    used: set[str] = set()
     while True:
         best: tuple[int, str, str] | None = None
         for label, href in candidates:
@@ -166,5 +186,71 @@ def _recover_from_html(text: str, html: str) -> str:
         remaining = remaining[index + len(label) :]
         used.add(label)
     parts.append(remaining)
-
     return "".join(parts)
+
+
+@frozen
+class _FoldedAngleLink:
+    start: int
+    end: int
+    markdown: str
+
+
+def _split_angle_links(text: str, links: list[tuple[str, str]]) -> list[tuple[str, bool]]:
+    """Split `text` around plain-text `label <href>` links, rewriting each to `[label](href)`.
+
+    Returns `(segment, is_link)` pairs in order. Each link is folded once, at its
+    first occurrence that does not overlap a link folded already.
+    """
+    folded: list[_FoldedAngleLink] = []
+    for label, href in links:
+        link = _find_angle_link(text, label, href, folded)
+        if link:
+            folded.append(link)
+
+    segments: list[tuple[str, bool]] = []
+    last = 0
+    for link in sorted(folded, key=lambda link: link.start):
+        segments.append((text[last : link.start], False))
+        segments.append((link.markdown, True))
+        last = link.end
+    segments.append((text[last:], False))
+    return segments
+
+
+def _find_angle_link(text: str, label: str, href: str, folded: list[_FoldedAngleLink]) -> _FoldedAngleLink | None:
+    """Find `label <href>` in `text`, allowing any whitespace between label words.
+
+    The search anchors on the literal `<href>` and matches the label backwards from
+    it, so the work stays linear in the text. A hostile email cannot force quadratic
+    regex backtracking with a long repetitive label.
+    """
+    words = label.split()
+    if len(label) > _MAX_ANGLE_LABEL_LENGTH or not words:
+        return None
+    target = f"<{href}>"
+    index = text.find(target)
+    while index != -1:
+        start = _match_label_before(text, words, index)
+        end = index + len(target)
+        if start is not None and not any(start < link.end and link.start < end for link in folded):
+            return _FoldedAngleLink(start=start, end=end, markdown=f"[{label}]({_md_safe_href(href)})")
+        index = text.find(target, index + 1)
+    return None
+
+
+def _match_label_before(text: str, words: list[str], end: int) -> int | None:
+    """Return where `words` start if they end at `end`, separated by whitespace."""
+    position = end
+    while position > 0 and text[position - 1].isspace():
+        position -= 1
+    for word_index, word in enumerate(reversed(words)):
+        if word_index > 0:
+            if position == 0 or not text[position - 1].isspace():
+                return None
+            while position > 0 and text[position - 1].isspace():
+                position -= 1
+        if position < len(word) or not text.startswith(word, position - len(word)):
+            return None
+        position -= len(word)
+    return position

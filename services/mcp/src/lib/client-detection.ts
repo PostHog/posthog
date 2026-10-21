@@ -115,12 +115,13 @@ export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as cons
 //   the full roster serves it better than the exec wrapper. Some older Cursor
 //   builds omit `clientInfo.name` and are only identifiable by their
 //   `Cursor/x.y.z (...)` User-Agent, hence the UA fragment too.
-// - ChatGPT connects through OpenAI's shared `openai-mcp` client whose
-//   `clientInfo.name` is generic; the surface only shows up in the User-Agent
-//   parenthetical (`openai-mcp/1.0.0 (ChatGPT)`). Other openai-mcp surfaces
-//   (Codex, Agent Builder, Responses API) stay on the CLI default.
-export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor', 'chatgpt'] as const
-export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor', 'chatgpt'] as const
+// - Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) stays
+//   on the CLI default. OpenAI's shared `openai-mcp` client caches the roster it
+//   captures for a published plugin and serves that snapshot to every user, so
+//   the plugin listing pins its mode explicitly with `?mode=` instead of relying
+//   on a User-Agent label that only some of its requests carry.
+export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor'] as const
+export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor'] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
@@ -184,19 +185,16 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 // would misclassify Claude Code as a UI host.
 export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai', 'cowork'] as const
 
-// Claude web/desktop report `supportsInstructions` but never surface the
-// `instructions` payload to the model, so their env-context rides on the exec
-// command description instead (`keepEnvContext`). Cowork surfaces instructions
-// normally and gets env-context through them, so it is not a chat host even
-// though it is a UI host.
+// Claude web/desktop never show `instructions` to the model. Cowork does, so it
+// is not a chat host even though it is a UI host.
 export const ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
 
-// Anthropic coding-agent surfaces that render MCP UI apps inline through the
-// single-exec `exec` tool. `ClaudeCode` and `Cowork` render UI apps on the exec
-// response itself (`ClaudeAI` uses the separate `render-ui` tool instead;
-// `Cowork` supports both), so they get the same treatment as the PostHog Desktop
-// consumer.
-export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode', 'cowork'] as const
+// Anthropic surfaces that render MCP UI apps on the `exec` response itself, so they
+// get the same treatment as the PostHog Desktop consumer. `Cowork` is not one: Claude
+// desktop chat reports `Cowork` and mounts an iframe only for a tool that declares
+// `_meta.ui.resourceUri` on `tools/list`, which `exec` does not. It renders through
+// `render-ui`, like `ClaudeAI`.
+export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
@@ -270,9 +268,9 @@ export class MCPClientProfile {
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
-        // the self-reported `clientInfo.name` and the User-Agent (ChatGPT's
-        // surface only appears in the UA parenthetical); never on the vendor
-        // header, so Anthropic pooled transports can't land in tools mode.
+        // the self-reported `clientInfo.name` and the User-Agent (older Cursor
+        // builds identify only through the UA); never on the vendor header, so
+        // Anthropic pooled transports can't land in tools mode.
         return (
             matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
             matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
@@ -299,8 +297,12 @@ export class MCPClientProfile {
         // `clientInfo.name`. Unlike `isClaudeUiHost`, matching the pooled name here
         // is safe and intended: every Anthropic product belongs in CLI mode, so
         // there is nothing to misclassify.
+        return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
+    }
+
+    isAnthropicConnector(): boolean {
+        // The connector omits `x-anthropic-client` on `tools/list` and sends it on the call, so this must not read it.
         return (
-            matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
             matchesAnyFragment(this.userAgent, ANTHROPIC_USER_AGENT_FRAGMENTS) ||
             normalizeClientName(this.clientName ?? '').startsWith('anthropic')
         )
@@ -331,12 +333,11 @@ export class MCPClientProfile {
     }
 
     isInlineExecUiHost(): boolean {
-        // Anthropic coding-agent surfaces that render MCP UI apps inline through the
-        // single-exec `exec` tool (Claude Code, Cowork) — Claude.ai web/desktop
-        // renders via the separate `render-ui` tool instead (Cowork supports both).
-        // Like PostHog Desktop, these hosts surface `structuredContent` to the model, so
+        // Claude Code renders MCP UI apps inline on the single-exec `exec` tool, while
+        // Claude.ai and Cowork render through the separate `render-ui` tool.
+        // Like PostHog Desktop, Claude Code surfaces `structuredContent` to the model, so
         // the exec UI-app branch suppresses it and re-homes the app data onto `_meta`.
-        // The per-request vendor header (`ClaudeCode` / `Cowork`) is the reliable signal.
+        // The per-request vendor header (`ClaudeCode`) is the reliable signal.
         return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
     }
 

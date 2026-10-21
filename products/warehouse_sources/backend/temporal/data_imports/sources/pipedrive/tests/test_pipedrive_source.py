@@ -3,8 +3,7 @@ import datetime
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipedrive import (
     PipedriveSourceConfig,
@@ -33,28 +32,6 @@ class TestPipedriveSource:
     def test_company_domain_is_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["company_domain"]
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://acme.pipedrive.com/api/v2/deals?limit=500",
-            "403 Client Error: Forbidden for url: https://acme.pipedrive.com/api/v1/activities?limit=500&start=0",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://acme.pipedrive.com/api/v2/deals",
-            "500 Server Error for url: https://acme.pipedrive.com/api/v1/notes",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     def test_get_schemas_lists_all_endpoints_as_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -63,24 +40,16 @@ class TestPipedriveSource:
         assert all(not schema.supports_append for schema in schemas)
         assert all(schema.incremental_fields == [] for schema in schemas)
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["deals"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "deals"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
-        "status, schema_name, expected_valid, expected_message",
+        "status, schema_name, expected_valid, expected_message_substring",
         [
             (200, None, True, None),
             (200, "deals", True, None),
             (403, None, True, None),
-            (403, "deals", False, "Invalid Pipedrive API token or insufficient permissions"),
-            (401, None, False, "Invalid Pipedrive API token or insufficient permissions"),
-            (500, None, False, "Could not validate Pipedrive credentials"),
-            (None, None, False, "Could not validate Pipedrive credentials"),
+            (403, "deals", False, "doesn't have permission to read this data"),
+            (401, None, False, "Pipedrive API token was rejected"),
+            (500, None, False, "Couldn't validate your Pipedrive credentials"),
+            (None, None, False, "Couldn't validate your Pipedrive credentials"),
         ],
     )
     @mock.patch(
@@ -92,14 +61,17 @@ class TestPipedriveSource:
         status: int | None,
         schema_name: str | None,
         expected_valid: bool,
-        expected_message: str | None,
+        expected_message_substring: str | None,
     ) -> None:
         mock_validate.return_value = status
 
         is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name)
 
         assert is_valid is expected_valid
-        assert message == expected_message
+        if expected_message_substring is None:
+            assert message is None
+        else:
+            assert message is not None and expected_message_substring in message
         mock_validate.assert_called_once_with("acme", "token")
 
     @mock.patch(

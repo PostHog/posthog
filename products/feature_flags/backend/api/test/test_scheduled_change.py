@@ -55,6 +55,69 @@ class TestScheduledChange(APIBaseTest):
         assert response_data["created_by"]["id"] == self.user.id
         assert response_data["change_request"] is None
 
+    def test_v1_merge_operations_are_rejected_for_a_target_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        base = {"record_id": str(flag.id), "model_name": "FeatureFlag", "scheduled_at": "2030-01-01T00:00:00Z"}
+
+        merges: list[tuple[str, dict]] = [
+            ("add_release_condition", {"groups": []}),
+            ("update_variants", {"variants": []}),
+        ]
+        for operation, value in merges:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                data={**base, "payload": {"operation": operation, "value": value}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert (response.json()["code"], response.json()["attr"]) == ("unsupported_config_version", "payload")
+        assert not ScheduledChange.objects.filter(record_id=str(flag.id)).exists()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={**base, "payload": {"operation": "update_status", "value": True}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        schedule_url = f"/api/projects/{self.team.id}/scheduled_changes/{response.json()['id']}/"
+
+        response = self.client.patch(schedule_url, data={"scheduled_at": "2030-02-01T00:00:00Z"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        response = self.client.patch(
+            schedule_url,
+            data={"payload": {"operation": "add_release_condition", "value": {"groups": []}}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "unsupported_config_version"
+
+    @parameterized.expand(
+        [("null_groups", {"operation": "add_release_condition", "value": {"groups": None}}), ("list", [])]
+    )
+    def test_a_v1_target_leaves_payload_shape_errors_to_the_applier(self, _name, payload):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="v1", filters={"groups": [{"properties": []}]}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(flag.id),
+                "model_name": "FeatureFlag",
+                "scheduled_at": "2030-01-01T00:00:00Z",
+                "payload": payload,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     def test_cannot_create_scheduled_change_without_feature_flag_edit_permission(self):
         """Test that users without edit permissions cannot create scheduled changes for feature flags"""
         # Create a feature flag
@@ -330,6 +393,40 @@ class TestScheduledChange(APIBaseTest):
         result = response_data["results"][0]
         assert result["is_recurring"] is True
         assert result["recurrence_interval"] == "monthly"
+
+    def test_paged_list_walks_every_schedule_in_scheduled_at_order(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="paged-flag", name="Paged Flag"
+        )
+
+        def make_schedule(schedule_id: int, scheduled_at: str) -> None:
+            ScheduledChange.objects.create(
+                id=schedule_id,
+                team=self.team,
+                record_id=feature_flag.id,
+                model_name="FeatureFlag",
+                payload={"operation": "update_status", "value": False},
+                scheduled_at=scheduled_at,
+                created_by=self.user,
+            )
+
+        # Insert in the exact reverse of the order the endpoint owes, with explicit descending ids,
+        # so neither sort term agrees with insertion order. Dropping scheduled_at reverses the pairs
+        # and dropping the id tie-breaker reverses within a pair, so both show up as a bad walk.
+        earlier, later = "2024-03-01T09:00:00Z", "2024-03-02T09:00:00Z"
+        for schedule_id, scheduled_at in ((9004, later), (9003, later), (9002, earlier), (9001, earlier)):
+            make_schedule(schedule_id, scheduled_at)
+
+        paged_ids = []
+        for offset in (0, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                data={"record_id": str(feature_flag.id), "limit": 2, "offset": offset},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [9001, 9002, 9003, 9004]
 
     def test_cannot_update_record_id(self):
         """Updating record_id is rejected to prevent cross-tenant manipulation."""

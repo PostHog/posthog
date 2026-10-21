@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 import unittest
@@ -13,6 +13,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
@@ -20,7 +21,8 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
-from posthog.models.filters.filter import Filter
+from posthog.models.property import PropertyGroup
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -59,7 +61,7 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def execute(filter: Filter, team: Team):
+def execute(filter: PropertyGroup, team: Team):
     # Ensure tables are fully merged before reading membership. ClickHouse's eventual
     # consistency (CollapsingMergeTree and other MergeTree variants) means cohortpeople /
     # person / events may not be fully merged immediately after the test writes.
@@ -67,9 +69,18 @@ def execute(filter: Filter, team: Team):
     sync_execute("OPTIMIZE TABLE person FINAL")
     sync_execute("OPTIMIZE TABLE sharded_events FINAL")
 
-    cohort_query = CohortQuery(filter=filter, team=team)
+    cohort_query = CohortQuery(property_groups=filter, team=team)
     assert ["id"] == cohort_query.hogql_result.columns
     return cohort_query.hogql_result.results
+
+
+def _properties(data: dict, team: Optional[Team] = None) -> PropertyGroup:
+    """Parse a legacy insight-filter dict down to the property group CohortQuery takes.
+
+    A team expands cohort properties, as a team-bound filter used to.
+    """
+    parsed = parse_property_group_data(data.get("properties"))
+    return expand_cohort_properties(parsed, team) if team else parsed
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
@@ -197,7 +208,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         }
 
-        filter = Filter(data=data)
+        filter = _properties(data=data)
 
         res = execute(filter, self.team)
 
@@ -214,7 +225,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        filter = Filter(data=data)
+        filter = _properties(data=data)
 
         res = execute(filter, self.team)
 
@@ -249,7 +260,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -298,7 +309,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -358,7 +369,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events()
 
-            filter = Filter(
+            filter = _properties(
                 data={
                     "properties": {
                         "type": "AND",
@@ -433,7 +444,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
             flush_persons_and_events()
 
-            filter = Filter(
+            filter = _properties(
                 data={
                     "properties": {
                         "type": "AND",
@@ -491,7 +502,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -558,7 +569,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -627,7 +638,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -699,7 +710,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -734,7 +745,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert {p1.uuid, p2.uuid, p3.uuid} == {r[0] for r in res}
 
     def test_performed_event_zero_times_(self):
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -754,7 +765,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
         with pytest.raises(ValueError):
-            CohortQuery(filter=filter, team=self.team).get_query()
+            CohortQuery(property_groups=filter, team=self.team).get_query()
 
     def test_stopped_performing_event(self):
         p1 = _create_person(
@@ -784,7 +795,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -874,7 +885,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -930,7 +941,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             distinct_id="p2",
             timestamp=datetime.now() - timedelta(days=4),
         )
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -987,7 +998,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1063,7 +1074,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
             flush_persons_and_events()
 
-            filter = Filter(
+            filter = _properties(
                 data={
                     "properties": {
                         "type": "AND",
@@ -1097,7 +1108,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Filter for:
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [3] of the last [3] periods
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1135,7 +1146,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Filter for:
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [3] of the last [3] periods
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1209,7 +1220,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     ],
                 }
             }
-            filter = Filter(data=data)
+            filter = _properties(data=data)
 
             res = execute(filter, self.team)
             assert sorted([p1.uuid, p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
@@ -1243,7 +1254,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Filter for:
         # Regularly completed [$pageview] [at least] [2] times per
         # [3][day] period for at least [2] of the last [3] periods
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1272,7 +1283,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Filter for:
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [2] of the last [3] periods
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1320,7 +1331,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             properties={"name": "test3", "email": "test4@posthog.com"},
         )
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -1430,7 +1441,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1496,7 +1507,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             distinct_ids=["p1"],
             properties={"name": "test", "$sample_field": "test@posthog.com"},
         )
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -1552,7 +1563,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1572,7 +1583,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         with pytest.raises(ValidationError):
-            CohortQuery(filter=filter, team=self.team)
+            CohortQuery(property_groups=filter, team=self.team)
 
     def test_negation_with_simplify_filters(self):
         _create_person(
@@ -1615,7 +1626,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1721,7 +1732,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1857,7 +1868,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -1906,7 +1917,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2043,7 +2054,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -2079,7 +2090,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -2129,7 +2140,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2158,7 +2169,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # verifies membership, not result cardinality.
         assert {p2.uuid} == {r[0] for r in res}
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -2245,7 +2256,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2283,7 +2294,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         cohort.insert_users_by_list(["p1"])
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -2319,7 +2330,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         cohort.insert_users_by_list(["p1", "p2"])
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2342,7 +2353,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p2.uuid] == [r[0] for r in res]
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -2366,7 +2377,18 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
-    def test_performed_event_sequence(self):
+    @parameterized.expand(
+        [
+            ("time_value", {"time_interval": "day", "time_value": 7}, True),
+            ("explicit_datetime", {"explicit_datetime": "-7d"}, True),
+            (
+                "explicit_datetime_range_before_sequence",
+                {"explicit_datetime": "-7d", "explicit_datetime_to": "-4d"},
+                False,
+            ),
+        ]
+    )
+    def test_performed_event_sequence(self, _name: str, time_bound: dict[str, Any], p1_matches: bool) -> None:
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
@@ -2390,7 +2412,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2398,8 +2420,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
+                            **time_bound,
                             "seq_time_interval": "day",
                             "seq_time_value": 3,
                             "seq_event": "$pageview",
@@ -2414,7 +2435,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         res = execute(filter, self.team)
 
-        assert [p1.uuid] == [r[0] for r in res]
+        assert ([p1.uuid] if p1_matches else []) == [r[0] for r in res]
 
     @also_test_with_materialized_columns(event_properties=["$current_url"])
     def test_performed_event_sequence_with_action(self):
@@ -2459,7 +2480,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2516,7 +2537,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -2592,7 +2613,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2694,7 +2715,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
             flush_persons_and_events()
 
-            filter = Filter(
+            filter = _properties(
                 data={
                     "properties": {
                         "type": "AND",
@@ -2783,7 +2804,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "AND",
@@ -2860,7 +2881,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             )
             flush_persons_and_events()
 
-            filter = Filter(
+            filter = _properties(
                 data={
                     "properties": {
                         "type": "OR",
@@ -2966,7 +2987,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -3098,7 +3119,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -3251,7 +3272,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -3353,7 +3374,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         # "Application Opened" gte 2 times per 1 year for at least 2 of the last 2 years
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -3435,7 +3456,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         # Create filter using the cohort
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -3496,7 +3517,7 @@ class TestCohortNegationValidation(BaseTest):
             },
         )
 
-        filter = Filter(
+        filter = _properties(
             data={
                 "properties": {
                     "type": "OR",
@@ -3572,14 +3593,14 @@ class TestCohortNegationValidation(BaseTest):
         }
 
         cohort_query1 = CohortQuery(
-            filter=Filter(
+            property_groups=_properties(
                 data=filter_data,
                 team=self.team,
             ),
             team=self.team,
         )
         cohort_query2 = CohortQuery(
-            filter=Filter(
+            property_groups=_properties(
                 data=filter_data,
                 team=other_team,
             ),

@@ -62,18 +62,16 @@ BASIC_TEXT = lambda text: {
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
     def _create_notebook_with_content(self, inner_content: list[dict[str, Any]], title: str = "the title") -> str:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/notebooks",
-            data={
-                "title": title,
-                "content": {
-                    "type": "doc",
-                    "content": inner_content,
-                },
-            },
+        # Seeded through the ORM because the create endpoint stores every notebook as markdown, and the contains
+        # filter under test matches rich-text nodes only.
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title=title,
+            content={"type": "doc", "content": inner_content},
+            created_by=self.user,
+            last_modified_by=self.user,
         )
-        assert response.status_code == status.HTTP_201_CREATED
-        return response.json()["id"]
+        return str(notebook.id)
 
     @parameterized.expand(
         [

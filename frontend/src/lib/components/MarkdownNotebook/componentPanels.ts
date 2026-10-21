@@ -65,7 +65,10 @@ export function withPersistedComponentPanelProps(
 
     return {
         ...node,
-        props: getComponentPropsWithPanelVisibility(node.props, panels),
+        props: getComponentPropsWithPanelVisibility(
+            definition?.persistNodeId ? { nodeId: node.id, ...node.props } : node.props,
+            panels
+        ),
     }
 }
 

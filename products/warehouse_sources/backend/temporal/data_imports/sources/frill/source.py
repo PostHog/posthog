@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FrillSource(ResumableSource[FrillSourceConfig, FrillResumeConfig]):
+    codebase_detection = detect(script_hosts=("widget.frill.co",), npm=("@frillco/script",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.frill.co/api/reference"
 
@@ -42,10 +43,10 @@ class FrillSource(ResumableSource[FrillSourceConfig, FrillResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FRILL,
+            name=ExternalDataSourceType.FRILL,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Frill",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Frill API key to sync your Frill ideas, votes, comments, and announcements into the PostHog Data warehouse.
 
 Find your API key under **Settings → Company** in your [Frill dashboard](https://app.frill.co/settings/company).""",

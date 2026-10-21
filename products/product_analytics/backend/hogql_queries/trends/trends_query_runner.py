@@ -1,7 +1,7 @@
-import threading
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from functools import cached_property, partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -21,7 +21,6 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CompareItem,
-    DashboardFilter,
     DataWarehouseEventsModifier,
     DataWarehouseNode,
     DayItem,
@@ -44,7 +43,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -53,8 +52,7 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -65,16 +63,20 @@ from posthog.hogql_queries.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.utils.utils import get_response_hogql
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    validate_series_fan_out,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
@@ -87,6 +89,7 @@ from products.product_analytics.backend.hogql_queries.trends.series_with_extras 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
 from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
@@ -98,6 +101,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
+    hogql_settings: HogQLGlobalSettings | None
 
     def __init__(
         self,
@@ -107,6 +111,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         user: Optional[User] = None,
+        *,
+        workload: Workload = Workload.DEFAULT,
+        hogql_settings: Optional[HogQLGlobalSettings] = None,
+        ch_user: ClickHouseUser | None = None,
     ):
         from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
@@ -144,11 +152,30 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             else:
                 query.compareFilter.compare = True
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self.hogql_settings = hogql_settings
+        super().__init__(
+            query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            workload=workload,
+            user=user,
+            ch_user=ch_user or ClickHouseUser.DEFAULT,
+        )
 
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+
+    def single_flight_variant(self) -> str:
+        # A caller can pass its own execution time, which does not reach the cache key.
+        variant = super().single_flight_variant()
+        if self.ch_user != ClickHouseUser.DEFAULT:
+            variant = f"{variant}:ch_user={self.ch_user.value}"
+        if self.hogql_settings is not None:
+            variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
+        return variant
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -156,6 +183,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
             DisallowUnsupportedPropertyMathForHistogramBreakdown(),
+            RequirePropertyForPropertyMath(),
             DisallowDaysOfWeekWithSmoothing(),
         )
 
@@ -327,6 +355,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    workload=self.workload,
+                    ch_user=self.ch_user,
+                    settings=self.hogql_settings,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -374,6 +405,33 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def _calculate(self):
+        if self.query.marketingAnalyticsCostFallback is not None:
+            from products.marketing_analytics.backend.facade.queries import (
+                resolve_marketing_cost_trend,  # noqa: PLC0415 - keeps marketing adapters off the startup path
+            )
+
+            date_ranges = [self.query_date_range]
+            if self.query.compareFilter and self.query.compareFilter.compare:
+                date_ranges.append(self.query_previous_date_range)
+            resolved_query = resolve_marketing_cost_trend(
+                query=self.query,
+                team=self.team,
+                date_ranges=date_ranges,
+                get_database=lambda: self.shared_database,
+            )
+            runner = TrendsQueryRunner(
+                query=resolved_query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                workload=self.workload,
+                hogql_settings=self.hogql_settings,
+            )
+            runner._shared_database = self._shared_database
+            return runner.calculate()
+
         queries = self.to_queries()
 
         response_hogql = get_response_hogql(
@@ -390,12 +448,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[QueryTags] = None,
         ):
             try:
-                if query_tags:
-                    query_tagging.update_tags(query_tags)
-
                 series_with_extra = self.series[index]
 
                 response = execute_hogql_query(
@@ -403,6 +457,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    workload=self.workload,
+                    ch_user=self.ch_user,
+                    settings=self.hogql_settings,
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
@@ -426,27 +483,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings_matrix[0] = self.timings.to_list(back_out_stack=False)
             self.timings.clear_timings()
 
-            # This exists so that we're not spawning threads during unit tests. We can't do
-            # this right now due to the lack of multithreaded support of Django
-            if len(queries) == 1 or settings.IN_UNIT_TESTING:
+            # A count of 0 or 1 needs no thread, and an empty series expansion produces 0 queries.
+            # IN_UNIT_TESTING keeps a test class on this path as well, because Django does not make
+            # the test transaction visible to another thread.
+            if len(queries) <= 1 or settings.IN_UNIT_TESTING:
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
-                jobs = [
-                    threading.Thread(
-                        target=run,
-                        args=(
-                            index,
-                            query,
-                            self.timings.clone_for_subquery(index),
-                            True,
-                            query_tagging.get_query_tags().model_copy(deep=True),
-                        ),
-                    )
-                    for index, query in enumerate(queries)
-                ]
-                [j.start() for j in jobs]  # type:ignore
-                [j.join() for j in jobs]  # type:ignore
+                run_in_parallel_threads(
+                    [
+                        partial(run, index, query, self.timings.clone_for_subquery(index), True)
+                        for index, query in enumerate(queries)
+                    ],
+                    thread_name_prefix="trends_series",
+                )
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
@@ -918,6 +968,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def setup_series(self) -> list[SeriesWithExtras]:
+        cohort_breakdown_expands = (
+            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+        )
+        validate_series_fan_out(self.query, cohort_breakdown_expands=cohort_breakdown_expands)
+
         series_with_extras = [
             SeriesWithExtras(
                 series=series,
@@ -929,11 +986,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             for index, series in enumerate(self.query.series)
         ]
 
-        if (
-            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
-            and self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown_type == "cohort"
-        ):
+        if cohort_breakdown_expands and self.query.breakdownFilter is not None:
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, list):
                 cohort_ids = self.query.breakdownFilter.breakdown
@@ -1221,7 +1274,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         breakdown_group_type_index: int | None = None,
     ):
-        if breakdown_type == "hogql" or breakdown_type == "cohort" or breakdown_type == "session":
+        if breakdown_type in ("hogql", "cohort", "session", "element"):
             return False
 
         if breakdown_type == "person":
@@ -1299,17 +1352,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-        if (
-            self.query.compareFilter is not None
-            and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
-        ):
-            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
-            # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.compareFilter.compare = False
+    def _accepts_dashboard_compare_filter(self) -> bool:
+        # These displays have no compare toggle in the insight editor (see `supportsCompare` in insightVizDataLogic)
+        # and do not draw a previous-period series. The world map keeps one series per country, so a comparison
+        # makes it show the previous period's counts.
+        display = self.query.trendsFilter.display if self.query.trendsFilter else None
+        return display not in (
+            ChartDisplayType.WORLD_MAP,
+            ChartDisplayType.CALENDAR_HEATMAP,
+            ChartDisplayType.ACTIONS_PROPORTION_BAR,
+        )
 
     def _format_breakdown_label(self, breakdown_value: Any):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:

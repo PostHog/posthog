@@ -7,6 +7,8 @@ share. Internal-only constants stay in the implementation.
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class CreatedSource(StrEnum):
     """Who authored a check, for review context."""
@@ -63,25 +65,44 @@ class SuiteRunStatus(StrEnum):
 class SuiteRunTrigger(StrEnum):
     """What started a suite run.
 
-    Every automatic trigger is an event on the subject's own data -- a materialization or a source
-    sync completing. Checks have no independent schedule.
+    Automatic runs follow materializations, source syncs, or a subject's schedule.
     """
 
     MANUAL = "manual"
     MATERIALIZATION = "materialization"
     SOURCE_SYNC = "source_sync"
+    SCHEDULED = "scheduled"
 
 
 class SubjectType(StrEnum):
     """Kind of catalog object a check targets.
 
-    On the check itself the subject is a foreign key (``saved_query`` for views, ``table`` for
-    warehouse tables); run history denormalizes it as loose ``(subject_type, subject_uuid, name)``
-    tuples so it outlives hard deletes.
+    On the check itself the subject is a foreign key (``saved_query``, ``table``, or ``metric``), or
+    the name of a PostHog table; run history denormalizes it as loose
+    ``(subject_type, subject_uuid, name)`` tuples so it outlives hard deletes.
     """
 
     TABLE = "table"
     VIEW = "view"
+    METRIC = "metric"
+    POSTHOG_TABLE = "posthog_table"
+
+
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class DataQualityScheduleInterval(LabeledStrEnum):
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    DAILY = "24hour", "24hour"
+    WEEKLY = "7day", "7day"
+
+
+def subject_type_choices() -> dict[str, str]:
+    return {kind.value: kind.value for kind in SubjectType}
+
+
+def suite_run_trigger_choices() -> dict[str, str]:
+    return {trigger.value: trigger.value for trigger in SuiteRunTrigger}
 
 
 class SubjectStatus(StrEnum):
