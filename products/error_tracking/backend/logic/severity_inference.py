@@ -54,13 +54,13 @@ def severity_inference_enabled(team_id: int) -> bool:
 
 def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -> str:
     lines = [stacktrace.rstrip("\n")]
-    handled = _mechanism_handled(event_properties)
+    handled = mechanism_handled(event_properties)
     if handled is not None:
         lines.append(f"Handled by the application: {'yes' if handled else 'no'}")
     level = event_properties.get("$exception_level")
     if isinstance(level, str) and level:
         lines.append(f"Level: {level}")
-    page = _page_without_query(event_properties.get("$current_url"))
+    page = page_without_query(event_properties.get("$current_url"))
     if page:
         lines.append(f"Page: {page}")
     library = event_properties.get("$lib")
@@ -69,7 +69,7 @@ def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -
     return "\n".join(lines)
 
 
-def _mechanism_handled(event_properties: dict[str, object]) -> bool | None:
+def mechanism_handled(event_properties: dict[str, object]) -> bool | None:
     # Same source as cymbal's severity heuristic: the first exception's mechanism, not `$exception_handled`.
     exception_list = event_properties.get("$exception_list")
     if not isinstance(exception_list, list) or not exception_list or not isinstance(exception_list[0], dict):
@@ -79,7 +79,7 @@ def _mechanism_handled(event_properties: dict[str, object]) -> bool | None:
     return handled if isinstance(handled, bool) else None
 
 
-def _page_without_query(current_url: object) -> str | None:
+def page_without_query(current_url: object) -> str | None:
     # URL userinfo, query strings, and fragments can carry secrets or personal data; the path names the feature.
     if not isinstance(current_url, str) or not current_url:
         return None

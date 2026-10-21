@@ -6,6 +6,7 @@ from posthoganalytics import capture_exception
 
 from posthog.models.scoping import with_team_scope
 
+from products.error_tracking.backend.logic import issue_summaries
 from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 
@@ -86,3 +87,13 @@ def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[d
     from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
 
     start_alert_delivery_workflows([AlertDeliveryWorkflowInputs(**notification) for notification in notifications])
+
+
+@shared_task(
+    name="products.error_tracking.backend.tasks.generate_error_tracking_issue_summary",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def generate_error_tracking_issue_summary(team_id: int, issue_id: str) -> None:
+    issue_summaries.get_or_generate_issue_summary(team_id, issue_id)
