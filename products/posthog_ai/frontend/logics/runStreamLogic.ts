@@ -4179,7 +4179,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.setRunOpening(false)
                         actions.bootstrapReplayComplete()
                     } else {
-                        startHistoryPrefetch(session)
+                        if (!session.committedCursor) {
+                            startHistoryPrefetch(session)
+                        }
                         actions.openSseForRun({ taskId, runId, startLatest: false })
                     }
                 } catch (error) {
