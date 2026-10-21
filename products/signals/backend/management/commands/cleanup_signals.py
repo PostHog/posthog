@@ -8,7 +8,12 @@ from posthog.models import Team
 
 from products.error_tracking.backend.embedding import PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignmentRevision,
+    SignalReportRefund,
+)
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
@@ -76,6 +81,7 @@ class Command(BaseCommand):
         artefact_count = SignalReportArtefact.objects.filter(team=team).count()
         report_count = len(report_workflow_info)
 
+        SignalReportAssignmentRevision.objects.for_team(team.id).delete()
         self.stdout.write(f"Deleting {artefact_count} SignalReportArtefacts...")
         SignalReportArtefact.objects.filter(team=team).delete()
 

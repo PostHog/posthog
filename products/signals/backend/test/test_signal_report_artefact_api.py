@@ -730,6 +730,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert deletion.status_code == status.HTTP_400_BAD_REQUEST
         assert "assignment decision" in deletion.json()["error"]
 
+        edit = self.client.patch(
+            self._detail_url(str(report.id), response.json()["id"]), {"content": []}, format="json"
+        )
+        assert edit.status_code == status.HTTP_400_BAD_REQUEST
+        assert "assignment decision" in edit.json()["error"]
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
+
     def test_put_user_uuid_not_in_org_returns_400(self):
         # Random UUID not tied to anyone in this org.
         report = self._create_report()

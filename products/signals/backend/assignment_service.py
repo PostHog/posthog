@@ -11,8 +11,10 @@ from django.db.models import QuerySet
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     AssignedPerson,
@@ -24,7 +26,10 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.assignment_flags import assignment_agent_selection_enabled
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignmentRevision
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.resolve_reviewers import (
+    get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
+)
 
 
 class AssignmentWriteError(ValueError):
@@ -225,23 +230,33 @@ class ReportAssignmentService:
         wanted.update(str(member) for member in selection.pr_reviewers)
         if selection.pr_owner:
             wanted.add(str(selection.pr_owner))
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user__uuid__in=wanted, user__is_active=True
+        ).select_related("user", "organization")
         eligible = {
-            str(member.uuid): member
-            for member in self.team.all_users_with_access().filter(is_active=True, uuid__in=wanted)
+            str(membership.user.uuid)
+            for membership in memberships
+            if SubjectAccessControl(
+                user=membership.user,
+                team=self.team,
+                org_membership=membership,
+                member=membership,
+            ).has_project_access
         }
-        ineligible = wanted - eligible.keys()
+        ineligible = wanted - eligible
         previous = {person.user_uuid for person in snapshot.selection.people}
         previous.update(str(member) for member in snapshot.selection.pr_reviewers)
         if snapshot.selection.pr_owner:
             previous.add(str(snapshot.selection.pr_owner))
         if ineligible - previous:
             raise AssignmentWriteError("An assignee no longer has project access. Refresh the member list.")
+        logins = get_org_member_github_logins_by_user_uuid(
+            self.team.id, [person.user_uuid for person in selection.people if person.user_uuid in eligible]
+        )
         people: list[AssignedPerson] = []
         for person in selection.people:
-            member = eligible.get(person.user_uuid)
-            if member is not None:
-                login = member.get_github_login()
-                people.append(person.model_copy(update={"github_login": login.lower() if login else None}))
+            if person.user_uuid in eligible:
+                people.append(person.model_copy(update={"github_login": logins.get(person.user_uuid)}))
         return EligibleAssignment(
             selection=selection.model_copy(
                 update={

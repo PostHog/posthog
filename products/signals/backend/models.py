@@ -2101,6 +2101,13 @@ class SignalReportArtefact(UUIDModel):
             raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
         if self.type == self.ArtefactType.ASSIGNMENT_DECISION:
             raise ArtefactContentValidationError("Apply a new assignment decision instead of editing one.")
+        if (
+            self.type == self.ArtefactType.SUGGESTED_REVIEWERS
+            and SignalReportAssignmentRevision.objects.for_team(self.team_id).filter(reviewers_artefact=self).exists()
+        ):
+            raise ArtefactContentValidationError(
+                "This reviewer list records an assignment decision. Edit the report's reviewers to change it."
+            )
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.

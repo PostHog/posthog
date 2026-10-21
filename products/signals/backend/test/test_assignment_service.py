@@ -4,7 +4,9 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -15,6 +17,7 @@ from posthog.models import OrganizationMembership, User
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
+    ArtefactContentValidationError,
     AssignedPerson,
     AssignmentSelection,
     SuggestedReviewerEntry,
@@ -74,10 +77,16 @@ class TestReportAssignmentService(BaseTest):
         proposal = self._proposal()
         with self.captureOnCommitCallbacks(execute=False) as callbacks:
             first = self.service.apply(proposal, actor=ArtefactAttribution.system())
+            with self.assertRaises(ArtefactContentValidationError):
+                first.reviewers_artefact.update_content([])
             second = self.service.apply(proposal, actor=ArtefactAttribution.system())
         assert second.replayed
         assert first.decision == second.decision
         assert first.reviewers_artefact.id == second.reviewers_artefact.id
+        assert [
+            reviewer.model_dump()
+            for reviewer in SuggestedReviewers.model_validate_json(second.reviewers_artefact.content).root
+        ] == [person.model_dump() for person in first.decision.selection.people]
         assert self.report.assignment_revisions.count() == 1
         assert callbacks == []
         assert list(
@@ -179,6 +188,49 @@ class TestReportAssignmentService(BaseTest):
         with self.assertRaises(AssignmentWriteError):
             self.service.apply(self._proposal(), actor=ArtefactAttribution.system())
         assert self.report.assignment_revisions.count() == 0
+
+    @parameterized.expand([(1,), (3,)])
+    def test_member_resolution_scopes_access_and_batches_github_queries(self, member_count: int) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+        members = [self.member]
+        for index in range(member_count - 1):
+            member = User.objects.create(email=f"assignment-member-{index}@example.com")
+            OrganizationMembership.objects.create(user=member, organization=self.organization)
+            members.append(member)
+        UserSocialAuth.objects.create(
+            user=self.member, provider="github", uid="assignment-member", extra_data={"login": "example-reviewer"}
+        )
+        proposal = self._proposal(
+            selection=AssignmentSelection(
+                people=tuple(AssignedPerson(user_uuid=str(member.uuid)) for member in members)
+            )
+        )
+        with CaptureQueriesContext(connection) as queries:
+            result = self.service.apply(proposal, actor=ArtefactAttribution.system())
+
+        assert [person.github_login for person in result.decision.selection.people] == ["example-reviewer"] + [None] * (
+            member_count - 1
+        )
+        membership_queries = [
+            query["sql"] for query in queries if 'FROM "posthog_organizationmembership"' in query["sql"]
+        ]
+        assert membership_queries
+        assert all('"uuid"' in query.partition(" WHERE ")[2] for query in membership_queries)
+        identity_tables = ("posthog_user_integration", "social_auth_usersocialauth", "posthog_integration")
+        identity_queries = [
+            query for query in queries if any(f'FROM "{table}"' in query["sql"] for table in identity_tables)
+        ]
+        assert len(identity_queries) == 3
 
     @parameterized.expand([("automatic",), ("human",)])
     def test_github_login_cannot_override_member_identity(self, source: str) -> None:
