@@ -443,6 +443,7 @@ from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
 from .fieldpulse.source import FieldpulseSource
 from .fieldwire.source import FieldwireSource
+from .file_upload.source import FileUploadSource
 from .filevine.source import FilevineSource
 from .fillout.source import FilloutSource
 from .finage.source import FinageSource

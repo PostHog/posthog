@@ -98,6 +98,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Dynamics365": "no-request",
     "DynamoDB": "schemas",
     "Elasticsearch": "schemas",
+    "FileUpload": "no-request",
     "Firebase": "schemas",
     "Framer": "no-request",
     "GcpCloudBilling": "no-request",
