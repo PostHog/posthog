@@ -130,6 +130,7 @@ describe('API request timing', () => {
 
         it('rejects the preceding auth response when a successful retry reuses its request ID', () => {
             entries = [resource()]
+            recorder.startFetch()
             now = 500
             recorder.startFetch()
             now = 600
@@ -144,6 +145,7 @@ describe('API request timing', () => {
             expect(timing.time_to_headers_ms).toBe(590)
             expect(timing.resource_timing_status).toBe('invalid')
             expect(timing.resource_ttfb_ms).toBeUndefined()
+            expect(timing.fetch_attempts).toBe(2)
         })
     })
 

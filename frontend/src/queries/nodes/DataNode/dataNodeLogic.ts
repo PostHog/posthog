@@ -34,6 +34,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
+import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -1118,7 +1119,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const abortController = new AbortController()
                     cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
                     const requestTimings: ApiRequestTiming[] = []
-                    let polled = false
                     const methodOptions: ApiMethodOptions = {
                         signal: abortController.signal,
                         onRequestTiming: (timing) => requestTimings.push(timing),
@@ -1143,21 +1143,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             methodOptions,
                                             refresh,
                                             queryId,
-                                            (status) => {
-                                                polled = true
-                                                actions.setPollResponse(status)
-                                            },
+                                            actions.setPollResponse,
                                             props.filtersOverride,
                                             props.variablesOverride,
                                             pollOnly,
                                             props.limitContext
                                         )) ?? null
                                     const duration = performance.now() - now
-                                    // Polling and retries add browser-side waits that are not transfer time
-                                    const serverDurationMs =
-                                        !polled && requestTimings.length === 1
-                                            ? (requestTimings[0].envoy_upstream_ms ?? null)
-                                            : null
+                                    const serverDurationMs = getSingleRequestServerMs(requestTimings, duration)
                                     return { data, duration, serverDurationMs }
                                 } catch (error: any) {
                                     const duration = performance.now() - now
