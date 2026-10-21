@@ -75682,15 +75682,13 @@ export namespace Schemas {
     export interface ReviewerControlResponse {
       /** Pass this state unchanged with the next automatic reviewer proposal. */
       state: ReviewerState;
-      /** Who controls the complete reviewer list.
+      /** A human edit permanently protects the complete list. Before any human edit, background updates are allowed.
        *
        * * `human` - Human
        * * `automatic` - Automatic */
       control: ReviewerControlModeEnum;
       /** Whether this report uses the protected writer. */
       enabled: boolean;
-      /** Whether automatic reviewer writes are enabled. */
-      automatic_enabled: boolean;
       /** Recipient validation results from the latest write attempt. */
       issues: ReviewerIssue[];
       /**

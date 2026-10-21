@@ -1288,10 +1288,10 @@ class ReviewerIssueSerializer(serializers.Serializer):
 class ReviewerControlResponseSerializer(serializers.Serializer):
     state = ReviewerStateSerializer(help_text="Pass this state unchanged with the next automatic reviewer proposal.")
     control = serializers.ChoiceField(
-        choices=ReviewerControlMode.choices, help_text="Who controls the complete reviewer list."
+        choices=ReviewerControlMode.choices,
+        help_text="A human edit permanently protects the complete list. Before any human edit, background updates are allowed.",
     )
     enabled = serializers.BooleanField(help_text="Whether this report uses the protected writer.")
-    automatic_enabled = serializers.BooleanField(help_text="Whether automatic reviewer writes are enabled.")
     issues = ReviewerIssueSerializer(many=True, help_text="Recipient validation results from the latest write attempt.")
     retry_reason = serializers.CharField(allow_null=True, help_text="Why the latest lookup needs a retry.")
 
@@ -1311,7 +1311,6 @@ class ReviewerControlResponseSerializer(serializers.Serializer):
             "state": snapshot.state.model_dump(mode="json"),
             "control": snapshot.control,
             "enabled": instance.enabled or snapshot.state.control_id is not None,
-            "automatic_enabled": instance.enabled,
             "issues": issues,
             "retry_reason": decision.retry_reason if decision else None,
         }
