@@ -19,6 +19,7 @@ from products.data_catalog.backend.facade.api import certifications_for_team, pr
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
@@ -92,7 +93,7 @@ def create_view_in_dag(team: Team, user: User) -> DataWarehouseSavedQuery:
 
 
 def materialize_in_place(view: DataWarehouseSavedQuery) -> DataWarehouseTable:
-    table = DataWarehouseTable.objects.create(team=view.team, name="orders_table", format="Delta")
+    table = DataWarehouseTable.objects.create(team=view.team, name=view.name, format="Delta")
     DataWarehouseSavedQuery.objects.filter(id=view.id).update(is_materialized=True, table=table)
     Node.objects.filter(saved_query=view).update(type=NodeType.MAT_VIEW)
     set_declared_target(Node.objects.get(saved_query=view), timedelta(hours=6))
@@ -234,6 +235,14 @@ class TestAcceptSuggestion(APIBaseTest):
         expect_stopped: bool,
     ) -> None:
         table = materialize_in_place(self.view) if materialized else None
+        view_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=self.view.name,
+            source_table_key="distinct_id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+        )
         draft = make_draft(fingerprint="deprecate:orders", subject_id=self.view.id)
         payload = DeprecatePayload(subject_name="orders", refresh_seconds_per_month=900, refresh_bytes_per_month=10**9)
         suggestion = ingest_surfaced(
@@ -255,6 +264,8 @@ class TestAcceptSuggestion(APIBaseTest):
         if table is not None:
             table.refresh_from_db()
             assert bool(table.deleted) is expect_stopped
+        view_join.refresh_from_db()
+        assert not view_join.deleted
         properties = report.call_args.args[1]
         assert (
             properties["stopped_materialization"],

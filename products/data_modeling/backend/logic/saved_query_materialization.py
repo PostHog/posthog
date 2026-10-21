@@ -95,7 +95,7 @@ def disable_saved_query_materialization(
         raise MaterializationRefusedError(MANAGED_VIEWSET_REVERT_REFUSAL)
     _require_edit_access(saved_query, user)
 
-    saved_query.revert_materialization()
+    saved_query.revert_materialization(delete_joins=False)
     _mark_nodes_ephemeral(saved_query)
     saved_query.refresh_from_db()
     if _still_materializing(saved_query):
