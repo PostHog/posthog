@@ -69,16 +69,27 @@ if (typeof(rawData) == 'string') {
   rawString := jsonStringify(rawData)
 }
 
+// Reserved keys are dropped from the device data rather than overwritten afterwards, because the
+// product fields are only set when Particle filled them (sandbox devices leave them empty).
+let reservedKeys := [
+  '$process_person_profile',
+  'particle_device_id',
+  'particle_event_id',
+  'particle_published_at',
+  'particle_product_id',
+  'particle_firmware_version'
+]
 let properties := {}
 if (typeof(data) == 'object') {
   for (let key, value in data) {
-    properties[key] := value
+    if (not has(reservedKeys, key)) {
+      properties[key] := value
+    }
   }
 } else if (data != null) {
   properties['data'] := data
 }
 
-// Set after the device data so a published key can't overwrite them.
 properties['$process_person_profile'] := false
 properties['particle_device_id'] := deviceId
 properties['particle_event_id'] := request.query.event_id
