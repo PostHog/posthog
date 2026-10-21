@@ -1032,10 +1032,11 @@ class TestRedshiftSourceNonRetryableErrors:
         ],
     )
     def test_mid_stream_connection_drops_are_classified_retryable(self, error_msg):
+        # The retryable/exhausted key-set invariant is covered once, for any error message, by
+        # `test_connect_time_failures_are_classified_retryable` above.
         source = RedshiftSource()
         assert error_message_matches(error_msg, source.get_retryable_errors())
         assert not error_message_matches(error_msg, {**Any_Source_Errors, **source.get_non_retryable_errors()})
-        assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
 
 
 class TestRedshiftValidateCredentials:
