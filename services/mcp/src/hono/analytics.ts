@@ -23,6 +23,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import type { IntentPromptExposure } from './intent-prompt'
 import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -543,7 +544,11 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
     }
 }
 
-export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
+export async function trackToolsList(
+    toolNames: string[],
+    state: ResolvedState,
+    exposure?: IntentPromptExposure
+): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
 
@@ -565,6 +570,7 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
+                ...(!state.isImpersonated && !state.suppressAnalytics ? exposure : {}),
             },
         })
     } catch {
