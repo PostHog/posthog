@@ -286,7 +286,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/': listResponse(TASKS),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: ['PostHog/posthog'] },
                 // nosemgrep: no-environments-api-urls-frontend -- Storybook mock for the shared AI navigation.

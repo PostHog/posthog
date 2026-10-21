@@ -382,7 +382,6 @@ function taskMocks(
     const task = mockTask(run)
     return {
         get: {
-            '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
             '/api/projects/:team_id/tasks/': ({ request }: { request: Request }) => {
                 const results = new URL(request.url).searchParams.get('pinned') ? [] : [task]
                 return [200, { results, count: results.length, next: null, previous: null }]

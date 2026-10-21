@@ -80,7 +80,6 @@ describe('taskTrackerSceneLogic', () => {
         cancelledWarmRuns = []
         useMocks({
             get: {
-                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
@@ -312,16 +311,6 @@ describe('taskTrackerSceneLogic', () => {
             }
         }
     )
-
-    it('loads PostHog Desktop access and exposes it to the task UI', async () => {
-        logic.mount()
-
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.hasDesktopAccess).toBe(true)
-
-        logic.actions.loadDesktopAccessSuccess({ has_access: false, has_loops_access: false })
-        expect(logic.values.hasDesktopAccess).toBe(false)
-    })
 
     it.each(['task', 'run', 'missing_run'] as const)(
         'restores the composer and startup draft when %s creation fails',

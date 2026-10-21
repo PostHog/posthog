@@ -31,20 +31,18 @@ export function TaskPanelSkeleton(): JSX.Element {
     )
 }
 
-/** Skeleton for the title-bar action buttons (Open in PostHog Desktop / View PR / Run). */
+/** Skeleton for the title-bar action buttons (View PR / Run). */
 export function TaskHeaderActionsSkeleton(): JSX.Element {
     const skin = useThreadSkin()
     if (skin === 'quill') {
         return (
             <div data-quill className="flex items-center gap-1">
-                <Skeleton className="hidden h-7 w-44 lg:block" />
                 <Skeleton className="size-7" />
             </div>
         )
     }
     return (
         <div className="flex items-center gap-2">
-            <LemonSkeleton className="h-7 w-40" />
             <LemonSkeleton className="h-7 w-24" />
         </div>
     )
