@@ -7,7 +7,14 @@ import { ToolbarProps } from '~/types'
 
 import { ExtensionPort, extensionFileUrl, onPageToolbarConnect } from './extensionBrowser'
 import { extensionPageToolbarLogic, getPageToolbarState } from './extensionPageToolbarLogic'
-import { PageToolbarMessage, PageToolbarSession, PageToolbarState, isPageToolbarRequest } from './pageToolbarBridge'
+import { PagePosthogBridge, onPagePosthogAppeared, requestPageAnalytics } from './pagePosthogBridge'
+import {
+    PageToolbarMessage,
+    PageToolbarMode,
+    PageToolbarSession,
+    PageToolbarState,
+    isPageToolbarRequest,
+} from './pageToolbarBridge'
 
 const STATE_POST_INTERVAL_MS = 100
 
@@ -19,13 +26,15 @@ function PageToolbarOverlays(): JSX.Element {
         // The toolbar stylesheet scopes its colors to a theme attribute.
         // eslint-disable-next-line react/no-unknown-property
         <div {...{ theme: 'light' }}>
-            <ElementOverlays showHeatmapCanvas={false} />
+            <ElementOverlays showHeatmapCanvas />
         </div>
     )
 }
 
 export class PageToolbarHost {
+    private session: { session: PageToolbarSession; href: string } | null = null
     private uiHost: string | null = null
+    private posthogBridge: PagePosthogBridge | null = null
     private unmountLogics: (() => void) | null = null
     private overlayRoot: Root | null = null
     private ports = new Set<ExtensionPort>()
@@ -33,6 +42,7 @@ export class PageToolbarHost {
     private lastAccessToken: string | null = null
     private postTimeout: ReturnType<typeof setTimeout> | null = null
     private idleTimeout: ReturnType<typeof setTimeout> | null = null
+    private starting: Promise<void> | null = null
 
     constructor(
         private readonly shadowRoot: ShadowRoot,
@@ -41,6 +51,15 @@ export class PageToolbarHost {
 
     listen(): void {
         onPageToolbarConnect((port) => this.addPort(port))
+        // A page that loads posthog-js after the page tools started gets them again with the page's posthog-js.
+        onPagePosthogAppeared(() => {
+            const current = this.session
+            if (this.unmountLogics && !this.posthogBridge && current) {
+                const { mode } = extensionPageToolbarLogic.values
+                this.stop()
+                this.queueStart(current.session, current.href, [...this.ports], mode)
+            }
+        })
     }
 
     private addPort(port: ExtensionPort): void {
@@ -51,13 +70,14 @@ export class PageToolbarHost {
                 return
             }
             if ('tool' in message) {
-                if (this.unmountLogics) {
-                    extensionPageToolbarLogic.actions.handleCommand(message)
-                }
+                void this.starting?.then(() => {
+                    if (this.unmountLogics) {
+                        extensionPageToolbarLogic.actions.handleCommand(message)
+                    }
+                })
                 return
             }
-            this.start(message.session, message.href)
-            this.postFullState(port)
+            this.queueStart(message.session, message.href, [port])
         })
         port.onDisconnect.addListener(() => {
             this.ports.delete(port)
@@ -69,13 +89,33 @@ export class PageToolbarHost {
         })
     }
 
-    private start(session: PageToolbarSession, href: string): void {
+    /** Starts run one after another, so two panels connecting at once can't mount the page tools twice. */
+    private queueStart(
+        session: PageToolbarSession,
+        href: string,
+        ports: ExtensionPort[],
+        mode?: PageToolbarMode
+    ): void {
+        this.starting = (this.starting ?? Promise.resolve())
+            .then(() => this.start(session, href))
+            .then(() => {
+                if (mode && mode !== 'none') {
+                    extensionPageToolbarLogic.actions.setMode(mode)
+                }
+                ports.forEach((port) => this.postFullState(port))
+            })
+    }
+
+    private async start(session: PageToolbarSession, href: string): Promise<void> {
+        this.session = { session, href }
         if (this.unmountLogics && this.uiHost === session.uiHost) {
             toolbarConfigLogic.actions.setOAuthTokens(session.accessToken, session.refreshToken, session.clientId)
             extensionPageToolbarLogic.actions.handleCommand({ tool: 'session', command: { type: 'set-href', href } })
             return
         }
         this.stop()
+        const pageAnalytics = await requestPageAnalytics()
+        this.posthogBridge = pageAnalytics ? new PagePosthogBridge(pageAnalytics) : null
         const props: ToolbarProps = {
             source: 'extension',
             uiHost: session.uiHost,
@@ -83,6 +123,7 @@ export class PageToolbarHost {
             refreshToken: session.refreshToken ?? undefined,
             clientId: session.clientId,
             dataAttributes: session.dataAttributes,
+            posthog: this.posthogBridge?.posthog,
         }
         const unsubscribe = getContext().store.subscribe(() => this.scheduleStatePost())
         const unmountConfig = toolbarConfigLogic(props).mount()
@@ -114,6 +155,7 @@ export class PageToolbarHost {
         this.overlayRoot = null
         this.unmountLogics?.()
         this.unmountLogics = null
+        this.posthogBridge = null
         this.uiHost = null
         this.lastState = null
     }

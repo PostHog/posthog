@@ -107,6 +107,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         heatmapAreaFilter,
         loadingAllElementStats,
         loadAllPagesLoaded,
+        scrollDepthPosthogJsError,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -258,6 +259,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 setHeatmapColorPalette={setHeatmapColorPalette}
                                 heatmapFixedPositionMode={heatmapFixedPositionMode}
                                 setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
+                                scrollDepthPosthogJsError={scrollDepthPosthogJsError}
                             />
 
                             <div className="pt-2 border-t mt-2">

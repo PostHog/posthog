@@ -324,6 +324,7 @@ export function getToolbarExtensionScriptsBuildConfig(dirname) {
         entryPoints: {
             background: 'src/toolbar/extension/background.ts',
             content: 'src/toolbar/extension/content.tsx',
+            'page-agent': 'src/toolbar/extension/pageAgent.ts',
         },
         format: 'iife',
         splitting: false,

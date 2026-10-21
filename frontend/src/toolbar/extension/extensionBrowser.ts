@@ -68,7 +68,13 @@ interface ExtensionBrowserApi {
         }
     }
     scripting: {
-        executeScript: (injection: { target: { tabId: number }; files: string[] }) => Promise<unknown>
+        executeScript: <Args extends unknown[], Result>(injection: {
+            target: { tabId: number }
+            files?: string[]
+            world?: 'ISOLATED' | 'MAIN'
+            func?: (...args: Args) => Result
+            args?: Args
+        }) => Promise<{ result?: Result }[]>
     }
     runtime: {
         onMessage: {
@@ -212,6 +218,13 @@ export function onPageToolbarConnect(handler: (port: ExtensionPort) => void): vo
             handler(port)
         }
     })
+}
+
+const PAGE_AGENT_FILE = 'page-agent.js'
+
+/** Runs the page agent in the page's own world, where it can call the page's posthog-js for the content script. */
+export async function injectPageAgent(tabId: number): Promise<void> {
+    await extensionBrowser.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: [PAGE_AGENT_FILE] })
 }
 
 export async function waitForTabUrl(

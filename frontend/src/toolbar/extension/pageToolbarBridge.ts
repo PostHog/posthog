@@ -1,5 +1,13 @@
+import type {
+    CommonFilters,
+    HeatmapFilters,
+    HeatmapFixedPositionMode,
+    ScrollDepthPosthogJsError,
+} from 'lib/components/heatmaps/types'
+
 import type { ActionStepType } from '~/types'
 
+import type { PageHeatmapCommand } from './extensionPageHeatmapLogic'
 import type { PageInspectCommand, PageSessionCommand } from './extensionPageToolbarLogic'
 
 /**
@@ -10,7 +18,17 @@ import type { PageInspectCommand, PageSessionCommand } from './extensionPageTool
 // pinned: extension port name, the panel and an already injected content script must agree on it
 export const PAGE_TOOLBAR_PORT = 'posthog-toolbar-page'
 
-export type PageToolbarMode = 'none' | 'inspect'
+export type PageToolbarMode = 'none' | 'heatmap' | 'inspect'
+
+/** What the content script reads from the page's posthog-js through the page agent. */
+export interface PageAnalyticsInfo {
+    version: string | null
+    scrollPropertiesDisabled: boolean
+    /** The page's `scroll_root_selector`, which posthog-js measures scroll depth on instead of the window. */
+    scrollRootSelector: string | string[] | null
+    /** Null when the posthog-js version has no heatmaps module. */
+    heatmapsEnabled: boolean | null
+}
 
 export interface PageToolbarTokens {
     accessToken: string
@@ -27,6 +45,7 @@ export interface PageToolbarSession extends PageToolbarTokens {
 export interface PageToolCommands {
     session: PageSessionCommand
     inspect: PageInspectCommand
+    heatmap: PageHeatmapCommand
 }
 
 export type PageToolName = keyof PageToolCommands
@@ -41,18 +60,61 @@ export type PageToolbarRequest = { type: 'start'; session: PageToolbarSession; h
 export interface InspectedElementInfo {
     tagName: string
     actionStep: ActionStepType | null
+    /** Null when the clickmap has no clicks for the element. */
+    stats: {
+        count: number
+        clickCount: number
+        rageclickCount: number
+        deadclickCount: number
+        rank: number
+    } | null
     actions: { id: number; name: string | null }[]
 }
 
 export interface PageToolbarInspectState {
-    /** The hovered or selected element in inspect mode. */
+    /** The hovered or selected element in inspect mode, or an element picked from the clickmap list. */
     element: InspectedElementInfo | null
     isSelected: boolean
 }
 
+export interface PageToolbarHeatmapState {
+    wildcardHref: string
+    autoWildcardEnabled: boolean
+    wildcardHrefTooSpecific: boolean
+    wildcardHrefEndsWithSlash: boolean
+    commonFilters: CommonFilters
+    heatmapFilters: HeatmapFilters
+    heatmapColorPalette: string | null
+    heatmapFixedPositionMode: HeatmapFixedPositionMode
+    viewportRange: { min: number; max: number }
+    rawHeatmapLoading: boolean
+    /** Whether the page's posthog-js collects heatmap data. `unknown` when the page has no `window.posthog`. */
+    heatmapsCollection: 'enabled' | 'disabled' | 'unsupported' | 'unknown'
+    scrollDepthPosthogJsError: ScrollDepthPosthogJsError
+    clickmapsEnabled: boolean
+    clickmapLoading: boolean
+    processingProgress: { processed: number; total: number } | null
+    matchLinksByHref: boolean
+    countedElements: { text: string; tagName: string; count: number }[]
+    clickCount: number
+    canLoadMoreElementStats: boolean
+    loadedElementStatsCount: number
+    loadingAllElementStats: boolean
+    areaSelectionActive: boolean
+    areaFilter: { selector: string | null; tagName: string } | null
+    savingHeatmap: boolean
+    saveProgress: { done: number; total: number } | null
+    saveResult: HeatmapSaveResult | null
+}
+
+export type HeatmapSaveResult =
+    | { status: 'saved'; shortId: string; savedWidths: number; totalWidths: number }
+    | { status: 'failed'; error: string }
+
 export interface PageToolbarState {
     mode: PageToolbarMode
     inspect: PageToolbarInspectState
+    heatmap: PageToolbarHeatmapState
 }
 
 export type PageToolbarMessage =

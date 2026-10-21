@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
 import { ExtensionFeatureList } from './ExtensionFeatureList'
+import { ExtensionHeatmapMenu } from './ExtensionHeatmapMenu'
 import { ExtensionInspectedElement } from './ExtensionInspectedElement'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { PAGE_TOOLS, PageToolDefinition, PageToolMode } from './extensionPageTools'
@@ -29,6 +30,8 @@ function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
                     <ExtensionInspectedElement />
                 </>
             )
+        case 'heatmap':
+            return <ExtensionHeatmapMenu />
     }
 }
 
