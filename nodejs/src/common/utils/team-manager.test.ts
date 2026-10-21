@@ -117,6 +117,20 @@ describe('TeamManager()', () => {
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('does not resolve a numeric token as a team id', async () => {
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // Also once the team is cached by its id
+            expect((await teamManager.getTeam(teamId))?.id).toEqual(teamId)
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+        })
+
+        it('getTeamsByTokens only matches real tokens', async () => {
+            const result = await teamManager.getTeamsByTokens([String(teamId), teamToken])
+            expect(result[String(teamId)]).toBeNull()
+            expect(result[teamToken]?.id).toEqual(teamId)
+        })
+
         it('efficiently loads multiple teams', async () => {
             const promises = [
                 teamManager.getTeam(teamId),
