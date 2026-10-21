@@ -250,9 +250,14 @@ export class SessionBatchRecorder {
     /**
      * Flushes the session recordings to storage and commits Kafka offsets
      *
+     * @param beforeCommit - Runs with the stored sessions after the flush stores the batch and before
+     *   its offsets commit. A crash between the two replays the batch, so this work must be safe to
+     *   repeat. A throw fails the flush, so the callback handles its own errors.
      * @throws If the flush operation fails
      */
-    public async flush(): Promise<SessionBlockMetadata[]> {
+    public async flush(
+        beforeCommit?: (sessions: SessionBlockMetadata[]) => Promise<void>
+    ): Promise<SessionBlockMetadata[]> {
         logger.info('🔁', 'session_batch_recorder_flushing', {
             sessions: this.sessions.size,
             totalSize: this._size,
@@ -383,6 +388,7 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
+            await beforeCommit?.(blockMetadata)
             await this.offsetManager.commit()
 
             // Update metrics

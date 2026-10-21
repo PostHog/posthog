@@ -299,14 +299,15 @@ describe('SessionRecordingIngester', () => {
         ])
     })
 
-    it.each<[string, Partial<SessionRecordingIngesterCollaborators>, unknown[]]>([
+    it.each<[string, Partial<SessionRecordingIngesterCollaborators>, unknown[], string[]]>([
         [
-            'the main lane bills a persisted session',
+            'the main lane bills a persisted session before it stores the offsets',
             {},
             [[[expect.objectContaining({ teamId: 1, usageKey: 'session_replay_recordings', recordId: 'session-1' })]]],
+            ['usage_sent', 'offsets_stored'],
         ],
-        ['the ML mirror lane bills nothing', { reportUsage: false }, []],
-    ])('%s', async (_name, collaborators, expectedIngestCalls) => {
+        ['the ML mirror lane bills nothing', { reportUsage: false }, [], ['offsets_stored']],
+    ])('%s', async (_name, collaborators, expectedIngestCalls, expectedEvents) => {
         createIngester(
             {
                 SESSION_RECORDING_MAX_BATCH_AGE_MS: 0,
@@ -315,15 +316,17 @@ describe('SessionRecordingIngester', () => {
             },
             collaborators
         )
-        const ingest = jest
-            .spyOn(UsageIngestionClient.prototype, 'ingest')
-            .mockImplementation((records) => Promise.resolve(records))
+        const ingest = jest.spyOn(UsageIngestionClient.prototype, 'ingest').mockImplementation((records) => {
+            events.push('usage_sent')
+            return Promise.resolve(records)
+        })
         recordOneSession()
 
         await ingester.handleEachBatch([kafkaMessage(0, 42)])
 
         expect(metadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
         expect(ingest.mock.calls).toEqual(expectedIngestCalls)
+        expect(events).toEqual(expectedEvents)
     })
 
     it('samples the pipeline OK-result messages, not the raw consumed batch', async () => {

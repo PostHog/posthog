@@ -371,12 +371,16 @@ export class SessionRecordingIngester {
         })
         await this.batchLock(async () => {
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
-            const persistedSessions = await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
-                this.currentBatch.flush()
+            // Usage goes out before the offsets commit. A crash after the commit would otherwise lose
+            // the bill of a session that sends no later batch. A replayed batch sends the same record
+            // again, and the usage table removes the duplicate.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.currentBatch.flush((sessions) =>
+                    billPersistedSessions(this.usageBatch, this.sessionTracker, sessions).catch((error) => {
+                        logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
+                    })
+                )
             )
-            await billPersistedSessions(this.usageBatch, this.sessionTracker, persistedSessions).catch((error) => {
-                logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
-            })
             // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
             // Skipped if the flush above threw, so a failed flush records no premature lag sample.
             this.lagReporter.flush()
