@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 
@@ -84,3 +86,22 @@ class TestDestinationDebugLogs(ClickhouseTestMixin, BaseTest):
 
         assert self._remaining() == {(str(function.id), message) for function, _, message, _ in kept}
         assert count_debug_logs(scope, functions).lines == 0
+
+    def test_deletes_from_aux_data_table_when_log_entries_reads_aux(self) -> None:
+        scope = DebugLogScope(before=CUTOFF, team_id=self.team.pk)
+        functions = [(self.team.pk, str(self.segment.id))]
+        cluster = MagicMock()
+        client = MagicMock()
+        cluster.any_host_by_role.side_effect = lambda fn, role: MagicMock(result=lambda: fn(client))
+
+        with (
+            patch("products.cdp.backend.services.destination_debug_logs._log_entries_reads_aux", return_value=True),
+            patch("products.cdp.backend.services.destination_debug_logs.get_migrations_cluster", return_value=cluster),
+        ):
+            delete_debug_logs(scope, functions)
+
+        assert cluster.any_host_by_role.call_args.args[1] == NodeRole.AUX
+        sql, args = client.execute.call_args.args
+        assert sql.startswith("DELETE FROM log_entries_data WHERE")
+        assert args["functions"] == functions
+        assert client.execute.call_args.kwargs["settings"] == {"lightweight_deletes_sync": 0}

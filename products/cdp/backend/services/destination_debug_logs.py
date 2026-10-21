@@ -17,9 +17,10 @@ from typing import Any, Optional
 
 from django.db.models import Q
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.log_entries import LOG_ENTRIES_SHARDED_TABLE, LOG_ENTRIES_TABLE
+from posthog.clickhouse.client.migration_tools import get_migrations_cluster
+from posthog.clickhouse.log_entries import LOG_ENTRIES_DATA_TABLE, LOG_ENTRIES_TABLE
 from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_DATABASE
 
@@ -99,25 +100,29 @@ def count_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]]) -> 
     )
 
 
-def _data_table() -> str:
-    # Production holds the rows in `sharded_log_entries`; the test schema has no such table.
+def _log_entries_reads_aux() -> bool:
+    # Deployed regions read `log_entries` through a Distributed table over `log_entries_data` on
+    # the aux cluster. The test schema keeps the rows in a local `log_entries` MergeTree.
     rows = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s",
-        {"database": CLICKHOUSE_DATABASE, "name": LOG_ENTRIES_SHARDED_TABLE},
+        "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+        {"database": CLICKHOUSE_DATABASE, "name": LOG_ENTRIES_TABLE},
     )
-    return LOG_ENTRIES_SHARDED_TABLE if rows[0][0] else LOG_ENTRIES_TABLE
+    return bool(rows) and rows[0][0] == "Distributed"
 
 
 def delete_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]], wait: bool = False) -> None:
     if not functions:
         return
+    args = _args(scope, functions)
     # Waiting on every replica outlasts the client timeout in production, so it runs asynchronously.
+    delete_settings = {"lightweight_deletes_sync": 2 if wait else 0}
+    if _log_entries_reads_aux():
+        # The aux cluster is a single shard: one host runs the delete and replication carries it.
+        # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
+        sql = f"DELETE FROM {LOG_ENTRIES_DATA_TABLE} WHERE {_predicate()}"
+        get_migrations_cluster().any_host_by_role(
+            lambda client: client.execute(sql, args, settings=delete_settings), NodeRole.AUX
+        ).result()
+        return
     # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
-    sync_execute(
-        f"""
-        DELETE FROM {_data_table()} {ON_CLUSTER_CLAUSE()}
-        WHERE {_predicate()}
-        """,
-        _args(scope, functions),
-        settings={"lightweight_deletes_sync": 2 if wait else 0},
-    )
+    sync_execute(f"DELETE FROM {LOG_ENTRIES_TABLE} WHERE {_predicate()}", args, settings=delete_settings)
