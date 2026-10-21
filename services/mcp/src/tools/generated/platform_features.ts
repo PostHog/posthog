@@ -748,6 +748,7 @@ const organizationGet = (): ToolBase<ReturnType<typeof OrganizationGetSchema>, S
             'teams.*.id',
             'teams.*.name',
             'teams.*.project_id',
+            'teams.*.is_demo',
             'projects.*.id',
             'projects.*.name',
             'available_product_features.*.key',
