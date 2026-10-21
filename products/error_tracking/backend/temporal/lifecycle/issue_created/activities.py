@@ -185,6 +185,9 @@ def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferen
         team = Team.objects.select_related("organization").get(id=inputs.team_id)
     except Team.DoesNotExist:
         return SeverityInferenceSkipReason.TEAM_MISSING
+    # Demo teams hold simulated exceptions, so a model call on them spends budget on fake data.
+    if team.is_demo:
+        return SeverityInferenceSkipReason.DEMO_TEAM
 
     event_properties = fetch_event_properties(team, inputs)
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)
