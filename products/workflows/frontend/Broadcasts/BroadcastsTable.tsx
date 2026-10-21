@@ -64,6 +64,7 @@ export function BroadcastsTable(): JSX.Element {
                             to={urls.broadcast(item.id)}
                             title={item.name || 'Untitled broadcast'}
                             description={item.description}
+                            truncateDescription
                         />
                     )}
                 </div>
