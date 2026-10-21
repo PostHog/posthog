@@ -16,7 +16,6 @@ describe('OnboardingTakeover', () => {
                 stepIndex={0}
                 onStepIndexChange={() => {}}
                 onDismiss={() => {}}
-                onFinish={() => {}}
                 {...props}
             />
         )

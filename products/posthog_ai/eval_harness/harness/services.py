@@ -4,9 +4,11 @@ import os
 import sys
 import json
 import shutil
+import signal
 import hashlib
 import logging
 import zipfile
+import contextlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -30,16 +32,12 @@ LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 _ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 
 
-def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], None]:
+def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
     """Start the LLM gateway as a subprocess.
 
     Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
-    The sandbox's agent-server uses this to proxy LLM calls to Anthropic.
-
-    ``agent_model`` is declared free-tier on this gateway, because the gate it would otherwise hit
-    cannot mean anything here: every case runs as a freshly minted team that has never been billed,
-    so ``check_free_tier_model_access`` sees ``code_usage_billed=False`` and rejects the run's model
-    with a 403 before the agent sends its first message.
+    The sandbox's agent-server uses this to proxy LLM calls to Anthropic, through the
+    ``posthog_ai`` product that eval tasks select with their origin.
     """
     gateway_dir = Path(settings.BASE_DIR) / "services" / "llm-gateway"
     venv_dir = gateway_dir / ".venv"
@@ -73,9 +71,6 @@ def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], No
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",
         "LLM_GATEWAY_POSTHOG_HOST": live_server_url,
-        # Only the model this run uses, so the gate still rejects a typo rather than waving through
-        # anything the agent-server happens to ask for.
-        "LLM_GATEWAY_POSTHOG_CODE_FREE_TIER_MODELS": json.dumps([agent_model]),
     }
 
     logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
@@ -205,19 +200,29 @@ def ensure_personhog_binaries() -> None:
     logger.info(
         "Building personhog binaries (first build can take several minutes; later builds are incremental no-ops)"
     )
-    result = subprocess.run(
+    # Cargo runs in its own process group so a cancel can stop the rustc processes it
+    # starts. A SIGINT to the harness alone stops Cargo and leaves the compilers running.
+    build = subprocess.Popen(
         ["cargo", "build", "-p", "personhog-replica", "-p", "personhog-router"],
         cwd=rust_dir,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
+    )
+    try:
         # The first build compiles the whole dependency tree; only later builds are
         # incremental no-ops. Keep the ceiling well clear of a cold compile.
-        timeout=20 * 60,
-    )
-    if result.returncode != 0:
-        output = (result.stdout or "") + (result.stderr or "")
+        stdout, stderr = build.communicate(timeout=20 * 60)
+    except BaseException:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(build.pid, signal.SIGKILL)
+        build.wait()
+        raise
+    if build.returncode != 0:
+        output = (stdout or "") + (stderr or "")
         tail = "\n".join(output.splitlines()[-30:])
-        raise PreflightError(f"Failed to build personhog binaries (cargo exit {result.returncode}):\n{tail}")
+        raise PreflightError(f"Failed to build personhog binaries (cargo exit {build.returncode}):\n{tail}")
 
 
 def start_personhog() -> Callable[[], None]:

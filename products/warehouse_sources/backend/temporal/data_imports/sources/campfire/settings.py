@@ -192,6 +192,65 @@ CAMPFIRE_ENDPOINTS: dict[str, CampfireEndpointConfig] = {
         incremental_fields=LAST_MODIFIED_AT_FIELD,
         partition_key="created_at",
     ),
+    # Milestones hang off a contract like subscriptions do, but the child listing is paginated.
+    "contract_milestones": CampfireEndpointConfig(
+        name="contract_milestones",
+        path="/rr/api/v1/contracts/{contract_id}/milestones",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+        primary_keys=["contract", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="contracts",
+            resolve_param="contract_id",
+            resolve_field="id",
+            include_from_parent=[],
+            parent_params={"limit": DEFAULT_PAGE_SIZE},
+            child_params={"limit": DEFAULT_PAGE_SIZE},
+        ),
+    ),
+    # Custom dimensions are Campfire's transaction tags. Inactive tags still label historical
+    # transactions, so they are requested too.
+    "custom_dimensions": CampfireEndpointConfig(
+        name="custom_dimensions",
+        path="/coa/api/tag",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+        extra_params={"include_inactive": "true"},
+    ),
+    "custom_dimension_groups": CampfireEndpointConfig(
+        name="custom_dimension_groups",
+        path="/coa/api/tag-group",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+    ),
+    "fixed_assets": CampfireEndpointConfig(
+        name="fixed_assets",
+        path="/coa/api/fixed-asset",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+    ),
+    "budgets": CampfireEndpointConfig(
+        name="budgets",
+        path="/coa/api/budgets",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+    ),
+    # Budget lines are only reachable per budget and come back as one bare array.
+    "budget_accounts": CampfireEndpointConfig(
+        name="budget_accounts",
+        path="/coa/api/budgets/{budget_pk}/accounts",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+        paginated=False,
+        primary_keys=["budget", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="budgets",
+            resolve_param="budget_pk",
+            resolve_field="id",
+            include_from_parent=[],
+            parent_params={"limit": DEFAULT_PAGE_SIZE},
+        ),
+    ),
 }
 
 

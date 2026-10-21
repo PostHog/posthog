@@ -3,6 +3,8 @@ import { MouseEvent, PointerEvent, ReactNode, useCallback, useLayoutEffect, useR
 import { IconMinus, IconPlus } from '@posthog/icons'
 import { Button, Separator, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
+import { COMMENT_SURFACE_ATTR } from '../artifactCommentScreenshot'
+
 const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8]
 // Room the image keeps from the pane edges when it fits, so its border never touches them.
 const FIT_INSET_PX = 48
@@ -144,7 +146,7 @@ export function ArtifactImageViewer({
             >
                 {/* min-size centers the image while it fits and lets the scroll area grow once it does not. */}
                 <div className="flex min-h-full min-w-full w-max items-center justify-center p-6">
-                    <div className="relative">
+                    <div className="relative" {...{ [COMMENT_SURFACE_ATTR]: '' }}>
                         <img
                             src={src}
                             alt={alt}

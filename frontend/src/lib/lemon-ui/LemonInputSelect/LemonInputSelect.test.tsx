@@ -58,23 +58,25 @@ describe('LemonInputSelect', () => {
         expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('works with string values (backwards compatibility)', () => {
-        const onChange = jest.fn()
-
+    it('renders selected string values with indexed option lookups', () => {
+        let reads = 0
+        const options = Array.from({ length: 100 }, (_, index) => ({
+            get key(): string {
+                reads++
+                return 'option-' + index
+            },
+            label: 'Option ' + index,
+        }))
         render(
             <LemonInputSelect
                 mode="multiple"
-                options={[
-                    { key: 'string-option-1', label: 'Option 1' },
-                    { key: 'string-option-2', label: 'Option 2' },
-                ]}
-                value={['string-option-1']}
-                onChange={onChange}
+                options={options}
+                value={Array.from({ length: 100 }, (_, index) => 'option-' + index)}
+                onChange={jest.fn()}
             />
         )
-
-        // Verify the selected option is displayed
-        expect(screen.getByText('Option 1')).toBeInTheDocument()
+        expect(screen.getByText('Option 99')).toBeInTheDocument()
+        expect(reads).toBeLessThan(options.length * 15)
     })
 
     it('works with boolean values', () => {

@@ -214,9 +214,25 @@ Read the comment at the top of `.github/workflows/ci-backend.yml` for the curren
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
 Jest selection includes imported JSON files, such as terminal package manifests, because changes to data can break their consumers without changing TypeScript.
+Frontend jest selection follows only the imports that load a module when a test runs.
+An import used only as a type does not select a test, because the jest transformer removes it.
+Jest loads its configuration, its setup files, and the MSW mocks for every test, so selection cannot follow a change to one of them through imports.
+A ready PR that changes one takes the full matrix.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
+
+### Give the jest PR matrix a fixed shard count
+
+**Verdict: superseded** · Oct 2026 · 262 sampled PR runs and a [probe run](https://github.com/PostHog/posthog/actions/runs/38407529831)
+
+Jest selection on PRs ran three shards whatever it selected, and the selection was all or nothing: 60% of PR runs executed 2,171 of 2,720 test files and 39% executed under 50.
+The import graph that `--findRelatedTests` walks held one cycle of 2,851 files, and 92% of its edges were imports the transformer removes. Reading imports from the transformer output shrinks it to 218 files and 997 tests.
+The 997 tests that load the cycle cost 3.65 seconds each against 1.07 for the rest, so a changed-file count sizes nothing. `.github/scripts/jest-select.js` counts the related tests and assigns one shard per 342 files, capped at eight. This initial threshold comes from the probe runs and needs tuning against observed shard durations; file counts do not guarantee a ten-minute wall. The selector classifies known fallback cases before installing dependencies. Pricing each shard from the hourly run's JUnit was built and removed: two probe runs sized by count landed within 1.4x of the estimate, and the per-file map cost a recorder job and a cache.
+
+Measured on the way and not worth repeating: `--maxWorkers=100%` on the selective path gained nothing on the 4 vCPU runners; persisting jest's cache made a second run on the same runner 5% (12 seconds) faster; the V8 leak fix (`--retain-maps-for-n-gc=0`, [#114618](https://github.com/PostHog/posthog/pull/114618)) was worth 15 to 20% of a shard and about 5% on the merge queue; a different fixed shard count gained nothing.
+
+_Also asked as:_ jest shard timeout, jest selects everything, more jest shards, jest --maxWorkers, cache jest between runs
 
 ### Narrow the product test matrix when the backend selector returns `full`
 

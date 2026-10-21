@@ -1,10 +1,8 @@
-import json
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
@@ -16,62 +14,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_cr
     _clamp_future_value_to_now,
     _format_since_value,
     _validate_pagination_url,
-    capsule_crm_source,
     validate_credentials,
 )
-
-# capsule_crm_source builds its own SSRF-guarded session in the capsule_crm module (passed to the
-# REST client), so both the pagination path and validate_credentials patch the module-level factory.
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.capsule_crm.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
+    CapsuleCRMSourceConfig,
 )
 
 
-def _response(
-    body: dict[str, Any], *, next_url: str | None = None, status_code: int = 200, url: str | None = None
-) -> requests.Response:
-    resp = requests.Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.url = url or f"{CAPSULE_CRM_BASE_URL}/parties"
-    if next_url:
-        resp.headers["Link"] = f'<{next_url}>; rel="next"'
-    return resp
+def _driver(access_token: str = "tok") -> SourceDriver:
+    return SourceDriver(CapsuleCRMSource(), CapsuleCRMSourceConfig(access_token=access_token))
 
 
-def _make_manager(resume_state: CapsuleCRMResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's url/params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(manager: mock.MagicMock, endpoint: str = "parties", access_token: str = "tok", **kwargs: Any):
-    return capsule_crm_source(
-        access_token=access_token, endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _response(body: dict[str, Any], *, next_url: str | None = None, status_code: int = 200) -> ScriptedResponse:
+    headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+    return ScriptedResponse(status=status_code, json=body, headers=headers)
 
 
 class TestFormatSinceValue:
@@ -101,32 +63,25 @@ class TestClampFutureValueToNow:
 
 
 class TestRequestParams:
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_endpoint_embeds_related_data(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"parties": [{"id": 1}]})])
+    def test_incremental_endpoint_embeds_related_data(self) -> None:
+        result = _driver().run("parties", [_response({"parties": [{"id": 1}]})])
 
-        _rows(_source(_make_manager()))
-
+        assert result.raised is None
         # embed values are folded in to reduce round-trips.
-        assert snapshots[0]["params"]["embed"] == "tags,fields,organisation"
-        assert "since" not in snapshots[0]["params"]
+        assert result.requests[0].param("embed") == "tags,fields,organisation"
+        assert result.requests[0].param("since") is None
 
-    @mock.patch(SESSION_PATCH)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_watermark_is_clamped_to_now(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"parties": []})])
-
-        _rows(
-            _source(
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC),
-            )
+    def test_future_watermark_is_clamped_to_now(self) -> None:
+        result = _driver().run(
+            "parties",
+            [_response({"parties": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["since"] == "2026-06-15T12:00:00Z"
+        assert result.raised is None
+        assert result.requests[0].param("since") == "2026-06-15T12:00:00Z"
 
     @parameterized.expand(
         [
@@ -134,28 +89,22 @@ class TestRequestParams:
             ("stages", "stages", {"status": "all", "includeOnDeletedBoard": "true"}),
         ]
     )
-    @mock.patch(SESSION_PATCH)
     def test_lookup_endpoints_request_archived_records(
-        self, endpoint: str, data_key: str, expected: dict[str, Any], MockSession
+        self, endpoint: str, data_key: str, expected: dict[str, Any]
     ) -> None:
         # Capsule defaults these to active-only, which would drop the boards and stages that
         # historic projects still point at.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({data_key: []})])
+        result = _driver().run(endpoint, [_response({data_key: []})])
 
-        _rows(_source(_make_manager(), endpoint=endpoint))
+        assert result.raised is None
+        assert result.queries == [{key: (str(value),) for key, value in {"perPage": 100, **expected}.items()}]
 
-        assert snapshots[0]["params"] == {"perPage": 100, **expected}
-
-    @mock.patch(SESSION_PATCH)
-    def test_entries_embeds_its_associations(self, MockSession) -> None:
+    def test_entries_embeds_its_associations(self) -> None:
         # Without the embeds an entry cannot be joined back to the record it belongs to.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"entries": []})])
+        result = _driver().run("entries", [_response({"entries": []})])
 
-        _rows(_source(_make_manager(), endpoint="entries"))
-
-        assert snapshots[0]["params"]["embed"] == "party,kase,opportunity,creator,activityType"
+        assert result.raised is None
+        assert result.requests[0].param("embed") == "party,kase,opportunity,creator,activityType"
 
     @parameterized.expand(
         [
@@ -164,127 +113,101 @@ class TestRequestParams:
             ("kase_tags", f"{CAPSULE_CRM_BASE_URL}/kases/tags"),
         ]
     )
-    @mock.patch(SESSION_PATCH)
-    def test_tag_endpoints_are_entity_scoped(self, endpoint: str, expected_url: str, MockSession) -> None:
+    def test_tag_endpoints_are_entity_scoped(self, endpoint: str, expected_url: str) -> None:
         # Capsule has no top-level /tags collection; tag definitions hang off each entity type and
         # all three nest under the same "tags" wrapper key.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"tags": [{"id": 3, "name": "VIP"}]})])
+        result = _driver().run(endpoint, [_response({"tags": [{"id": 3, "name": "VIP"}]})])
 
-        rows = _rows(_source(_make_manager(), endpoint=endpoint))
+        assert result.raised is None
+        assert result.requests[0].origin + result.requests[0].path == expected_url
+        assert result.rows == [{"id": 3, "name": "VIP"}]
 
-        assert snapshots[0]["url"] == expected_url
-        assert rows == [{"id": 3, "name": "VIP"}]
-
-    @mock.patch(SESSION_PATCH)
-    def test_since_ignored_for_full_refresh_only_endpoint(self, MockSession) -> None:
+    def test_since_ignored_for_full_refresh_only_endpoint(self) -> None:
         # tasks has no server-side `since` filter, so a watermark must not produce a `since` param.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"tasks": []})])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="tasks",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
+        result = _driver().run(
+            "tasks",
+            [_response({"tasks": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
-        assert "since" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert result.requests[0].param("since") is None
 
 
 class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_follows_link_header_pagination(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_link_header_pagination(self) -> None:
         page2 = f"{CAPSULE_CRM_BASE_URL}/parties?perPage=100&page=2"
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "parties",
             [
                 _response({"parties": [{"id": 1}, {"id": 2}]}, next_url=page2),
                 _response({"parties": [{"id": 3}]}),
             ],
         )
 
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
         # The next-page URL is self-contained; the original params must not be re-appended.
-        assert snapshots[1]["url"] == page2
-        assert snapshots[1]["params"] == {}
+        assert result.urls[1] == page2
+        assert result.queries[1] == {"perPage": ("100",), "page": ("2",)}
 
-    @mock.patch(SESSION_PATCH)
-    def test_saves_resume_state_after_each_page_with_more(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_saves_resume_state_after_each_page_with_more(self) -> None:
         page2 = f"{CAPSULE_CRM_BASE_URL}/parties?perPage=100&page=2"
-        _wire(
-            session,
+        result = _driver().run(
+            "parties",
             [
                 _response({"parties": [{"id": 1}]}, next_url=page2),
                 _response({"parties": [{"id": 2}]}),
             ],
         )
 
-        manager = _make_manager()
-        _rows(_source(manager))
-
+        assert result.raised is None
         # State saved once (after page 1, which still had a next page); not after the final page.
-        manager.save_state.assert_called_once_with(CapsuleCRMResumeConfig(next_url=page2))
+        assert result.saved_states == [CapsuleCRMResumeConfig(next_url=page2)]
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_next_url(self) -> None:
         page2 = f"{CAPSULE_CRM_BASE_URL}/parties?perPage=100&page=2"
-        snapshots = _wire(session, [_response({"parties": [{"id": 2}]})])
+        result = _driver().run(
+            "parties", [_response({"parties": [{"id": 2}]})], resume_state=CapsuleCRMResumeConfig(next_url=page2)
+        )
 
-        manager = _make_manager(CapsuleCRMResumeConfig(next_url=page2))
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 2}]
+        assert result.raised is None
+        assert result.rows == [{"id": 2}]
         # The starting URL must NOT be fetched when resuming.
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == page2
-        assert snapshots[0]["params"] == {}
+        assert len(result.requests) == 1
+        assert result.urls[0] == page2
+        assert result.queries[0] == {"perPage": ("100",), "page": ("2",)}
 
-    @mock.patch(SESSION_PATCH)
-    def test_hostile_upstream_next_url_is_rejected(self, MockSession) -> None:
+    def test_hostile_upstream_next_url_is_rejected(self) -> None:
         # An upstream Link header pointing at another host must abort before the bearer token is sent
         # there, and the poisoned URL must not be persisted as resume state.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "parties",
             [_response({"parties": [{"id": 1}]}, next_url="https://evil.example.com/api/v2/parties")],
         )
 
-        manager = _make_manager()
-        with pytest.raises(CapsuleCRMUntrustedURLError):
-            _rows(_source(manager))
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert isinstance(result.raised, CapsuleCRMUntrustedURLError)
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
-    @mock.patch(SESSION_PATCH)
-    def test_hostile_resumed_next_url_is_rejected(self, MockSession) -> None:
+    def test_hostile_resumed_next_url_is_rejected(self) -> None:
         # A poisoned resume state from Redis must never be requested with the bearer token.
-        session = MockSession.return_value
-        _wire(session, [])
-
-        manager = _make_manager(CapsuleCRMResumeConfig(next_url="https://evil.example.com/api/v2/parties"))
-        with pytest.raises(CapsuleCRMUntrustedURLError):
-            _rows(_source(manager))
-        session.send.assert_not_called()
+        result = _driver().run(
+            "parties", [], resume_state=CapsuleCRMResumeConfig(next_url="https://evil.example.com/api/v2/parties")
+        )
+        assert isinstance(result.raised, CapsuleCRMUntrustedURLError)
+        assert result.requests == []
 
 
 class TestErrorHandling:
     @parameterized.expand([(401,), (403,), (404,)])
-    @mock.patch(SESSION_PATCH)
-    def test_client_errors_raise_for_status(self, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status_code=status, url=f"{CAPSULE_CRM_BASE_URL}/parties")])
+    def test_client_errors_raise_for_status(self, status: int) -> None:
+        result = _driver().run("parties", [_response({}, status_code=status)])
 
         # `get_non_retryable_errors` matches on this stable "NNN Client Error ... for url" text.
-        with pytest.raises(requests.HTTPError, match=f"{status} Client Error"):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
+        assert f"{status} Client Error" in str(result.raised)
 
 
 class TestValidatePaginationUrl:
@@ -314,24 +237,21 @@ class TestValidatePaginationUrl:
 
 
 class TestTokenRedaction:
-    @mock.patch(SESSION_PATCH)
-    def test_validate_credentials_redacts_token_and_disables_redirects(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_validate_credentials_redacts_token_and_disables_redirects(self) -> None:
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            assert validate_credentials("secret-token") is True
 
-        validate_credentials("secret-token")
+        assert network.session_options[0]["redact_values"] == ("secret-token",)
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.requests_log[0].headers["authorization"] == "Bearer secret-token"
 
-        assert MockSession.call_args.kwargs["redact_values"] == ("secret-token",)
-        assert MockSession.call_args.kwargs["allow_redirects"] is False
+    def test_source_session_redacts_token_and_disables_redirects(self) -> None:
+        result = _driver("secret-token").run("parties", [_response({"parties": []})])
 
-    @mock.patch(SESSION_PATCH)
-    def test_source_session_redacts_token_and_disables_redirects(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"parties": []})])
-
-        _rows(_source(_make_manager(), access_token="secret-token"))
-
-        assert MockSession.call_args.kwargs["redact_values"] == ("secret-token",)
-        assert MockSession.call_args.kwargs["allow_redirects"] is False
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ("secret-token",)
+        assert result.session_options[0]["allow_redirects"] is False
+        assert result.requests[0].headers["authorization"] == "Bearer secret-token"
 
 
 class TestSourceResponse:
@@ -344,7 +264,10 @@ class TestSourceResponse:
         ]
     )
     def test_incremental_and_taskish_endpoints_partition_on_created_at(self, endpoint: str, partition_key: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
+        result = _driver().run(endpoint, [_response({endpoint: []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
@@ -366,7 +289,11 @@ class TestSourceResponse:
         ]
     )
     def test_metadata_endpoints_are_unpartitioned(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
+        data_key = "lostReasons" if endpoint == "lost_reasons" else "tags" if endpoint.endswith("_tags") else endpoint
+        result = _driver().run(endpoint, [_response({data_key: []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None

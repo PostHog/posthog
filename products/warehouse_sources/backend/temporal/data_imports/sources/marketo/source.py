@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
+    codebase_detection = detect(env=("^MARKETO_",), script_hosts=("munchkin.marketo.net",), pypi=("marketorestpython",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Marketo has shipped one REST version since launch and exposes no version selector, so the
     # `/rest/v1` path segment is not a pinnable version.
@@ -73,7 +76,7 @@ In Marketo, open **Admin → Web Services** for your Munchkin account ID, then *
 Leads and activities come through Marketo's Bulk Extract API, so the first sync backfills from the start date you set below.""",
             iconPath="/static/services/marketo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/marketo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["adobe marketo", "marketo engage"],
             fields=cast(
                 list[FieldType],

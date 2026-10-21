@@ -1,75 +1,34 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.folk.folk import (
     FolkResumeConfig,
     FolkUntrustedURLError,
     _validate_pagination_url,
-    folk_source,
     probe_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.folk.settings import FOLK_BASE_URL
-
-# folk_source lets the RESTClient build its own tracked session, so the transport is mocked at the
-# framework seam; the credential probe builds its session inside the folk module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-PROBE_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.folk.folk.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.folk.source import FolkSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.folk import FolkSourceConfig
 
 
-def _response(items: list[dict[str, Any]] | None, next_url: str | None = None) -> Response:
-    pagination: dict[str, Any] = {"nextLink": next_url} if next_url else {}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({"data": {"items": items or [], "pagination": pagination}}).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(FolkSource(), FolkSourceConfig(api_key="folk_test"))
 
 
-def _make_manager(resume_state: FolkResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    # The paginator mutates request.url/params in place across pages, so snapshot each request at
-    # prepare time instead of inspecting it after the run.
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(
-    endpoint: str = "people",
-    manager: mock.MagicMock | None = None,
-    **kwargs: Any,
-):
-    return folk_source(
-        api_key="folk_test",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _page(items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    pagination = {"nextLink": next_url} if next_url else {}
+    return ScriptedResponse(json={"data": {"items": items, "pagination": pagination}})
 
 
 class TestValidatePaginationUrl:
@@ -92,72 +51,198 @@ class TestValidatePaginationUrl:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_link_and_reads_the_items_envelope(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_next_link_and_reads_the_items_envelope(self) -> None:
         second = "https://api.folk.app/v1/people?limit=100&cursor=abc"
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "people",
             [
-                _response([{"id": "per_1", "fullName": "Alice"}], next_url=second),
-                _response([{"id": "per_2", "fullName": "Bob"}]),
+                _page([{"id": "per_1", "fullName": "Alice"}], next_url=second),
+                _page([{"id": "per_2", "fullName": "Bob"}]),
             ],
         )
 
-        rows = _rows(_source())
-
-        assert rows == [{"id": "per_1", "fullName": "Alice"}, {"id": "per_2", "fullName": "Bob"}]
-        assert snapshots[0]["url"] == f"{FOLK_BASE_URL}/v1/people"
-        assert snapshots[0]["params"] == {"limit": 100}
+        assert result.raised is None
+        assert result.rows == [{"id": "per_1", "fullName": "Alice"}, {"id": "per_2", "fullName": "Bob"}]
+        assert result.urls == [f"{FOLK_BASE_URL}/v1/people?limit=100", second]
+        assert result.params("limit") == ["100", "100"]
+        assert result.params("cursor") == [None, "abc"]
         # The next-page URL is self-contained; the original params must not be re-appended.
-        assert snapshots[1]["url"] == second
-        assert snapshots[1]["params"] == {}
+        assert result.queries[1] == {"limit": ("100",), "cursor": ("abc",)}
+        assert result.saved_states == [FolkResumeConfig(next_url=second)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_next_url(self) -> None:
         resume_url = "https://api.folk.app/v1/people?limit=100&cursor=page3"
-        snapshots = _wire(session, [_response([{"id": "per_9"}])])
-
-        manager = _make_manager(FolkResumeConfig(next_url=resume_url))
-        rows = _rows(_source(manager=manager))
+        result = _driver().run("people", [_page([{"id": "per_9"}])], resume_state=FolkResumeConfig(next_url=resume_url))
 
         # Starts at the resumed URL, not the freshly-built first page.
-        assert rows == [{"id": "per_9"}]
-        assert snapshots[0]["url"] == resume_url
-        assert snapshots[0]["params"] == {}
+        assert result.raised is None
+        assert result.rows == [{"id": "per_9"}]
+        assert result.urls == [resume_url]
+        assert result.queries == [{"limit": ("100",), "cursor": ("page3",)}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_origin_next_link_is_refused(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "per_1"}], next_url="https://evil.example.com/v1/people?cursor=x")])
+    def test_off_origin_next_link_is_refused(self) -> None:
+        result = _driver().run(
+            "people", [_page([{"id": "per_1"}], next_url="https://evil.example.com/v1/people?cursor=x")]
+        )
 
-        with pytest.raises(FolkUntrustedURLError):
-            _rows(_source())
+        assert isinstance(result.raised, FolkUntrustedURLError)
+        assert result.paths == ["/v1/people"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_poisoned_resume_url_is_refused(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
+    def test_poisoned_resume_url_is_refused(self) -> None:
+        result = _driver().run(
+            "people", [], resume_state=FolkResumeConfig(next_url="https://evil.example.com/v1/people")
+        )
 
-        manager = _make_manager(FolkResumeConfig(next_url="https://evil.example.com/v1/people"))
-        with pytest.raises(FolkUntrustedURLError):
-            _rows(_source(manager=manager))
+        assert isinstance(result.raised, FolkUntrustedURLError)
         # Refused before any request carries the bearer token off-origin.
-        assert session.send.call_count == 0
+        assert result.requests == []
+
+
+_GROUPS = _page([{"id": "grp_1", "name": "Sales"}, {"id": "grp_2", "name": "Hiring"}])
+
+
+class TestGroupFanout:
+    def test_group_members_walk_every_group_and_carry_the_group_id(self) -> None:
+        second = "https://api.folk.app/v1/groups/grp_1/members?limit=100&cursor=m2"
+        result = _driver().run(
+            "group_members",
+            [
+                _GROUPS,
+                _page([{"id": "usr_1", "role": "owner"}], next_url=second),
+                _page([{"id": "usr_2", "role": "reader"}]),
+                _page([{"id": "usr_1", "role": "admin"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/groups",
+            "/v1/groups/grp_1/members",
+            "/v1/groups/grp_1/members",
+            "/v1/groups/grp_2/members",
+        ]
+        assert result.rows == [
+            {"id": "usr_1", "role": "owner", "groupId": "grp_1"},
+            {"id": "usr_2", "role": "reader", "groupId": "grp_1"},
+            {"id": "usr_1", "role": "admin", "groupId": "grp_2"},
+        ]
+        assert result.saved_states == [
+            FolkResumeConfig(remaining_group_ids=["grp_1", "grp_2"]),
+            FolkResumeConfig(next_url=second, remaining_group_ids=["grp_1", "grp_2"], remaining_child_keys=[""]),
+            FolkResumeConfig(remaining_group_ids=["grp_2"]),
+            FolkResumeConfig(remaining_group_ids=["grp_2"]),
+            FolkResumeConfig(remaining_group_ids=[]),
+        ]
+
+    def test_custom_objects_list_each_object_type_and_skip_one_deleted_since_discovery(self) -> None:
+        person_fields = [
+            {"name": "Deals", "type": "objectField"},
+            {"name": "Job Applications", "type": "objectField"},
+            {"name": "Stage", "type": "singleSelect"},
+        ]
+        result = _driver().run(
+            "custom_objects",
+            route(
+                {
+                    "/v1/groups": [_GROUPS],
+                    "/custom-fields/person": [_page(person_fields), _page([])],
+                    "/grp_1/Deals": [_page([{"id": "obj_1", "createdAt": "2025-01-01T00:00:00Z"}])],
+                    "/grp_1/Job%20Applications": [ScriptedResponse(status=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/groups",
+            "/v1/groups/grp_1/custom-fields/person",
+            "/v1/groups/grp_1/Deals",
+            "/v1/groups/grp_1/Job%20Applications",
+            "/v1/groups/grp_2/custom-fields/person",
+        ]
+        assert result.rows == [
+            {"id": "obj_1", "createdAt": "2025-01-01T00:00:00Z", "groupId": "grp_1", "objectType": "Deals"}
+        ]
+
+    def test_custom_fields_cover_people_companies_and_each_object_type(self) -> None:
+        result = _driver().run(
+            "group_custom_fields",
+            [
+                _page([{"id": "grp_1", "name": "Sales"}]),
+                _page([{"name": "Deals", "type": "objectField"}]),
+                _page([{"name": "Deals", "type": "objectField"}]),
+                _page([{"name": "Industry", "type": "textField"}]),
+                _page([{"name": "Amount", "type": "numericField"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/groups",
+            "/v1/groups/grp_1/custom-fields/person",
+            "/v1/groups/grp_1/custom-fields/person",
+            "/v1/groups/grp_1/custom-fields/company",
+            "/v1/groups/grp_1/custom-fields/Deals",
+        ]
+        assert [(row["entityType"], row["name"]) for row in result.rows] == [
+            ("person", "Deals"),
+            ("company", "Industry"),
+            ("Deals", "Amount"),
+        ]
+
+    @parameterized.expand(
+        [
+            # The resumed type still exists: continue its walk at the saved page.
+            ("continues_saved_page", ["Deals"], "Deals", "o3"),
+            # The resumed type was deleted: skip it, and do not re-read types finished before it.
+            ("skips_deleted_type", ["Gone", "Projects"], "Projects", None),
+        ]
+    )
+    def test_resumes_inside_a_group_without_relisting_groups(
+        self, _name: str, child_keys: list[str], expected_type: str, expected_cursor: str | None
+    ) -> None:
+        resume_url = f"https://api.folk.app/v1/groups/grp_2/{child_keys[0]}?limit=100&cursor=o3"
+        object_types = [{"name": "Deals", "type": "objectField"}, {"name": "Projects", "type": "objectField"}]
+        result = _driver().run(
+            "custom_objects",
+            [_page(object_types), _page([{"id": "obj_9"}])],
+            resume_state=FolkResumeConfig(
+                next_url=resume_url, remaining_group_ids=["grp_2"], remaining_child_keys=child_keys
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/groups/grp_2/custom-fields/person", f"/v1/groups/grp_2/{expected_type}"]
+        assert result.params("cursor")[1] == expected_cursor
+        assert result.rows == [{"id": "obj_9", "groupId": "grp_2", "objectType": expected_type}]
 
 
 class TestUnknownEndpoint:
     def test_unknown_endpoint_raises_a_retryable_unknown_resource_error(self) -> None:
         # A web pod can offer a table this worker's catalog doesn't know yet; the named error is
         # classified retryable so the sync recovers once the rollout finishes.
-        with pytest.raises(UnknownResourceError):
-            _source(endpoint="deals")
+        result = _driver().run("deals", [])
+
+        assert isinstance(result.raised, UnknownResourceError)
+        assert result.requests == []
 
 
 class TestProbeCredentials:
+    @parameterized.expand(
+        [("top_level", "people", "/v1/people"), ("group_scoped_probes_groups", "group_members", "/v1/groups")]
+    )
+    def test_schema_probe_path(self, _name: str, endpoint: str, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            probe_credentials("folk_test", endpoint)
+
+        assert [request.path for request in network.requests_log] == [expected_path]
+
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_returns_status_code(self, _name: str, status_code: int, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert probe_credentials("folk_test") == status_code
+    def test_returns_status_code(self, _name: str, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            status = probe_credentials("folk_test")
+
+        assert status == status_code
+        assert [request.path for request in network.requests_log] == ["/v1/users/me"]
+        assert network.requests_log[0].headers["authorization"] == "Bearer folk_test"
+        assert network.session_options[0]["redact_values"] == ("folk_test",)

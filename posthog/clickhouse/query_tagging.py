@@ -50,6 +50,7 @@ class Product(StrEnum):
     API = "api"
     AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
+    CANVAS = "canvas"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
@@ -87,6 +88,7 @@ class Product(StrEnum):
     SIGNALS = "signals"
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TODAY = "today"
     TRACING = "tracing"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -327,8 +329,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
@@ -391,6 +391,13 @@ class DagsterTags(BaseModel):
 
     op_name: Optional[str] = None
     asset_key: Optional[str] = None
+
+
+_PRODUCT_TAG_VALUES = frozenset(member.value for member in Product) | frozenset(member.value for member in ProductKey)
+
+
+def is_known_product_tag(value: str) -> bool:
+    return value in _PRODUCT_TAG_VALUES
 
 
 class QueryTags(BaseModel):
@@ -516,8 +523,8 @@ class QueryTags(BaseModel):
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     # Why the metric-events side is not precomputable (set on the metric read when metric_events_path is
     # "not_applicable"): "breakdown", "cuped", "data_warehouse", "funnel_order_type", "non_event_source",
-    # "session_property_math", "group_math", "unsupported_math", "retention_window", or "metric_type"
-    # (ratio). None/absent when the metric-events side is precomputable.
+    # "session_property_math", "group_math", "unsupported_math", "retention_window", or "ratio_flag_off".
+    # None/absent when the metric-events side is precomputable.
     experiment_metric_events_skip_reason: Optional[str] = None
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"

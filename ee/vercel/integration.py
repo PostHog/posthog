@@ -29,6 +29,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -332,6 +333,9 @@ class VercelIntegration:
             organization = Organization.objects.create(
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
+            OrganizationProvisioning.objects.create(
+                organization=organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
 
             existing_user = User.objects.filter(email=config.account.contact.email).first()
 
@@ -475,6 +479,46 @@ class VercelIntegration:
             integration="vercel",
         )
         return {"finalized": True}
+
+    @staticmethod
+    def _promote_mapped_contact_to_owner(installation: OrganizationIntegration, contact_email: str) -> None:
+        mapped_users = User.objects.filter(pk__in=list(installation.config.get("user_mappings", {}).values()))
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=installation.organization_id,
+            user__in=EmailLookupHandler.users_matching_email(contact_email, mapped_users),
+            level__lt=OrganizationMembership.Level.OWNER,
+        )
+        for membership in memberships:
+            membership.level = OrganizationMembership.Level.OWNER
+            membership.save(update_fields=["level"])
+
+    @staticmethod
+    def refresh_installation_account(installation: OrganizationIntegration) -> None:
+        installation_id = installation.integration_id
+        access_token = VercelIntegration._get_access_token(installation)
+        if not installation_id or not access_token:
+            raise RuntimeError("Vercel installation has no installation ID or access token")
+
+        # A transfer webhook runs this inside its delivery. The short timeout keeps it well inside the
+        # ingress delivery budget (`DEFAULT_DELIVERY_BUDGET_SECONDS`), which also covers the forward
+        # to the region that holds the installation.
+        account = VercelAPIClient(bearer_token=access_token, timeout=5).get_installation_account(installation_id)
+
+        # SSO saves user mappings under a lock on this row. Take the same lock, so that a mapping
+        # saved while the request to Vercel was in flight is not overwritten.
+        with transaction.atomic():
+            locked = OrganizationIntegration.objects.select_for_update().get(pk=installation.pk)
+            live_contact = account.get("contact")
+            contact = live_contact or locked.config.get("account", {}).get("contact")
+            refreshed: dict[str, Any] = {"url": account["url"], "name": account.get("name")}
+            # The Owner check at SSO reads the contact with `.get`, which a stored None breaks.
+            if contact:
+                refreshed["contact"] = {"email": contact["email"], "name": contact.get("name")}
+            locked.config["account"] = refreshed
+            locked.save(update_fields=["config", "updated_at"])
+            if live_contact:
+                VercelIntegration._promote_mapped_contact_to_owner(locked, live_contact["email"])
+        logger.info("Refreshed Vercel installation account", installation_id=installation_id, integration="vercel")
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:

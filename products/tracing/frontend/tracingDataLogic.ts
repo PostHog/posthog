@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -49,7 +50,7 @@ import {
     visibleDurationRange,
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
-import { traceLookupDateRange } from './traceLinks'
+import { resolveTraceLookupRange } from './traceLinks'
 import { traceRows } from './traceRows'
 import {
     type TracingFilters,
@@ -60,6 +61,12 @@ import {
 } from './tracingFiltersLogic'
 import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
 import type { Span } from './types'
+
+// The default filter group editor state nests an empty AND group inside an outer AND group, so a
+// plain `values.length` check reads the default as "filters active". Walk for a real leaf condition.
+function hasFilterConditions(group: UniversalFiltersGroup): boolean {
+    return group.values.some((value) => (isUniversalGroupFilterLike(value) ? hasFilterConditions(value) : true))
+}
 
 export interface SparklineRow {
     time: string
@@ -88,14 +95,6 @@ const DEFAULT_PAGE_SIZE = 100
 // the full set for client-side sort/filter, unlike the smaller default the endpoint serves agents.
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
-
-// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
-// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
-// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
-// dayjs throw on toISOString().
-function resolveTraceLookupRange(ts: string | null | undefined): { date_from: string; date_to: string } | undefined {
-    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
-}
 
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
     if (count === 0) {
@@ -185,8 +184,10 @@ export interface tracingDataLogicValues {
         traceId: string
         ts?: string | null
     } | null
+    traceLoadFiltersActive: boolean
     traceSpans: Span[]
     traceSpansHasMore: boolean
+    traceSpansLoadFailed: boolean
     traceSpansLoading: boolean
     traceSpansLoadingMore: boolean
     traceSpansNextOffset: number
@@ -585,6 +586,9 @@ export interface tracingDataLogicActions {
     setSparklineAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
+    setTraceLoadFiltersActive: (filtersActive: boolean) => {
+        filtersActive: boolean
+    }
     setTracePagination: (
         hasMore: boolean,
         nextOffset: number | null
@@ -598,6 +602,9 @@ export interface tracingDataLogicActions {
     ) => {
         startIndex: number
         stopIndex: number
+    }
+    widenTraceLookup: () => {
+        value: true
     }
 }
 
@@ -696,6 +703,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchNextPage: true,
         loadMoreTraceSpans: true,
         setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
+        setTraceLoadFiltersActive: (filtersActive: boolean) => ({ filtersActive }),
+        widenTraceLookup: true,
         clearSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
@@ -856,6 +865,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 loadTraceSpans: () => false,
             },
         ],
+        // Whether the last full-trace fetch failed, so the drawer can show a retryable error state
+        // instead of reading a failed request as a trace that genuinely has no spans.
+        traceSpansLoadFailed: [
+            false as boolean,
+            {
+                loadTraceSpans: () => false,
+                loadTraceSpansSuccess: () => false,
+                loadTraceSpansFailure: () => true,
+                clearSpans: () => false,
+            },
+        ],
         // Offset to request for the next waterfall page (count of spans already loaded for the trace).
         traceSpansNextOffset: [
             0 as number,
@@ -870,7 +890,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             null as { traceId: string; ts?: string | null } | null,
             {
                 loadTraceSpans: (_, { traceId, ts }) => ({ traceId, ts }),
+                widenTraceLookup: (state) => (state ? { ...state, ts: null } : state),
                 clearSpans: () => null,
+            },
+        ],
+        // The same filters that scope the span list also scope the single-trace lookup, so an empty
+        // trace can mean "filtered out" rather than "never sent". Set when the lookup starts, because
+        // the filters can change while it is in flight.
+        traceLoadFiltersActive: [
+            false as boolean,
+            {
+                setTraceLoadFiltersActive: (_, { filtersActive }) => filtersActive,
             },
         ],
         // Separate from the loader's own `traceSpansLoading` so paging in more spans shows a small
@@ -960,12 +990,39 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
-                    const response = await api.tracing.getTrace(traceId, {
-                        dateRange: resolveTraceLookupRange(ts),
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                    })
+                loadTraceSpans: async (
+                    { traceId, ts }: { traceId: string; ts?: string | null },
+                    breakpoint
+                ): Promise<Span[]> => {
+                    // Filters can change while the request is in flight; both lookups must use these.
+                    const serviceNames =
+                        values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined
+                    const filterGroup = values.queryFilterGroup
+                    actions.setTraceLoadFiltersActive(!!serviceNames || hasFilterConditions(filterGroup))
+                    const lookUpTrace = (
+                        dateRange: { date_from: string; date_to: string } | undefined
+                    ): ReturnType<typeof api.tracing.getTrace> =>
+                        api.tracing.getTrace(traceId, {
+                            dateRange,
+                            serviceNames,
+                            filterGroup: filterGroup as PropertyGroupFilter,
+                        })
+                    const boundedRange = resolveTraceLookupRange(ts)
+                    let response: Awaited<ReturnType<typeof api.tracing.getTrace>>
+                    try {
+                        response = await lookUpTrace(boundedRange)
+                        // The ts hint can sit hours from the spans (e.g. an exception late in a long job).
+                        if (boundedRange && response.results.length === 0) {
+                            breakpoint()
+                            actions.widenTraceLookup()
+                            response = await lookUpTrace(undefined)
+                        }
+                    } catch (error) {
+                        // A superseded request's failure must not mark the newer trace as failed.
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
                     actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return response.results as Span[]
                 },

@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import RequestException
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]):
+    codebase_detection = detect(env=("^SERPSTAT_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v4",)
     default_version = "v4"
@@ -140,7 +143,7 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
             label="Serpstat",
             iconPath="/static/services/serpstat.png",
             docsUrl="https://posthog.com/docs/cdp/sources/serpstat",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API token on your [Serpstat profile](https://serpstat.com/users/profile/). "
                 "API access requires the Team plan or higher. "

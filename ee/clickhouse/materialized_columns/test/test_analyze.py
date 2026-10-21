@@ -1,13 +1,15 @@
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin
 from unittest.mock import call, patch
+
+from django.test import SimpleTestCase
 
 from posthog.clickhouse.client import sync_execute
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 
-class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
+class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, SimpleTestCase):
     @pytest.mark.skip(reason="Test is failing for some reason")
     @patch("ee.clickhouse.materialized_columns.analyze.materialize")
     @patch("ee.clickhouse.materialized_columns.analyze.backfill_materialized_columns")

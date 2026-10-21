@@ -364,4 +364,145 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the credit entitlement was last modified.",
         },
     },
+    "payment_line_items": {
+        "description": "Line items of each payment: the products and metered charges the payment was collected for.",
+        "docs_url": f"{_DOCS_ROOT}/payments/retrieve-line-items",
+        "columns": {
+            "payment_id": "Payment the line item belongs to.",
+            "payment_created_at": "Timestamp when the parent payment was created, in UTC.",
+            "currency": "Currency of the parent payment, as an ISO 4217 code.",
+            "items_id": "Identifier of the item the line was charged for.",
+            "name": "Name of the item.",
+            "description": "Description of the item.",
+            "amount": "Amount charged for the item, in the smallest currency unit.",
+            "tax": "Tax charged on the item, in the smallest currency unit.",
+            "refundable_amount": "Part of the amount that can still be refunded, in the smallest currency unit.",
+        },
+    },
+    "subscription_usage_history": {
+        "description": "Metered usage of each usage-based subscription, one row per billing period.",
+        "docs_url": f"{_DOCS_ROOT}/subscriptions/get-usage-history",
+        "columns": {
+            "subscription_id": "Subscription the usage belongs to.",
+            "start_date": "Start date of the billing period.",
+            "end_date": "End date of the billing period.",
+            "meters": (
+                "Usage of each meter in the billing period: meter id and name, consumed units, free "
+                "threshold, chargeable units, price per unit, currency and total price."
+            ),
+        },
+    },
+    "payout_breakup_details": {
+        "description": (
+            "Balance ledger entries settled in each payout, converted into the payout currency at the "
+            "rate the payout settled at."
+        ),
+        "docs_url": f"{_DOCS_ROOT}/payouts/list-breakup-details",
+        "columns": {
+            "payout_id": "Payout the entry was settled in.",
+            "id": "Unique identifier of the balance ledger entry.",
+            "created_at": "Timestamp when the entry was created.",
+            "event_type": "Type of balance ledger event, for example payment, refund, dispute or payment_fees.",
+            "description": "Human-readable description of the transaction.",
+            "reference_object_id": "ID of the related object, for example a payment or refund ID.",
+            "original_amount": "Amount in the original currency, in that currency's smallest unit.",
+            "original_currency": "Original currency, as an ISO 4217 code.",
+            "payout_currency_amount": "Amount converted into the payout currency, in its smallest unit.",
+            "usd_equivalent_amount": "USD equivalent of the original amount, in cents.",
+        },
+    },
+    "credit_entitlement_balances": {
+        "description": "Credit balance of each customer for each credit entitlement.",
+        "docs_url": f"{_DOCS_ROOT}/credit-entitlements/list-balances",
+        "columns": {
+            "id": "Unique identifier of the balance.",
+            "credit_entitlement_id": "Credit entitlement the balance is for.",
+            "customer_id": "Customer the balance belongs to.",
+            "balance": "Remaining credit balance.",
+            "overage": "Credits consumed beyond the balance.",
+            "created_at": "Timestamp when the balance was created.",
+            "updated_at": "Timestamp when the balance was last modified.",
+            "last_transaction_at": "Timestamp of the last credit transaction on the balance.",
+        },
+    },
+    "credit_entitlement_ledger": {
+        "description": "Credit transactions on each customer's balance for each credit entitlement.",
+        "docs_url": f"{_DOCS_ROOT}/credit-entitlements/list-customer-ledger",
+        "columns": {
+            "id": "Unique identifier of the ledger entry.",
+            "credit_entitlement_id": "Credit entitlement the entry is for.",
+            "customer_id": "Customer the entry belongs to.",
+            "brand_id": "Brand the entry belongs to.",
+            "business_id": "Business the entry belongs to.",
+            "transaction_type": (
+                "Type of transaction, for example credit_added, credit_deducted, credit_expired, "
+                "overage_charged or manual_adjustment."
+            ),
+            "is_credit": "Whether the entry adds credits (true) or removes them (false).",
+            "amount": "Number of credits in the transaction.",
+            "balance_before": "Credit balance before the transaction.",
+            "balance_after": "Credit balance after the transaction.",
+            "overage_before": "Overage before the transaction.",
+            "overage_after": "Overage after the transaction.",
+            "grant_id": "Credit grant the transaction applies to, if any.",
+            "reference_id": "ID of the object that caused the transaction, if any.",
+            "reference_type": "Type of the object that caused the transaction, if any.",
+            "description": "Description of the transaction.",
+            "metadata": "Metadata attached to the entry.",
+            "created_at": "Timestamp when the entry was created.",
+        },
+    },
+    "credit_entitlement_grants": {
+        "description": "Credit grants given to each customer for each credit entitlement.",
+        "docs_url": f"{_DOCS_ROOT}/credit-entitlements/list-customer-grants",
+        "columns": {
+            "id": "Unique identifier of the grant.",
+            "credit_entitlement_id": "Credit entitlement the grant is for.",
+            "customer_id": "Customer the grant belongs to.",
+            "initial_amount": "Number of credits granted.",
+            "remaining_amount": "Number of granted credits not yet used.",
+            "is_expired": "Whether the grant has expired.",
+            "is_rolled_over": "Whether the grant was rolled over from an earlier grant.",
+            "rollover_count": "Number of times the credits were rolled over.",
+            "parent_grant_id": "Grant this grant was rolled over from, if any.",
+            "source_type": "Origin of the grant: subscription, one_time, addon, api or rollover.",
+            "source_id": "ID of the object that created the grant, if any.",
+            "expires_at": "Timestamp when the grant expires, if it expires.",
+            "metadata": "Metadata attached to the grant.",
+            "created_at": "Timestamp when the grant was created.",
+            "updated_at": "Timestamp when the grant was last modified.",
+        },
+    },
+    "customer_wallets": {
+        "description": "Prepaid wallet balance of each customer, one row per currency.",
+        "docs_url": f"{_DOCS_ROOT}/customers/get-customer-wallets",
+        "columns": {
+            "customer_id": "Customer the wallet belongs to.",
+            "currency": "Currency of the wallet, as an ISO 4217 code.",
+            "balance": "Wallet balance, in the currency's smallest unit.",
+            "created_at": "Timestamp when the wallet was created.",
+            "updated_at": "Timestamp when the wallet was last modified.",
+        },
+    },
+    "customer_emails": {
+        "description": "Emails Dodo Payments sent to each customer, with their delivery status.",
+        "docs_url": f"{_DOCS_ROOT}/customers/list-customer-emails",
+        "columns": {
+            "customer_id": "Customer the email was sent to.",
+            "email_log_id": "Unique identifier of the email.",
+            "category": (
+                "Group the email belongs to: payments, refunds, subscriptions, dunning_recovery, entitlements or auth."
+            ),
+            "email_type": "Kind of email, for example payment_successful.",
+            "status": "Delivery status: sent, delivered, failed, complained or blocked.",
+            "failure_code": "Reason the email did not arrive. Null unless the email failed.",
+            "failure_reason": "Explanation of the failure code. Null unless the email failed.",
+            "from": "Address the email was sent from.",
+            "recipient": "Address the email was sent to.",
+            "subject": "Subject line of the email.",
+            "has_preview": "Whether the email has content to show.",
+            "policies": "Actions allowed on the email.",
+            "created_at": "Timestamp when the email was sent.",
+        },
+    },
 }

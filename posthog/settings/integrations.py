@@ -3,11 +3,11 @@ import os
 from posthog.settings.base_variables import BASE_DIR
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
-# Integration service. Both unset (the default) means credential reads fall back to the
-# local environment; see posthog/integration_secrets/client.py for the contract.
-INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
+# Credentials service. Both unset (the default) means credential reads fall back to the
+# local environment; see posthog/credentials_service/client.py for the contract.
+CREDENTIALS_SERVICE_URL = get_from_env("CREDENTIALS_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
-INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
+CREDENTIALS_SERVICE_JWT_SECRET = get_from_env("CREDENTIALS_SERVICE_JWT_SECRET", "")
 
 # Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
 INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")
@@ -185,20 +185,6 @@ WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str
 # Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")
 CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", "")
-
-# ElevenLabs (Max hands-free mode)
-# STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
-# TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
-ELEVENLABS_API_KEY = get_from_env("ELEVENLABS_API_KEY", "")
-ELEVENLABS_API_BASE_URL = get_from_env("ELEVENLABS_API_BASE_URL", "https://api.elevenlabs.io")
-# Rachel is ElevenLabs' default voice — neutral, clear at gym pace. Override if you want a
-# different feel without redeploying.
-ELEVENLABS_VOICE_ID = get_from_env("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-# Turbo v2.5 has ~300ms TTFB latency, sits in the free tier, and sounds clean enough for
-# gym-pace narration. Flash v2.5 is marginally faster but requires Creator ($22/mo) or above
-# on the ElevenLabs side, so devs running on free quota hit a 402 from the TTS proxy.
-# Override at the env level if you're on a paid tier and want the extra polish.
-ELEVENLABS_TTS_MODEL_ID = get_from_env("ELEVENLABS_TTS_MODEL_ID", "eleven_turbo_v2_5")
 
 # PandaDoc (for legal documents: BAA/DPA). One template per document variant.
 # Each call needs the matching template id, so we keep them as separate env vars —

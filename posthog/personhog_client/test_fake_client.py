@@ -251,6 +251,17 @@ class TestFakePersonHogClientGroupWrites:
         fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:new"))
         assert fetched.group.id == resp.group.id
 
+    def test_create_group_returns_existing_group_on_duplicate_key(self):
+        existing = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:1"))
+
+        resp = self.client.create_group(
+            group_pb2.CreateGroupRequest(
+                team_id=1, group_type_index=0, group_key="org:1", group_properties=b'{"name": "Other"}'
+            )
+        )
+
+        assert resp.group == existing.group
+
     def test_create_group_auto_increment_id(self):
         resp1 = self.client.create_group(group_pb2.CreateGroupRequest(team_id=1, group_type_index=1, group_key="k1"))
         resp2 = self.client.create_group(group_pb2.CreateGroupRequest(team_id=1, group_type_index=2, group_key="k2"))

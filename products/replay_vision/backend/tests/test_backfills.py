@@ -18,12 +18,13 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
     _stuck_key,
 )
 
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.backfills import (
     MAX_BACKFILL_WINDOW_DAYS,
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -143,6 +144,15 @@ class TestBackfillQuotaCommitment:
 
         assert spend_projection(org_id).backfills_committed_credits == 60 * 5
         assert compute_quota_snapshot(org_id).projected_monthly_credits == 60 * 5
+
+    def test_free_only_backfill_commits_only_the_free_credits_left(self) -> None:
+        scanner = _make_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(free_only=True)
+        org_id = scanner.team.organization_id
+        seed_scanner_spend(scanner, FREE_TIER_MONTHLY_CREDITS - 100)
+        _make_backfill(scanner, total_count=100, credits_per_observation=5)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert spend_projection(org_id).backfills_committed_credits == 100
 
     def test_paused_backfill_still_counts_as_committed(self) -> None:
         scanner = _make_scanner()
@@ -778,6 +788,30 @@ class TestBackfillsApi(APIBaseTest):
         running = backfill
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
+
+    @patch("products.replay_vision.backend.temporal.schedule.a_resume_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_create_and_resume_refuse_without_ai_consent(
+        self, mock_query: MagicMock, mock_upsert: AsyncMock, mock_resume: AsyncMock
+    ) -> None:
+        mock_query.return_value.count.return_value = 1
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        paused = _make_backfill(self.scanner, status=BackfillStatus.PAUSED_QUOTA)
+
+        create = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": 10**6}, format="json"
+        )
+        resume = self.client.post(f"{self.base_url}/{paused.id}/resume/")
+
+        assert (create.status_code, resume.status_code) == (400, 400), (create.json(), resume.json())
+        assert create.json()["code"] == resume.json()["code"] == "ai_data_processing_not_approved"
+        paused.refresh_from_db()
+        assert paused.status == BackfillStatus.PAUSED_QUOTA
+        assert ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).count() == 1
+        mock_upsert.assert_not_awaited()
+        mock_resume.assert_not_awaited()
 
     def test_enumerating_actions_are_throttled_and_cheap_ones_are_not(self) -> None:
         # The global burst/sustained throttles extend PersonalApiKeyRateThrottle, which gates on

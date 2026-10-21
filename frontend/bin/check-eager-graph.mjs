@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { AUTHENTICATED_SHELL, ENTRY, LOGGED_OUT_BOOT } from './bootEntries.mjs'
+import { planCssGroups, stableCssBytes } from './stableCssPlan.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendDir = path.resolve(__dirname, '..')
@@ -25,24 +26,24 @@ const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 // The eager graph is everything a root actually SHIPS on the critical path — the bytes a
 // browser downloads and parses before that surface is interactive. It is measured from the
 // esbuild OUTPUT chunks: the root's entry chunk plus every chunk reachable through static
-// (import-statement) chunk edges, plus the one stylesheet the page links (see `linkedStylesheet`;
-// it is downloaded before render). Lazy (dynamic-import) chunks are excluded, and tree-shaken
+// (import-statement) chunk edges, plus the CSS the stable build loads before the root runs (see
+// `stableCssBytes`). Lazy (dynamic-import) chunks are excluded, and tree-shaken
 // code is already gone from the output — so a side-effect-free re-export barrel only costs
 // what its used exports actually ship, not its whole surface (the earlier input-graph metric
 // counted the whole barrel and mistook reachability for shipped weight).
 // Total dist size can't see this regression class (a fake-lazy import moves no total bytes
 // but shifts them onto the eager path), which is why this check exists.
 //
-// Budgets are eager output bytes (shipped JS + the linked stylesheet, minified).
+// Budgets are eager output bytes (shipped JS + the stable build's CSS for the root, minified).
 // Ratchet policy: when a bundle-splitting win lands, lower the budget to lock it in;
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
 const ROOTS = [
     {
         root: ENTRY,
         label: 'entry (logged-out pages, app bootstrap)',
-        // 2026-09-11: 1.54 MiB eager output (0.18 MiB JS + the 1.36 MiB linked stylesheet, 22 files).
+        // 2026-10-11: 0.97 MiB eager output (0.17 MiB JS + 0.80 MiB stable CSS, 23 files).
         // ~20% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 1_930_000,
+        budgetBytes: 1_200_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -69,10 +70,10 @@ const ROOTS = [
         root: LOGGED_OUT_BOOT,
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
-        // `js`), so this is the whole JS cost of /login. 2026-09-11: 3.51 MiB eager output = 2.14 MiB
-        // JS (608 files) + the 1.36 MiB linked stylesheet.
-        // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 4_225_000,
+        // `js`), so this is the whole JS cost of /login. 2026-10-12: 2.86 MiB eager output = 2.06 MiB
+        // JS (615 files) + 0.80 MiB stable CSS.
+        // ~6% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 3_180_000,
         forbidden: [
             'node_modules/monaco-editor/',
             // Authenticated-only code. Either of these on the App path means a component that
@@ -86,14 +87,24 @@ const ROOTS = [
             'src/lib/components/CodeSnippet/',
             // The taxonomy JSON is a quarter-MiB lookup table for the property editors, not for /login.
             'src/taxonomy/core-filter-definitions-by-group.json',
+            // zod is for schemas of the logged-in app. A hit means a module on the App path imports a
+            // file that builds a schema. Move the zod-free code of that file into its own module, as
+            // sqlEditorDraftCleanup does for sqlEditorDraftStorage.
+            'node_modules/zod/',
+            // Billing is for logged-in users, and billingLogic pulls in eventUsageLogic and the credit
+            // purchase UI. A hit means a module on the App path imports billingLogic. Read billing values
+            // from a logic or component that only logged-in pages load.
+            'src/scenes/billing/billingLogic.tsx',
+            // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
+            'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
         ],
     },
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-09-24: 7.25 MiB eager output = 5.86 MiB JS (2292 files) + the 1.39 MiB linked
-        // stylesheet. ~15% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 8_745_000,
+        // 2026-10-11: 7.09 MiB eager output = 6.29 MiB JS (2463 files) + 0.80 MiB stable CSS.
+        // ~8% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 7_860_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -104,6 +115,8 @@ const ROOTS = [
                 verifyPrefix: 'products/dashboards/frontend/widgets/',
             },
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
+            // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
+            'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -123,19 +136,21 @@ const ROOTS = [
         ],
     },
     // The most visited logged-in scenes, whose JS gates their LCP. A scene root counts every chunk the
-    // scene needs, so code it shares with the shell is in both numbers. Like the other roots it adds the
-    // whole linked stylesheet, not the per-scene CSS the stable build serves, so a budget tracks JS.
+    // scene needs, so code it shares with the shell is in both numbers.
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
-        // 2026-10-05: 9.93 MiB (3517 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 11_450_000,
+        // 2026-10-11: 9.33 MiB (3529 files), stable CSS included. ~10% headroom.
+        budgetBytes: 10_500_000,
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+            // The generated schema validators serve web analytics URL filters. A hit means the web
+            // analytics editor filters became a static import of the insight editor.
+            'src/queries/validators.js',
         ],
     },
     {
@@ -145,7 +160,7 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        budgetBytes: 9_000_000,
+        budgetBytes: 8_115_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
@@ -155,22 +170,43 @@ const ROOTS = [
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
-        // 2026-10-05: 9.55 MiB (3371 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 11_020_000,
+        // 2026-10-11: 8.92 MiB (3373 files), stable CSS included. ~10% headroom.
+        budgetBytes: 10_055_000,
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+            // The generated schema validators serve web analytics URL filters. A hit means the web
+            // analytics editor filters became a static import of the insight editor.
+            'src/queries/validators.js',
+        ],
+    },
+    {
+        root: 'src/scenes/web-analytics/WebAnalyticsScene.tsx',
+        label: 'web analytics scene',
+        // 2026-10-17: 9.85 MiB (3651 files), stable CSS included. ~10% headroom.
+        budgetBytes: 11_360_000,
+        forbidden: [
+            // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
+            'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
+            'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
         ],
     },
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
-        // 2026-10-01: 14.29 MiB (5280 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 16_480_000,
-        forbidden: [],
+        // 2026-10-17: 8.61 MiB (3264 files), stable CSS included. ~10% headroom.
+        budgetBytes: 9_930_000,
+        forbidden: [
+            // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
+            // which holds every settings page.
+            'src/scenes/settings/SettingsMap.tsx',
+            // A browser cannot read files. The polyfill plugin in common/esbuilder/utils.mjs stubs out
+            // fs and fs/promises, and a hit means a library's file reader pulled in the jspm fs polyfill.
+            '@jspm/core/nodelibs/browser/fs',
+        ],
     },
 ]
 
@@ -324,9 +360,7 @@ function eagerChunkClosure(entry) {
     return seen
 }
 
-// The page links only the src/index.tsx entry's stylesheet (writePreloadManifest in build.mjs). esbuild
-// gives other chunks a `cssBundle` too, but the browser never downloads those files.
-const linkedStylesheet = outputs[entryChunk(ENTRY)]?.cssBundle
+const cssPlan = planCssGroups(meta)
 
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
 const report = { roots: [], errors: [], warnings: [] }
@@ -389,10 +423,11 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
             }
         }
     }
-    // `cssBundle` is not an `imports` edge, so the chunk walk never reaches the sheet every page links.
-    if (linkedStylesheet) {
-        totalBytes += outputs[linkedStylesheet].bytes
-    }
+    // CSS is not an `imports` edge, so the chunk walk never reaches it.
+    totalBytes += stableCssBytes(
+        cssPlan,
+        entries.map(({ entry }) => entry)
+    )
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes

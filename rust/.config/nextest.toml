@@ -44,3 +44,10 @@ path = "junit.xml"
 [[profile.ci.overrides]]
 filter = 'package(personhog-stateright) and test(epoch_fenced_two_partitions_double_zombie_is_safe)'
 threads-required = "num-cpus"
+
+# cohort-stream-processor's integration tests include broker and S3 tests that can hang on a
+# shutdown or a broker wait. Fail any of them at 2 minutes, well past the slowest one, instead of
+# letting them eat the job's timeout.
+[[profile.ci.overrides]]
+filter = 'package(cohort-stream-processor) & kind(test)'
+slow-timeout = { period = "60s", terminate-after = 2 }
