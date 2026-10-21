@@ -872,16 +872,24 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            ("skipped", True, "heal_latest_run", True, False, True),
+            ("skipped", True, "heal_latest_run", True, False, False, True),
             # The skip holds across runs, and the entry keeps pointing at the run that really failed.
-            ("skipped_again", True, "heal_latest_run", True, True, True),
-            ("shadow_mode", False, "heal_latest_run", True, False, False),
-            ("manual_retry", True, "manual_retry", True, False, False),
-            ("metric_changed", True, "heal_latest_run", False, False, False),
+            ("skipped_again", True, "heal_latest_run", True, True, False, True),
+            ("shadow_mode", False, "heal_latest_run", True, False, False, False),
+            ("manual_retry", True, "manual_retry", True, False, False, False),
+            ("metric_changed", True, "heal_latest_run", False, False, False, False),
+            ("metric_edited_after_discovery", True, "heal_latest_run", True, False, True, False),
         ]
     )
     def test_unchanged_validation_error_skips_the_metric(
-        self, name: str, flag_enabled: bool, trigger: str, same_key: bool, previous_skipped: bool, expect_skip: bool
+        self,
+        name: str,
+        flag_enabled: bool,
+        trigger: str,
+        same_key: bool,
+        previous_skipped: bool,
+        edit_after_discovery: bool,
+        expect_skip: bool,
     ):
         exp = self._experiment(flag_key=f"calc-skip-{name}", metrics=[_mean_metric("m1")])
         stored_key = _calculation_key(exp, "m1") if same_key else "key-before-edit"
@@ -920,6 +928,9 @@ class TestCalculateActivity(BaseTest):
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _discover(str(recalc.id))
             discovery_events = list(captured)
+            if edit_after_discovery:
+                exp.metrics = [{**_mean_metric("m1"), "source": {"kind": "EventsNode", "event": "checkout"}}]
+                exp.save()
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         recalc.refresh_from_db()

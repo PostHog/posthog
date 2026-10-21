@@ -907,7 +907,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         skip_entry = state.metric_errors.get(metric_uuid)
         if isinstance(skip_entry, dict) and skip_entry.get("step") == _SKIPPED_STEP:
-            return _skip_metric(experiment, metric_uuid, role, metric_dict, skip_entry, trigger=state.trigger)
+            if skip_entry.get("calculation_key") == calculation_key:
+                return _skip_metric(experiment, metric_uuid, role, metric_dict, skip_entry, trigger=state.trigger)
+            # The metric changed after discovery skipped it, so the skip no longer applies.
+            _clear_error(recalculation_id, metric_uuid)
 
         results = MetricResultStore(experiment_id=experiment_id)
 
