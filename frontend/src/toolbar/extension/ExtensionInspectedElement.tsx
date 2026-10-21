@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
 
+import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -12,14 +13,14 @@ import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConne
 import { extensionPanelLogic } from './extensionPanelLogic'
 
 export function ExtensionInspectedElement(): JSX.Element | null {
-    const { inspect } = useValues(extensionPageToolbarConnectionLogic)
+    const { inspect, heatmap } = useValues(extensionPageToolbarConnectionLogic)
     const { sendCommand } = useActions(extensionPageToolbarConnectionLogic)
     const { projectUrl } = useValues(extensionPanelLogic)
     const element = inspect?.element
     if (!element) {
         return null
     }
-    const { actionStep, actions } = element
+    const { actionStep, stats, actions } = element
 
     return (
         <div className="flex flex-col gap-2 border rounded p-2 text-xs">
@@ -47,6 +48,16 @@ export function ExtensionInspectedElement(): JSX.Element | null {
                     />
                 )}
             </div>
+            {stats && (
+                <ElementClickStats
+                    count={stats.count}
+                    totalCount={heatmap?.clickCount ?? 0}
+                    rank={stats.rank}
+                    clickCount={stats.clickCount}
+                    rageclickCount={stats.rageclickCount}
+                    deadclickCount={stats.deadclickCount}
+                />
+            )}
             <div className="flex flex-col gap-1">
                 <div className="font-semibold">Actions ({actions.length})</div>
                 {actions.length === 0 ? (

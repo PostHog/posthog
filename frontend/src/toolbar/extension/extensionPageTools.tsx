@@ -27,10 +27,11 @@ export const PAGE_TOOLS: PageToolDefinition[] = [
     {
         mode: 'inspect',
         label: 'Inspect',
-        description: "Hover the page to see each element's selector and actions",
+        description: "Hover the page to see each element's selector, clicks and actions",
         icon: <IconSearch />,
     },
     {
+        mode: 'heatmap',
         label: 'Heatmap',
         description: 'Show where people click and how far they scroll',
         icon: <IconCursorClick />,

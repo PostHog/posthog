@@ -366,9 +366,9 @@ Fired when the side panel shows a new state.
 
 Fired when the user runs a tool on the page from the extension.
 
-| Property | Type     | Description |
-| -------- | -------- | ----------- |
-| `tool`   | `string` | `'inspect'` |
+| Property | Type     | Description                                   |
+| -------- | -------- | --------------------------------------------- |
+| `tool`   | `string` | `'inspect'`, `'heatmap'`, or `'save-heatmap'` |
 
 **File:** `extension/extensionTelemetry.ts`
 

@@ -23,7 +23,7 @@ import {
     heatmapUrlPatternToRegex,
     resolveHeatmapUrlFilter,
 } from 'lib/components/heatmaps/heatmapUrlMatch'
-import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { HeatmapBoundsFilter, ScrollDepthPosthogJsError } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createSliceYielder } from 'lib/utils/async'
 import { createVersionChecker } from 'lib/utils/semver'
@@ -406,7 +406,7 @@ export interface heatmapToolbarMenuLogicValues {
         processed: number
         total: number
     } | null
-    scrollDepthPosthogJsError: 'disabled' | 'version' | null
+    scrollDepthPosthogJsError: ScrollDepthPosthogJsError
     wantedDataAttributes: string[]
     windowHeight: number
     windowWidth: number
@@ -625,7 +625,7 @@ export interface heatmapToolbarMenuLogicMeta {
         wantedDataAttributes: (dataAttributes: string[]) => string[]
         clickCount: (countedElements: CountedHTMLElement[]) => number
         highestClickCount: (countedElements: CountedHTMLElement[]) => number
-        scrollDepthPosthogJsError: (posthog: PostHog | null) => 'disabled' | 'version' | null
+        scrollDepthPosthogJsError: (posthog: PostHog | null) => ScrollDepthPosthogJsError
         processingInputs: (
             elementStats: PaginatedResponse<ElementsEventType> | null,
             dataAttributes: string[],
@@ -1013,9 +1013,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
-            (posthog: PostHog | null): 'version' | 'disabled' | null => {
+            (posthog: PostHog | null): ScrollDepthPosthogJsError => {
                 if (!posthog) {
-                    return null
+                    return 'missing'
                 }
 
                 const posthogVersion =

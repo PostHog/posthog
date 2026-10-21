@@ -59,6 +59,7 @@ When it can't reach the site, the panel asks the user to reload the page and try
 The page tools run the floating toolbar's own logics in the content script, and draw its overlays in the content script's shadow root:
 
 - `elementsLogic` for Inspect.
+- `heatmapToolbarMenuLogic`, `heatmapDataLogic` and `heatmapCaptureLogic` for the heatmap.
 
 The panel shows their controls. It sends each command to the tool it belongs to, and gets their state back through a port.
 
@@ -70,6 +71,8 @@ flowchart LR
     content -- toolbarConfigLogic with the extension's tokens --> logics[Toolbar logics]
     logics -- bearer token --> api[PostHog API]
     logics -- overlays --> page[(Page)]
+    content -- window.postMessage --- agent[Page agent]
+    agent -- posthog-js --> page
 ```
 
 - **Sign-in.** The panel calls PostHog with the PostHog session cookie for the checks it runs before the page tools.
@@ -81,6 +84,9 @@ flowchart LR
 - **Refresh.** The content script refreshes the tokens on a 401 like the floating toolbar does, and sends the new tokens to the panel to store.
 - **Storage.** In extension mode `toolbarConfigLogic` doesn't read the page's URL hash or write the page's `localStorage`, so it leaves the floating toolbar's session on the page alone.
 - **State.** Each tool's state is one memoized slice. The page posts only the slices that changed, at most every 100 ms, so a panel component re-renders only for its own tool.
+- **posthog-js.** The content script can't reach the page's `window.posthog`, so the panel injects `page-agent.js` into the page's world with the content script.
+  The content script asks the page agent for the page's posthog-js settings when the page tools start, and stands in for posthog-js with them.
+  When a page loads posthog-js later, the page agent reports it, and the page tools start again with it.
 - **Injection.** The panel injects the content script on first use. The script answers a ping, so the panel doesn't inject it twice.
 - **Navigation.** When a single-page app changes the URL, the port stays open and the page tools follow the new URL.
   A new document closes the port. The panel then connects again and turns the mode the user picked back on.
@@ -92,6 +98,7 @@ Use a site in the project's authorized URLs. Do these steps in Chrome and in Fir
 
 1. Open the panel on the site. The panel connects the toolbar to the project: a tab opens and closes by itself.
 2. Click the Inspect icon and hover an element. The panel shows its selector and actions. Click the element to keep it selected.
-3. Reload the page. Inspect comes back.
-4. Switch to a tab with another site, then back. The panel shows the state of each tab.
-5. Switch the project in the panel. The panel connects the toolbar to the new project.
+3. Click **Heatmap**. Check the clickmap counts, the heatmap canvas, the scroll depth type, **Filter to area**, **Load all**, and **Save to PostHog**.
+4. Reload the page. The heatmap comes back.
+5. Switch to a tab with another site, then back. The panel shows the state of each tab.
+6. Switch the project in the panel. The panel connects the toolbar to the new project.
