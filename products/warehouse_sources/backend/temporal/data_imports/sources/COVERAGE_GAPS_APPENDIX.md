@@ -5430,16 +5430,16 @@ Note: The swagger-ui URL recorded in the source (https://customapi.goldcast.io/s
 
 ## GoLogin — gaps
 
-Today (3): `profiles`, `proxy_devices`, `workspaces`
+Today (7): `cloud_usage_daily`, `deleted_profiles`, `folders`, `profiles`, `proxy_devices`, `tags`, `workspaces`
 
 Diffed against: <https://api.gologin.com/docs-json>
 
-- [ ] `Folders (GET /folders)` — explain folder references on synced profiles and group profile activity by folder (high)
-- [ ] `Tags (GET /tags/all)` — resolve profile tag references for consistent analysis of browser profile groups (high)
-- [ ] `Workspace cloud usage statistics (GET /cloud-usage/stats)` — measure daily cloud launches, runtime minutes, and consumption against workspace limits (high)
+- [x] `Folders (GET /folders)` — explain folder references on synced profiles and group profile activity by folder (high)
+- [x] `Tags (GET /tags/all)` — resolve profile tag references for consistent analysis of browser profile groups (high)
+- [x] `Workspace cloud usage statistics (GET /cloud-usage/stats)` — measure daily cloud launches, runtime minutes, and consumption against workspace limits (high)
 - [ ] `Profile cloud usage statistics (GET /cloud-usage/profile/{browserId}/stats)` — attribute cloud runtime to individual profiles and identify profiles with high resource consumption (medium)
 - [ ] `Workspace members (GET /workspaces/{wid}, members collection)` — join workspace members and roles to profile activity for collaboration and access analysis (medium)
-- [ ] `Deleted profiles (GET /deleted-profiles/v2)` — track profile deletion and retain lifecycle coverage beyond the current active profile inventory (medium)
+- [x] `Deleted profiles (GET /deleted-profiles/v2)` — track profile deletion and retain lifecycle coverage beyond the current active profile inventory (medium)
 - [ ] `GoLogin proxy traffic (GET /users-proxies/geolocation/traffic)` — monitor remaining proxy traffic allowances alongside cloud usage and profile activity (medium)
 
 Note: Parsed all GET operations and response schemas in the official OpenAPI document. The profiles endpoint already covers all workspaces; workspace list responses omit the members available from workspace detail reads. Cloud usage needs workspace or profile fan-out, and workspace statistics cover at most 30 days per request. Excluded cookies, fingerprints, credentials, proxy configuration, and workspace settings.
