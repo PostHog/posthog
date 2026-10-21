@@ -189,6 +189,8 @@ class RelaySlackMessageInput:
     # Gateway trace id of the turn that produced this answer. Trailing and defaulted so a
     # relay enqueued before this field existed still decodes.
     trace_id: str | None = None
+    # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
+    offer_reply_suggestions: bool = False
 
 
 @activity.defn
@@ -202,7 +204,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import slack_reply_target
+    from products.tasks.backend.temporal.process_task.utils import slack_reply_target, turn_person_message
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -248,8 +250,15 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     context = SlackThreadContext.from_mapping(mapping, user_message_ts=input.user_message_ts)
     # Resolved before the handler, so the handler knows whoever this reply is for.
     target = slack_reply_target(task_run, mapping, input.message_id)
+    person_message = turn_person_message(str(task_run.id), input.message_id)
 
-    handler = SlackThreadHandler.for_run(context, task_run.id, actor_slack_user_id=target, turn_trace_id=input.trace_id)
+    handler = SlackThreadHandler.for_run(
+        context,
+        task_run.id,
+        actor_slack_user_id=target,
+        turn_trace_id=input.trace_id,
+        turn_person_message=person_message,
+    )
 
     # The mention opens the answer, in the same line, so the reply reads as one message.
     mention_prefix = leading_mention_prefix(text, target)
@@ -310,3 +319,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
+
+    # Last, because the model call behind it is the slowest step and the answer must not wait for it.
+    if answer_delivered and input.offer_reply_suggestions:
+        handler.offer_reply_suggestions(text)

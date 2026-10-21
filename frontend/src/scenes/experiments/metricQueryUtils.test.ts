@@ -1,30 +1,29 @@
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import type {
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentFunnelMetricStep,
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { initKeaTests } from '~/test/init'
 import {
     ChartDisplayType,
     ExperimentMetricMathType,
+    FilterLogicalOperator,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
-import {
-    createFilterForSource,
-    filterToMetricConfig,
-    filterToMetricSource,
-    getFilter,
-    getMathProperties,
-    getQuery,
-} from './metricQueryUtils'
+import { getMathProperties, getQuery, seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
 
 // getQuery builds date_from/date_to from dayjs() at call time, formatted to the minute.
 // The expected values below recompute dayjs() independently, so a minute rollover between
@@ -38,362 +37,219 @@ afterAll(() => {
     jest.useRealTimers()
 })
 
-describe('getFilter', () => {
-    it('returns the correct filter for an event', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.EventsNode,
-                event: '$pageview',
-                name: '$pageview',
-                math: ExperimentMetricMathType.TotalCount,
-                math_property: undefined,
-                math_hogql: undefined,
-                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
-            } as EventsNode,
+describe('seriesToMetricSource', () => {
+    const pickedTable = {
+        table_name: 'stripe_charges',
+        name: 'stripe_charges',
+        timestamp_field: 'created_at',
+        events_join_key: 'distinct_id',
+        data_warehouse_join_key: 'customer_id',
+        math: ExperimentMetricMathType.Sum,
+        math_property: 'amount',
+    }
+
+    it.each([NodeKind.ExperimentDataWarehouseNode, NodeKind.DataWarehouseNode] as const)(
+        'stores a table picked as %s as an experiment warehouse node, without the id the picker mirrors',
+        (kind) => {
+            const series = [{ ...pickedTable, kind, id: 'stripe_charges' }] as SeriesNode[]
+
+            expect(seriesToMetricSource(series)).toEqual({
+                ...pickedTable,
+                kind: NodeKind.ExperimentDataWarehouseNode,
+            })
         }
-        const filter = getFilter(metric)
-        expect(filter).toEqual({
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    event: '$pageview',
-                    type: 'events',
-                    math: ExperimentMetricMathType.TotalCount,
-                    math_property: undefined,
-                    math_hogql: undefined,
-                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
-                    kind: NodeKind.EventsNode,
-                },
-            ],
-            actions: [],
-            data_warehouse: [],
-        })
-    })
-    it('returns the correct filter for an action', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.ActionsNode,
-                id: 8,
-                name: 'jan-16-running payment action',
-                math: ExperimentMetricMathType.TotalCount,
-                math_property: undefined,
-                math_hogql: undefined,
-                properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-            } as ActionsNode,
-        }
-        const filter = getFilter(metric)
-        expect(filter).toEqual({
-            events: [],
-            actions: [
-                {
-                    id: 8,
-                    name: 'jan-16-running payment action',
-                    type: 'actions',
-                    math: ExperimentMetricMathType.TotalCount,
-                    math_property: undefined,
-                    math_hogql: undefined,
-                    properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-                    kind: NodeKind.ActionsNode,
-                },
-            ],
-            data_warehouse: [],
-        })
-    })
-})
+    )
 
-describe('filterToMetricSource', () => {
-    it('returns EventsNode when events are provided', () => {
-        const events = [
-            {
-                id: '$pageview',
-                name: '$pageview',
-                math: ExperimentMetricMathType.TotalCount,
-                math_property: 'revenue',
-                math_hogql: 'sum(revenue)',
-                properties: [],
-            },
-        ]
-
-        const result = filterToMetricSource(undefined, events, undefined)
-
-        expect(result).toEqual({
-            kind: NodeKind.EventsNode,
-            event: '$pageview',
-            name: '$pageview',
-            math: ExperimentMetricMathType.TotalCount,
-            math_property: 'revenue',
-            math_hogql: 'sum(revenue)',
-            properties: [],
-        })
-    })
-
-    it('returns ActionsNode when actions are provided', () => {
-        const actions = [
-            {
-                id: 123,
-                name: 'signup_action',
-                math: ExperimentMetricMathType.Sum,
-                math_property: 'value',
-                properties: [],
-            },
-        ]
-
-        const result = filterToMetricSource(actions, undefined, undefined)
-
-        expect(result).toEqual({
-            kind: NodeKind.ActionsNode,
-            id: 123,
-            name: 'signup_action',
-            math: ExperimentMetricMathType.Sum,
-            math_property: 'value',
-            math_hogql: undefined,
-            properties: [],
-        })
-    })
-
-    it('returns ExperimentDataWarehouseNode when data_warehouse is provided', () => {
-        const dataWarehouse = [
-            {
-                id: 'user_events',
-                name: 'User Events',
-                timestamp_field: 'created_at',
-                events_join_key: 'user_id',
-                data_warehouse_join_key: 'customer_id',
-                math: ExperimentMetricMathType.Avg,
-                math_property: 'session_duration',
-                properties: [],
-            },
-        ]
-
-        const result = filterToMetricSource(undefined, undefined, dataWarehouse)
-
-        expect(result).toEqual({
-            kind: NodeKind.ExperimentDataWarehouseNode,
-            name: 'User Events',
-            table_name: 'user_events',
-            timestamp_field: 'created_at',
-            events_join_key: 'user_id',
-            data_warehouse_join_key: 'customer_id',
-            math: ExperimentMetricMathType.Avg,
-            math_property: 'session_duration',
-            math_hogql: undefined,
-            properties: [],
-        })
-    })
-
-    it('returns null when no sources are provided', () => {
-        const result = filterToMetricSource(undefined, undefined, undefined)
-        expect(result).toBeNull()
-    })
-
-    it('prioritizes events over actions and data_warehouse', () => {
-        const events = [{ id: 'event1', name: 'Event 1' }]
-        const actions = [{ id: 1, name: 'Action 1' }]
-        const dataWarehouse = [{ id: 'table1', name: 'Table 1' }]
-
-        const result = filterToMetricSource(actions, events, dataWarehouse)
-
-        expect(result?.kind).toBe(NodeKind.EventsNode)
-        expect(result?.name).toBe('Event 1')
-    })
-
-    it('uses default math when not provided', () => {
-        const events = [{ id: '$pageview', name: '$pageview' }]
-
-        const result = filterToMetricSource(undefined, events, undefined)
-
-        expect(result?.math).toBe(ExperimentMetricMathType.TotalCount)
-    })
-
-    // Regression: an empty/null `id` must fall back to `name` so the event isn't dropped.
+    // Regression: an empty/null `event` must fall back to `name` so the event isn't dropped.
     it.each([
-        ['empty string id (numerator path)', ''],
-        ['null id (denominator path)', null],
-    ])('recovers event from name when id is %s', (_label, id) => {
-        const events = [{ id, name: 'purchase', math: ExperimentMetricMathType.Sum, math_property: 'value' }]
+        ['empty string event (numerator path)', ''],
+        ['null event (denominator path)', null],
+    ])('recovers event from name when the node has %s', (_label, event) => {
+        const series: SeriesNode[] = [{ kind: NodeKind.EventsNode, event, name: 'purchase' }]
 
-        const result = filterToMetricSource(undefined, events, undefined)
-
-        expect(result).toMatchObject({
+        expect(seriesToMetricSource(series)).toEqual({
             kind: NodeKind.EventsNode,
             event: 'purchase',
             name: 'purchase',
+            math: ExperimentMetricMathType.TotalCount,
         })
+    })
+
+    it('keeps the session property math type and fixed properties the backend reads', () => {
+        const node: EventsNode = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.Sum,
+            math_property: '$pageview_count',
+            math_property_type: 'session_properties',
+            fixedProperties: [
+                {
+                    key: '$browser',
+                    value: ['Chrome'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        }
+
+        expect(seriesToMetricSource([node])).toEqual(node)
+    })
+
+    it.each([
+        ['no series', []],
+        ['a group', [{ kind: NodeKind.GroupNode, operator: FilterLogicalOperator.Or, nodes: [] }]],
+    ])('returns null for %s', (_label, series) => {
+        expect(seriesToMetricSource(series as SeriesNode[])).toBeNull()
     })
 })
 
-describe('filterToMetricConfig', () => {
-    it('returns FUNNEL metric config when funnel type is provided', () => {
-        const events = [
-            { id: 'step1', properties: [], order: 0 },
-            { id: 'step2', properties: [], order: 1 },
+describe('seriesToMetricConfig', () => {
+    const funnelSteps: ExperimentFunnelMetricStep[] = [
+        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+        { kind: NodeKind.ActionsNode, id: 7, name: 'Signed up' },
+        {
+            kind: NodeKind.ExperimentDataWarehouseNode,
+            table_name: 'stripe_charges',
+            name: 'stripe_charges',
+            timestamp_field: 'created_at',
+            events_join_key: 'distinct_id',
+            data_warehouse_join_key: 'customer_id',
+        },
+    ]
+    const [pageviewStep, actionStep, tableStep] = funnelSteps
+
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    it.each<[string, (logic: ReturnType<typeof entityFilterLogic.build>) => void, ExperimentFunnelMetricStep[]]>([
+        [
+            'adding a step',
+            (logic) => logic.actions.addSeries(),
+            [...funnelSteps, { kind: NodeKind.EventsNode, event: getDefaultEventName(), name: getDefaultEventLabel() }],
+        ],
+        [
+            'picking a table for a step',
+            (logic) =>
+                logic.actions.updateSeriesEntity(0, {
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    key: 'invoices',
+                    name: 'invoices',
+                    timestamp_field: 'paid_at',
+                    data_warehouse_join_key: 'customer_id',
+                    events_join_key: 'distinct_id',
+                }),
+            [
+                {
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'invoices',
+                    name: 'invoices',
+                    timestamp_field: 'paid_at',
+                    data_warehouse_join_key: 'customer_id',
+                    events_join_key: 'distinct_id',
+                },
+                actionStep,
+                tableStep,
+            ],
+        ],
+        [
+            'picking an event for a table step',
+            (logic) => logic.actions.updateSeriesEntity(2, { kind: NodeKind.EventsNode, key: 'paid', name: 'paid' }),
+            [pageviewStep, actionStep, { kind: NodeKind.EventsNode, event: 'paid', name: 'paid' }],
+        ],
+        [
+            'renaming an action step',
+            (logic) => {
+                logic.actions.selectSeries(1, logic.values.localSeries[1].node, logic.values.localSeries[1].uuid)
+                logic.actions.renameSeries('Signup')
+            },
+            [pageviewStep, { ...actionStep, custom_name: 'Signup' }, tableStep],
+        ],
+        ['removing a step', (logic) => logic.actions.removeSeries(1), [pageviewStep, tableStep]],
+        [
+            'reordering the steps',
+            (logic) => logic.actions.setLocalSeries([...logic.values.localSeries].reverse()),
+            [tableStep, actionStep, pageviewStep],
+        ],
+    ])('stores the funnel steps the picker emits after %s', (_label, edit, expectedSteps) => {
+        const onChange = jest.fn()
+        const logic = entityFilterLogic({
+            series: funnelSteps,
+            onChange,
+            typeKey: 'experiment-metric',
+            dataWarehouseNodeKind: NodeKind.ExperimentDataWarehouseNode,
+            dataWarehousePopoverFields: [
+                { key: 'timestamp_field', label: 'Timestamp Field' },
+                { key: 'data_warehouse_join_key', label: 'Data Warehouse Join Key' },
+                { key: 'events_join_key', label: 'Events Join Key' },
+            ],
+        })
+        logic.mount()
+
+        edit(logic)
+
+        expect(seriesToMetricConfig(ExperimentMetricType.FUNNEL, onChange.mock.lastCall[0])).toEqual({
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: expectedSteps,
+        })
+    })
+
+    it('drops math and the optional flag from funnel steps', () => {
+        const series: SeriesNode[] = [
+            { kind: NodeKind.EventsNode, event: '$pageview', math: ExperimentMetricMathType.TotalCount },
+            {
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                math: ExperimentMetricMathType.Sum,
+                math_property: 'amount',
+                optionalInFunnel: true,
+            },
         ]
-        const actions = [{ id: 123, name: 'action1', properties: [], order: 2 }]
 
-        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, actions, events, undefined)
-
-        expect(result).toEqual({
+        expect(seriesToMetricConfig(ExperimentMetricType.FUNNEL, series)).toEqual({
             metric_type: ExperimentMetricType.FUNNEL,
             series: [
-                { kind: NodeKind.EventsNode, event: 'step1', properties: [] },
-                { kind: NodeKind.EventsNode, event: 'step2', properties: [] },
-                { kind: NodeKind.ActionsNode, id: 123, name: 'action1', properties: [] },
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'purchase' },
             ],
         })
     })
 
-    it('keeps a data warehouse step in a FUNNEL metric config', () => {
-        const events = [{ id: '$pageview', properties: [], order: 1 }]
-        const dataWarehouse = [
+    it('keeps a renamed step of every kind and drops an empty rename', () => {
+        const series = [
+            { kind: NodeKind.EventsNode, event: 'step1', custom_name: 'Signed up' },
+            { kind: NodeKind.EventsNode, event: 'step2', custom_name: '' },
+            { kind: NodeKind.ActionsNode, id: 123, name: 'action1', custom_name: 'Activated' },
             {
+                kind: NodeKind.ExperimentDataWarehouseNode,
                 id: 'stripe_charges',
+                table_name: 'stripe_charges',
                 name: 'Stripe charges',
+                custom_name: 'Paid',
                 timestamp_field: 'created_at',
                 events_join_key: 'distinct_id',
                 data_warehouse_join_key: 'customer_id',
-                properties: [],
-                order: 0,
             },
-        ]
+        ] as SeriesNode[]
 
-        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, undefined, events, dataWarehouse)
-
-        expect(result).toEqual({
+        expect(seriesToMetricConfig(ExperimentMetricType.FUNNEL, series)).toEqual({
             metric_type: ExperimentMetricType.FUNNEL,
             series: [
+                { kind: NodeKind.EventsNode, event: 'step1', custom_name: 'Signed up' },
+                { kind: NodeKind.EventsNode, event: 'step2' },
+                { kind: NodeKind.ActionsNode, id: 123, name: 'action1', custom_name: 'Activated' },
                 {
                     kind: NodeKind.ExperimentDataWarehouseNode,
                     table_name: 'stripe_charges',
                     name: 'Stripe charges',
+                    custom_name: 'Paid',
                     timestamp_field: 'created_at',
                     events_join_key: 'distinct_id',
                     data_warehouse_join_key: 'customer_id',
-                    custom_name: undefined,
-                    properties: [],
                 },
-                { kind: NodeKind.EventsNode, event: '$pageview', properties: [] },
             ],
         })
-    })
-
-    it('returns MEAN metric config when mean type is provided with events', () => {
-        const events = [
-            { id: 'purchase', name: 'Purchase Event', math: ExperimentMetricMathType.Sum, math_property: 'revenue' },
-        ]
-
-        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, events, undefined)
-
-        expect(result).toEqual({
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.EventsNode,
-                event: 'purchase',
-                name: 'Purchase Event',
-                math: ExperimentMetricMathType.Sum,
-                math_property: 'revenue',
-                math_hogql: undefined,
-                properties: undefined,
-            },
-        })
-    })
-
-    it('keeps funnel step order stable when filter order is missing', () => {
-        const events = [{ id: 'first_event' }]
-        const dataWarehouse = [
-            {
-                id: 'stripe_charges',
-                name: 'Stripe charges',
-                timestamp_field: 'created_at',
-                events_join_key: 'distinct_id',
-                data_warehouse_join_key: 'customer_id',
-            },
-        ]
-
-        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, undefined, events, dataWarehouse)
-
-        expect(result).toEqual({
-            metric_type: ExperimentMetricType.FUNNEL,
-            series: [
-                expect.objectContaining({ kind: NodeKind.EventsNode, event: 'first_event' }),
-                expect.objectContaining({
-                    kind: NodeKind.ExperimentDataWarehouseNode,
-                    table_name: 'stripe_charges',
-                }),
-            ],
-        })
-    })
-
-    it('returns undefined when no valid sources are provided', () => {
-        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, undefined)
-        expect(result).toBeUndefined()
-    })
-
-    it('returns undefined for unsupported metric types', () => {
-        const events = [{ id: 'event1', name: 'Event 1' }]
-        const result = filterToMetricConfig('UNSUPPORTED' as ExperimentMetricType, undefined, events, undefined)
-        expect(result).toBeUndefined()
-    })
-})
-
-describe('createFilterForSource', () => {
-    it('creates filter for EventsNode source', () => {
-        const source: EventsNode = {
-            kind: NodeKind.EventsNode,
-            event: '$pageview',
-            name: '$pageview',
-            math: ExperimentMetricMathType.TotalCount,
-            properties: [],
-        }
-
-        const result = createFilterForSource(source)
-
-        expect(result.events).toHaveLength(1)
-        expect(result.actions).toHaveLength(0)
-        expect(result.data_warehouse).toHaveLength(0)
-        expect(result.events?.[0]?.id).toBe('$pageview')
-        expect(result.events?.[0]?.type).toBe('events')
-    })
-
-    it('creates filter for ActionsNode source', () => {
-        const source: ActionsNode = {
-            kind: NodeKind.ActionsNode,
-            id: 123,
-            name: 'signup_action',
-            math: ExperimentMetricMathType.TotalCount,
-        }
-
-        const result = createFilterForSource(source)
-
-        expect(result.events).toHaveLength(0)
-        expect(result.actions).toHaveLength(1)
-        expect(result.data_warehouse).toHaveLength(0)
-        expect(result.actions?.[0]?.id).toBe(123)
-        expect(result.actions?.[0]?.type).toBe('actions')
-    })
-
-    it('creates filter for ExperimentDataWarehouseNode source', () => {
-        const source: ExperimentDataWarehouseNode = {
-            kind: NodeKind.ExperimentDataWarehouseNode,
-            name: 'revenue_table',
-            table_name: 'revenue_table',
-            timestamp_field: 'created_at',
-            events_join_key: 'user_id',
-            data_warehouse_join_key: 'customer_id',
-            math: ExperimentMetricMathType.Sum,
-        }
-
-        const result = createFilterForSource(source)
-
-        expect(result.events).toHaveLength(0)
-        expect(result.actions).toHaveLength(0)
-        expect(result.data_warehouse).toHaveLength(1)
-        expect(result.data_warehouse?.[0]?.id).toBe('revenue_table')
-        expect(result.data_warehouse?.[0]?.type).toBe('data_warehouse')
     })
 })
 
@@ -679,122 +535,6 @@ describe('getQuery', () => {
 })
 
 describe('Data Warehouse Support', () => {
-    describe('getFilter with data warehouse nodes', () => {
-        it('returns the correct filter for a data warehouse mean metric', () => {
-            const metric: ExperimentMetric = {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.MEAN,
-                source: {
-                    kind: NodeKind.ExperimentDataWarehouseNode,
-                    table_name: 'user_events',
-                    timestamp_field: 'created_at',
-                    events_join_key: 'user_id',
-                    data_warehouse_join_key: 'user_id',
-                    name: 'user_events',
-                    math: ExperimentMetricMathType.TotalCount,
-                    properties: [
-                        {
-                            key: 'event_type',
-                            value: ['purchase'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                } as ExperimentDataWarehouseNode,
-            }
-            const filter = getFilter(metric)
-            expect(filter).toEqual({
-                events: [],
-                actions: [],
-                data_warehouse: [
-                    {
-                        id: 'user_events',
-                        name: 'user_events',
-                        type: 'data_warehouse',
-                        table_name: 'user_events',
-                        timestamp_field: 'created_at',
-                        events_join_key: 'user_id',
-                        data_warehouse_join_key: 'user_id',
-                        id_field: 'user_id',
-                        aggregation_target_field: 'user_id',
-                        math: ExperimentMetricMathType.TotalCount,
-                        properties: [
-                            {
-                                key: 'event_type',
-                                value: ['purchase'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                    },
-                ],
-            })
-        })
-
-        it('keeps data warehouse fields when converting a funnel metric to filters', () => {
-            const metric: ExperimentMetric = {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.FUNNEL,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: '$pageview',
-                        name: '$pageview',
-                    } as EventsNode,
-                    {
-                        kind: NodeKind.ActionsNode,
-                        id: 42,
-                        name: 'subscription_action',
-                    } as ActionsNode,
-                    {
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                        table_name: 'stripe_charges',
-                        name: 'Stripe charges',
-                        timestamp_field: 'created_at',
-                        events_join_key: 'distinct_id',
-                        data_warehouse_join_key: 'customer_id',
-                    } as ExperimentDataWarehouseNode,
-                ],
-            }
-            const filter = getFilter(metric)
-            expect(filter).toEqual({
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        event: '$pageview',
-                        type: 'events',
-                        order: 0,
-                        kind: NodeKind.EventsNode,
-                    },
-                ],
-                actions: [
-                    {
-                        id: 42,
-                        name: 'subscription_action',
-                        type: 'actions',
-                        order: 1,
-                        kind: NodeKind.ActionsNode,
-                    },
-                ],
-                data_warehouse: [
-                    expect.objectContaining({
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                        type: 'data_warehouse',
-                        table_name: 'stripe_charges',
-                        timestamp_field: 'created_at',
-                        events_join_key: 'distinct_id',
-                        data_warehouse_join_key: 'customer_id',
-                        id_field: 'customer_id',
-                        aggregation_target_field: 'distinct_id',
-                        order: 2,
-                    }),
-                ],
-            })
-        })
-    })
-
     describe('getQuery with data warehouse nodes', () => {
         it('returns the correct query for a data warehouse mean metric', () => {
             const metric: ExperimentMetric = {
@@ -936,91 +676,6 @@ describe('Data Warehouse Support', () => {
             })(metric)
 
             expect(query).toBeUndefined()
-        })
-    })
-
-    describe('Edge cases and validation', () => {
-        it('handles empty data warehouse properties gracefully', () => {
-            const metric: ExperimentMetric = {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.MEAN,
-                source: {
-                    kind: NodeKind.ExperimentDataWarehouseNode,
-                    table_name: '',
-                    timestamp_field: '',
-                    events_join_key: '',
-                    data_warehouse_join_key: '',
-                    name: '',
-                    math: ExperimentMetricMathType.TotalCount,
-                } as ExperimentDataWarehouseNode,
-            }
-            const filter = getFilter(metric)
-            expect(filter.data_warehouse).toHaveLength(1)
-            expect(filter.data_warehouse?.[0]?.table_name).toBe('')
-        })
-
-        it('preserves custom names and properties for data warehouse nodes in mean metrics', () => {
-            const metric: ExperimentMetric = {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.MEAN,
-                source: {
-                    kind: NodeKind.ExperimentDataWarehouseNode,
-                    table_name: 'analytics_events',
-                    timestamp_field: 'event_time',
-                    events_join_key: 'user_uuid',
-                    data_warehouse_join_key: 'user_external_id',
-                    name: 'analytics_events',
-                    custom_name: 'Custom Analytics Event',
-                    properties: [
-                        {
-                            key: 'category',
-                            value: ['conversion'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                        {
-                            key: 'value',
-                            value: [100],
-                            operator: PropertyOperator.GreaterThanOrEqual,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                    math: ExperimentMetricMathType.TotalCount,
-                    math_property: 'conversion_value',
-                    math_hogql: 'sum(conversion_value)',
-                } as ExperimentDataWarehouseNode,
-            }
-            const filter = getFilter(metric)
-            expect(filter.data_warehouse?.[0]).toEqual({
-                id: 'analytics_events',
-                name: 'analytics_events',
-                type: 'data_warehouse',
-                table_name: 'analytics_events',
-                timestamp_field: 'event_time',
-                events_join_key: 'user_uuid',
-                data_warehouse_join_key: 'user_external_id',
-                id_field: 'user_external_id',
-                aggregation_target_field: 'user_uuid',
-                custom_name: 'Custom Analytics Event',
-                properties: [
-                    {
-                        key: 'category',
-                        value: ['conversion'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                    {
-                        key: 'value',
-                        value: [100],
-                        operator: PropertyOperator.GreaterThanOrEqual,
-                        type: PropertyFilterType.Event,
-                    },
-                ],
-                math: ExperimentMetricMathType.TotalCount,
-                math_property: 'conversion_value',
-                math_hogql: 'sum(conversion_value)',
-                kind: NodeKind.ExperimentDataWarehouseNode,
-            })
         })
     })
 })

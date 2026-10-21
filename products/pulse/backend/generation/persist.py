@@ -10,11 +10,11 @@ from products.alerts.backend.models import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
+from products.subscriptions.backend.facade.api import subscription_ids_in_team
 
 logger = structlog.get_logger(__name__)
 
@@ -107,12 +107,14 @@ def _build_opportunity(
     )
 
 
-_LinkTarget = Insight | Dashboard | Annotation | Experiment | AlertConfiguration | Subscription
+# A subscription resolves to its id, because its model stays behind the subscriptions facade.
+_LinkTarget = Insight | Dashboard | Annotation | Experiment | AlertConfiguration | int
 
 
 def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[EvidenceType, str], _LinkTarget]:
     """Batch-resolve cited refs, keyed by EvidenceRef.key, to the model instances the ResourceLink
-    FKs point at. A ref that resolves to nothing is still linked (cached columns only)."""
+    FKs point at, or to the id for a subscription. A ref that resolves to nothing is still linked
+    (cached columns only)."""
     by_type: dict[EvidenceType, set[str]] = {}
     for ref in evidence:
         by_type.setdefault(ref.type, set()).add(ref.ref)
@@ -135,7 +137,6 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
         (EvidenceType.DASHBOARD, Dashboard),
         (EvidenceType.ANNOTATION, Annotation),
         (EvidenceType.EXPERIMENT, Experiment),
-        (EvidenceType.SUBSCRIPTION, Subscription),
     ):
         refs = by_type.get(evidence_type)
         if not refs:
@@ -146,6 +147,15 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
             logger.warning("pulse_persist_non_numeric_ref", evidence_type=evidence_type, refs=sorted(non_numeric))
         for obj in model.objects.filter(team_id=team_id, id__in=numeric_ids):
             resolved[(evidence_type, str(obj.id))] = obj
+    subscription_refs = by_type.get(EvidenceType.SUBSCRIPTION)
+    if subscription_refs:
+        numeric_ids = [int(r) for r in subscription_refs if r.isdigit()]
+        if non_numeric := subscription_refs - {str(i) for i in numeric_ids}:
+            logger.warning(
+                "pulse_persist_non_numeric_ref", evidence_type=EvidenceType.SUBSCRIPTION, refs=sorted(non_numeric)
+            )
+        for subscription_id in subscription_ids_in_team(team_id=team_id, subscription_ids=numeric_ids):
+            resolved[(EvidenceType.SUBSCRIPTION, str(subscription_id))] = subscription_id
     return resolved
 
 
@@ -165,7 +175,11 @@ def _build_links(
             url=ref.url[:_URL_MAX_LENGTH],
         )
         if ref.fk_field is not None:
-            setattr(link, ref.fk_field, resolved_fks.get(ref.key))
+            target = resolved_fks.get(ref.key)
+            if isinstance(target, int):
+                setattr(link, f"{ref.fk_field}_id", target)
+            else:
+                setattr(link, ref.fk_field, target)
         links.append(link)
     return links
 

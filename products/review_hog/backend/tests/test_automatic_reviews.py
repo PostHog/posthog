@@ -105,7 +105,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
         self.enterContext(patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher))
         self.secret = self.enterContext(
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=_SECRET)
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=_SECRET)
         )
 
     def _cache_summary(
@@ -508,7 +508,23 @@ class TestLabelReviewTask(BaseTest):
             user_id=self.user.id if run_as == "author" else self.connector.id,
             publish=True,
             trigger_source="label",
+            review_mode="flash",
         )
+
+    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
+        # A Standard request after a published Deep review is dropped, so the label would do nothing.
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            published_heads_by_mode={"full": _HEAD_SHA},
+        )
+
+        self._run(_label_payload())
+
+        assert self.start.call_args.kwargs["review_mode"] == "full"
 
     @parameterized.expand(
         [

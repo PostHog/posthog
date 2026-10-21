@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HexSource(ResumableSource[HexSourceConfig, HexResumeConfig]):
+    codebase_detection = detect(pypi=("airflow-provider-hex",))
+
     # Hex's public API has a single, unversioned surface under /api/v1.
     api_docs_url = "https://learn.hex.tech/docs/api-integrations/api/reference"
 
@@ -51,7 +54,7 @@ class HexSource(ResumableSource[HexSourceConfig, HexResumeConfig]):
             name=ExternalDataSourceType.HEX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Hex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Hex API token to pull your Hex projects, run history, cells, queried tables, data connections, agent threads, users, groups, and collections into the PostHog Data warehouse.
 
 You can create an API token in Hex under **Workspace settings > API keys**. A personal token inherits your permissions; workspace tokens are available on some plans and can read across the workspace. The threads table needs a token from a user with the Manager role or higher.

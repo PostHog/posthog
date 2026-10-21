@@ -269,8 +269,8 @@ describe("InboxReportContextMenu", () => {
     openMenu(makeReport());
 
     await user.hover(screen.getByText("Resolve"));
-    fireEvent.click(await screen.findByText("PR was merged"));
-    expect(mocks.resolveWithReason).toHaveBeenCalledWith("pr_merged");
+    fireEvent.click(await screen.findByText("No action needed"));
+    expect(mocks.resolveWithReason).toHaveBeenCalledWith("no_action_needed");
 
     fireEvent.contextMenu(screen.getByText("Report one"));
     await user.hover(screen.getByText("Dismiss"));
@@ -324,8 +324,8 @@ describe("InboxReportContextMenu", () => {
     );
 
     fireEvent.click(screen.getByText("Resolve"));
-    fireEvent.click(await screen.findByText("PR was merged"));
-    expect(mocks.openResolveDialog).toHaveBeenCalledWith("pr_merged");
+    fireEvent.click(await screen.findByText("No action needed"));
+    expect(mocks.openResolveDialog).toHaveBeenCalledWith("no_action_needed");
     expect(mocks.resolveWithReason).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(screen.getByText("Report one"));

@@ -14,10 +14,12 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 
 from ee.models.license import License
+from ee.partners.stripe.api.provisioning.authentication import StripeBearerAuthentication
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
@@ -210,6 +212,7 @@ class TestResources(StripeProvisioningTestBase):
         assert res.status_code == expected_status, res.json()
         assert [call.kwargs["json"] for call in billing_post.call_args_list] == expected_billing_payloads
 
+    @covers_authentication(StripeBearerAuthentication)
     def test_detail_returns_resource(self):
         token = self._get_bearer_token()
         res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token)

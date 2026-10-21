@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://restdocs.e-conomic.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -49,7 +52,7 @@ class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]
             name=ExternalDataSourceType.ECONOMIC,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="e-conomic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Visma e-conomic API tokens to pull your accounting data into the PostHog Data warehouse.
 
 e-conomic authenticates with two tokens sent as request headers:

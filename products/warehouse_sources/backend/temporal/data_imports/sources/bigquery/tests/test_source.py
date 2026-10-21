@@ -1,7 +1,10 @@
+import re
 import threading
+import contextlib
 import concurrent.futures
+from collections.abc import Iterable
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -20,12 +23,16 @@ from google.api_core.exceptions import (
 )
 from google.auth.credentials import Credentials as GoogleAuthCredentials
 from google.auth.exceptions import RefreshError
+from google.cloud.bigquery import SchemaField
 from requests.adapters import HTTPAdapter
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
+from products.batch_exports.backend.facade.destinations.bigquery import (
+    GoogleCloudCredentialsError,
+    ServiceAccountOwnershipError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
@@ -41,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
     BIGQUERY_NO_CREDENTIALS_ERROR,
+    BIGQUERY_POSTHOG_CREDENTIALS_ERROR,
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
@@ -49,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
+    BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
     BigQueryAuthResolutionError,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
@@ -88,7 +97,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     BigQueryTemporaryDatasetConfig,
     BigQueryUseCustomRegionConfig,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 
 @pytest.fixture(autouse=True)
@@ -694,6 +703,24 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Volatile project/dataset/identifier must not be required for the match.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets/my_dataset/"
+        "tables?prettyPrint=false: VPC Service Controls: Request is prohibited by organization's "
+        "policy. vpcServiceControlsUniqueIdentifier: abc123.",
+        "403 VPC Service Controls: Request is prohibited by organization's policy. "
+        "vpcServiceControlsUniqueIdentifier: xyz789.",
+    ],
+)
+def test_non_retryable_errors_match_vpc_service_controls_denial(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "VPC Service Controls denial should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
 def _run_delete_all_temp_destination_tables(side_effect, logger):
     bq = mock.MagicMock()
     bq.list_tables.side_effect = side_effect
@@ -945,6 +972,15 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
             BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
             False,
         ),
+        (
+            Forbidden(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets/"
+                "my_dataset/tables?prettyPrint=false: VPC Service Controls: Request is prohibited "
+                "by organization's policy. vpcServiceControlsUniqueIdentifier: abc123."
+            ),
+            BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
+            False,
+        ),
         (RuntimeError("something unexpected"), BIGQUERY_VALIDATION_GENERIC_ERROR, True),
     ],
 )
@@ -1121,6 +1157,28 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # The Storage Read API's gRPC auth plugin raises this `ServiceUnavailable` when it can't
+        # mint a fresh token for an impersonated service account — a denial of
+        # `iam.serviceAccounts.getAccessToken`, distinct from the `iam.serviceAccounts.get` the
+        # ownership check already covers via `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`.
+        str(
+            ServiceUnavailable(
+                "Getting metadata from plugin failed with error: ('Unable to acquire impersonated "
+                'credentials\', \'{"error": {"code": 403, "message": "Permission '
+                "\\'iam.serviceAccounts.getAccessToken\\' denied on resource (or it may not exist).\", "
+                '"status": "PERMISSION_DENIED"}}\')'
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_impersonation_token_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
         # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
         str(
@@ -1142,6 +1200,21 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
     """An administrator-set custom cost control (e.g. QueryUsagePerDay) can't be recovered by
     retrying within the sync's window — the user must raise the quota or sync less data."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+def test_non_retryable_errors_match_no_reservation_or_slots_configured():
+    """A project with neither on-demand pricing nor a flat-rate reservation configured for the
+    queried region fails every query identically — retrying can't recover it, the user must
+    change their Google Cloud billing/capacity setup."""
+    observed_error = str(
+        BadRequest(
+            "Cannot run query: project does not have the reservation in the data region or no "
+            "slots are configured; reason: invalid, message: Cannot run query: project does not "
+            "have the reservation in the data region or no slots are configured\n\nLocation: US"
+        )
+    )
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
 
@@ -1219,6 +1292,121 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+def _probe_group_by(query: str) -> str | None:
+    match = re.search(r"GROUP BY (.+)\n", query)
+    return match.group(1) if match else None
+
+
+def _run_pipeline_against_fake_client(
+    *,
+    sync_type: ExternalDataSchemaSyncType,
+    stored_primary_keys: list[str] | None,
+    duplicated_key: str | None,
+    enabled_columns: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+):
+    queries: list[str] = []
+    probe_parameter_names: list[set[str]] = []
+
+    def fake_query(query, job_config=None, **_kwargs):
+        queries.append(query)
+        group_by = _probe_group_by(query)
+        if group_by is not None:
+            probe_parameter_names.append({parameter.name for parameter in job_config.query_parameters})
+        job = mock.MagicMock()
+        job.result.return_value = iter([("duplicated",)] if group_by is not None and group_by == duplicated_key else [])
+        return job
+
+    table = mock.MagicMock(
+        dataset_id="dataset-id", table_id="events", project="project-id", num_rows=None, num_bytes=None
+    )
+    table.schema = [
+        SchemaField("id", "STRING"),
+        SchemaField("_id", "STRING"),
+        SchemaField("orderId", "STRING"),
+        SchemaField("order_id", "STRING"),
+        SchemaField("seq", "INT64"),
+    ]
+    table.to_bqstorage.return_value = "projects/project-id/datasets/dataset-id/tables/events"
+    client = mock.MagicMock()
+    client.get_table.return_value = table
+    client.query.side_effect = fake_query
+    storage = mock.MagicMock()
+    storage.create_read_session.return_value.streams = []
+
+    inputs = _make_inputs(
+        sync_type=sync_type,
+        primary_keys=stored_primary_keys,
+        should_use_incremental_field=True,
+        incremental_field="seq",
+        incremental_field_type=IncrementalFieldType.Integer,
+        enabled_columns=enabled_columns,
+        row_filters=row_filters,
+    )
+    with (
+        mock.patch.object(bq_module, "bigquery_client", return_value=contextlib.nullcontext(client)),
+        mock.patch.object(bq_module, "bigquery_storage_read_client", return_value=contextlib.nullcontext(storage)),
+        mock.patch.object(bq_module, "delete_all_temp_destination_tables"),
+        mock.patch.object(bq_module, "delete_table"),
+    ):
+        response = BigQuerySource().source_for_pipeline(_make_config(), inputs)
+        list(cast(Iterable[Any], response.items()))
+    return response, queries, probe_parameter_names
+
+
+_SEQ_ABOVE_FIVE = ValidatedRowFilter(column="seq", operator=">", value=5, category=ColumnTypeCategory.INTEGER)
+_INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
+
+
+@pytest.mark.parametrize(
+    "sync_type,stored_primary_keys,enabled_columns,row_filters,duplicated_key,expected_group_by,expected_blocked",
+    [
+        (_INCREMENTAL, ["_id"], None, None, "`id`", "`_id`", False),
+        (_INCREMENTAL, ["_id"], None, None, "`_id`", "`_id`", True),
+        (_INCREMENTAL, None, None, None, "`id`", "`id`", True),
+        (_INCREMENTAL, ["_id"], None, [_SEQ_ABOVE_FIVE], None, "`_id`", False),
+        (_INCREMENTAL, ["_id", "dropped_column"], None, None, None, "`_id`", False),
+        (_INCREMENTAL, ["orderId"], None, None, None, "`order_id`", False),
+        (_INCREMENTAL, ["orderId"], ["orderId", "seq"], None, None, "`orderId`", False),
+        (_INCREMENTAL, ["_id"], ["seq"], None, "`id`", None, False),
+        (ExternalDataSchemaSyncType.APPEND, ["_id"], None, None, "`_id`", None, False),
+    ],
+    ids=[
+        "unique_stored_key_passes_when_id_repeats",
+        "stored_key_duplicates_block",
+        "detected_key_without_stored_key",
+        "row_filters_bound_the_probe",
+        "stored_key_column_missing_from_table",
+        "stored_key_renamed_like_the_writer",
+        "camel_case_stored_key_with_column_selection",
+        "stored_key_not_in_the_read",
+        "append",
+    ],
+)
+def test_duplicate_probe_checks_the_merge_key(
+    sync_type, stored_primary_keys, enabled_columns, row_filters, duplicated_key, expected_group_by, expected_blocked
+):
+    response, queries, probe_parameter_names = _run_pipeline_against_fake_client(
+        sync_type=sync_type,
+        stored_primary_keys=stored_primary_keys,
+        duplicated_key=duplicated_key,
+        enabled_columns=enabled_columns,
+        row_filters=row_filters,
+    )
+
+    probe_queries = [query for query in queries if _probe_group_by(query) is not None]
+    if expected_group_by is None:
+        assert probe_queries == []
+    else:
+        assert [_probe_group_by(query) for query in probe_queries] == [expected_group_by]
+        assert ("WHERE" in probe_queries[0]) == bool(row_filters)
+        assert set(re.findall(r"@(\w+)", probe_queries[0])) == probe_parameter_names[0]
+    assert response.has_duplicate_primary_keys is expected_blocked
+    read_queries = [query for query in queries if query.startswith("SELECT ") and "COUNT(*)" not in query]
+    unselected_keys = [key for key in stored_primary_keys or [] if key not in (enabled_columns or [])]
+    assert all(f"`{key}`" not in query for key in unselected_keys for query in read_queries)
 
 
 def test_bigquery_query_create_retry_retries_queued_jobs_quota():
@@ -1469,6 +1657,7 @@ def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownershi
     config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
 
     with (
+        mock.patch(f"{_BATCH_EXPORT_MODULE}.ensure_our_google_cloud_credentials_are_valid"),
         mock.patch(f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership") as mock_verify,
         mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
         mock.patch.object(bq_module.google_auth_impersonated_credentials, "Credentials") as mock_impersonated,
@@ -1481,30 +1670,61 @@ def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownershi
     assert mock_impersonated.call_args.kwargs["target_principal"] == "sa@my-project.iam.gserviceaccount.com"
 
 
+# Verbatim wording from batch exports, which raises the same error for the same check.
+_OWNERSHIP_ERROR = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
+
+
+@pytest.mark.parametrize(
+    "own_credentials_error, ownership_error, expected_message, expect_non_retryable, expect_ownership_checked",
+    [
+        # The customer has to change their service account description, so the sync must stop
+        # rather than retry the same rejection every run.
+        pytest.param(None, _OWNERSHIP_ERROR, str(_OWNERSHIP_ERROR), True, True, id="ownership_unverified"),
+        # PostHog's worker cannot get its own Google Cloud credentials. The ownership check would
+        # fail with the same "getAccessToken denied" text as a missing customer grant, which is
+        # non-retryable and tells the customer to fix IAM. Nothing on their side can fix this.
+        pytest.param(
+            GoogleCloudCredentialsError(),
+            None,
+            BIGQUERY_POSTHOG_CREDENTIALS_ERROR,
+            False,
+            False,
+            id="posthog_credentials_unavailable",
+        ),
+    ],
+)
 @pytest.mark.django_db
-def test_bigquery_unverified_service_account_ownership_is_reported_and_not_retried(team, settings):
+def test_bigquery_impersonation_precheck_failure_is_reported_and_retried_only_on_posthog_side(
+    team,
+    settings,
+    own_credentials_error,
+    ownership_error,
+    expected_message,
+    expect_non_retryable,
+    expect_ownership_checked,
+):
     settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD = "//iam.googleapis.com/projects/1/locations/global"
     settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT = "posthog@posthog.iam.gserviceaccount.com"
     integration = _google_cloud_integration(team, with_key=False)
     config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
-    # Verbatim wording from batch exports, which raises the same error for the same check.
-    ownership_error = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
 
     with (
         mock.patch(
-            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+            f"{_BATCH_EXPORT_MODULE}.ensure_our_google_cloud_credentials_are_valid", side_effect=own_credentials_error
         ),
+        mock.patch(
+            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+        ) as mock_verify,
         mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
         mock.patch.object(bq_module, "bigquery_client") as mock_client,
     ):
         ok, message = BigQuerySource().validate_credentials(config, team_id=team.id)
 
     assert ok is False
-    assert message == str(ownership_error)
+    assert message == expected_message
     mock_client.assert_not_called()
-    # The customer has to change their service account description, so the sync must stop rather
-    # than retry the same rejection every run.
-    assert any(key in str(ownership_error) for key in BigQuerySource().get_non_retryable_errors())
+    assert mock_verify.called is expect_ownership_checked
+    assert error_message_matches(expected_message, BigQuerySource().get_non_retryable_errors()) is expect_non_retryable
 
 
 @pytest.mark.django_db

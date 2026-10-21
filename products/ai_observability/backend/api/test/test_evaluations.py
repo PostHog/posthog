@@ -31,6 +31,7 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.ai_observability.backend.models.taggers import Tagger
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",
@@ -120,6 +121,212 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
+    @parameterized.expand([([],), ("invalid",), (1,), (True,), (None,)])
+    def test_patch_rejects_non_object_evaluation_config(self, config: object) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response."},
+            output_type="boolean",
+            output_config={},
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"evaluation_config": config}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("evaluation_config", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("llm", {}, {"judge_method": "llm"}),
+            ("decision", {}, {"judge_method": "decision"}),
+            ("llm", {"judge_method": None}, {}),
+            ("decision", {"judge_method": "llm"}, {"judge_method": "llm"}),
+            (None, {}, {}),
+        ]
+    )
+    def test_prompt_patch_preserves_method_unless_explicitly_changed(
+        self, method: str | None, patch_config: dict[str, object], expected_method: dict[str, str]
+    ) -> None:
+        stored_config = {"prompt": "Check the response.", **({"judge_method": method} if method else {})}
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config=stored_config.copy(),
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openrouter", model="example/dual-model"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation,
+            data={"evaluation_config": {"prompt": "Check clarity.", **patch_config}},
+            partial=True,
+            context={"get_team": lambda: Mock(id=1)},
+        )
+        with (
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
+                return_value={"example/dual-model": ["text", "decisions"]},
+            ) as catalogue,
+        ):
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        if not patch_config:
+            catalogue.assert_not_called()
+        self.assertEqual(
+            serializer.validated_data["evaluation_config"], {"prompt": "Check clarity.", **expected_method}
+        )
+        self.assertEqual(evaluation.evaluation_config, stored_config)
+
+    @parameterized.expand([("llm",), ("decision",)])
+    def test_switch_to_sentiment_ignores_stored_judge_method(self, method: str) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response.", "judge_method": method},
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openrouter", model="example/model"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation,
+            data={"evaluation_type": "sentiment", "output_type": "sentiment", "model_configuration": None},
+            partial=True,
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["evaluation_config"], {"source": "user_messages"})
+        self.assertIsNone(serializer.validated_data["model_configuration"])
+
+    @parameterized.expand([("llm",), ("decision",)])
+    def test_explicit_judge_method_requires_a_model_for_a_legacy_evaluation(self, method: str) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response."},
+            output_type="boolean",
+            output_config={},
+            model_configuration=None,
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with self.assertRaises(ValidationError) as error:
+            serializer.validate({"evaluation_config": {"prompt": "Check the response.", "judge_method": method}})
+        self.assertIn("model_configuration", error.exception.detail)
+
+    @parameterized.expand(
+        [
+            ("legacy_dual", None, "openrouter", ["text", "decisions"], False),
+            ("legacy_decision", None, "openrouter", ["decisions"], True),
+            ("dual_chat", "llm", "openrouter", ["text", "decisions"], False),
+            ("dual_decision", "decision", "openrouter", ["text", "decisions"], True),
+            ("chat_only", "llm", "openai", ["text"], False),
+            ("unsupported_decision", "decision", "openai", ["text"], None),
+            ("custom_chat", "llm", "system_one", ["decisions"], None),
+            ("decision_only_chat", "llm", "openrouter", ["decisions"], None),
+            ("openai_decision", "decision", "openai", ["text"], True, "gpt-6-luna", True),
+            ("openai_legacy", None, "openai", ["text"], False, "gpt-6-luna", True),
+            ("openai_chat", "llm", "openai", ["text"], False, "gpt-6-luna", True),
+            ("openai_disabled", "decision", "openai", ["text"], None, "gpt-6-luna", False),
+        ]
+    )
+    def test_judge_method_matches_model_capabilities(
+        self,
+        _name: str,
+        method: str | None,
+        provider: str,
+        modalities: list[str],
+        expected: bool | None,
+        model: str = "example/model",
+        flag: bool = True,
+    ) -> None:
+        config = {"prompt": "Check the response."}
+        if method:
+            config["judge_method"] = method
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config=config,
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider=provider, model=model),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True, context={"get_team": lambda: Mock(id=1)})
+        with (
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
+                return_value={"example/model": modalities},
+            ),
+        ):
+            if expected is None:
+                with self.assertRaises(ValidationError):
+                    serializer.validate({"evaluation_config": config, "enabled": True})
+            else:
+                data = {"evaluation_config": config, "enabled": True}
+                self.assertEqual(serializer._uses_decision_model(data), expected)
+                # Avoid key resolution: this test checks the configuration boundary.
+                with patch.object(serializer, "_validate_re_enable"), patch.object(serializer, "_validate_can_run"):
+                    validated = serializer.validate(data)
+                self.assertEqual(validated["evaluation_config"], config)
+
+    @parameterized.expand(
+        [
+            ({"name": "Renamed decision evaluation"}, True),
+            ({"enabled": False}, True),
+            ({"enabled": True}, False),
+            ({"output_config": {"allows_na": True}}, False),
+        ]
+    )
+    def test_native_decision_flag_off_allows_rename_and_disable(self, data: dict[str, object], valid: bool) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response.", "judge_method": "decision"},
+            enabled=data.get("enabled") is not True,
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openai", model="gpt-6-luna"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
+        )
+        with patch(
+            "products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=False
+        ):
+            self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            for field, value in data.items():
+                self.assertEqual(serializer.validated_data[field], value)
+        else:
+            self.assertIn("model_configuration", serializer.errors)
+
+    def test_judge_method_change_validates_the_stored_model(self) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response."},
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openai", model="example/chat-model"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with self.assertRaises(ValidationError):
+            serializer.validate({"evaluation_config": {"prompt": "Check the response.", "judge_method": "decision"}})
+
+    @parameterized.expand([("single", 1, False), ("single", 2, True), ("multiple", 1, True)])
+    def test_openai_category_question_matches_the_native_option_limits(
+        self, mode: str, count: int, valid: bool
+    ) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Classify the reply.", "judge_method": "decision"},
+            output_type="categorical",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openai", model="gpt-6-luna"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True, context={"get_team": lambda: Mock(id=1)})
+        config = {
+            "selection_mode": mode,
+            "options": [{"key": f"option_{i}", "label": f"Option {i}"} for i in range(count)],
+        }
+        with patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True):
+            if valid:
+                assert serializer.validate({"output_config": config})["output_config"]["selection_mode"] == mode
+            else:
+                with self.assertRaises(ValidationError) as error:
+                    serializer.validate({"output_config": config})
+                assert "at least two options" in str(error.exception)
+
     @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
     def test_system_one_supports_evaluation_output_types(
         self, output_type: str, output_config: dict[str, float]
@@ -167,7 +374,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         )
         with (
             patch(
-                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"typesafe/jev-1.13": ["decisions"]},
             ),
             patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
@@ -205,7 +412,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         )
         with (
             patch(
-                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities", return_value=None
             ) as catalogue,
             patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
@@ -247,78 +454,24 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
 
 class TestTargetConfigFieldSchema(SimpleTestCase):
-    def test_every_oneof_branch_requires_the_discriminator(self) -> None:
-        """Orval only emits a discriminated zod union (one that picks a branch by `strategy` alone,
-        without matching optional fields against it) when every `oneOf` branch requires `strategy`.
-        A branch missing it lets Orval fall through to a plain `zod.union`, which previously let a
-        session payload sending only `{"strategy": "inactivity"}` match the fixed_window branch and
-        silently drop the inactivity fields.
-        """
+    def test_schema_is_one_object_with_an_optional_strategy(self) -> None:
         schema = get_override(_TargetConfigField(), "field")
-        for branch in schema["oneOf"]:
-            self.assertIn("strategy", branch.get("required", []), branch["title"])
+        self.assertNotIn("oneOf", schema)
+        self.assertNotIn("strategy", schema.get("required", []))
+        self.assertEqual(schema["properties"]["strategy"]["enum"], ["fixed_window", "inactivity"])
 
-    def test_no_branch_declares_a_default_for_a_shared_field(self) -> None:
+    def test_no_field_declares_a_default(self) -> None:
         """window_seconds/quiet_period_seconds/max_age_seconds have no single correct default: it
         depends on `target`, which lives outside this schema. A `default` here would regenerate as
         a zod `.default(...)` that materializes the wrong target's value before the request ever
         reaches `validate_target_config`, which is exactly how session evals got trace timings.
         """
         schema = get_override(_TargetConfigField(), "field")
-        for branch in schema["oneOf"]:
-            for field_name, field_schema in branch["properties"].items():
-                self.assertNotIn("default", field_schema, f"{branch['title']}.{field_name}")
+        for field_name, field_schema in schema["properties"].items():
+            self.assertNotIn("default", field_schema, field_name)
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
-    @parameterized.expand(
-        [("numeric", {"min": 0, "max": 10}), ("categorical", {"options": [{"key": "resolved", "label": "Resolved"}]})]
-    )
-    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
-    def test_creation_requires_feature_flag(
-        self, output_type: str, output_config: dict, _mock_numeric_flag: Mock
-    ) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/",
-            {
-                "name": "Gated score",
-                "evaluation_type": "hog",
-                "evaluation_config": {"source": "return 0;"},
-                "output_type": output_type,
-                "output_config": output_config,
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{output_type.capitalize()} evaluations are not enabled", str(response.data))
-
-    @parameterized.expand(
-        [("numeric", {"min": 0, "max": 10}), ("categorical", {"options": [{"key": "resolved", "label": "Resolved"}]})]
-    )
-    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
-    def test_existing_evaluation_remains_editable_when_flag_is_off(
-        self, output_type: str, output_config: dict, _mock_numeric_flag: Mock
-    ) -> None:
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Existing score",
-            evaluation_type="hog",
-            evaluation_config={"source": "return 0;"},
-            output_type=output_type,
-            output_config=output_config,
-        )
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
-            {"name": "Renamed score"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        evaluation.refresh_from_db()
-        self.assertEqual(evaluation.name, "Renamed score")
-
     @parameterized.expand(
         [
             (output_type, enabled, frequency)
@@ -326,9 +479,8 @@ class TestEvaluationConfigsApi(APIBaseTest):
             for enabled, frequency in [(True, "scheduled"), (False, "scheduled"), (True, "every_n")]
         ]
     )
-    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=True)
     def test_passing_rule_controls_report_creation_and_scheduling(
-        self, output_type: str, enabled: bool, frequency: str, _mock_numeric_flag: Mock
+        self, output_type: str, enabled: bool, frequency: str
     ) -> None:
         output_config = (
             {"min": 0, "max": 10}
@@ -421,8 +573,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @parameterized.expand([("openai", "gpt-5-mini"), ("system_one", "example-judge-v1")])
-    def test_can_create_evaluation_config(self, provider: str, model: str) -> None:
+    @parameterized.expand(
+        [
+            ("openai", "gpt-5-mini", None),
+            ("openai", "gpt-5-mini", "llm"),
+            ("system_one", "example-judge-v1", None),
+            ("system_one", "example-judge-v1", "decision"),
+        ]
+    )
+    def test_can_create_evaluation_config(self, provider: str, model: str, judge_method: str | None) -> None:
+        config = {"prompt": "Test prompt"}
+        if judge_method:
+            config["judge_method"] = judge_method
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider=provider,
@@ -443,7 +605,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)}
                 if provider == "system_one"
                 else _DEFAULT_MODEL_CONFIGURATION,
-                "evaluation_config": {"prompt": "Test prompt"},
+                "evaluation_config": config,
                 "output_type": "boolean",
                 "output_config": {},
                 "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
@@ -458,7 +620,31 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.description, "Test Description")
         self.assertEqual(evaluation_config.enabled, True)
         self.assertEqual(evaluation_config.evaluation_type, "llm_judge")
-        self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Test prompt"})
+        self.assertEqual(evaluation_config.evaluation_config, config)
+        self.assertEqual(response.data["evaluation_config"], config)
+        renamed = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/",
+            {"name": "Renamed evaluation"},
+            format="json",
+        )
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK)
+        self.assertEqual(renamed.data["evaluation_config"], config)
+        updated = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/",
+            {"evaluation_config": {"prompt": "Check clarity."}},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        evaluation_config.refresh_from_db()
+        self.assertEqual(evaluation_config.evaluation_config, {**config, "prompt": "Check clarity."})
+        if provider == "openai" and judge_method is None:
+            malformed = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/",
+                {"evaluation_config": []},
+                format="json",
+            )
+            self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(malformed.data["attr"], "evaluation_config")
         self.assertEqual(evaluation_config.output_type, "boolean")
         self.assertEqual(evaluation_config.output_config, {"allows_na": False, "true_is_failure": False})
         self.assertEqual(len(evaluation_config.conditions), 1)
@@ -938,7 +1124,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
     def test_llm_judge_creation_checks_openrouter_model_capabilities(self, _name, model, flag, expected_status):
         with (
             patch(
-                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={
                     "typesafe/jev-1.13": ["decisions"],
                     "~typesafe/jev-latest": ["decisions"],
@@ -1617,6 +1803,48 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
         self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
 
+    @parameterized.expand(
+        [
+            (
+                "evaluations",
+                lambda team: Evaluation.objects.create(
+                    team=team,
+                    name="Patched conditions",
+                    evaluation_type="hog",
+                    evaluation_config={"source": "return true"},
+                    output_type="boolean",
+                    conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+                ),
+            ),
+            (
+                "taggers",
+                lambda team: Tagger.objects.create(
+                    team=team,
+                    name="Patched conditions",
+                    tagger_config={"prompt": "Tag it", "tags": [{"name": "billing", "description": "Billing"}]},
+                    conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+                ),
+            ),
+        ]
+    )
+    def test_patch_condition_without_id_generates_one(self, resource, create):
+        instance = create(self.team)
+        list_url = f"/api/environments/{self.team.id}/{resource}/"
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            patch_response = self.client.patch(
+                f"{list_url}{instance.id}/", {"conditions": [{"rollout_percentage": 100}]}, format="json"
+            )
+            get_response = self.client.get(f"{list_url}{instance.id}/")
+            list_response = self.client.get(list_url)
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK, patch_response.json())
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(get_response.data["conditions"][0]["id"])
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed = next(item for item in list_response.data["results"] if item["id"] == str(instance.id))
+        self.assertTrue(listed["conditions"][0]["id"])
+
     @parameterized.expand([(-1,), (101,), (150,)])
     def test_rollout_percentage_out_of_range_rejected(self, rollout_percentage):
         response = self.client.post(
@@ -2225,7 +2453,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
 
         with (
             patch(
-                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"typesafe/jev-1.13": ["decisions"]},
             ),
             patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),

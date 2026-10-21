@@ -262,6 +262,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
@@ -370,6 +371,11 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+
+
+class AssistantMetricsNodeKind(StrEnum):
+    METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -552,9 +558,11 @@ class AssistantTool(StrEnum):
     MARKETING_AUDIT_UTM = "marketing_audit_utm"
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
+    COMPARE_REPLAY_VISION_VARIANTS = "compare_replay_vision_variants"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
+    GET_REPLAY_VISION_SCAN_RESULTS = "get_replay_vision_scan_results"
     RETRY_REPLAY_VISION_OBSERVATION = "retry_replay_vision_observation"
     GET_REPLAY_VISION_QUOTA = "get_replay_vision_quota"
     CREATE_REPLAY_VISION_SCANNER = "create_replay_vision_scanner"
@@ -695,6 +703,11 @@ class BIFilterOperator(StrEnum):
     CUSTOM = "custom"
 
 
+class ReferenceLines(StrEnum):
+    PANE = "pane"
+    WORKSHEET = "worksheet"
+
+
 class BIQueryLimit(float, Enum):
     NUMBER_100 = 100
     NUMBER_1000 = 1000
@@ -820,6 +833,11 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+
+
+class ValueLabelPosition(StrEnum):
+    END = "end"
+    CENTER = "center"
 
 
 class Curve(StrEnum):
@@ -1317,6 +1335,7 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    SEVERITY = "severity"
 
 
 class ErrorTrackingQueryIssueSeverity(StrEnum):
@@ -1335,11 +1354,6 @@ class EvaluationRuntime(StrEnum):
     HOG = "hog"
     LLM_JUDGE = "llm_judge"
     SENTIMENT = "sentiment"
-
-
-class CorrelationType(StrEnum):
-    SUCCESS = "success"
-    FAILURE = "failure"
 
 
 class HrefMatching(Enum):
@@ -1420,6 +1434,20 @@ class ManualMetricType(StrEnum):
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
 
 
+class ExperimentExposureHealthCheckKey(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+
+
+class ExperimentExposureHealthCheckStatus(StrEnum):
+    PASSED = "passed"
+    FINDING = "finding"
+    NOT_APPLICABLE = "not_applicable"
+    NOT_CHECKED = "not_checked"
+
+
 class ExperimentExposureHealthFindingActionKind(StrEnum):
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
@@ -1430,6 +1458,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -1511,6 +1540,7 @@ class Tag(StrEnum):
 class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
+    CANVAS = "canvas"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
@@ -1542,6 +1572,7 @@ class FileSystemIconType(StrEnum):
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
+    UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
     BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
@@ -1627,12 +1658,6 @@ class FunnelConversionWindowTimeUnit(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
-
-
-class FunnelCorrelationResultsType(StrEnum):
-    EVENTS = "events"
-    PROPERTIES = "properties"
-    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 class FunnelLayout(StrEnum):
@@ -1765,6 +1790,11 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
+
+
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):
@@ -2208,6 +2238,13 @@ class MetricsAxisScale(StrEnum):
     LOG = "log"
 
 
+class MetricsDashboardVariableSource(StrEnum):
+    CUSTOM = "custom"
+    PROMQL = "promql"
+    SQL = "sql"
+    TEXTBOX = "textbox"
+
+
 class MetricsDisplayType(StrEnum):
     LINE = "line"
     AREA = "area"
@@ -2327,7 +2364,6 @@ class NodeKind(StrEnum):
     ACTORS_QUERY = "ActorsQuery"
     GROUPS_QUERY = "GroupsQuery"
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
-    FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     PATHS_V2_ACTORS_QUERY = "PathsV2ActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
@@ -2365,7 +2401,6 @@ class NodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
-    FUNNEL_CORRELATION_QUERY = "FunnelCorrelationQuery"
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
@@ -2681,6 +2716,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    UPTIME_MONITORING = "uptime_monitoring"
     METRICS = "metrics"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
@@ -2761,6 +2797,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    IS_CLEANED_PATH_NOT_EXACT = "is_cleaned_path_not_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
     SEMVER_NEQ = "semver_neq"
@@ -2921,11 +2958,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class SidebarDensity(StrEnum):
-    COMFORTABLE = "comfortable"
-    COMPACT = "compact"
 
 
 class SlackIntegrationScope(StrEnum):

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { runWhenIdle } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productSetupProbes } from '~/products'
@@ -126,12 +127,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                     actions.preloadStatuses()
                 }
             }
-            if (typeof window.requestIdleCallback === 'function') {
-                const id = window.requestIdleCallback(run, { timeout: 5000 })
-                return () => window.cancelIdleCallback(id)
-            }
-            const id = window.setTimeout(run, 1000)
-            return () => clearTimeout(id)
+            return runWhenIdle(run)
         }, 'idle-preload')
     }),
 ])

@@ -1,21 +1,22 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
+    MercurySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.mercury import (
     MercuryResumeConfig,
     format_incremental_value,
     get_resource,
-    mercury_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
 
 
 class TestFormatIncrementalValue:
@@ -45,109 +46,121 @@ class TestGetResource:
         )
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestMercurySourceResumeBehavior:
-    """End-to-end pagination and resume behaviour of ``mercury_source`` via ``rest_api_resource``."""
+    """End-to-end pagination and resume behaviour of ``MercurySource``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict[str, Any]], list[Any]]:
-        """Drive ``mercury_source`` with a mocked HTTP session.
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(MercurySource(), MercurySourceConfig(api_key="test-token"))
 
-        Returns ``(sent_params, rows)`` where ``sent_params`` are shallow copies of
-        ``request.params`` captured at send-time — the Request object is mutated in place
-        by the paginator between pages.
-        """
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = mercury_source(
-                api_key="test-token",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            pages = list(cast(Iterable[Any], resource))
-            rows = [row for page in pages for row in page]
-            return sent_params, rows
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], next_page: str | None) -> ScriptedResponse:
+        return ScriptedResponse(json={"transactions": rows, "page": {"nextPage": next_page}})
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Transactions",
+            [
+                self._page([{"id": "t1"}], "t1"),
+                self._page([{"id": "t2"}], "t2"),
+                self._page([{"id": "t3"}], None),
+            ],
+        )
 
-        responses = [
-            _make_http_response({"transactions": [{"id": "t1"}], "page": {"nextPage": "t1"}}),
-            _make_http_response({"transactions": [{"id": "t2"}], "page": {"nextPage": "t2"}}),
-            _make_http_response({"transactions": [{"id": "t3"}], "page": {"nextPage": None}}),
-        ]
-        sent_params, rows = self._drive("Transactions", manager, responses)
-
-        assert [p.get("start_after") for p in sent_params] == [None, "t1", "t2"]
-        assert [row["id"] for row in rows] == ["t1", "t2", "t3"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.params("start_after") == [None, "t1", "t2"]
+        assert [row["id"] for row in result.rows] == ["t1", "t2", "t3"]
+        assert result.saved_states == [
             MercuryResumeConfig(cursor="t1"),
             MercuryResumeConfig(cursor="t2"),
         ]
+        assert result.committed_states == result.saved_states
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MercuryResumeConfig(cursor="t42")
+        result = self._driver().run(
+            "Transactions",
+            [self._page([{"id": "t43"}], None)],
+            resume_state=MercuryResumeConfig(cursor="t42"),
+        )
 
-        responses = [
-            _make_http_response({"transactions": [{"id": "t43"}], "page": {"nextPage": None}}),
-        ]
-        sent_params, _ = self._drive("Transactions", manager, responses)
-
-        assert [p.get("start_after") for p in sent_params] == ["t42"]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("start_after") == ["t42"]
 
     def test_incremental_sync_sends_date_only_start_watermark(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"transactions": [{"id": "t1"}], "page": {"nextPage": None}}),
-        ]
-        sent_params, _ = self._drive(
+        result = self._driver().run(
             "Transactions",
-            manager,
-            responses,
-            should_use_incremental_field=True,
+            [self._page([{"id": "t1"}], None)],
+            incremental_field="createdAt",
             db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
 
-        assert sent_params[0]["start"] == "2026-01-02"
-        assert sent_params[0]["order"] == "asc"
+        assert result.raised is None
+        assert result.requests[0].param("start") == "2026-01-02"
+        assert result.requests[0].param("order") == "asc"
+
+
+class TestMercuryTopLevelEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "bodies", "expected_path", "expected_order", "expected_cursors", "expected_rows"),
+        [
+            (
+                "SendMoneyApprovalRequests",
+                [
+                    {"requests": [{"requestId": "r1"}], "page": {"nextPage": "r1"}},
+                    {"requests": [{"requestId": "r2"}], "page": {}},
+                ],
+                "/request-send-money",
+                None,
+                [None, "r1"],
+                [{"requestId": "r1"}, {"requestId": "r2"}],
+            ),
+            (
+                "RecipientInvites",
+                [
+                    {"invites": [{"id": "inv-1"}], "page": {"nextPage": "inv-1"}},
+                    {"invites": [{"id": "inv-2"}], "page": {"nextPage": None}},
+                ],
+                "/recipients/invites",
+                "asc",
+                [None, "inv-1"],
+                [{"id": "inv-1"}, {"id": "inv-2"}],
+            ),
+            (
+                "SafeRequests",
+                [[{"id": "safe-1"}, {"id": "safe-2"}]],
+                "/safes",
+                None,
+                [None],
+                [{"id": "safe-1"}, {"id": "safe-2"}],
+            ),
+            (
+                "SafeRequests",
+                [[]],
+                "/safes",
+                None,
+                [None],
+                [],
+            ),
+        ],
+    )
+    def test_walks_pages_to_the_terminal_page(
+        self,
+        endpoint: str,
+        bodies: list[Any],
+        expected_path: str,
+        expected_order: str | None,
+        expected_cursors: list[str | None],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = SourceDriver(MercurySource(), MercurySourceConfig(api_key="test-token")).run(
+            endpoint, [ScriptedResponse(json=body) for body in bodies]
+        )
+
+        assert result.raised is None
+        assert [request.path.split("/api/v1", 1)[-1] for request in result.requests] == [expected_path] * len(bodies)
+        assert [request.param("order") for request in result.requests] == [expected_order] * len(bodies)
+        assert result.params("start_after") == expected_cursors
+        assert result.rows == expected_rows
 
 
 class TestMercuryFanoutEndpoints:
@@ -189,7 +202,7 @@ class TestMercuryFanoutEndpoints:
                 ],
                 ["/treasury/tr-1/transactions", "/treasury/tr-1/transactions", "/treasury/tr-2/transactions"],
                 "cursor",
-                [None, 7, None],
+                [None, "7", None],
                 [
                     {"id": "t1", "accountId": "tr-1"},
                     {"id": "t2", "accountId": "tr-1"},
@@ -205,39 +218,17 @@ class TestMercuryFanoutEndpoints:
         child_bodies: list[dict[str, Any]],
         expected_paths: list[str],
         cursor_param: str,
-        expected_cursors: list[Any],
+        expected_cursors: list[str | None],
         expected_rows: list[dict[str, Any]],
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        responses = iter([_make_http_response(parent_body), *(_make_http_response(b) for b in child_bodies)])
-        sent: list[tuple[str, dict[str, Any]]] = []
+        result = SourceDriver(MercurySource(), MercurySourceConfig(api_key="test-token")).run(
+            endpoint, [ScriptedResponse(json=body) for body in [parent_body, *child_bodies]]
+        )
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent.append((request.url, dict(request.params or {})))
-            return next(responses)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = mercury_source(
-                api_key="test-token",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-            )
-            rows = [row for page in cast(Iterable[Any], resource) for row in page]
-
-        child_requests = sent[1:]
-        assert [url.split("/api/v1", 1)[1] for url, _ in child_requests] == expected_paths
-        assert [params.get(cursor_param) for _, params in child_requests] == expected_cursors
-        assert all(params["order"] == "asc" for _, params in child_requests)
-        assert rows == expected_rows
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        child_requests = result.requests[1:]
+        assert [request.path.split("/api/v1", 1)[-1] for request in child_requests] == expected_paths
+        assert [request.param(cursor_param) for request in child_requests] == expected_cursors
+        assert all(request.param("order") == "asc" for request in child_requests)
+        assert result.rows == expected_rows
+        assert result.saved_states == []

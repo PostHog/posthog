@@ -1878,6 +1878,27 @@ describe('exec tool', () => {
         })
     })
 
+    describe('held tool set', () => {
+        const heldTools = new Set(['notebooks-create-markdown'])
+        const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
+
+        // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
+        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+            'refuses a catalog tool outside the held set as not granted on %s',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'tool_not_granted',
+                })
+            }
+        )
+
+        it('still reports a name the catalog does not have as unknown', async () => {
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toMatchObject({
+                reason: 'unknown_tool',
+            })
+        })
+    })
+
     describe('flag-gated tool redirects', () => {
         const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
 
@@ -1969,10 +1990,18 @@ describe('exec tool', () => {
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
+            ['llma-tagger-create', 'llma-evaluation-create'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
                 new RegExp(`was removed[\\s\\S]*${replacement}`)
+            )
+        })
+
+        it('explains that a workflow test run does not replace a real loop run', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'call loops-run-create {}' })).rejects.toThrow(
+                /workflows-test-run[\s\S]*does not start a real task run[\s\S]*Run now/
             )
         })
 

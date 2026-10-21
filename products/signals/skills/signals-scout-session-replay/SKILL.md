@@ -17,6 +17,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: session_replay
+scout-precheck-query: |
+  SELECT 1 AS has_recordings
+  FROM raw_session_replay_events
+  WHERE min_first_timestamp > {now} - INTERVAL 30 DAY
+    AND min_first_timestamp <= {now} + INTERVAL 1 DAY
+  LIMIT 1
 ---
 
 # Signals scout: session replay
@@ -48,6 +54,8 @@ Four mechanical traps that produce silently-wrong results — every replay query
 4. **Client clocks lie** — real sessions and events arrive dated years into the future. Upper-bound every recency window (`<= now() + INTERVAL 1 DAY`, on `events.timestamp` too) and never trust `ORDER BY ... DESC LIMIT 1` to mean "latest" without it.
 
 ## Quick close-out: is replay even in use?
+
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one recording started in the last 30 days, so skip the zero-in-30d close-out. It holds no count, so still run the count below to tell a capture cliff from recordings that flow.
 
 One cheap count tells you the posture:
 
@@ -331,7 +339,7 @@ By run #5 you should know the capture ratio and its rhythm, the friction watchli
 
 ### Decide
 
-The generic report mechanics — search the inbox first (via the `report:session-replay:<surface>` pointer, else an `inbox-reports-list` search on the surface's _specific_ terms, not a broad word like `rageclick`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the session-replay judgment layered on top:
+The generic report mechanics — search the inbox first (via the `report:session-replay:<surface>` pointer, else an `inbox-reports-list` search on the surface's _specific_ terms, not a broad word like `rageclick`), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the session-replay judgment layered on top:
 
 - **Edit** when a still-live report already tracks the surface — a capture cliff still unrecovered, a friction cluster still spiking, a scanner still dark. A persistent cliff or cluster is one report across runs: a new window confirming it is ongoing is a re-escalation (`append_evidence` with the fresh recording counts / rates), not a fresh report per tick.
 - **Author** when nothing live covers the surface. A report-worthy finding names the surface (URL and element, or the affected scanner set), quantifies the step against its own baseline (rate before/after, sessions, persons), passes the volume gates, dates the onset, and links 2–3 example recordings in the `evidence`. Attach the shape via `charts` — recordings vs site traffic for a capture cliff, the surface's friction-rate series for a cluster — so the step and its onset are visible. A cause you have not named yet is not human input: a capture cliff or a friction cluster names a surface and an onset, and the SDK config, the page, and the element behind them are all code, so set `actionability=immediately_actionable` and name the `repository` that owns the surface (omit the field when you can't tell which repo that is, so selection can find it). Keep `actionability=requires_human_input` for a finding whose next step is a call only a person can make — a deliberate recording policy, a privacy or consent decision — and say which call in the summary. Priority: a confirmed **capture cliff** is **P1–P2** (recordings are not retroactive — data loss compounds every day unfixed); a corroborated friction cluster or broken-experience cohort on a key flow is **P2**; scanner watch-gaps and friction on minor surfaces are **P3**.

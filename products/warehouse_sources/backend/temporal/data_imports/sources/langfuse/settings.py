@@ -65,6 +65,9 @@ class LangfuseEndpointConfig:
     # Fan-out child: `path` holds a `{parent_id}` placeholder, filled with the `id` of every row of
     # this parent endpoint.
     parent: Optional[str] = None
+    # From-filter value sent when no incremental watermark applies, for endpoints that reject a
+    # request without a lower bound (experiments).
+    required_from_value: Optional[str] = None
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -76,9 +79,16 @@ _OBSERVATION_FIELDS = "core,basic,time,io,metadata,model,usage,prompt,metrics,tr
 # Score field groups added on top of the always-returned core fields.
 _SCORE_FIELDS = "details,subject,annotation"
 
+# Experiment field groups. `scores` is left out: those rows are already synced by the scores table.
+_EXPERIMENT_FIELDS = "core,metadata"
+_EXPERIMENT_ITEM_FIELDS = "core,dataset,io,metadata,itemMetadata,experimentMetadata"
+
+# The experiments endpoints require fromStartTime, so a full sync sends a bound before any data.
+_EARLIEST_START_TIME = "1970-01-01T00:00:00Z"
+
 # Endpoints cover the resources a user most commonly wants to analyze from an LLM observability
 # platform: traces, observations, scores, sessions, prompts, datasets, model pricing, score
-# configs, and annotation queues.
+# configs, annotation queues, experiments, and comments.
 # Incremental support is only declared where the API documents a server-side timestamp filter.
 LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
     "traces": LangfuseEndpointConfig(
@@ -198,6 +208,41 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         parent="annotation_queues",
         # Only filterable by status, not by time -> full refresh only.
         primary_keys=["queueId", "id"],
+        partition_key="createdAt",
+    ),
+    "experiments": LangfuseEndpointConfig(
+        name="experiments",
+        path="/api/public/experiments",
+        pagination="cursor",
+        page_size=100,  # documented maximum
+        # Full refresh only: startTime and itemCount are computed over the requested window, so a
+        # windowed incremental sync would overwrite each row with partial totals.
+        incremental_filter_param="fromStartTime",
+        required_from_value=_EARLIEST_START_TIME,
+        extra_params={"fields": _EXPERIMENT_FIELDS},
+    ),
+    "experiment_items": LangfuseEndpointConfig(
+        name="experiment_items",
+        path="/api/public/experiment-items",
+        pagination="cursor",
+        page_size=100,  # documented maximum
+        incremental_fields=[_datetime_incremental_field("startTime")],
+        default_incremental_field="startTime",
+        incremental_filter_param="fromStartTime",
+        required_from_value=_EARLIEST_START_TIME,
+        extra_params={"fields": _EXPERIMENT_ITEM_FIELDS},
+        primary_keys=["experimentId", "id"],
+        partition_key="startTime",
+        # Documented as ordered by time descending.
+        sort_mode="desc",
+        incremental_lookback=_DEFAULT_LOOKBACK,
+    ),
+    "comments": LangfuseEndpointConfig(
+        name="comments",
+        path="/api/public/comments",
+        pagination="page",
+        page_size=50,
+        # Only filterable by object and author, not by time -> full refresh only.
         partition_key="createdAt",
     ),
 }

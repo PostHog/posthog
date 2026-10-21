@@ -1,9 +1,43 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "baselineDateRange": {
+            "description": "Explicit baseline window. Takes precedence over `query.compare`.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                }
+            },
+            "type": "object"
+        },
         "query": {
             "description": "The services aggregation query to execute.",
             "properties": {
+                "compare": {
+                    "default": "none",
+                    "description": "Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n* `none` - No baseline\n* `previous_period` - Previous period\n* `previous_day` - Same window a day earlier\n* `previous_week` - Same window a week earlier",
+                    "enum": ["none", "previous_period", "previous_day", "previous_week"],
+                    "type": "string"
+                },
                 "dateRange": {
                     "description": "Date range for the services aggregation. Defaults to last hour.",
                     "properties": {
@@ -31,6 +65,11 @@
                         }
                     },
                     "type": "object"
+                },
+                "environment": {
+                    "description": "Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. \"(none)\" matches logs without one.",
+                    "maxLength": 200,
+                    "type": "string"
                 },
                 "filterGroup": {
                     "description": "Property filters for the query.",

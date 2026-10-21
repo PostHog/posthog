@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, PropertyMock, patch
@@ -15,6 +16,7 @@ from rest_framework.exceptions import ErrorDetail, PermissionDenied
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import (
+    DelegatedPersonalAPIKeyAuthentication,
     ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
     JwtAuthentication,
@@ -37,11 +39,14 @@ from posthog.permissions import (
     FEATURE_FLAG_REQUIRED_ERROR_CODE,
     AccessControlPermission,
     ActiveOrganizationPermission,
+    APIScopePermission,
     PostHogFeatureFlagPermission,
     SharingTokenPermission,
     extract_organization,
     get_authenticator_client,
 )
+from posthog.scopes import scopes_not_covered
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -578,6 +583,76 @@ class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
         self.assertIn("does not have access to the requested project", str(ctx.exception.detail))
 
 
+class _ScopedView:
+    def __init__(self, scope_object: str, action: str) -> None:
+        self.scope_object = scope_object
+        self.action = action
+
+
+class TestAPIScopePermissionLegacyFallback(SimpleTestCase):
+    def setUp(self) -> None:
+        self.permission = APIScopePermission()
+        capture_patcher = patch("posthog.permissions.posthoganalytics.capture")
+        self.capture = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
+
+    def _make_personal_api_key_request(self, scopes: list[str]) -> Mock:
+        authenticator = Mock(spec=PersonalAPIKeyAuthentication)
+        authenticator.personal_api_key = Mock(scopes=scopes, scoped_teams=[], scoped_organizations=[])
+        request = Mock()
+        request.method = "GET"
+        request.successful_authenticator = authenticator
+        # A fresh caller per request, so the per-caller throttle cannot carry over between cases.
+        request.user = Mock(distinct_id=str(uuid4()))
+        return request
+
+    def _view_requiring(self, required_scope: str) -> _ScopedView:
+        scope_object, action = required_scope.split(":")
+        return _ScopedView(scope_object, "create" if action == "write" else "list")
+
+    @parameterized.expand(
+        [
+            ("task_read_satisfies_inbox_read", ["task:read"], "inbox:read", True, "task:read"),
+            ("task_write_satisfies_inbox_read", ["task:write"], "inbox:read", True, "task:read"),
+            ("task_write_satisfies_inbox_write", ["task:write"], "inbox:write", True, "task:write"),
+            ("task_read_does_not_satisfy_inbox_write", ["task:read"], "inbox:write", False, None),
+            ("inbox_read_needs_no_fallback", ["inbox:read"], "inbox:read", True, None),
+            ("fallback_only_covers_mapped_objects", ["task:write"], "insight:read", False, None),
+        ]
+    )
+    def test_task_scopes_satisfy_inbox_scopes(
+        self, _name: str, scopes: list[str], required_scope: str, allowed: bool, legacy_scope: str | None
+    ) -> None:
+        request = self._make_personal_api_key_request(scopes)
+
+        assert self.permission.has_permission(request, self._view_requiring(required_scope)) is allowed
+
+        if not allowed:
+            assert self.permission.message == f"API key missing required scope '{required_scope}'"
+        if legacy_scope is None:
+            self.capture.assert_not_called()
+        else:
+            self.capture.assert_called_once()
+            assert self.capture.call_args.kwargs["properties"] == {
+                "required_scope": required_scope,
+                "legacy_scope": legacy_scope,
+                "credential_type": "personal_api_key",
+                "client_id": "personal_api_key",
+                "view": "_ScopedView",
+            }
+
+    def test_fallback_event_is_throttled_per_caller(self) -> None:
+        request = self._make_personal_api_key_request(["task:read"])
+
+        assert self.permission.has_permission(request, self._view_requiring("inbox:read"))
+        assert self.permission.has_permission(request, self._view_requiring("inbox:read"))
+
+        self.capture.assert_called_once()
+
+    def test_project_secret_api_key_issuance_rule_ignores_the_fallback(self) -> None:
+        assert scopes_not_covered(["task:write"], ["inbox:read", "inbox:write"]) == ["inbox:read", "inbox:write"]
+
+
 class TestTeamMemberAccessPermission(BaseTest):
     """Direct unit tests for TeamMemberAccessPermission.has_permission method"""
 
@@ -812,6 +887,7 @@ class TestDelegatedJwtPermissions(BaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @covers_authentication(DelegatedPersonalAPIKeyAuthentication)
     def test_delegated_personal_api_key_filters_organization_list(self) -> None:
         other_organization, _, _ = Organization.objects.bootstrap(self.user)
         worker_token, _credential = self._create_delegated_token(

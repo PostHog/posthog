@@ -157,7 +157,7 @@ def _safe_verdict_cache_key(team_id: int, mode: ModelMode, signal_prompt: str, p
     return f"signals:safety:safe:v1:{team_id}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterInput:
     description: str
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
@@ -171,6 +171,7 @@ class SafetyFilterInput:
     source_id: str | None = None
     weight: float | None = None
     extra: dict = field(default_factory=dict)
+    signal_id: str | None = None
 
 
 @dataclass
@@ -186,6 +187,7 @@ async def safety_filter(
     source_product: str | None = None,
     source_type: str | None = None,
     source_id: str | None = None,
+    signal_id: str | None = None,
 ) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
@@ -216,6 +218,7 @@ async def safety_filter(
         try:
             return await call_llm(
                 team_id=team_id,
+                signal_id=signal_id,
                 system_prompt=system_one_prompt.policy,
                 user_prompt=signal_prompt,
                 validate=validate,
@@ -343,7 +346,12 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
         result = await safety_filter(
-            input.team_id, input.description, input.source_product, input.source_type, input.source_id
+            input.team_id,
+            input.description,
+            input.source_product,
+            input.source_type,
+            input.source_id,
+            signal_id=input.signal_id,
         )
     except Exception:
         logger.exception("Failed to run safety filter")

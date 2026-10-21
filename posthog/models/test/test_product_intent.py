@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import ProductIntentContext, ProductKey
 
-from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     _fetch_product_intents,
@@ -36,9 +36,9 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 class TestProductIntent(BaseTest):
     def setUp(self):
         super().setUp()
-        # Joining the org seeds the fixed default product set; these tests assert on
-        # product-intent-driven rows, so start from a clean slate.
-        UserProductList.objects.filter(user=self.user, team=self.team).delete()
+        # Joining the org stars the default products. These tests assert on the stars that
+        # product intents add, so they start without any.
+        FileSystemShortcut.objects.filter(user=self.user, team=self.team).delete()
         self.product_intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_str_representation(self):
@@ -627,111 +627,39 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.activation_last_checked_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
         assert self.product_intent.activation_last_checked_at != initial_last_checked
 
-    def test_register_creates_user_product_list_entries_for_single_product_intent(self):
-        ProductIntent.register(
-            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.SESSION_REPLAY_SET_FILTERS, self.user
-        )
+    def _starred_paths(self) -> set[str]:
+        return set(FileSystemShortcut.objects.filter(user=self.user, team=self.team).values_list("path", flat=True))
 
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 1
-
-        upl = user_product_lists.get()
-        assert upl.product_path == "Session replay"
-        assert upl.enabled is True
-
-    def test_register_creates_user_product_list_entries_for_multiple_product_intent(self):
-        ProductIntent.register(
-            self.team, ProductKey.DATA_WAREHOUSE, ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE, self.user
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team).order_by("product_path")
-        assert user_product_lists.count() == 3
-
-        product_paths = {upl.product_path for upl in user_product_lists}
-        assert product_paths == {"Data warehouse", "SQL editor", "ETL"}
-
-        enabled = [upl.enabled for upl in user_product_lists]
-        assert all(enabled)
-
-    def test_register_ignores_product_key_without_products(self):
-        ProductIntent.register(
-            self.team, ProductKey.ANNOTATIONS, ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE, self.user
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 0
-
-    def test_register_respects_allow_sidebar_suggestions_false(self):
-        self.user.allow_sidebar_suggestions = False
+    @parameterized.expand(
+        [
+            ("single_product", ProductKey.SESSION_REPLAY, None, {"Session replay"}),
+            ("several_products", ProductKey.PRODUCT_ANALYTICS, None, {"Dashboards", "Product analytics"}),
+            ("no_products", ProductKey.ANNOTATIONS, None, set()),
+            ("suggestions_on", ProductKey.SURVEYS, True, {"Surveys"}),
+            ("suggestions_off", ProductKey.SURVEYS, False, set()),
+        ]
+    )
+    def test_register_stars_the_products_of_a_new_intent(
+        self, _name: str, product_key: ProductKey, allow_sidebar_suggestions: bool | None, expected: set[str]
+    ) -> None:
+        self.user.allow_sidebar_suggestions = allow_sidebar_suggestions
         self.user.save()
 
-        ProductIntent.register(
-            self.team, ProductKey.DATA_WAREHOUSE, ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE, self.user
-        )
+        ProductIntent.register(self.team, product_key, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user)
 
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 0
+        assert self._starred_paths() == expected
 
-    def test_register_does_not_create_duplicates_on_multiple_calls(self):
-        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0
-
+    def test_register_does_not_star_again_once_the_intent_exists(self) -> None:
         ProductIntent.register(
             self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY, self.user
         )
-        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+        FileSystemShortcut.objects.filter(user=self.user, team=self.team, path="Session replay").delete()
 
         ProductIntent.register(
             self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
         )
-        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
 
-    def test_register_creates_user_product_list_for_different_intents(self):
-        ProductIntent.register(
-            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
-        )
-        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
-
-        ProductIntent.register(
-            self.team, ProductKey.PRODUCT_ANALYTICS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
-        )
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 3
-
-        product_paths = {upl.product_path for upl in user_product_lists}
-        assert product_paths == {"Session replay", "Dashboards", "Product analytics"}
-
-    def test_register_allows_creation_when_allow_sidebar_suggestions_is_none(self):
-        self.user.allow_sidebar_suggestions = None
-        self.user.save()
-
-        ProductIntent.register(
-            self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 1
-        assert user_product_lists.get().product_path == "Surveys"
-
-    def test_register_allows_creation_when_allow_sidebar_suggestions_is_true(self):
-        self.user.allow_sidebar_suggestions = True
-        self.user.save()
-
-        ProductIntent.register(
-            self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 1
-        assert user_product_lists.get().product_path == "Surveys"
-
-    def test_register_rejects_creation_when_allow_sidebar_suggestions_is_false(self):
-        self.user.allow_sidebar_suggestions = False
-        self.user.save()
-
-        ProductIntent.register(
-            self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
-        )
-        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0
+        assert self._starred_paths() == set()
 
     def _make_ai_generation_event_definition(self) -> EventDefinition:
         return EventDefinition.objects.create(team=self.team, name="$ai_generation")

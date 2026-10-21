@@ -5,15 +5,13 @@ import { LemonInputSelect, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
-import { HogFlowDuration } from './components/HogFlowDuration'
+import { HogFlowDuration, MAX_DELAY_VALUE_FOR_DURATION_UNIT } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import {
     DEFAULT_DELAY_TIMEZONE,
@@ -37,13 +35,8 @@ export function StepDelayConfiguration({
     const config = action.config
 
     const { logicProps } = useValues(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { setDelayWorkflowActionConfig, setDelayMode, setDelayProperty, setDelayOffset, setDelayTimezone } =
         useActions(stepDelayLogic({ workflowLogicProps: logicProps }))
-
-    // A step already configured for a date keeps its controls even without the flag, so the panel
-    // can't quietly turn a date wait into a fixed duration.
-    const dateModeAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DELAY_UNTIL_DATE] || !!config.delay_until
 
     const mode = getDelayMode(config)
     const expression = config.delay_until?.expression ?? ''
@@ -52,20 +45,6 @@ export function StepDelayConfiguration({
     // An expression saved through the API can be any SQL, so it may not read back as a property pick.
     const customExpression = expression.trim() && !property ? expression : null
     const maxDelayText = getDurationText(config.max_delay_duration ?? '') ?? getDurationText(DEFAULT_MAX_DELAY_DURATION)
-
-    if (!dateModeAvailable) {
-        return (
-            <>
-                <StepSchemaErrors />
-
-                <p className="mb-0">Wait for a specified duration.</p>
-                <HogFlowDuration
-                    value={config.delay_duration ?? ''}
-                    onChange={(value) => setDelayWorkflowActionConfig(action.id, { delay_duration: value })}
-                />
-            </>
-        )
-    }
 
     return (
         <>
@@ -92,6 +71,7 @@ export function StepDelayConfiguration({
                     <HogFlowDuration
                         value={config.delay_duration ?? ''}
                         onChange={(value) => setDelayWorkflowActionConfig(action.id, { delay_duration: value })}
+                        maxValueForUnit={MAX_DELAY_VALUE_FOR_DURATION_UNIT}
                     />
                 ) : (
                     <>

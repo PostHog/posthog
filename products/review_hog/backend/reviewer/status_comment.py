@@ -27,6 +27,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.utils import pluralize
 
@@ -47,10 +48,13 @@ from products.review_hog.backend.reviewer.models.thread_resolution import Commit
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
 from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
+    TurnMarker,
     TurnStats,
     finding_counts,
+    live_turn_markers,
     progress_payload,
     snapshot_stats,
+    turn_markers,
     turn_stats,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -195,9 +199,18 @@ def report_deep_link(team_id: int, report_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/code-review?review={report_id}"
 
 
-def _header(review_mode: str, verb: str, head_sha: str | None) -> str:
+def _title(review_mode: str, verb: str, head_sha: str | None) -> str:
     target = f"`{head_sha[:7]}`" if head_sha else "this pull request"
-    return f"### PostHog Review · {_MODE_NAMES.get(review_mode, 'Deep')} · {verb} {target}"
+    return f"PostHog Review · {_MODE_NAMES.get(review_mode, 'Deep')} · {verb} {target}"
+
+
+def _header(review_mode: str, verb: str, head_sha: str | None) -> str:
+    return f"### {_title(review_mode, verb, head_sha)}"
+
+
+def failure_marker(report_id: str, head_sha: str) -> str:
+    """The hidden marker of a Standard turn's failure comment, so a head gets at most one."""
+    return f"<!-- reviewhog:failed:{report_id}:{head_sha} -->"
 
 
 def _table_row(step: str, status: str, result: str) -> str:
@@ -206,11 +219,6 @@ def _table_row(step: str, status: str, result: str) -> str:
 
 def _table(rows: Sequence[tuple[str, str, str]]) -> list[str]:
     return [_TABLE_HEADER, _TABLE_DIVIDER, *(_table_row(*row) for row in rows)]
-
-
-def _review_design(snapshot: SnapshotStats, fallback: str) -> str:
-    # The fetch records the turn's design in the snapshot. Before that, the caller's design applies.
-    return (snapshot.review_design if snapshot.head_matched else None) or fallback
 
 
 def _step_results(
@@ -303,6 +311,22 @@ def _priority_counts(counts: dict[IssuePriority, int], priorities: Collection[Is
     )
 
 
+def large_pr_note(parts: int) -> str:
+    """The sentence that tells the reader a large pull request got a shallower single-agent review."""
+    return f"This pull request is large, so the review ran in {parts} parts with less depth than usual."
+
+
+def render_review_summary(
+    review_mode: str, head_sha: str | None, counts: dict[IssuePriority, int], capped_lens_parts: int | None = None
+) -> str:
+    """The one-line summary a Standard review body opens with, because Standard posts no status comment."""
+    found = _priority_counts(counts, PRIORITIES_BY_URGENCY) or "no findings"
+    summary = f"**{_title(review_mode, 'reviewed', head_sha)}**: {found}."
+    if capped_lens_parts is not None:
+        summary = f"{summary} {large_pr_note(capped_lens_parts)}"
+    return summary
+
+
 def render_final_body(
     report_id: str,
     *,
@@ -330,8 +354,7 @@ def render_final_body(
     note attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
-    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
-    note goes here and not in the review body, because a clean turn posts no review. `raised_elsewhere`
+    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. `raised_elsewhere`
     lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
     linked to that comment under `pr_url`; `raised_elsewhere_count` counts all of them.
     """
@@ -362,12 +385,7 @@ def render_final_body(
         summary = "Nothing to post."
     lines = [_header(review_mode, "reviewed", head_sha), "", summary, "", *_table(rows)]
     if capped_lens_parts is not None:
-        lines.extend(
-            [
-                "",
-                f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
-            ]
-        )
+        lines.extend(["", large_pr_note(capped_lens_parts)])
     if raised_elsewhere:
         shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
         lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
@@ -454,7 +472,9 @@ def _auth(team_id: int, repository: str) -> tuple[str, str | None] | None:
     `first_for_team_repository` probes the GitHub API, so this costs a call per invocation — fine at
     the refresh cadence (`STATUS_EDIT_MIN_INTERVAL`), and every call is egress-gated regardless.
     """
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+    )
     if github is None:
         return None
     return github.get_access_token(), github.github_installation_id
@@ -468,7 +488,9 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
     answer the run already has. GitHub still enforces access on the edit itself, so a mid-run
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
+    github = GitHubIntegration(
+        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.CRITICAL
+    )
     return github.get_access_token(), github.github_installation_id
 
 
@@ -594,6 +616,15 @@ class _TurnState:
     snapshot: SnapshotStats
     turn: TurnStats
     pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+    marker: TurnMarker | None = None
+
+    def review_design(self, fallback: str) -> str:
+        # The marker belongs to this turn. The newest snapshot at the head can belong to a later turn on
+        # the same head. Before the marker exists, the fetch records the turn's design in the snapshot,
+        # and before the fetch the caller's design applies.
+        if self.marker is not None:
+            return self.marker.review_design
+        return (self.snapshot.review_design if self.snapshot.head_matched else None) or fallback
 
 
 def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnState:
@@ -603,6 +634,7 @@ def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnStat
         snapshot=snapshot_stats(team_id, heads).get(report_id, SnapshotStats()),
         turn=turn_stats(team_id, heads).get(report_id, TurnStats()),
         pairs=load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(report_id, run_index),
+        marker=turn_markers(team_id, [report_id]).get((report_id, run_index)),
     )
 
 
@@ -610,11 +642,21 @@ def _render_live_body(
     team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, run_index: int, failed: bool
 ) -> str:
     state = _turn_state(team_id, report, run_index)
+    # A run that dies in the publish window renders its finished turn, which is not a live turn. A
+    # failed turn renders its own marker, because `_fail_run` writes the failure note before this render.
+    if run_index <= report.run_count or state.marker is None:
+        live_marker = None
+    elif failed:
+        live_marker = state.marker
+    else:
+        live_marker = live_turn_markers(team_id, [report], {(str(report.id), run_index): state.marker}).get(
+            str(report.id)
+        )
     return render_in_progress_body(
         str(report.id),
-        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs),
+        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs, live_marker),
         review_mode=review_mode,
-        review_design=_review_design(state.snapshot, review_design),
+        review_design=state.review_design(review_design),
         head_sha=report.head_sha,
         snapshot=state.snapshot,
         turn=state.turn,
@@ -634,8 +676,11 @@ def maybe_refresh_status_comment(
 
     Called after pipeline activities persist progress artefacts. The debounce is an atomic claim on
     `status_comment_edited_at`, so the concurrent fan-out's calls collapse to one edit per interval;
-    a run without a status comment (eval / CLI / branch target) bails on the same claim.
+    a run without a status comment (eval / CLI / branch target) bails on the same claim. A Standard
+    turn never edits it, because the report can still carry the comment of an earlier turn.
     """
+    if review_mode == REVIEW_MODE_FLASH:
+        return
     try:
         now = timezone.now()
         claimed = (
@@ -705,7 +750,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             resolved_from=input.resolved_from,
             report_url=report_deep_link(input.team_id, input.report_id),
             review_mode=input.review_mode,
-            review_design=_review_design(state.snapshot, REVIEW_DESIGN_PIPELINE),
+            review_design=state.review_design(REVIEW_DESIGN_PIPELINE),
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,
@@ -738,6 +783,34 @@ def fail_status_comment(team_id: int, report_id: str, *, run_index: int, review_
         _edit_and_stamp(team_id, report, body)
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
+
+
+def post_failure_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FLASH) -> None:
+    """Tell the PR that a Standard turn failed, once per head, because Standard posts no status comment."""
+    try:
+        report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+        if report is None or report.pr_number is None or not report.head_sha:
+            return
+        auth = _auth(team_id, report.repository)
+        if auth is None:
+            return
+        token, installation_id = auth
+        owner, repo = _split_repository(report.repository)
+        marker = failure_marker(report_id, report.head_sha)
+        if _find_marker_comment(owner, repo, report.pr_number, marker, token=token, installation_id=installation_id):
+            return
+        body = "\n".join(
+            [
+                _header(review_mode, "couldn't review", report.head_sha),
+                "",
+                "Something went wrong and the review didn't finish. Push a new commit to run it again.",
+                "",
+                marker,
+            ]
+        )
+        _post_comment(owner, repo, report.pr_number, body, token=token, installation_id=installation_id)
+    except Exception:
+        logger.exception("Could not post the ReviewHog failure comment")
 
 
 def update_resolution_status_comment(
