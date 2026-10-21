@@ -3,6 +3,7 @@ import express from 'ultimate-express'
 import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
+import type { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { LogRecord } from '~/logs/log-record-avro'
@@ -136,7 +137,10 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 }
 
 export type CdpApiConfig = PluginsServerConfig
-export type CdpApiDeps = CdpConsumerBaseDeps
+export type CdpApiDeps = CdpConsumerBaseDeps & {
+    /** Holds caller-supplied idempotency keys. Null or unset makes the store report itself unavailable. */
+    idempotencyValkey?: RedisV2 | null
+}
 
 // Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
 // cohort that is still calculating, so the caller rejects it.
