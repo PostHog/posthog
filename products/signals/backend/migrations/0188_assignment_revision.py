@@ -9,7 +9,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1401_drop_userproductlist_table"),
-        ("signals", "0186_signalteamconfig_onboarding"),
+        ("signals", "0187_useractivitysummary"),
     ]
 
     operations = [
