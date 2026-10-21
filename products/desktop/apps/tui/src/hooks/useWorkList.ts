@@ -89,19 +89,21 @@ export function useWorkList({
     };
   }, [work, limit, scope, onRefresh]);
 
-  // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once.
-  const prefetched = useRef(new Set<string>());
+  // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once, and again
+  // whenever the list says the run moved on, so a chat no pane shows still ends its turn in the sidebar.
+  const prefetched = useRef(new Map<string, string>());
   useEffect(() => {
     const pending = (page.tasks ?? []).flatMap((task) => {
       const run = task.latest_run;
+      const at = task.last_activity_at ?? run?.updated_at ?? "";
       return run &&
         run.environment !== "local" &&
-        !prefetched.current.has(run.id)
-        ? [{ taskId: task.id, runId: run.id }]
+        prefetched.current.get(run.id) !== at
+        ? [{ taskId: task.id, runId: run.id, at }]
         : [];
     });
     if (!runs) return;
-    for (const { runId } of pending) prefetched.current.add(runId);
+    for (const { runId, at } of pending) prefetched.current.set(runId, at);
     void (async () => {
       for (const { taskId, runId } of pending) {
         await runs.prefetch(taskId, runId, PREVIEW_ENTRIES).catch(() => {

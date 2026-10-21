@@ -890,8 +890,8 @@ export class CloudRuns {
       offset: windowStart,
     });
     const entry = this.entryFor(taskId, runId);
-    // A run already on screen has a view of its own that the stream keeps current.
-    if (entry.view.loaded) return;
+    // A run someone holds has a view of its own that the stream keeps current; an idle run's preview is replaced.
+    if (entry.view.loaded && entry.refs > 0) return;
     entry.view = {
       ...emptyRunView,
       loaded: true,
