@@ -1,6 +1,6 @@
 import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
-import { barColorAt, mixColors } from './color-utils'
+import { barColorAt, dimColor, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
 import type {
     BarFillStyle,
@@ -1311,12 +1311,14 @@ export function drawHighlightPoint(
 export interface DrawBoxOptions {
     /** Series base color — used for the box outline, whisker, median, and mean stroke. */
     color: string
-    /** Box fill — typically the series color at reduced alpha. */
+    /** Box fill at the p75 edge — typically the series color at reduced alpha. It fades out toward p25. */
     fillColor: string
     /** Optional explicit median stroke color. Defaults to `color`. */
     medianColor?: string
     /** Optional mean marker fill. Defaults to `fillColor`. */
     meanFillColor?: string
+    /** Box corner radius in CSS pixels, clamped to half the box size. Defaults to 6. */
+    cornerRadius?: number
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Line width for the box outline, whiskers, and median. Defaults to 1.5. */
@@ -1334,10 +1336,12 @@ function transposeAxes(ctx: CanvasRenderingContext2D): void {
     ctx.transform(0, 1, 1, 0, 0, 0)
 }
 
-/** Paint a whole series of box-and-whiskers, batching path operations so the number of
- *  `beginPath`/`stroke` pairs is `4 + N` instead of `5N` (whisker stems, caps, box outlines,
- *  and medians are each one shared path; mean markers stay per-box since each needs both
- *  fill and stroke). Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
+const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+const DEFAULT_BOX_CORNER_RADIUS = 6
+
+/** Paint a whole series of box-and-whiskers. Whisker stems, caps, and medians are each one
+ *  shared path; boxes and mean markers stay per-box since each needs its own fill and stroke.
+ *  Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
 export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], options: DrawBoxOptions): void {
     if (boxes.length === 0) {
         return
@@ -1351,6 +1355,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         lineWidth = 1.5,
         whiskerCapRatio = 0.6,
         horizontal = false,
+        cornerRadius = DEFAULT_BOX_CORNER_RADIUS,
     } = options
 
     ctx.save()
@@ -1358,7 +1363,9 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         transposeAxes(ctx)
     }
     ctx.lineWidth = lineWidth
-    ctx.strokeStyle = color
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = dimColor(color, 0.7)
     ctx.setLineDash([])
 
     // 1. Whisker stems — only emit a stem when the whisker extends past the box edge.
@@ -1394,26 +1401,41 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     }
     ctx.stroke()
 
-    // 3. Box rectangles (p25 → p75) — fill then outline. `fillRect` / `strokeRect` are
-    //    already optimal — no `beginPath` accumulation needed.
-    ctx.fillStyle = fillColor
+    // 3. Rounded boxes (p25 → p75) with a soft glow, then a gradient fill that fades from the
+    //    p75 edge toward p25, then the outline. The gradient is per box, so each box is its own path.
+    ctx.strokeStyle = color
     for (const box of boxes) {
         const boxHeight = Math.max(0, box.bottom - box.top)
-        if (boxHeight > 0 && box.width > 0) {
-            ctx.fillRect(box.x, box.top, box.width, boxHeight)
-            ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+        if (boxHeight <= 0 || box.width <= 0) {
+            continue
         }
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
+        const gradient = ctx.createLinearGradient(0, box.top, 0, box.bottom)
+        gradient.addColorStop(0, fillColor)
+        gradient.addColorStop(1, dimColor(fillColor, 0.08))
+        ctx.save()
+        ctx.shadowColor = dimColor(color, 0.35)
+        ctx.shadowBlur = 12
+        ctx.shadowOffsetY = 3
+        ctx.fillStyle = gradient
+        ctx.fill()
+        ctx.restore()
+        ctx.stroke()
     }
 
-    // 4. Median lines.
+    // 4. Median lines — thicker, inset so the round caps stay inside the box.
     ctx.strokeStyle = medianColor
+    ctx.lineWidth = lineWidth * 2
     ctx.beginPath()
     for (const box of boxes) {
         const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
-        ctx.moveTo(box.x, medianClamped)
-        ctx.lineTo(box.x + box.width, medianClamped)
+        const inset = Math.min(lineWidth * 3, box.width / 4)
+        ctx.moveTo(box.x + inset, medianClamped)
+        ctx.lineTo(box.x + box.width - inset, medianClamped)
     }
     ctx.stroke()
+    ctx.lineWidth = lineWidth
 
     // 5. Mean markers — filled circle outlined in the series color. Stays per-box because
     //    each marker requires both a fill and a stroke pass.
@@ -1434,7 +1456,8 @@ export function drawBoxHighlight(
     ctx: CanvasRenderingContext2D,
     box: BoxRect,
     overlayColor: string,
-    horizontal = false
+    horizontal = false,
+    cornerRadius = DEFAULT_BOX_CORNER_RADIUS
 ): void {
     const boxHeight = Math.max(0, box.bottom - box.top)
     if (box.width <= 0 || boxHeight <= 0) {
@@ -1445,7 +1468,9 @@ export function drawBoxHighlight(
         transposeAxes(ctx)
     }
     ctx.fillStyle = overlayColor
-    ctx.fillRect(box.x, box.top, box.width, boxHeight)
+    ctx.beginPath()
+    traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
+    ctx.fill()
     ctx.restore()
 }
 

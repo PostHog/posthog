@@ -67,6 +67,8 @@ export interface BoxPlotConfig extends ChartConfig {
     whiskerCapRatio?: number
     /** Box outline / whisker stroke width. Defaults to 1.5. */
     boxStrokeWidth?: number
+    /** Box corner radius in CSS pixels. Defaults to 6; 0 draws square corners. */
+    boxCornerRadius?: number
 }
 
 export interface BoxPlotClickData<Meta = unknown> {
@@ -130,6 +132,7 @@ function BoxPlotInner<Meta = unknown>({
         meanRadius = 3,
         whiskerCapRatio = 0.6,
         boxStrokeWidth = 1.5,
+        boxCornerRadius,
         axisOrientation = 'vertical',
     } = config ?? {}
     const horizontal = axisOrientation === 'horizontal'
@@ -281,12 +284,13 @@ function BoxPlotInner<Meta = unknown>({
                 })
                 drawBoxes(ctx, boxes, {
                     color: s.color,
-                    fillColor: dimColor(s.color, 0.25),
-                    meanFillColor: dimColor(s.color, 0.5),
+                    fillColor: dimColor(s.color, 0.45),
+                    meanFillColor: theme.backgroundColor ?? dimColor(s.color, 0.5),
                     meanRadius,
                     whiskerCapRatio,
                     lineWidth: boxStrokeWidth,
                     horizontal,
+                    cornerRadius: boxCornerRadius,
                 })
             }
 
@@ -298,7 +302,7 @@ function BoxPlotInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth, axisOrientation, horizontal]
+        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth, boxCornerRadius, axisOrientation, horizontal]
     )
 
     const drawHover = useCallback(
@@ -352,12 +356,12 @@ function BoxPlotInner<Meta = unknown>({
                 if (!box) {
                     continue
                 }
-                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25), horizontal)
+                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25), horizontal, boxCornerRadius)
                 drewAny = true
             }
             return drewAny
         },
-        [series, horizontal]
+        [series, horizontal, boxCornerRadius]
     )
 
     const renderTooltip = useCallback(
