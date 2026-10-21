@@ -71,6 +71,8 @@ class AlertMessage:
     context: tuple[str, ...] = ()
     data_link: MessageLink | None = None
     incident_action: IncidentAction | None = None
+    # The incident key the source's own stack opened incidents under, for a firing the platform took over.
+    source_incident_key: str | None = None
 
     @property
     def title(self) -> str:
@@ -154,6 +156,7 @@ def build_message(
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
     overflowed: int = 0,
+    source_incident_key: str | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -197,4 +200,5 @@ def build_message(
         context=description.context,
         data_link=description.data_link,
         incident_action=incident_action,
+        source_incident_key=source_incident_key,
     )

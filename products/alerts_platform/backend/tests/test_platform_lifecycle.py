@@ -27,6 +27,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_INSTANCES_CEILING,
     AlertEventKind,
     CheckFailure,
+    DeliveryPath,
     FiringEpisode,
     GroupAdmission,
     Grouping,
@@ -141,22 +142,27 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_live_firing_stays_with_its_source", "ok", False, ("source", "firing", True)),
+            ("a_delivered_firing_stays_with_its_source", "ok", True, False, ("source", "firing", True)),
+            # A copy checking beside its source fires without sending, so nothing it opened is orphaned.
+            ("an_undelivered_firing_is_taken_over", "ok", False, True, ("platform", "not_firing", False)),
             # The machine ended the firing when the check broke, so the row's firing is stale.
-            ("a_broken_copy_is_taken_over", "broken", True, ("platform", "not_firing", False)),
-            ("an_errored_copy_is_taken_over", "errored", True, ("platform", "not_firing", False)),
+            ("a_broken_copy_is_taken_over", "broken", True, True, ("platform", "not_firing", False)),
+            ("an_errored_copy_is_taken_over", "errored", True, True, ("platform", "not_firing", False)),
         ]
     )
-    def test_a_copy_inside_its_own_firing_is_taken_over_only_once_that_firing_ended(
-        self, _name: str, check_status: str, expected_taken: bool, expected: tuple[str, str, bool]
+    def test_a_copy_inside_its_own_firing_is_taken_over_unless_that_firing_was_delivered_and_runs(
+        self, _name: str, check_status: str, delivered: bool, expected_taken: bool, expected: tuple[str, str, bool]
     ) -> None:
         legacy_id = uuid4()
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
                 legacy_configuration_id=legacy_id, check_status=check_status
             )
-            PlatformAlert.objects.create(
-                team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
+            platform_testing.start_firing(
+                self.configuration.id,
+                team_id=self.team.id,
+                at=self.cutoff,
+                delivered_via=DeliveryPath.NATIVE if delivered else None,
             )
 
         taken = take_ownership(
@@ -175,6 +181,34 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         self.configuration.refresh_from_db()
         assert taken is expected_taken
         assert (self.configuration.owner, alert.state, alert.firing_started_at is not None) == expected
+
+    def test_a_firing_is_taken_over_with_its_start_unknown(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+
+        taken = take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.FIRING,
+                last_notified_at=self.cutoff,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff,
+            )
+        )
+
+        alert = self._alert()
+        self.configuration.refresh_from_db()
+        assert (taken, self.configuration.owner, alert.state, alert.firing_started_at) == (
+            True,
+            "platform",
+            "firing",
+            None,
+        )
 
     def test_a_grouped_copy_taken_over_leaves_its_one_slot_to_the_first_group(self) -> None:
         legacy_id = uuid4()
