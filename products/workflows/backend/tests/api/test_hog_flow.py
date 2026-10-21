@@ -3766,6 +3766,28 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert message in str(response.json())
 
+    def test_hog_flow_alert_trigger_on_an_active_flow_needs_an_alert_even_in_a_staged_graph_edit(self):
+        created = self._post_alert_trigger_flow([str(self._alert_configuration().id)])
+        assert created.status_code == 201, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/graph",
+            {
+                "stage_draft": True,
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "trigger_node",
+                        "patch": {"config": {"filters": {"properties": []}}},
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Pick an alert" in str(response.json())
+
     def test_hog_flow_alert_trigger_is_refused_outside_the_main_environment(self):
         # The alert's transitions carry the main environment's team, so a workflow stored under
         # another environment would never run.

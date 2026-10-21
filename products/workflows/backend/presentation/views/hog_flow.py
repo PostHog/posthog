@@ -1887,7 +1887,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                 if _subscribes_to(ALERT_TRANSITION_EVENT):
                     alert_error = _alert_trigger_error(
-                        self.context.get("request"), self.context["get_team"](), filters, is_draft=bool(is_draft)
+                        self.context.get("request"),
+                        self.context["get_team"](),
+                        filters,
+                        is_draft=bool(is_draft) and not self.context.get("stored_flow_is_active"),
                     )
                     if alert_error:
                         raise serializers.ValidationError({"filters": alert_error})
@@ -3297,6 +3300,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
+
+        # A draft-lenient check may skip only when no live row is written. Some paths, such as the graph
+        # endpoint, write an active flow in place even when the request asks to stage a draft.
+        self.context["stored_flow_is_active"] = instance is not None and instance.status == HogFlowState.ACTIVE
 
         status = data.get("status")
         if status is None and instance:

@@ -23,19 +23,15 @@ from products.tasks.backend.constants import (
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
-    CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
-    MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
-    PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
-    SANDBOX_ROTATION_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
     get_vm_sandbox_flag_payload,
@@ -53,7 +49,6 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
-from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
@@ -649,40 +644,12 @@ def _is_sandbox_event_ingest_enabled(*, run_id: str, state: dict | None = None) 
     return True
 
 
-@StepTimer("flag_agent_telemetry")
-def _is_agent_otel_telemetry_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> bool:
-    # DEBUG first: local dev disables the analytics SDK, so the dispatch capture always
-    # stamps False there - honoring the stamp would disable telemetry locally even with
-    # the SANDBOX_AGENT_OTEL_* settings (the local opt-in, which gate emission themselves)
-    # set. Matches agent_otel_telemetry_enabled_for_state, which the mirror reads.
-    if settings.DEBUG:
-        return True
-
-    state_override = (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY)
-    if isinstance(state_override, bool):
-        return state_override
-
-    enabled = is_agent_otel_telemetry_enabled(distinct_id=distinct_id, organization_id=organization_id)
-    log_with_activity_context(
-        "agent_otel_telemetry_flag_checked",
-        run_id=run_id,
-        agent_otel_telemetry_enabled=enabled,
-    )
-    return enabled
-
-
 @dataclass(frozen=True)
 class VmSandboxDecision:
     use_vm_sandbox: bool
     # Modal image name from the flag payload that VM runs fall back to when no custom
     # image was picked. None whenever the payload was not consulted (state override,
-    # flag error, network interlock) or defines no default — image-builder runs must
+    # flag error) or defines no default — image-builder runs must
     # keep layering on the plain VM base, never on a prebaked default.
     default_custom_image: str | None = None
 
@@ -710,21 +677,9 @@ def _resolve_modal_vm_sandbox(
     organization_id: str,
     run_id: str,
     origin_product: str | None,
-    allowed_domains: list[str] | None,
-    use_modal_network_allowlist: bool = False,
     custom_image_available: bool = False,
     state: dict | None = None,
 ) -> VmSandboxDecision:
-    if allowed_domains is not None and not use_modal_network_allowlist:
-        # Restricted VMs require Modal's provider policy, so routing cannot consult overrides
-        # or rollout flags until that independent policy flag is enabled.
-        log_with_activity_context(
-            "modal_vm_sandbox_skipped_restricted_egress",
-            run_id=run_id,
-            use_modal_vm_sandbox=False,
-        )
-        return VmSandboxDecision(use_vm_sandbox=False)
-
     requested_template = (state or {}).get("sandbox_template")
     if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
         # The VM image carries none of a custom template's tooling, so a rollout that names
@@ -939,46 +894,6 @@ def _is_dev_stack_preview_enabled(
     return enabled
 
 
-@StepTimer("flag_network_allowlist")
-def _is_modal_network_allowlist_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> bool:
-    state_override = (state or {}).get("use_modal_network_allowlist")
-    if isinstance(state_override, bool):
-        log_with_activity_context(
-            "modal_network_allowlist_state_override",
-            run_id=run_id,
-            use_modal_network_allowlist=state_override,
-        )
-        return state_override
-
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("modal_network_allowlist_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "modal_network_allowlist_flag_checked",
-        run_id=run_id,
-        use_modal_network_allowlist=enabled,
-    )
-    return enabled
-
-
 @StepTimer("flag_sandbox_backend")
 def _resolve_sandbox_backend(
     *,
@@ -994,7 +909,7 @@ def _resolve_sandbox_backend(
     Hogland only takes plain golden-template ACP runs. A user/environment custom image,
     the Pi runtime or a non-default sandbox template are hard incapabilities — hogland
     runs only its own golden, so those force Modal even with the flag on. The Modal
-    VM-sandbox / network-allowlist flags and the org *default* image are runtime
+    VM-sandbox flag, the Modal network allowlist and the org *default* image are runtime
     preferences, not incapabilities: a run the hogland flag (or override) selects wins
     hogland over them, and the caller forces them off so the run provisions on hogland's
     golden. Egress stays enforced
@@ -1021,8 +936,8 @@ def _resolve_sandbox_backend(
     # Hard hogland incapabilities: a user/environment custom image, the Pi runtime or a
     # non-default sandbox template cannot run on hogland's golden, so keep those on Modal
     # even when the flag is on. The org default image (default_custom_image) is NOT gated
-    # here — hogland serves its golden equivalent — nor are the Modal VM-sandbox /
-    # network-allowlist flags; a flagged run wins hogland over all of them (the caller
+    # here — hogland serves its golden equivalent — nor are the Modal VM-sandbox flag
+    # and the Modal network allowlist; a flagged run wins hogland over all of them (the caller
     # forces them off).
     requested_template = (state or {}).get("sandbox_template")
     if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
@@ -1067,87 +982,6 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
         debug_domains=debug_domains,
         debug_ports=debug_ports,
     )
-
-
-@StepTimer("flag_pr_babysit")
-def _is_pr_babysit_snapshot_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("pr_babysit_snapshot_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context("pr_babysit_snapshot_flag_checked", run_id=run_id, pr_babysit_enabled=enabled)
-    return enabled
-
-
-def _is_sandbox_rotation_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                SANDBOX_ROTATION_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("sandbox_rotation_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context("sandbox_rotation_flag_checked", run_id=run_id, sandbox_rotation_enabled=enabled)
-    return enabled
-
-
-def _is_continue_as_new_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    # The env setting force-enables (local E2E / emergency on); otherwise the org-level flag
-    # decides, so it can be toggled without a deploy. Captured at workflow start, so the
-    # continue_as_new trigger stays deterministic across replay. Fails closed.
-    if settings.TASKS_CONTINUE_AS_NEW_ENABLED:
-        return True
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                CONTINUE_AS_NEW_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("continue_as_new_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context("continue_as_new_flag_checked", run_id=run_id, continue_as_new_enabled=enabled)
-    return enabled
 
 
 @activity.defn
@@ -1371,11 +1205,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
-    agent_otel_telemetry_enabled = not trial_origin and _is_agent_otel_telemetry_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
+    agent_otel_telemetry_enabled = not trial_origin and (
+        settings.DEBUG or state.get(AGENT_OTEL_TELEMETRY_STATE_KEY) is not False
     )
     with StepTimer("flag_context_layer"):
         context_layer_enabled = (
@@ -1383,17 +1214,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             and not trial_origin
             and context_layer_facade.is_context_layer_enabled(organization_id=organization_id, distinct_id=distinct_id)
         )
-    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
-    )
 
     if codex_model_access == "own-subscription" and allowed_domains is not None:
         allowed_domains = [
@@ -1413,16 +1233,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 sandbox_environment_id=sandbox_environment_id,
                 invalid_domain_positions=[item.index + 1 for item in error.invalid_domains],
             )
-            if use_modal_network_allowlist:
-                raise SandboxNetworkPolicyError(
-                    "This sandbox environment contains an invalid allowed domain. Update its network settings and run the task again.",
-                    {
-                        "run_id": run_id,
-                        "sandbox_environment_id": sandbox_environment_id,
-                        "invalid_domain_positions": [item.index + 1 for item in error.invalid_domains],
-                    },
-                    cause=error,
-                ) from error
+            raise SandboxNetworkPolicyError(
+                "This sandbox environment contains an invalid allowed domain. Update its network settings and run the task again.",
+                {
+                    "run_id": run_id,
+                    "sandbox_environment_id": sandbox_environment_id,
+                    "invalid_domain_positions": [item.index + 1 for item in error.invalid_domains],
+                },
+                cause=error,
+            ) from error
 
     _require_template_compatible_with_custom_image(state, environment_custom_image_name, run_id=run_id)
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
@@ -1430,8 +1249,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         organization_id=organization_id,
         run_id=run_id,
         origin_product=task.origin_product,
-        allowed_domains=allowed_domains,
-        use_modal_network_allowlist=use_modal_network_allowlist,
         custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
@@ -1518,16 +1335,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     ):
         interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
 
-    pr_babysit_enabled = pr_loop_enabled and _is_pr_babysit_snapshot_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
-    )
     sandbox_backend_state = state
     resumed_backend = input.resumed_sandbox_backend
     if (
@@ -1551,6 +1358,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # serves its golden equivalent — so it must not gate the run onto Modal.
         has_user_custom_image=environment_custom_image_name is not None,
     )
+    use_modal_network_allowlist = True
     if sandbox_backend == "hogland":
         # Hogland runs are plain golden-template runs, so the Modal VM-runtime,
         # network-allowlist, and org-default-image preferences don't apply. Force them off
@@ -1634,7 +1442,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
-        pr_babysit_enabled=pr_babysit_enabled,
+        pr_babysit_enabled=pr_loop_enabled,
         context_layer_enabled=context_layer_enabled,
         state=state,
         stream_generation=input.stream_generation
@@ -1657,11 +1465,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=sandbox_backend != "hogland",
         use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
-        sandbox_rotation_enabled=_is_sandbox_rotation_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-        ),
+        sandbox_rotation_enabled=True,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
@@ -1674,11 +1478,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         benjamin_enabled=benjamin_enabled,
         claude_model_access=claude_model_access,
         codex_model_access=codex_model_access,
-        continue_as_new_enabled=_is_continue_as_new_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-        ),
+        continue_as_new_enabled=True,
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
