@@ -13,8 +13,13 @@ from typing import TYPE_CHECKING, Union
 from django.utils import timezone
 
 import structlog
+from dateutil.relativedelta import relativedelta
+
+from posthog.schema import WebStatsBreakdown
 
 from posthog.hogql import ast
+
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
@@ -53,13 +58,19 @@ def ready_dimensional_job_ids(
     if runner._test_account_filters:
         return None
 
-    start = runner.query_date_range.date_from()
+    # The channel breakdown and filter use the built-in channel rules, because the stored dimensions
+    # cannot evaluate custom rules that match on the entry URL.
+    if runner.modifiers.customChannelTypeRules and _reads_channel_type(runner):
+        return None
+
+    periods = [runner.query_date_range]
     if runner.query_compare_to_date_range:
-        start = min(start, runner.query_compare_to_date_range.date_from())
-    # The buckets are whole UTC hours. A half-hour offset puts each project-local day boundary
-    # inside a bucket, so the read would drop or add part of an hour at both ends. The offset
-    # can change with DST inside the range, so every bound gets the check.
-    if not all(_is_whole_hour_offset(bound) for bound in (start, runner.query_date_range.date_to())):
+        periods.append(runner.query_compare_to_date_range)
+    if not all(_fits_whole_hour_buckets(period.date_from(), period.date_to()) for period in periods):
+        return None
+
+    start = min(period.date_from() for period in periods)
+    if _crosses_events_retention_floor(runner, start):
         return None
 
     # A range can end after now, for example at the end of the current day in the project
@@ -72,9 +83,36 @@ def ready_dimensional_job_ids(
         return None
 
 
-def _is_whole_hour_offset(moment: datetime) -> bool:
-    offset = moment.utcoffset() or timedelta(0)
-    return offset % timedelta(hours=1) == timedelta(0)
+def _reads_channel_type(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+    if getattr(runner.query, "breakdownBy", None) == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+        return True
+    return any(getattr(prop, "key", None) == "$channel_type" for prop in runner.query.properties)
+
+
+def _fits_whole_hour_buckets(date_from: datetime, date_to: datetime) -> bool:
+    """Whether `period_bucket >= date_from AND period_bucket <= date_to` selects exactly the
+    events in the range. Each bucket holds one UTC hour, so the start must be an hour boundary
+    and the inclusive end must be the last microsecond of an hour. An end after now is also
+    exact, because the bucket of the current hour holds only events up to now."""
+    if not _is_utc_hour_boundary(date_from):
+        return False
+    return _is_utc_hour_boundary(date_to + timedelta(microseconds=1)) or date_to >= timezone.now()
+
+
+def _is_utc_hour_boundary(moment: datetime) -> bool:
+    return moment.astimezone(UTC).replace(minute=0, second=0, microsecond=0) == moment
+
+
+def _crosses_events_retention_floor(
+    runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"], start: datetime
+) -> bool:
+    # READY jobs outlive the retention window. The live path floors events at
+    # `timestamp > now() - retention`, so a range that starts at or before that floor
+    # would show older traffic here than live does.
+    retention_months = events_retention_months_for_team(runner.team, runner.team.pk)
+    if retention_months is None:
+        return False
+    return start <= timezone.now() - relativedelta(months=retention_months)
 
 
 class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):

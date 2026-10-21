@@ -15,13 +15,21 @@ import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
     DateRange,
     EventPropertyFilter,
+    FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyOperator,
+    SessionPropertyFilter,
     WebAnalyticsPreComputeStrategy,
     WebAnalyticsQueryModifiers,
     WebOverviewQuery,
@@ -57,6 +65,20 @@ WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
+UNTAGGED_CHANNEL = HogQLQueryModifiers(
+    customChannelTypeRules=[
+        CustomChannelRule(
+            id="untagged",
+            channel_type="Untagged",
+            combiner=FilterLogicalOperator.AND_,
+            items=[
+                CustomChannelCondition(
+                    id="source", key=CustomChannelField.UTM_SOURCE, op=CustomChannelOperator.IS_NOT_SET
+                )
+            ],
+        )
+    ]
+)
 
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
@@ -226,6 +248,76 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert runner.used_preaggregated_tables is expect_v2
         if expect_v2:
             assert runner.query_strategy() == "stats_table_preaggregated"
+
+    @parameterized.expand(
+        [
+            (
+                "custom_channel_breakdown",
+                DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                [],
+                UNTAGGED_CHANNEL,
+                None,
+                {"Untagged": (3.0, 4.0)},
+            ),
+            (
+                "custom_channel_filter",
+                DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                WebStatsBreakdown.DEVICE_TYPE,
+                [SessionPropertyFilter(key="$channel_type", value="Untagged", operator=PropertyOperator.EXACT)],
+                UNTAGGED_CHANNEL,
+                None,
+                {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)},
+            ),
+            (
+                "range_inside_hour_buckets",
+                DateRange(date_from="2024-01-01T10:01:00Z", date_to="2024-01-01T11:30:00Z", explicitDate=True),
+                WebStatsBreakdown.DEVICE_TYPE,
+                [],
+                None,
+                None,
+                {"Desktop": (1.0, 1.0), "Mobile": (1.0, 1.0)},
+            ),
+            (
+                "range_before_retention_floor",
+                DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                WebStatsBreakdown.DEVICE_TYPE,
+                [],
+                None,
+                1,
+                {},
+            ),
+        ]
+    )
+    def test_ineligible_query_matches_live(
+        self, _name, date_range, breakdown, properties, modifiers, retention_months, expected_counts
+    ):
+        def run(web_query_modifiers):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=date_range,
+                    properties=properties,
+                    breakdownBy=breakdown,
+                    limit=100,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+                modifiers=modifiers,
+            )
+            response = runner.calculate()
+            return runner, self._sort_results(response.results)
+
+        if retention_months is not None:
+            self.team.event_retention_months = retention_months
+            self.team.save()
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=retention_months is not None):
+            opted_in_runner, opted_in = run(OPT_IN)
+            _live_runner, live = run(None)
+            assert ready_dimensional_job_ids(opted_in_runner) is None
+
+        assert not opted_in_runner.used_preaggregated_tables
+        assert opted_in == live
+        assert self._counts(opted_in) == expected_counts
 
     def test_overview_dimensional_matches_v2(self):
         def run(modifiers, web_query_modifiers):

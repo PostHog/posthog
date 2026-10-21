@@ -137,6 +137,15 @@ The `warehouse source connect completed` event records this label after the crea
 | 6   | No-join                    | Unfiltered path-bounce and path-bounce+avg-time; any simple or first-pageview breakdown without bounce rate or session fields (filters and conversion goals ride the single events scan)                                       | `stats_table_no_join_*`                                                                                              |
 | 7   | Full join                  | Fallback per shape                                                                                                                                                                                                             | `stats_table_path_bounce`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_simple_breakdown`, … |
 
+Both runners skip the dimensional tables when the rows cannot match the live result:
+
+- The team has property access rules or the query filters out test accounts.
+- The current or compare period does not start on a UTC hour boundary, or ends inside an hour before now.
+- Either period starts at or before the events retention floor.
+- The team has custom channel rules and the query breaks down or filters by channel type.
+
+The printer also floors direct HogQL reads of both dimensional tables at the events retention floor, on `period_bucket`.
+
 ### Traffic metrics alongside conversion goals
 
 `WebStatsTableQuery.includeTrafficMetrics` adds sessions and retains pageviews alongside conversion columns. Traffic visitors and sessions require a pageview or screenview; goal-only sessions contribute to conversions without increasing the traffic denominator. The option defaults to off, preserving existing callers.

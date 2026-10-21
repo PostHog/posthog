@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -9,7 +9,17 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import WebAnalyticsQueryModifiers
+from posthog.schema import (
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
+    FilterLogicalOperator,
+    PropertyOperator,
+    SessionPropertyFilter,
+    WebAnalyticsQueryModifiers,
+    WebStatsBreakdown,
+)
 
 from posthog.hogql import ast
 
@@ -32,6 +42,22 @@ _BOUNCES_IDS = [uuid.uuid4()]
 _JOB_IDS = DimensionalJobIds(stats=_STATS_IDS, bounces=_BOUNCES_IDS)
 _NEW_YORK = ZoneInfo("America/New_York")
 _TEST_ACCOUNT_FILTERS = [{"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}]
+_CUSTOM_CHANNEL_RULES = [
+    CustomChannelRule(
+        id="docs",
+        channel_type="Docs",
+        combiner=FilterLogicalOperator.AND_,
+        items=[
+            CustomChannelCondition(
+                id="url",
+                key=CustomChannelField.URL,
+                op=CustomChannelOperator.ICONTAINS,
+                value="/docs",
+            )
+        ],
+    )
+]
+_CHANNEL_FILTER = SessionPropertyFilter(key="$channel_type", value="Docs", operator=PropertyOperator.EXACT)
 
 
 def _runner(
@@ -39,29 +65,32 @@ def _runner(
     compare_from: datetime | None = None,
     tz: ZoneInfo = _NEW_YORK,
     test_account_filters: list | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    compare_to: datetime | None = None,
+    custom_channel_rules: list[CustomChannelRule] | None = None,
+    breakdown_by: WebStatsBreakdown = WebStatsBreakdown.PAGE,
+    properties: list | None = None,
 ) -> MagicMock:
     runner = MagicMock()
     runner.team.pk = 1
     runner.query.webQueryModifiers = (
         None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
     )
-    runner.query.properties = []
+    runner.query.properties = properties or []
+    runner.query.breakdownBy = breakdown_by
+    runner.modifiers.customChannelTypeRules = custom_channel_rules
     runner._test_account_filters = test_account_filters or []
     # A project-local range: the current day in New York ends after the UTC now below.
-    runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=tz)
-    runner.query_date_range.date_to.return_value = datetime(2026, 3, 31, 23, 59, 59, tzinfo=tz)
+    runner.query_date_range.date_from.return_value = date_from or datetime(2026, 3, 1, tzinfo=tz)
+    runner.query_date_range.date_to.return_value = date_to or datetime(2026, 3, 31, 23, 59, 59, 999999, tzinfo=tz)
     if compare_from is None:
         runner.query_compare_to_date_range = None
     else:
         runner.query_compare_to_date_range.date_from.return_value = compare_from
-    return runner
-
-
-def _lord_howe_runner_across_dst_end() -> MagicMock:
-    # Lord Howe Island is UTC+11 in summer and UTC+10:30 after DST ends in April.
-    lord_howe = ZoneInfo("Australia/Lord_Howe")
-    runner = _runner(True, tz=lord_howe)
-    runner.query_date_range.date_to.return_value = datetime(2026, 4, 30, 23, 59, 59, tzinfo=lord_howe)
+        runner.query_compare_to_date_range.date_to.return_value = compare_to or (
+            datetime(2026, 3, 1, tzinfo=compare_from.tzinfo) - timedelta(microseconds=1)
+        )
     return runner
 
 
@@ -71,6 +100,11 @@ def _result(ready: bool, job_ids: list[uuid.UUID]) -> LazyComputationResult:
 
 @time_machine.travel(datetime(2026, 3, 31, 12, tzinfo=UTC), tick=False)
 class TestDimensionalReadSelection(SimpleTestCase):
+    def setUp(self) -> None:
+        retention_patcher = patch(f"{_READ}.events_retention_months_for_team", return_value=None)
+        self.retention_months = retention_patcher.start()
+        self.addCleanup(retention_patcher.stop)
+
     @parameterized.expand(
         [
             ("no_compare", None, _NEW_YORK, datetime(2026, 3, 1, 5, tzinfo=UTC)),
@@ -107,7 +141,62 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 False,
                 _JOB_IDS,
             ),
-            ("half_hour_offset_after_dst_ends", _lord_howe_runner_across_dst_end(), False, _JOB_IDS),
+            (
+                "start_inside_an_hour",
+                _runner(
+                    True,
+                    date_from=datetime(2026, 3, 1, 10, 30, tzinfo=UTC),
+                    date_to=datetime(2026, 3, 1, 11, 59, 59, 999999, tzinfo=UTC),
+                ),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "past_end_inside_an_hour",
+                _runner(
+                    True,
+                    date_from=datetime(2026, 3, 1, 10, tzinfo=UTC),
+                    date_to=datetime(2026, 3, 1, 11, 30, tzinfo=UTC),
+                ),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "past_end_on_an_hour_boundary",
+                _runner(
+                    True,
+                    date_from=datetime(2026, 3, 1, 10, tzinfo=UTC),
+                    date_to=datetime(2026, 3, 1, 11, tzinfo=UTC),
+                ),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "compare_end_inside_an_hour",
+                _runner(
+                    True,
+                    compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK),
+                    compare_to=datetime(2026, 2, 28, 23, 59, 59, tzinfo=_NEW_YORK),
+                ),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "custom_channel_rules_with_channel_breakdown",
+                _runner(
+                    True,
+                    custom_channel_rules=_CUSTOM_CHANNEL_RULES,
+                    breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                ),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "custom_channel_rules_with_channel_filter",
+                _runner(True, custom_channel_rules=_CUSTOM_CHANNEL_RULES, properties=[_CHANNEL_FILTER]),
+                False,
+                _JOB_IDS,
+            ),
             ("not_ready", _runner(True), False, None),
             ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
         ]
@@ -118,6 +207,32 @@ class TestDimensionalReadSelection(SimpleTestCase):
             patch(f"{_READ}.dimensional_job_ids", side_effect=[job_ids]),
         ):
             assert ready_dimensional_job_ids(runner) is None
+
+    @parameterized.expand(
+        [
+            ("retention_not_enforced", _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)), None, True),
+            ("both_periods_inside_retention", _runner(True), 1, True),
+            (
+                "compare_period_crosses_retention",
+                _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)),
+                1,
+                False,
+            ),
+            (
+                "custom_channel_rules_without_channel_dependency",
+                _runner(True, custom_channel_rules=_CUSTOM_CHANNEL_RULES),
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_query_serves_only_inside_retention_and_channel_rules(self, _name, runner, retention_months, serves):
+        self.retention_months.return_value = retention_months
+        with (
+            patch(f"{_READ}.team_has_property_access_rules", return_value=False),
+            patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS),
+        ):
+            assert ready_dimensional_job_ids(runner) == (_JOB_IDS if serves else None)
 
     @parameterized.expand(
         [
