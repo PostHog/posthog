@@ -742,7 +742,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             format="json",
         )
         assert legacy_write.status_code == status.HTTP_400_BAD_REQUEST
-        assert "requires the shared assignment writer" in legacy_write.json()["error"]
+        assert "Assignment writes are disabled" in legacy_write.json()["error"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
 
     def test_put_user_uuid_not_in_org_returns_400(self):
@@ -1147,6 +1147,45 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             notify.assert_not_called()
             assign.assert_not_called()
             steer.assert_not_called()
+
+    def test_post_reviewer_payload_uses_shared_writer_after_human_edit(self) -> None:
+        human_reviewer = self._create_org_member("human-reviewer@example.com", github_login="human-reviewer")
+        automatic_reviewer = self._create_org_member(
+            "automatic-reviewer@example.com", github_login="automatic-reviewer"
+        )
+        report = self._create_report()
+        reviewers_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+
+        with (
+            patch("products.signals.backend.assignment_service.assignment_human_writer_enabled", return_value=True),
+            patch("products.signals.backend.assignment_service.assignment_agent_selection_enabled", return_value=True),
+            patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
+        ):
+            human_edit = self.client.put(
+                reviewers_url,
+                {"content": [{"user_uuid": str(human_reviewer.uuid)}]},
+                format="json",
+            )
+            assert human_edit.status_code == status.HTTP_200_OK, human_edit.json()
+
+            automatic_edit = self.client.post(
+                self._list_url(str(report.id)),
+                {
+                    "artefact_type": "suggested_reviewers",
+                    "content": [{"user_uuid": str(automatic_reviewer.uuid)}],
+                },
+                format="json",
+            )
+
+        assert automatic_edit.status_code == status.HTTP_201_CREATED, automatic_edit.json()
+        assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {
+            str(human_reviewer.uuid),
+            str(automatic_reviewer.uuid),
+        }
+        decision = AssignmentDecision.model_validate_json(
+            report.artefacts.filter(type="assignment_decision").latest("created_at").content
+        )
+        assert [person.user_uuid for person in decision.overrides.additions] == [str(human_reviewer.uuid)]
 
     # --- DELETE reviewers/me (step off a report) ---
 

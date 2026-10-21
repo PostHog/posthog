@@ -460,6 +460,36 @@ class TestReportAssignmentService(BaseTest):
         github.assert_not_called()
         slack.assert_not_called()
 
+    def test_assignment_flags_are_resolved_before_the_report_lock(self) -> None:
+        flags_checked = False
+        original_select_for_update = SignalReport.objects.select_for_update
+
+        def human_writer_flag(_team_id: int) -> bool:
+            nonlocal flags_checked
+            flags_checked = True
+            return True
+
+        def side_effects_flag(_team_id: int) -> bool:
+            assert flags_checked
+            return False
+
+        def select_for_update() -> object:
+            assert flags_checked
+            return original_select_for_update()
+
+        with (
+            patch(
+                "products.signals.backend.assignment_service.assignment_human_writer_enabled",
+                side_effect=human_writer_flag,
+            ),
+            patch(
+                "products.signals.backend.assignment_service.assignment_side_effects_enabled",
+                side_effect=side_effects_flag,
+            ),
+            patch.object(SignalReport.objects, "select_for_update", side_effect=select_for_update),
+        ):
+            self.service.edit_reviewers(SuggestedReviewers(root=list(self.selection.people)), actor=self.actor)
+
 
 class TestAssignmentReleaseControls(SimpleTestCase):
     @parameterized.expand([(None, False), (False, False), ("enabled", False), (True, True)])

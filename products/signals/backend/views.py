@@ -145,6 +145,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
+    SignalReportAssignmentRevision,
     SignalReportCheck,
     SignalReportRefund,
     SignalScoutConfig,
@@ -5727,6 +5728,18 @@ class SignalReportArtefactViewSet(
             }
         ).data
 
+    def _schedule_suggested_reviewer_telemetry(self, *, content: SuggestedReviewers, report_id: str) -> None:
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=self.team.id,
+                report_id=report_id,
+                github_logins=[entry.github_login for entry in content.root if entry.github_login],
+                user_uuids=[entry.user_uuid for entry in content.root if entry.user_uuid and not entry.github_login],
+                source="api",
+            )
+        )
+
     @validated_request(
         request_serializer=SignalReportArtefactLogCreateSerializer,
         responses={
@@ -5798,10 +5811,33 @@ class SignalReportArtefactViewSet(
             )
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
+        claim_id = request.validated_data.get("claim_id")
+        if (
+            isinstance(parsed_content, SuggestedReviewers)
+            and SignalReportAssignmentRevision.objects.for_team(self.team.id).filter(report_id=report_id).exists()
+        ):
+            if claim_id:
+                assignment = get_active_claim(team_id=self.team.id, report_id=report_id)
+                if (
+                    assignment is None
+                    or assignment.claim_id != claim_id
+                    or not actor_owns_claim(assignment, attribution)
+                ):
+                    return Response(
+                        {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
+                    )
+            try:
+                artefact = ReportAssignmentService(team=self.team, report_id=report_id).apply_compatibility_reviewers(
+                    parsed_content,
+                    actor=attribution,
+                )
+            except ReviewerWriteError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            self._schedule_suggested_reviewer_telemetry(content=parsed_content, report_id=report_id)
+            return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
             import_report_pull_requests(report)
-            claim_id = request.validated_data.get("claim_id")
             if claim_id:
                 assignment = get_active_claim(team_id=self.team.id, report_id=report_id)
                 if (
@@ -5823,19 +5859,7 @@ class SignalReportArtefactViewSet(
             except ArtefactContentValidationError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, SuggestedReviewers):
-            # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
-            transaction.on_commit(
-                partial(
-                    capture_suggested_reviewers_resolved,
-                    team_id=self.team.id,
-                    report_id=report_id,
-                    github_logins=[entry.github_login for entry in parsed_content.root if entry.github_login],
-                    user_uuids=[
-                        entry.user_uuid for entry in parsed_content.root if entry.user_uuid and not entry.github_login
-                    ],
-                    source="api",
-                )
-            )
+            self._schedule_suggested_reviewer_telemetry(content=parsed_content, report_id=report_id)
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     def _capture_canonical_reviewer_state(self, report_id: str) -> None:
