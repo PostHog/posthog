@@ -77,15 +77,28 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                     enableFormOnSubmit
                 >
                     {!twoFactorRequired ? (
-                        <LemonField name="password" label="Re-enter password">
-                            <LemonInput
-                                type="password"
-                                className="ph-ignore-input"
-                                data-attr="password"
-                                autoComplete="current-password"
-                                autoFocus
+                        <>
+                            {/* Password managers match a saved login by username, so a lone password field gets a generated password instead */}
+                            <input
+                                type="email"
+                                name="email"
+                                autoComplete="username"
+                                value={user?.email || ''}
+                                readOnly
+                                tabIndex={-1}
+                                aria-hidden
+                                className="sr-only"
                             />
-                        </LemonField>
+                            <LemonField name="password" label="Password">
+                                <LemonInput
+                                    type="password"
+                                    className="ph-ignore-input"
+                                    data-attr="password"
+                                    autoComplete="current-password"
+                                    autoFocus
+                                />
+                            </LemonField>
+                        </>
                     ) : null}
 
                     {twoFactorRequired ? (

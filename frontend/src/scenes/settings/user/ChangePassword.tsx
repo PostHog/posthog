@@ -34,6 +34,17 @@ export function ChangePassword(): JSX.Element {
             enableFormOnSubmit
             className="deprecated-space-y-4 max-w-160"
         >
+            {/* Password managers match a saved login by username, so without one they offer a generated password for the current password too */}
+            <input
+                type="email"
+                name="email"
+                autoComplete="username"
+                value={user?.email || ''}
+                readOnly
+                tabIndex={-1}
+                aria-hidden
+                className="sr-only"
+            />
             {hasPassword && (
                 <>
                     <LemonField
