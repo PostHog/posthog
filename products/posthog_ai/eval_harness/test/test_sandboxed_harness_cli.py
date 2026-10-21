@@ -4,13 +4,13 @@ import pytest
 from unittest.mock import MagicMock
 
 from products.posthog_ai.eval_harness.harness.__main__ import use_dashboard
-from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
+from products.posthog_ai.eval_harness.harness.cli import DEFAULT_AGENT_MODEL_BY_RUNTIME, SkillDelivery, parse_args
 
 
 @pytest.mark.parametrize(
     "arguments,expected",
     [
-        (["suite", "--compare"], [("claude", "claude-opus-5"), ("codex", "gpt-5.5")]),
+        (["suite", "--compare"], list(DEFAULT_AGENT_MODEL_BY_RUNTIME.items())),
         (
             ["suite", "--compare-model", "codex:gpt-example", "--compare-model", "codex:gpt-other"],
             [("codex", "gpt-example"), ("codex", "gpt-other")],
