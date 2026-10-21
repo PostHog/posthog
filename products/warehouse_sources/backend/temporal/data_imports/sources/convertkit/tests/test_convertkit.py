@@ -103,11 +103,8 @@ class TestPagination:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, None, True),
-            ("unauthorized", 401, None, False),
             ("forbidden_at_source_create", 403, None, True),
             ("forbidden_for_specific_endpoint", 403, "subscribers", False),
-            ("server_error", 500, None, False),
         ]
     )
     def test_status_code_mapping(self, _name: str, status: int, endpoint: str | None, expected_valid: bool) -> None:

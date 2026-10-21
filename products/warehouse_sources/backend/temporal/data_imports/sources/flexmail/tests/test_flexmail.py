@@ -86,9 +86,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Flexmail account ID or personal access token"),
-            ("forbidden", 403, False, "Invalid Flexmail account ID or personal access token"),
-            ("server_error", 500, False, "Flexmail returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:

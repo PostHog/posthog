@@ -3,7 +3,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import * as starPng from '@posthog/brand/hoggies/png/star'
-import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -27,7 +27,6 @@ import {
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { UnexpectedNeverError } from 'lib/utils/guards'
 import { percentage } from 'lib/utils/numbers'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -116,111 +115,10 @@ const PAGE_LIKE_BREAKDOWNS = new Set([
     WebStatsBreakdown.FrustrationMetrics,
 ])
 
-const buildOpenUrl = (
-    breakdownBy: WebStatsBreakdown,
-    value: string,
-    effectiveDomain: string | null,
-    includeHost?: boolean
-): string | null => {
-    if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
-        return null
-    }
-
-    // For ExitClick, the value is already a full URL
-    if (breakdownBy === WebStatsBreakdown.ExitClick) {
-        return value.startsWith('http') ? value : `https://${value}`
-    }
-
-    // When includeHost is true, the value already contains host+path (e.g. example.com/about)
-    if (includeHost) {
-        return value.startsWith('http') ? value : `https://${value}`
-    }
-
-    if (!effectiveDomain) {
-        return null
-    }
-
-    // Parse the effectiveDomain to preserve its protocol (http vs https)
-    // Wrap in try/catch since domainFilter can be invalid (e.g., from URL params)
-    try {
-        const domainUrl = new URL(effectiveDomain)
-        const path = value.startsWith('/') ? value : `/${value}`
-        return `${domainUrl.origin}${path}`
-    } catch {
-        return null
-    }
-}
-
 const HedgehogStar = pngHoggie(starPng)
 
-const PathValueWithHoverLink = ({
-    children,
-    breakdownBy,
-    value,
-    includeHost,
-}: {
-    children: React.ReactNode
-    breakdownBy: WebStatsBreakdown
-    value: string
-    includeHost?: boolean
-}): JSX.Element => {
-    const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const url = buildOpenUrl(breakdownBy, value, effectiveDomain, includeHost)
-
-    if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
-        return <>{children}</>
-    }
-
-    return (
-        <span className="inline-flex items-center gap-1">
-            {children}
-            <Link
-                to={url}
-                target="_blank"
-                onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                className="opacity-0 transition-opacity text-muted hover:text-primary [[data-row-key]:hover_&]:opacity-100"
-            >
-                <Tooltip title="Open URL">
-                    <IconExternal className="text-base" />
-                </Tooltip>
-            </Link>
-        </span>
-    )
-}
-
-// Outbound clicks come through as a `url` column (not `breakdown_value`), so they don't get the
-// PathValueWithHoverLink affordance. The value is already a full external URL.
-const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (typeof value !== 'string' || !value) {
-        return <>{value}</>
-    }
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
-        return <>{value}</>
-    }
-
-    const url = value.startsWith('http') ? value : `https://${value}`
-
-    // The URL text itself is the click target so it stays discoverable on touch and keyboard focus,
-    // and works even when the cell's max-width clips the trailing icon. The icon is a hover-only hint.
-    return (
-        <Link
-            to={url}
-            target="_blank"
-            subtle
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className="inline-flex items-center gap-1"
-        >
-            {value}
-            <Tooltip title="Open URL">
-                <IconExternal className="text-base opacity-0 transition-opacity [[data-row-key]:hover_&]:opacity-100" />
-            </Tooltip>
-        </Link>
-    )
-}
+// Outbound clicks come through as a `url` column, which the default renderer would turn into a link.
+const UrlValueCell: QueryContextColumnComponent = ({ value }) => <>{value}</>
 
 type VariationCellProps = {
     isPercentage?: boolean
@@ -434,7 +332,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy, includeHost } = source
+    const { breakdownBy } = source
 
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
@@ -446,21 +344,13 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             const decoded = tryDecodeURIComponent(value)
             const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
-            return (
-                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value} includeHost={includeHost}>
-                    {displayValue}
-                </PathValueWithHoverLink>
-            )
+            return <>{displayValue}</>
         }
         case WebStatsBreakdown.ExitClick: {
             if (typeof value !== 'string') {
                 return <>{value}</>
             }
-            return (
-                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
-                    {value}
-                </PathValueWithHoverLink>
-            )
+            return <>{value}</>
         }
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
@@ -792,7 +682,6 @@ export const WebStatsTrendTile = ({
     const isDragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DRAG_TO_ZOOM]
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
-    const showComparisonLabels = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
 
     const isWorldMap =
         query.source?.kind === NodeKind.TrendsQuery && query.source.trendsFilter?.display === ChartDisplayType.WorldMap
@@ -845,21 +734,6 @@ export const WebStatsTrendTile = ({
             },
             compareFilter,
             onDateRangeZoom: isDragToZoomEnabled ? zoomIntoPeriod : undefined,
-            ...(showComparisonLabels
-                ? {
-                      formatCompareLabel: (label: string, dateLabel?: string) => {
-                          const lowerLabel = label.toLowerCase()
-                          const dateSuffix = dateLabel ? ` (${dateLabel})` : ''
-                          if (lowerLabel === 'previous') {
-                              return `Previous${dateSuffix}`
-                          }
-                          if (lowerLabel === 'current') {
-                              return `Current${dateSuffix}`
-                          }
-                          return capitalizeFirstLetter(label)
-                      },
-                  }
-                : {}),
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -901,7 +775,6 @@ export const WebStatsTrendTile = ({
         zoomIntoPeriod,
         insightPropsForQuery,
         query,
-        showComparisonLabels,
         isDragToZoomEnabled,
         isWorldMap,
     ])
@@ -991,6 +864,8 @@ export const MarketingAnalyticsTrendTile = ({
             value: MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             label: 'Reported conversion value',
         },
+        { value: 'cpc', label: 'CPC' },
+        { value: 'ctr', label: 'CTR' },
         { value: 'roas', label: 'Reported ROAS' },
         { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
