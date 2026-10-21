@@ -318,13 +318,22 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         emit_completed("skipped", reason="ai_data_processing_not_approved")
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
-    schema = retry_internal_db_operation(
-        lambda: (
-            ExternalDataSchema.objects.select_related("source", "table")
-            .filter(team_id=team_id, deleted=False)
-            .get(id=schema_id)
+    # The schema can be legitimately gone by the time this fire-and-forget child workflow runs
+    # (deleted between the post-import gate check and now) — not a bug, so skip like the other
+    # not-found cases below rather than let DoesNotExist reach the activity's except block and
+    # error tracking.
+    try:
+        schema = retry_internal_db_operation(
+            lambda: (
+                ExternalDataSchema.objects.select_related("source", "table")
+                .filter(team_id=team_id, deleted=False)
+                .get(id=schema_id)
+            )
         )
-    )
+    except ExternalDataSchema.DoesNotExist:
+        log.info("warehouse_enrichment.skipped", reason="schema_deleted")
+        emit_completed("skipped", reason="schema_deleted")
+        return {"status": "skipped", "reason": "schema_deleted"}
     table = schema.table
     event_props["source_type"] = schema.source.source_type
     event_props["schema_name"] = schema.name
