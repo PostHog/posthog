@@ -121986,6 +121986,7 @@ export namespace Schemas {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -122097,6 +122098,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      PlatformAlertConfiguration: 'PlatformAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
@@ -122194,6 +122196,7 @@ export namespace Schemas {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -122293,6 +122296,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      PlatformAlertConfiguration: 'PlatformAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
