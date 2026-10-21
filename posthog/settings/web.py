@@ -107,6 +107,7 @@ PRODUCTS_APPS = [
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
     "products.commands.backend.apps.CommandsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
+    "products.authorization.backend.apps.AuthorizationConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",

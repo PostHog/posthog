@@ -1823,3 +1823,17 @@ expose = [
 from = [
     "products.uptime_monitoring",
 ]
+
+[[modules]]
+path = "products.authorization"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.authorization",
+]
