@@ -151,6 +151,7 @@ def _make_paginate_dependent_resource(
     initial_state: Optional[dict[str, Any]] = None,
     data_selector_required: bool = False,
     data_selector_empty_ok: bool = False,
+    data_selector_malformed_retryable: bool = False,
     on_parent_error: Optional[Callable[[str, Exception], None]] = None,
     parent_source: FanoutParentSource = "api",
 ) -> Callable[..., Iterator[list[Any]]]:
@@ -243,6 +244,7 @@ def _make_paginate_dependent_resource(
                     initial_paginator_state=child_initial,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
+                    data_selector_malformed_retryable=data_selector_malformed_retryable,
                 ):
                     if parent_record:
                         for child_record in child_page:
@@ -358,6 +360,7 @@ def create_resources(
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
             capture=client_config.get("capture", True),
+            cap_retry_after=client_config.get("cap_retry_after", False),
             **_retry_limit_overrides(client_config),
         )
 
@@ -496,6 +499,7 @@ def create_resources(
                 initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
+                data_selector_malformed_retryable=bool(endpoint_config.get("data_selector_malformed_retryable")),
                 on_parent_error=on_parent_error,
                 parent_source=parent_source,
             )

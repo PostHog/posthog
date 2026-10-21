@@ -116,8 +116,8 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Teachable",
             caption=(
-                "Import users, courses, enrollments, sales transactions, and pricing plans from "
-                "your Teachable school.\n\n"
+                "Import users, courses, enrollments, course progress, lectures, quizzes, quiz responses, "
+                "sales transactions, and pricing plans from your Teachable school.\n\n"
                 "Create an API key in your Teachable admin under Settings > API. "
                 "The Teachable API requires a school on the Growth plan or higher."
             ),
@@ -137,5 +137,5 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

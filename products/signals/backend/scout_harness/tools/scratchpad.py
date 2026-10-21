@@ -25,6 +25,7 @@ from django.db.models.functions import Left
 from django.utils import timezone
 
 from products.signals.backend.models import SignalScoutRun, SignalScratchpad
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_PREFIX
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
@@ -89,6 +90,7 @@ def search_scratchpad(
     team_id: int,
     text: str | None = None,
     key: str | None = None,
+    skill_name: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
@@ -113,6 +115,10 @@ def search_scratchpad(
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
     across content *and* key means a key mentioned inside enough other bodies pushes the
     row you wanted past the limit.
+
+    `skill_name` keeps the entries one writer created, the same writer `created_by_skill` names.
+    A per-scout view needs this in SQL, because the newest rows across the fleet can fill the
+    limit before one scout's entries appear. See `_creator_filter` for how it stays indexed.
 
     `date_from` / `date_to` are a half-open window on `updated_at` (the entry's
     sort key) — `updated_at >= date_from` and `updated_at < date_to`. Pass `date_to`
@@ -145,6 +151,8 @@ def search_scratchpad(
         qs = qs.filter(key=key)
     if text:
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
+    if skill_name:
+        qs = qs.filter(_creator_filter(team_id=team_id, skill_name=skill_name))
     if not include_expired:
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     if date_from is not None:
@@ -305,6 +313,20 @@ def _validate_entry(*, key: str, content: str, expires_at: datetime | None) -> N
             f"a '{FOLLOWUP_KEY_PREFIX}' entry can't expire — its validate-after date says when to check it, "
             "not when it stops mattering. Put the date in `content` and leave `expires_at` unset."
         )
+
+
+def _creator_filter(*, team_id: int, skill_name: str) -> Q:
+    """Match one writer through an index rather than a scan of the team's whole history.
+
+    A scout's entries are matched by their creating run: the `(team, skill_name)` run index finds
+    the scout's runs, and the `created_by_run` foreign-key index finds their entries. Only a
+    report-pipeline stage writes `created_by_identity`, and it has no run, so a `pipeline:*` name
+    filters that column instead.
+    """
+    if skill_name.startswith(PIPELINE_AUDIENCE_PREFIX):
+        return Q(created_by_run__isnull=True, created_by_identity=skill_name)
+    run_ids = SignalScoutRun.objects.filter(team_id=team_id, skill_name=skill_name).values("id")
+    return Q(created_by_run_id__in=run_ids)
 
 
 def _clamp_search_limit(limit: int) -> int:

@@ -119,6 +119,12 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    // llmProviderKeysLogic toasts each of these failures itself, or shows a rejected field under its input
+    loadProviderKeys: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadEvaluationConfig: 'products.ai_observability.settings.llmProviderKeysLogic',
+    createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.

@@ -133,7 +133,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
-    '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -241,8 +241,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error-tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/experiments': ['Experiments', 'experiments'],
     '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
-    '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-    '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    '/feature-flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    '/feature-flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/games/shipit': ['ShipIt', 'shipIt'],
@@ -292,7 +292,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -556,6 +556,10 @@ export const productRedirects: Record<
         combineUrl(`/error-tracking/alerts/${id}`, searchParams, hashParams).url,
     '/error_tracking/:id': ({ id }, searchParams, hashParams) =>
         combineUrl(`/error-tracking/${id}`, searchParams, hashParams).url,
+    '/feature_flags': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.featureFlags(), searchParams, hashParams).url,
+    '/feature_flags/*': ({ _ }, searchParams, hashParams): string =>
+        combineUrl(`/feature-flags/${_}`, searchParams, hashParams).url,
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -564,6 +568,8 @@ export const productRedirects: Record<
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
     '/replay/vision': '/replay-vision',
+    '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+        combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     '/scout-trials': (_params, searchParams, hashParams) =>
         combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1447,7 +1453,7 @@ export const productUrls = {
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     cohortsStaffTools: (cohortId?: number): string =>
-        `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+        `/feature-flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
@@ -1676,10 +1682,10 @@ export const productUrls = {
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-    featureFlagTemplates: (): string => '/feature_flags/templates',
-    featureFlagsStaffTools: (teamId?: number): string => `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
+    featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+    featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagTemplates: (): string => '/feature-flags/templates',
+    featureFlagsStaffTools: (teamId?: number): string => `/feature-flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
     featureFlagNew: ({
         type,
         sourceId,
@@ -1714,7 +1720,7 @@ export const productUrls = {
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
         }
-        return `/feature_flags/new?${params.toString()}`
+        return `/feature-flags/new?${params.toString()}`
     },
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
@@ -1870,8 +1876,8 @@ export const productUrls = {
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
-    replayVisionTemplates: (): string => '/replay-vision/new/template',
-    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+    replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
     replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
@@ -2123,7 +2129,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
     { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
-    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$pageview'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -2714,14 +2720,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
-        searchTabs: [
-            { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
-            {
-                name: 'Recommendations',
-                href: urls.errorTracking({ activeTab: 'recommendations' }),
-                flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
-            },
-        ],
+        searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
         sceneKey: 'ErrorTracking',
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },

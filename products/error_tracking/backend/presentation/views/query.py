@@ -25,6 +25,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
@@ -39,6 +40,8 @@ from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_PROPERTIES,
     ISSUE_BREAKDOWN_QUERY_VALUES,
     ISSUE_FIELDS,
+    RELEASE_EVENT_SELECTS,
+    TREND_VOLUME_RESOLUTION,
     breakdown_query_date_range,
     build_date_range,
     build_event_selects,
@@ -51,15 +54,18 @@ from products.error_tracking.backend.facade.query_utils import (
     build_search_query,
     build_sparkline,
     build_top_in_app_frame,
+    build_trend,
     compact_dict,
     dedupe_repeated_stacktraces,
-    extract_latest_release,
+    extract_release,
+    first_event_window,
     get_page_info,
     map_context_event_properties,
     map_event_row,
     map_issue_breakdown,
     normalize_volume_resolution,
     pick_fields,
+    trend_volume_resolution,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueBreakdownSerializer,
@@ -76,6 +82,21 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
+
+    def _report_issue_read(self, request: ValidatedRequest, issue_id: str, endpoint: str, **properties: object) -> None:
+        # The frontend issue events see only the web app, so this is the one record of which issues
+        # MCP, CLI and API callers read. A capture failure must not fail the read.
+        try:
+            report_user_action(
+                cast(User, request.user),
+                "error_tracking_issue_read",
+                {"issue_id": issue_id, "endpoint": endpoint, **properties},
+                team=self.team,
+                organization=self.team.organization,
+                request=request,
+            )
+        except Exception:
+            logger.warning("error_tracking_issue_read_capture_failed", issue_id=issue_id, exc_info=True)
 
     @validated_request(
         request_serializer=ErrorTrackingIssuesListQueryRequestSerializer,
@@ -134,8 +155,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="error_tracking_query_issue_create",
         summary="Get compact error tracking issue details",
         description=(
-            "Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional "
-            "sparkline and event breakdown."
+            "Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and "
+            "optional sparkline and event breakdown."
         ),
     )
     @action(methods=["POST"], detail=False, url_path="issue", required_scopes=["error_tracking:read"])
@@ -147,8 +168,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_breakdown = cast(bool, params.get("includeBreakdown", False))
         filter_test_accounts = cast(bool, params.get("filterTestAccounts", True))
         volume_resolution = cast(int, params.get("volumeResolution", 0))
-        if include_sparkline and volume_resolution <= 0:
-            volume_resolution = 12
+        if volume_resolution <= 0:
+            volume_resolution = 12 if include_sparkline else TREND_VOLUME_RESOLUTION
+        volume_resolution = normalize_volume_resolution(volume_resolution)
         issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
         if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -157,7 +179,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             issueId=issue_id,
             dateRange=DateRange(**date_range),
             filterTestAccounts=filter_test_accounts,
-            volumeResolution=normalize_volume_resolution(volume_resolution),
+            volumeResolution=trend_volume_resolution(volume_resolution),
             limit=1,
             orderBy="last_seen",
             orderDirection="DESC",
@@ -182,19 +204,71 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload["impact"] = {}
             if include_sparkline:
                 payload["sparkline"] = []
+            self._report_issue_read(
+                request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+            )
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
-        event_properties: dict[str, object] = {}
+        event_properties = self._issue_event_properties(
+            request,
+            issue_id,
+            after=date_range.get("date_from"),
+            before=date_range.get("date_to"),
+            order="DESC",
+            filter_test_accounts=filter_test_accounts,
+            select=CONTEXT_EVENT_SELECTS,
+        )
+        first_event_properties: dict[str, object] = {}
+        if (window := first_event_window(issue_basics.first_seen)) is not None:
+            # Test accounts stay in, because first_seen counts their events too.
+            first_event_properties = self._issue_event_properties(
+                request,
+                issue_id,
+                after=window.after,
+                before=window.before,
+                order="ASC",
+                filter_test_accounts=False,
+                select=RELEASE_EVENT_SELECTS,
+            )
+        payload = compact_dict(
+            {
+                **pick_fields(issue, ISSUE_FIELDS),
+                "top_in_app_frame": build_top_in_app_frame(issue, event_properties),
+                "latest_release": extract_release(event_properties),
+                "first_release": extract_release(first_event_properties),
+                "impact": build_impact(issue),
+                "trend": build_trend(issue, issue_basics.first_seen),
+                "sparkline": build_sparkline(issue, volume_resolution) if include_sparkline else None,
+            }
+        )
+        if include_breakdown:
+            payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
+        self._report_issue_read(
+            request, issue_id, "issue", include_breakdown=include_breakdown, include_sparkline=include_sparkline
+        )
+        return Response(payload)
+
+    def _issue_event_properties(
+        self,
+        request: ValidatedRequest,
+        issue_id: str,
+        *,
+        after: object,
+        before: object,
+        order: Literal["ASC", "DESC"],
+        filter_test_accounts: bool,
+        select: list[str],
+    ) -> dict[str, object]:
         try:
             context_event_query = EventsQuery(
                 kind="EventsQuery",
                 event="$exception",
-                select=CONTEXT_EVENT_SELECTS,
+                select=select,
                 where=build_issue_where(issue_id),
                 filterTestAccounts=filter_test_accounts,
-                after=date_range.get("date_from"),
-                before=date_range.get("date_to"),
-                orderBy=["timestamp DESC"],
+                after=after,
+                before=before,
+                orderBy=[f"timestamp {order}"],
                 limit=1,
                 tags={"productKey": "error_tracking"},
             )
@@ -214,8 +288,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     team_id=self.team.pk,
                     error=event_data.get("error"),
                 )
-            else:
-                event_properties = map_context_event_properties(event_data)
+                return {}
+            return map_context_event_properties(event_data)
         except Exception:
             logger.warning(
                 "error_tracking_issue_context_query_failed",
@@ -223,18 +297,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team_id=self.team.pk,
                 exc_info=True,
             )
-        payload = compact_dict(
-            {
-                **pick_fields(issue, ISSUE_FIELDS),
-                "top_in_app_frame": build_top_in_app_frame(issue, event_properties),
-                "latest_release": extract_latest_release(event_properties),
-                "impact": build_impact(issue),
-                "sparkline": build_sparkline(issue) if include_sparkline else None,
-            }
-        )
-        if include_breakdown:
-            payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
-        return Response(payload)
+            return {}
 
     def _issue_breakdown(
         self, request: ValidatedRequest, issue_id: str, date_range: dict[str, object], filter_test_accounts: bool
@@ -334,4 +397,5 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
+        self._report_issue_read(request, issue_id, "issue_events")
         return Response(payload)

@@ -33,6 +33,7 @@ use crate::workers::composition_inputs::ReferenceSource;
 /// read runs on. Every caller passes `Event`: the seed paths, which read on `Maintenance`, go
 /// through [`recompute_stage2_by_person`](super::stage2_person_inputs::recompute_stage2_by_person)
 /// instead, whose store sections draw the maintenance permit.
+#[hotpath::measure]
 pub async fn compose_stage2(
     partition_id: u16,
     handle: &StoreHandle,

@@ -73,14 +73,23 @@ export function isPreviewTruncated(content: string | null | undefined): boolean 
     return (content?.length ?? 0) >= SCRATCHPAD_PREVIEW_CHARS
 }
 
+/** One scout's own entries, tagged with the scout they were read for. */
+export interface ScoutScratchpadEntries {
+    skillName: string
+    entries: ScratchpadEntryApi[]
+}
+
 /**
- * The notes one scout wrote, newest first. The search endpoint has no per-scout filter, but every
- * entry carries the skill that created it, so the scout page narrows the already-loaded project
- * window rather than issuing a second read. Always fed the unfiltered `entries`, never search
- * results: a scout's memory shouldn't shrink because someone typed in the fleet search box.
+ * The entries one scout wrote, newest first, or null until a read for that scout has landed. The
+ * server filters on the writer, because on a busy project the newest rows across the fleet can
+ * fill the shared window before one scout's entries appear. The tag keeps a read for the previous
+ * scout from answering for this one.
  */
-export function entriesForSkill(entries: ScratchpadEntryApi[] | null, skillName: string): ScratchpadEntryApi[] {
-    return (entries ?? []).filter((entry) => entry.created_by_skill === skillName)
+export function entriesForSkill(
+    scoutEntries: ScoutScratchpadEntries | null,
+    skillName: string
+): ScratchpadEntryApi[] | null {
+    return scoutEntries?.skillName === skillName ? scoutEntries.entries : null
 }
 
 /**
@@ -166,6 +175,9 @@ export interface scratchpadLogicValues {
     recentlyLearnedCount: number
     recentlyLearnedCountCapped: boolean
     reportTitles: Record<string, string | null>
+    scoutEntries: ScoutScratchpadEntries | null
+    scoutEntriesLoadFailed: boolean
+    scoutEntriesLoading: boolean
     scoutFacets: ScratchpadFacet[]
     scoutFilter: string[]
     searchFailed: boolean
@@ -224,6 +236,27 @@ export interface scratchpadLogicActions {
     }
     loadOlderEntries: () => {}
     loadOlderEntriesFailure: () => {}
+    loadScoutEntries: (skillName: string) => string
+    loadScoutEntriesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutEntriesSuccess: (
+        scoutEntries: {
+            entries: ScratchpadEntryApi[]
+            skillName: string
+        },
+        payload?: string
+    ) => {
+        scoutEntries: {
+            entries: ScratchpadEntryApi[]
+            skillName: string
+        }
+        payload?: string
+    }
     loadSearchResults: (_payload: void) => void
     loadSearchResultsFailure: (
         error: string,
@@ -333,10 +366,10 @@ export type scratchpadLogicType = MakeLogicType<
  * There is no write surface on purpose — humans inspect this memory; only the harness
  * (internal-scope) writes it.
  *
- * `entries` is always the unfiltered first page: the roster's "learned" headline and the scout
- * page's memory panel read it, and neither a search nor a ledger filter may shrink those. A
- * search lands in `searchResults`, older pages land in `olderEntries`, and the ledger reads
- * `filteredEntries` on top of whichever applies.
+ * `entries` is always the unfiltered first page: the roster's "learned" headline reads it, and
+ * neither a search nor a ledger filter may shrink it. A search lands in `searchResults`, older
+ * pages land in `olderEntries`, and the ledger reads `filteredEntries` on top of whichever applies.
+ * The scout page reads its own scout's entries from `scoutEntries`.
  */
 export const scratchpadLogic = kea<scratchpadLogicType>([
     path(['scenes', 'inbox', 'logics', 'scratchpadLogic']),
@@ -393,6 +426,34 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 },
             },
         ],
+        scoutEntries: [
+            null as ScoutScratchpadEntries | null,
+            {
+                loadScoutEntries: async (skillName: string, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return { skillName, entries: [] }
+                    }
+                    const entries = await withPanelLoadTimeout('scout_memory', (options) =>
+                        signalsScoutScratchpadSearch(
+                            String(teamId),
+                            {
+                                skill_name: skillName,
+                                limit: SCRATCHPAD_FETCH_LIMIT,
+                                content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
+                            },
+                            options
+                        )
+                    ).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
+                    })
+                    // Drop a stale response if the reader opened another scout while this was in flight.
+                    breakpoint()
+                    return { skillName, entries }
+                },
+            },
+        ],
         searchResults: [
             null as ScratchpadEntryApi[] | null,
             {
@@ -446,6 +507,14 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 loadEntries: () => false,
                 loadEntriesSuccess: () => false,
                 loadEntriesFailure: () => true,
+            },
+        ],
+        scoutEntriesLoadFailed: [
+            false,
+            {
+                loadScoutEntries: () => false,
+                loadScoutEntriesSuccess: () => false,
+                loadScoutEntriesFailure: () => true,
             },
         ],
         searchFailed: [
@@ -810,9 +879,13 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             if (Object.hasOwn(values.fullContentByKey, key) || values.loadingContentKeys.includes(key)) {
                 return
             }
-            // A row can sit in either list (the scout page renders from the window while a search
-            // may still be typed in the panel), so look in both.
-            const entry = [...(values.windowEntries ?? []), ...(values.searchResults ?? [])].find((e) => e.key === key)
+            // A row can sit in any of these lists (the scout page renders its own read while a
+            // search may still be typed in the panel), so look in all of them.
+            const entry = [
+                ...(values.windowEntries ?? []),
+                ...(values.searchResults ?? []),
+                ...(values.scoutEntries?.entries ?? []),
+            ].find((e) => e.key === key)
             if (entry && isPreviewTruncated(entry.content)) {
                 actions.loadFullContent(key)
             }

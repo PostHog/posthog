@@ -20,6 +20,7 @@ from products.signals.backend.ranking.model_contract import model_mismatch
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
 from products.signals.backend.ranking.serving_manifest import (
+    CHALLENGER_ROLE,
     CROSS_FAMILY_ROLE,
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
@@ -28,7 +29,7 @@ from products.signals.backend.ranking.serving_manifest import (
 )
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION, partition_object_key
 from products.signals.dags.inbox_ranking.dataset import project_vectors
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
 from products.signals.dags.inbox_ranking.nn import dag as nn_dag
@@ -36,6 +37,7 @@ from products.signals.dags.inbox_ranking.nn.examples import (
     NN_HEAD_NAMES,
     build_examples,
     examples_arrow,
+    examples_from_arrow,
     network_inputs,
     subset,
 )
@@ -50,13 +52,8 @@ from products.signals.dags.inbox_ranking.nn.model import (
 from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, _SyntheticInbox
 from products.signals.dags.inbox_ranking.training import recipe as recipe_module
 from products.signals.dags.inbox_ranking.training.dag import (
-    CHAMPION_FILE,
     METADATA_FILE,
-    SERVED_FILE,
-    booster_recipe,
     check_recipe,
-    inbox_ranking_model_candidate,
-    inbox_ranking_model_champion,
     model_object_key,
     served_object_key,
 )
@@ -64,9 +61,17 @@ from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, He
 from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, RECIPE_KEY, model_recipe, recipe_hash
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics
-from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME, REPORT_EMBEDDINGS_MODEL_NAME
+from products.signals.dags.inbox_ranking.training.unseen import (
+    NN_FAMILY,
+    NN_MODEL_NAME,
+    NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_MODEL_NAME,
+    ModelFamily,
+)
 
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
+# A retired per-head XGBoost family. Its saved versions stay servable by key.
+XGBOOST_MODEL_NAME = "report_embeddings_v2"
 PARTITION = "2026-08-19"
 NOW = datetime.datetime(2026, 8, 20, 6, tzinfo=datetime.UTC)
 
@@ -139,9 +144,15 @@ def _head_metrics(head: str) -> HeadMetrics:
     )
 
 
-def _nn_metadata(version: str, heads: tuple[str, ...] = ("open",)) -> dict[str, Any]:
+def _nn_metadata(version: str, heads: tuple[str, ...] = ("open",), family: ModelFamily = NN_FAMILY) -> dict[str, Any]:
     return candidate_metadata(
-        version, _trained_network(heads), config=NetworkConfig(), windows={}, trained_at=NOW, run_id="run-1"
+        version,
+        _trained_network(heads),
+        family=family,
+        config=NetworkConfig(),
+        windows={},
+        trained_at=NOW,
+        run_id="run-1",
     )
 
 
@@ -161,37 +172,16 @@ def no_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(f"{module}.read_ranking_overrides", lambda now: NO_OVERRIDES, raising=False)
 
 
-def test_the_main_location_never_fits_nn_or_writes_a_pointer(monkeypatch, no_side_effects):
-    # Every family has a candidate and nothing is served, so each decision would promote. Training
-    # still writes no pointer: only the promote job chooses what the sweep serves.
-    client = _S3(
-        {
-            model_object_key(PREFIX, name, PARTITION, METADATA_FILE): json.dumps(
-                _xgboost_metadata(name, PARTITION)
-            ).encode()
-            for name in (REPORT_EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME)
-        }
-    )
-    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
-
-    with dagster.build_asset_context(partition_key=PARTITION) as context:
-        inbox_ranking_model_candidate(context)
-        inbox_ranking_model_champion(context)
-
-    assert not [key for key in client.objects if key.endswith((CHAMPION_FILE, SERVED_FILE))]
-    assert not [key for key in client.objects if f"/{NN_MODEL_NAME}/" in key and not key.endswith(METADATA_FILE)]
-
-
 def test_the_manifest_carries_an_nn_champion_as_an_onnx_entry():
     decision = compose_manifest(
         [
             FamilyModels(
-                name=REPORT_EMBEDDINGS_MODEL_NAME,
-                champion=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+                name=XGBOOST_MODEL_NAME,
+                champion=_xgboost_metadata(XGBOOST_MODEL_NAME, "2026-08-15"),
             ),
             FamilyModels(name=NN_MODEL_NAME, champion=_nn_metadata("2026-08-16")),
         ],
-        served=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        served=_xgboost_metadata(XGBOOST_MODEL_NAME, "2026-08-15"),
         prefix=PREFIX,
         now=NOW,
     )
@@ -208,8 +198,8 @@ def test_the_manifest_serves_an_nn_model_with_the_xgboost_champion_as_a_challeng
     decision = compose_manifest(
         [
             FamilyModels(
-                name=REPORT_EMBEDDINGS_MODEL_NAME,
-                champion=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+                name=XGBOOST_MODEL_NAME,
+                champion=_xgboost_metadata(XGBOOST_MODEL_NAME, "2026-08-15"),
             ),
             FamilyModels(name=NN_MODEL_NAME, champion=_nn_metadata("2026-08-16", heads=NN_HEAD_NAMES)),
         ],
@@ -218,13 +208,20 @@ def test_the_manifest_serves_an_nn_model_with_the_xgboost_champion_as_a_challeng
         now=NOW,
         recent=[_nn_metadata(PARTITION, heads=NN_HEAD_NAMES)],
         recent_versions=3,
+        challengers=[
+            # The served family's own newest version is a recent entry, never a challenger.
+            _nn_metadata("2026-08-18", heads=NN_HEAD_NAMES),
+            _nn_metadata(PARTITION, heads=NN_HEAD_NAMES, family=NN_WITH_PRIO_FAMILY),
+            _nn_metadata("2026-08-18", heads=NN_HEAD_NAMES, family=NN_WITH_PRIO_FAMILY),
+        ],
     )
 
     assert decision.manifest is not None
     assert [(entry.model_name, entry.model_version, entry.roles) for entry in decision.manifest.models] == [
         (NN_MODEL_NAME, "2026-08-16", [SERVED_ROLE]),
         (NN_MODEL_NAME, PARTITION, [RECENT_ROLE]),
-        (REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15", [CROSS_FAMILY_ROLE]),
+        (NN_WITH_PRIO_MODEL_NAME, PARTITION, [CHALLENGER_ROLE]),
+        (XGBOOST_MODEL_NAME, "2026-08-15", [CROSS_FAMILY_ROLE]),
     ]
     served = decision.manifest.served
     assert served.model_kind == ONNX_MODEL_KIND
@@ -248,14 +245,17 @@ def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_nothin
     before = dict(client.objects)
 
     with dagster.build_asset_context(partition_key=PARTITION) as context:
-        metadata = nn_dag.decide_champion(context, client, "bucket", PARTITION)
+        metadata = nn_dag.decide_champion(context, client, "bucket", PARTITION, NN_FAMILY)
 
     assert metadata is not None
     assert metadata[f"{NN_MODEL_NAME}_incumbent_champion_version"].value == "2026-08-16"
     assert client.objects == before
 
 
-def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_order(monkeypatch, no_side_effects):
+@pytest.mark.parametrize("family", [NN_FAMILY, NN_WITH_PRIO_FAMILY], ids=lambda family: family.name)
+def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_order(
+    monkeypatch, no_side_effects, family
+):
     pytest.importorskip("torch")
     onnxruntime = pytest.importorskip("onnxruntime")
     monkeypatch.setattr(
@@ -275,10 +275,11 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
     )
 
     with dagster.build_asset_context(partition_key=day) as context:
-        nn_dag.train_candidate(context, client, "bucket", day)
+        nn_dag.train_candidate(context, client, "bucket", day, family)
 
-    metadata = json.loads(client.objects[model_object_key(PREFIX, NN_MODEL_NAME, day, METADATA_FILE)])
+    metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
     assert metadata["model_kind"] == ONNX_MODEL_KIND
+    assert metadata["feature_set"] == family.feature_set.name
     assert metadata[ONNX_OUTPUT_HEADS_KEY] == list(NN_HEAD_NAMES)
     assert model_mismatch(metadata) is None
     assert {head["head"] for head in metadata["heads"]} == set(NN_HEAD_NAMES)
@@ -286,18 +287,20 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         (ONNX_MODEL_FILE, HOLDOUT_MODEL_FILE)
     }
     served = onnxruntime.InferenceSession(
-        client.objects[model_object_key(PREFIX, NN_MODEL_NAME, day, ONNX_MODEL_FILE)],
+        client.objects[model_object_key(PREFIX, family.name, day, ONNX_MODEL_FILE)],
         providers=["CPUExecutionProvider"],
     )
     assert served.get_outputs()[0].shape[1] == len(metadata[ONNX_OUTPUT_HEADS_KEY])
+    report_input = next(node for node in served.get_inputs() if node.name == "report")
+    assert report_input.shape[1] == len(family.feature_set.feature_names)
 
     # Each head's column of the train-only graph, read through `output_heads`, must reproduce the
     # holdout AUC recorded for that head. A column read for the wrong head ranks at chance here.
     table = examples.table
     holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
     probabilities = onnx_probabilities(
-        client.objects[model_object_key(PREFIX, NN_MODEL_NAME, day, HOLDOUT_MODEL_FILE)],
-        network_inputs(holdout, extras, labels, embeddings),
+        client.objects[model_object_key(PREFIX, family.name, day, HOLDOUT_MODEL_FILE)],
+        network_inputs(holdout, extras, labels, embeddings, family.feature_set),
         metadata[ONNX_OUTPUT_HEADS_KEY],
     )
     for head in metadata["heads"]:
@@ -306,6 +309,22 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         auc = roc_auc_score(holdout.labels[rows, index], probabilities[head["head"]][rows])
         assert auc == pytest.approx(head["holdout_auc"], abs=1e-4)
         assert auc > 0.75
+
+
+def test_a_priority_family_skips_an_examples_object_written_before_the_priority_column(no_side_effects):
+    inbox = _SyntheticInbox()
+    examples = build_examples(inbox.snapshots(), report_vectors(inbox.embeddings()), holdout_days=HOLDOUT_DAYS)
+    arrow = examples_arrow(examples)
+    old_arrow = arrow.drop_columns(["priority"])
+    assert "priority" in examples_from_arrow(arrow).table.rows
+    day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
+    client = _S3({partition_object_key(PREFIX, nn_dag.NN_EXAMPLES_TABLE, day): _parquet(old_arrow)})
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        metadata = nn_dag.train_candidate(context, client, "bucket", day, NN_WITH_PRIO_FAMILY)
+
+    assert metadata["skipped"].value is True
+    assert not [key for key in client.objects if f"/{NN_WITH_PRIO_MODEL_NAME}/" in key]
 
 
 def _stored_version(
@@ -331,10 +350,10 @@ def _action_recipe(head: Head) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "stored, recipe, patch, changed",
     [
-        ({"2026-08-18": "booster"}, "booster", None, None),
+        ({"2026-08-18": "network"}, "network", None, None),
         (
-            {"2026-08-18": "booster"},
-            "booster",
+            {"2026-08-18": "network"},
+            "network",
             (settings, "INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 120),
             "lookback_days",
         ),
@@ -376,10 +395,9 @@ def _action_recipe(head: Head) -> dict[str, Any]:
 )
 def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored, recipe, patch, changed):
     recipes = {
-        "booster": lambda: booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET),
-        "network": lambda: network_recipe(NetworkConfig(), ()),
-        "network_more_epochs": lambda: network_recipe(NetworkConfig(epochs=NetworkConfig().epochs + 5), ()),
-        "network_with_vectors": lambda: network_recipe(NetworkConfig(), PROJECT_VECTOR_KINDS),
+        "network": lambda: network_recipe(NN_FAMILY, NetworkConfig(), ()),
+        "network_more_epochs": lambda: network_recipe(NN_FAMILY, NetworkConfig(epochs=NetworkConfig().epochs + 5), ()),
+        "network_with_vectors": lambda: network_recipe(NN_FAMILY, NetworkConfig(), PROJECT_VECTOR_KINDS),
         "action": lambda: _action_recipe(ACTION),
         "action_without_status_labels": lambda: _action_recipe(dataclasses.replace(ACTION, status_labels=False)),
         "action_without_label_columns": lambda: _action_recipe(dataclasses.replace(ACTION, label_columns=())),
@@ -402,9 +420,20 @@ def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored
 def test_check_recipe_finds_the_recipe_under_an_earlier_dataset_version():
     # A DATASET_VERSION bump moves the models to a new folder, so searching only the current one
     # would let the old name train on the new dataset with no recipe to compare against.
-    earlier = {**booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET), "dataset_version": "v0"}
+    earlier = {**network_recipe(NN_FAMILY, NetworkConfig(), ()), "dataset_version": "v0"}
     objects = dict([_stored_version("family", "2026-08-18", earlier, dataset_version="v0")])
 
     with pytest.raises(dagster.Failure) as failure:
-        check_recipe(_S3(objects), "bucket", PREFIX, "family", PARTITION, booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET))
+        check_recipe(
+            _S3(objects), "bucket", PREFIX, "family", PARTITION, network_recipe(NN_FAMILY, NetworkConfig(), ())
+        )
     assert "dataset_version" in (failure.value.description or "")
+
+
+def test_examples_depend_on_the_whole_lookback_window():
+    # An asset backfill must not run examples(D) before the older state and labels days exist.
+    for upstream in (STATE_TABLE, LABELS_TABLE):
+        mapping = nn_dag.inbox_ranking_nn_examples.get_partition_mapping(dagster.AssetKey(upstream))
+        assert isinstance(mapping, dagster.TimeWindowPartitionMapping)
+        assert mapping.start_offset == -settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS
+        assert mapping.end_offset == 0

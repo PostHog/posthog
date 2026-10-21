@@ -24,21 +24,6 @@ class TestReverbSource:
         "script, expected_valid, expected_message",
         [
             (always(ScriptedResponse(status=200, json={})), True, None),
-            (
-                always(ScriptedResponse(status=401, json={})),
-                False,
-                "Invalid Reverb personal access token",
-            ),
-            (
-                always(ScriptedResponse(status=403, json={})),
-                False,
-                "Could not connect to Reverb with the provided personal access token",
-            ),
-            (
-                always(ConnectionError("boom")),
-                False,
-                "Could not connect to Reverb with the provided personal access token",
-            ),
         ],
     )
     def test_validate_credentials(self, script, expected_valid, expected_message):

@@ -31,8 +31,16 @@ const METRIC_OPTIONS: { value: LeaderboardMetric; label: string }[] = [
     { value: 'clicked', label: 'Clicked' },
 ]
 
-export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const summaryLogic = workflowMetricsSummaryLogic({ logicKey, id, overview: true })
+export function WorkflowMessageLeaderboard({
+    id,
+    logicKey,
+    appSourceId,
+}: {
+    id: string
+    logicKey: string
+    appSourceId?: string
+}): JSX.Element {
+    const summaryLogic = workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId })
     const {
         emailMetricsRows,
         pushMetricsRows,
@@ -124,7 +132,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
                     <span className="inline-flex items-center gap-1.5 font-medium text-muted">{label}</span>
                 ) : (
                     <Link
-                        to={metricsStepUrl(id, row.id, params)}
+                        to={metricsStepUrl(id, row.id, params, appSourceId)}
                         className="inline-flex items-center gap-1.5 font-medium"
                         data-attr="workflow-overview-leaderboard-message"
                     >

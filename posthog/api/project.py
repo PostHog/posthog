@@ -22,7 +22,7 @@ from posthog.schema import ProductKey
 from posthog.api import project_tags
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -105,6 +105,7 @@ from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.team.util import actions_that_require_current_team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -146,6 +147,7 @@ from products.feature_flags.backend.models.evaluation_context import (
     TeamDefaultEvaluationContext,
     normalize_context_name,
 )
+from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -585,6 +587,11 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
 
     tags = project_tags.tags_field()
+    logo_media_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the uploaded image shown as this project's logo. Null when the project has no logo.",
+    )
 
     class Meta:
         model = Project
@@ -593,6 +600,7 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "id",
             "organization_id",
             "name",
+            "logo_media_id",
             "product_description",
             "created_at",
             "is_pending_deletion",
@@ -670,6 +678,15 @@ class ProjectBackwardCompatSerializer(
             "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
         ),
     )  # Compat with TeamSerializer
+    logo_media_id = ProjectScopedPrimaryKeyRelatedField(
+        source="logo_media",
+        queryset=UploadedMedia.objects.all(),
+        pk_field=serializers.UUIDField(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "This image was not uploaded to this project."},
+        help_text="ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.",
+    )
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -709,6 +726,7 @@ class ProjectBackwardCompatSerializer(
             "id",
             "organization",
             "name",
+            "logo_media_id",
             "product_description",
             "tags",
             "created_at",
@@ -730,7 +748,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",  # Compat with TeamSerializer
             "data_attributes",  # Compat with TeamSerializer
             "person_display_name_properties",  # Compat with TeamSerializer
-            "correlation_config",  # Compat with TeamSerializer
             "autocapture_opt_out",  # Compat with TeamSerializer
             "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
             "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
@@ -843,7 +860,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",
             "data_attributes",
             "person_display_name_properties",
-            "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
             "autocapture_web_vitals_opt_in",
@@ -1101,9 +1117,13 @@ class ProjectBackwardCompatSerializer(
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
-    @staticmethod
-    def validate_session_recording_linked_flag(value) -> dict | None:
-        return session_recording_settings.validate_session_recording_linked_flag(value)
+    def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
+        return session_recording_settings.validate_session_recording_linked_flag(
+            value,
+            stored=self.instance.passthrough_team.session_recording_linked_flag if self.instance is not None else None,
+            project_id=self.instance.id if self.instance is not None else None,
+            user_access_control=self.user_access_control,
+        )
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
@@ -1378,39 +1398,48 @@ class ProjectBackwardCompatSerializer(
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        updated_team_fields = []
-        updated_project_fields = []
-        for attr, value in validated_data.items():
-            if attr in LOCKED_CONVERSATIONS_COLUMNS:
-                continue
-            if attr not in self.Meta.team_passthrough_fields:
-                # This attr is a Project field
-                setattr(instance, attr, value)
-                updated_project_fields.append(attr)
-            else:
-                # This attr is actually on the Project's passthrough Team
-                setattr(team, attr, value)
-                updated_team_fields.append(attr)
+        with locked_replay_gate_write(
+            team,
+            validated_data,
+            self.user_access_control,
+            can_read_flags=session_recording_settings.can_read_feature_flags(self.context.get("request")),
+        ):
+            updated_team_fields = []
+            updated_project_fields = []
+            for attr, value in validated_data.items():
+                if attr in LOCKED_CONVERSATIONS_COLUMNS:
+                    continue
+                if attr not in self.Meta.team_passthrough_fields:
+                    # This attr is a Project field
+                    setattr(instance, attr, value)
+                    updated_project_fields.append(attr)
+                else:
+                    # This attr is actually on the Project's passthrough Team
+                    setattr(team, attr, value)
+                    updated_team_fields.append(attr)
 
-        if "name" in validated_data:
-            # Keep Team.name mirroring Project.name: surfaces like the organization's teams
-            # list and the app context still read the name off the Team row
-            team.name = validated_data["name"]
-            updated_team_fields.append("name")
+            if "name" in validated_data:
+                # Keep Team.name mirroring Project.name: surfaces like the organization's teams
+                # list and the app context still read the name off the Team row
+                team.name = validated_data["name"]
+                updated_team_fields.append("name")
 
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = merge_conversations_settings_locked(
+                    team, validated_data, patch_conversations_settings, updated_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif updated_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                team.save(update_fields=[*updated_team_fields, "updated_at"])
+        # Saved outside the replay gate lock. The tagged path in `save()` locks the Project row
+        # and then the Team row. A Project write under the Team lock would take the two locks in
+        # the opposite order, so two concurrent requests could deadlock.
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-        if conversations_lock_applied:
-            locked_conversations = merge_conversations_settings_locked(
-                team, validated_data, patch_conversations_settings, updated_team_fields
-            )
-            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-        elif updated_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
@@ -1477,7 +1506,11 @@ class ProjectCreateRequestSerializer(ProjectBackwardCompatSerializer):
         return {name: field for name, field in super().get_fields().items() if not field.read_only}
 
     class Meta(ProjectBackwardCompatSerializer.Meta):
-        fields = tuple(field for field in ProjectBackwardCompatSerializer.Meta.fields if field != "home_tab_dashboard")
+        fields = tuple(
+            field
+            for field in ProjectBackwardCompatSerializer.Meta.fields
+            if field not in ("home_tab_dashboard", "logo_media_id")
+        )
 
 
 @extend_schema(extensions={"x-product": "core"})

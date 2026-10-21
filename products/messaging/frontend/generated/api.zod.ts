@@ -286,6 +286,12 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         html: zod
                             .string()
                             .optional()
@@ -340,6 +346,12 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
     draft_content: zod
         .union([
             zod.object({
@@ -363,6 +375,12 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe("Plain-text fallback body for clients that can't render the email."),
+                            preheader: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                                ),
                             html: zod
                                 .string()
                                 .optional()
@@ -448,6 +466,12 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         html: zod
                             .string()
                             .optional()
@@ -502,6 +526,12 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
     draft_content: zod
         .union([
             zod.object({
@@ -525,6 +555,12 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe("Plain-text fallback body for clients that can't render the email."),
+                            preheader: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                                ),
                             html: zod
                                 .string()
                                 .optional()
@@ -611,6 +647,12 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                            ),
                         html: zod
                             .string()
                             .optional()
@@ -665,6 +707,12 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time."
+        ),
     draft_content: zod
         .union([
             zod.object({
@@ -688,6 +736,12 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .string()
                                 .optional()
                                 .describe("Plain-text fallback body for clients that can't render the email."),
+                            preheader: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Preview text that most inboxes show after the subject. Supports Liquid templating.'
+                                ),
                             html: zod
                                 .string()
                                 .optional()
@@ -814,7 +868,7 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
 })
 
 /**
- * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps.
+ * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax = 400

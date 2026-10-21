@@ -18,6 +18,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.gemini_client import replay_gemini_client
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import (
@@ -25,7 +26,6 @@ from products.replay_vision.backend.temporal.gemini import (
     classify_gemini_file_error,
     describe_gemini_error,
     describe_gemini_file_error,
-    gemini_api_key,
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
@@ -87,11 +87,18 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    raw_client = RawGenAIClient(api_key=gemini_api_key())
+    gemini = await replay_gemini_client(asset.team_id)
+    try:
+        return await _store_video(gemini.raw, video_bytes, asset.export_format, workflow_id)
+    finally:
+        await gemini.aclose()
+
+
+async def _store_video(
+    raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str
+) -> UploadedVideo:
     # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
-    uploaded_file = await asyncio.to_thread(
-        _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id
-    )
+    uploaded_file = await asyncio.to_thread(_write_and_upload, raw_client, video_bytes, mime_type, workflow_id)
 
     if uploaded_file.name is None:
         # Non-retryable: a retry would re-upload before the cleanup sweep can reap the unnamed file Gemini may have created.
@@ -144,7 +151,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
 
     return UploadedVideo(
         file_uri=uploaded_file.uri,
-        mime_type=uploaded_file.mime_type or asset.export_format,
+        mime_type=uploaded_file.mime_type or mime_type,
         gemini_file_name=gemini_file_name,
     )
 
