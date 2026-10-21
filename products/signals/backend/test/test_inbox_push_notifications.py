@@ -361,7 +361,7 @@ class TestInboxPushNotifications(BaseTest):
                 with boundary, self.captureOnCommitCallbacks(execute=True):
                     notify()
             task.refresh_from_db()
-            self.assertEqual(task.state.get("mobile_push_pr_outcomes", []), [])
+            self.assertEqual((task.state or {}).get("mobile_push_pr_outcomes", []), [])
             self.send_push.reset_mock(side_effect=True)
         for number in (1, 1, 2):
             if number == 2 or self.send_push.call_count:

@@ -289,7 +289,7 @@ class TestPushDispatcher(TestCase):
                 with boundary, self.captureOnCommitCallbacks(execute=True):
                     notify()
             self.task.refresh_from_db()
-            self.assertEqual(self.task.state.get("mobile_push_pr_outcomes", []), [])
+            self.assertEqual((self.task.state or {}).get("mobile_push_pr_outcomes", []), [])
             mock_delay.reset_mock(side_effect=True)
         for _ in range(2):
             with self.captureOnCommitCallbacks(execute=True):
