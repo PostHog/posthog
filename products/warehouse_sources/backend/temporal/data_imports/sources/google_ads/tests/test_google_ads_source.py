@@ -1555,9 +1555,9 @@ class TestGetOAuthAccountsPermissionErrors:
 
 class TestGetOAuthAccountsQuotaExhausted:
     def test_rate_limited_listing_is_actionable(self):
-        # A 429 RESOURCE_EXHAUSTED isn't retried automatically here (unlike the sync path's
-        # Temporal activity retries), so it used to propagate as a generic, unhandled 500. It must
-        # instead become the same actionable, catchable error the other listing failures raise.
+        # A 429 RESOURCE_EXHAUSTED isn't retried automatically here, unlike the sync path's
+        # Temporal activity retries, so it must become the same actionable, catchable error the
+        # other listing failures raise rather than an unhandled 500.
         cache.clear()
         integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
         body = (

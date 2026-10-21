@@ -159,10 +159,8 @@ class TestGoogleAdsIntegrationModel(BaseTest):
     @patch("posthog.models.integration.google_ads.capture_exception")
     @patch("posthog.models.integration.google_ads.requests.request")
     def test_accessible_accounts_raises_quota_exhausted_on_429(self, mock_request, mock_capture_exception):
-        # A 429 RESOURCE_EXHAUSTED used to fall into the generic non-200 branch, which captures an
-        # error-tracking issue and raises a bare "There was an internal error" — indistinguishable
-        # from a real bug. It must instead raise a distinct error callers can catch, and skip
-        # capture_exception, since a quota limit isn't something to page on.
+        # A quota limit isn't a bug worth paging on, so it must raise a distinct, catchable error
+        # and skip capture_exception.
         mock_request.return_value = MagicMock(
             status_code=429,
             text='{"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource has been exhausted (e.g. check quota)."}}',
