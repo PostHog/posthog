@@ -15656,6 +15656,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         description?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        tags?: Array<string> | undefined;
         version: number;
         /**
          * Mixin for serializers to add user access control fields
@@ -15753,6 +15757,10 @@ export namespace Schemas {
         id: string;
         name: string | null;
         description: string;
+        /**
+         * Tags for organizing workflows, for example by team or use case. Sorted by name.
+         */
+        tags: Array<string>;
         version: number;
         status: HogFlowStateEnum & unknown;
         origin_product: HogFlowOriginProductEnum | NullEnum;
@@ -15816,6 +15824,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         description?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        tags?: Array<string> | undefined;
         version: number;
         /**
          * Mixin for serializers to add user access control fields
@@ -19272,6 +19284,7 @@ export namespace Schemas {
         id: string;
         name: string | null;
         description: string;
+        tags: Array<string>;
         version: number;
         status: HogFlowStateEnum;
         origin_product: HogFlowOriginProductEnum | NullEnum;
@@ -22353,6 +22366,7 @@ export namespace Endpoints {
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
                 status: "active" | "archived" | "draft";
+                tags: string;
                 trigger: string;
                 type: string;
                 updated_at: string;
