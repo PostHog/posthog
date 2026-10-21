@@ -369,6 +369,35 @@ describe('condition ids', () => {
         }
     )
 
+    it('types a key the source does not hold from every stored set when the update retargets a mixed flag', () => {
+        const mixed = [
+            { ...planOn(0, 'enterprise'), aggregation_group_type_index: 0 },
+            { ...personPlan('free'), aggregation_group_type_index: null },
+        ]
+        const [groupSet, personSet] = readGroups({ groups: mixed })
+
+        const merged = preserveGroupTargetingFilters(
+            { groups: mixed },
+            {
+                aggregation_group_type_index: 1,
+                groups: [
+                    echoWithId(groupSet!, {
+                        properties: [
+                            { key: 'plan', operator: 'exact', value: 'enterprise' },
+                            { key: 'country', operator: 'exact', value: 'US' },
+                        ],
+                    }),
+                    echoWithId(personSet!),
+                ],
+            }
+        )
+
+        expect(typings(merged)).toEqual([
+            [null, ['group', 1], ['person', undefined]],
+            [null, ['person', undefined], ['person', undefined]],
+        ])
+    })
+
     it('refuses a condition ID that matches no stored condition', () => {
         const stored = [planOn(0, 'enterprise'), planOn(1, 'pro')]
         const [kept] = readGroups({ groups: stored })
