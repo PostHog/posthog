@@ -20,7 +20,8 @@ from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DematerializePayload,
@@ -125,6 +126,36 @@ def add_dependent_view(view: DataWarehouseSavedQuery) -> None:
 
 def switch_to_incremental(view: DataWarehouseSavedQuery) -> None:
     DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=STORED_DAY_KEY)
+
+
+def make_an_upstream_view_read_a_direct_source(view: DataWarehouseSavedQuery) -> None:
+    node = Node.objects.get(saved_query=view)
+    source = ExternalDataSource.objects.create(
+        team=view.team,
+        source_id="direct-postgres",
+        connection_id="direct-postgres",
+        status="Completed",
+        source_type=ExternalDataSourceType.POSTGRES,
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
+    )
+    direct_table = DataWarehouseTable.objects.create(
+        team=view.team, name="postgres_orders", format="Parquet", external_data_source=source
+    )
+    upstream_view = DataWarehouseSavedQuery.objects.create(
+        team=view.team, name="orders_source", query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders"}
+    )
+    upstream_node = Node.objects.create(
+        team=view.team, dag=node.dag, name="orders_source", saved_query=upstream_view, type=NodeType.VIEW
+    )
+    table_node = Node.objects.create(
+        team=view.team,
+        dag=node.dag,
+        name="postgres_orders",
+        type=NodeType.TABLE,
+        properties={"warehouse_table_id": str(direct_table.id)},
+    )
+    Edge.objects.create(team=view.team, dag=node.dag, source=table_node, target=upstream_node)
+    Edge.objects.create(team=view.team, dag=node.dag, source=upstream_node, target=node)
 
 
 def change_query(view: DataWarehouseSavedQuery) -> None:
@@ -343,6 +374,11 @@ class TestAcceptSuggestion(APIBaseTest):
             ("a_view_was_built_on_it_since", add_dependent_view, status.HTTP_409_CONFLICT),
             ("it_refreshes_incrementally_since", switch_to_incremental, status.HTTP_409_CONFLICT),
             ("its_query_changed_since", change_query, status.HTTP_409_CONFLICT),
+            (
+                "an_upstream_view_reads_a_direct_source_since",
+                make_an_upstream_view_read_a_direct_source,
+                status.HTTP_409_CONFLICT,
+            ),
         ]
     )
     def test_accepting_a_dematerialize_suggestion_turns_the_view_back_into_a_plain_view(

@@ -1,6 +1,6 @@
 import hashlib
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from math import ceil
 from typing import Any, ClassVar
@@ -25,6 +25,15 @@ FEEDS_CONSUMERS_REJECTION = "its refreshes feed person or account properties, a 
 DIRECT_SOURCE_REJECTION = "reads a direct-connection source, whose reads are not logged"
 
 
+def reads_direct_source(team_id: int, saved_query_id: UUID, direct_table_ids: Collection[UUID]) -> bool:
+    if not direct_table_ids:
+        return False
+    return any(
+        ref.warehouse_table_id is not None and UUID(ref.warehouse_table_id) in direct_table_ids
+        for ref in upstream_table_refs(team_id, saved_query_id)
+    )
+
+
 @frozen
 class CandidateContext:
     team_id: int
@@ -44,12 +53,7 @@ class CandidateContext:
         return self.rules.deprecate.counts_background_reads or reads.human_requests > 0
 
     def reads_direct_source(self, saved_query_id: UUID) -> bool:
-        if not self.inventory.direct_table_ids:
-            return False
-        return any(
-            ref.warehouse_table_id is not None and UUID(ref.warehouse_table_id) in self.inventory.direct_table_ids
-            for ref in upstream_table_refs(self.team_id, saved_query_id)
-        )
+        return reads_direct_source(self.team_id, saved_query_id, self.inventory.direct_table_ids)
 
     @property
     def days_observed(self) -> int:

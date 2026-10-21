@@ -186,29 +186,32 @@ class TestApplyRun(BaseTest):
 
     @parameterized.expand(
         [
-            ("after_the_cooldown", 40, WarehouseSuggestionStatus.PROPOSED, 1),
-            ("inside_the_cooldown", 10, WarehouseSuggestionStatus.ACCEPTED, 0),
+            ("dematerialized_by_a_suggestion", 60, True, WarehouseSuggestionStatus.PROPOSED, 1),
+            ("stopped_by_a_deprecate_or_a_manual_revert", 60, False, WarehouseSuggestionStatus.PROPOSED, 1),
+            ("accepted_inside_the_cooldown", 10, False, WarehouseSuggestionStatus.ACCEPTED, 0),
         ]
     )
-    def test_an_accepted_materialize_returns_once_the_view_was_dematerialized_and_the_cooldown_passed(
-        self, _name: str, dematerialized_days_ago: int, expected_status: WarehouseSuggestionStatus, reproposed: int
+    def test_an_accepted_materialize_returns_when_drafted_again_after_the_cooldown(
+        self,
+        _name: str,
+        accepted_days_ago: int,
+        dematerialized_by_a_suggestion: bool,
+        expected_status: WarehouseSuggestionStatus,
+        reproposed: int,
     ) -> None:
         view_id = uuid4()
         ctx = self._context(view_id)
         materialize = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)
-        apply_run(
-            ctx,
-            self.team,
-            [materialize, self._draft(ctx, WarehouseSuggestionKind.DEMATERIALIZE, view_id, 1)],
-            NOW - timedelta(days=60),
-            surface=True,
-        )
+        first_run = [materialize]
+        if dematerialized_by_a_suggestion:
+            first_run.append(self._draft(ctx, WarehouseSuggestionKind.DEMATERIALIZE, view_id, 1))
+        apply_run(ctx, self.team, first_run, NOW - timedelta(days=accepted_days_ago), surface=True)
         suggestions = WarehouseSuggestion.objects.for_team(self.team.pk)
         suggestions.filter(kind=WarehouseSuggestionKind.MATERIALIZE).update(
-            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=60)
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=accepted_days_ago)
         )
         suggestions.filter(kind=WarehouseSuggestionKind.DEMATERIALIZE).update(
-            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=dematerialized_days_ago)
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=40)
         )
 
         apply_run(ctx, self.team, [materialize], NOW, surface=False)

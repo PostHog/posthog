@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, Exists, F, OuterRef, Value, When
+from django.db.models import F
 
 from posthog.dataclasses import frozen
 
@@ -94,10 +94,7 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
 
 
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
-OPPOSITE_KINDS = {
-    WarehouseSuggestionKind.MATERIALIZE: WarehouseSuggestionKind.DEMATERIALIZE,
-    WarehouseSuggestionKind.DEMATERIALIZE: WarehouseSuggestionKind.MATERIALIZE,
-}
+FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.DEMATERIALIZE})
 REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
@@ -116,7 +113,7 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft], now: d
             revived.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
             reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
-    for row in _accepted_then_reversed(context, drafts_by_fingerprint, now):
+    for row in _accepted_then_flipped_back(context, drafts_by_fingerprint, now):
         reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED, REOPEN_ACCEPTED))
     reproposed_ids = [row.id for row in reproposed]
     revived_ids = [row.id for row in revived]
@@ -128,31 +125,19 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft], now: d
     )
 
 
-def _accepted_then_reversed(
+def _accepted_then_flipped_back(
     context: CandidateContext, drafts_by_fingerprint: Mapping[str, SuggestionDraft], now: datetime
 ) -> list[WarehouseSuggestion]:
-    """Accepted materialize and dematerialize suggestions the view has since flipped away from, past the cooldown."""
-    suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
+    """Accepted materialize and dematerialize suggestions drafted again, so their view flipped back, past the cooldown."""
     cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
-    later_opposite_accept = suggestions.filter(
-        status=WarehouseSuggestionStatus.ACCEPTED,
-        kind=OuterRef("opposite_kind"),
-        subject_kind=OuterRef("subject_kind"),
-        subject_id=OuterRef("subject_id"),
-        reviewed_at__gt=OuterRef("reviewed_at"),
-        reviewed_at__lte=cooled_down_before,
-    )
     return list(
-        suggestions.filter(
-            fingerprint__in=drafts_by_fingerprint, status=WarehouseSuggestionStatus.ACCEPTED, kind__in=OPPOSITE_KINDS
+        WarehouseSuggestion.objects.for_team(context.team_id).filter(
+            fingerprint__in=drafts_by_fingerprint,
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            kind__in=FLIP_KINDS,
+            reviewed_at__lte=cooled_down_before,
         )
-        .annotate(opposite_kind=_opposite_kind())
-        .filter(Exists(later_opposite_accept))
     )
-
-
-def _opposite_kind() -> Case:
-    return Case(*(When(kind=kind, then=Value(opposite.value)) for kind, opposite in OPPOSITE_KINDS.items()))
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:

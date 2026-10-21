@@ -29,7 +29,11 @@ from products.data_modeling.backend.facade.api import (
     saved_query_still_materializes,
 )
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
-from products.warehouse_sources.backend.facade.api import get_queryable_table, saved_queries_feeding_consumers
+from products.warehouse_sources.backend.facade.api import (
+    direct_access_table_ids,
+    get_queryable_table,
+    saved_queries_feeding_consumers,
+)
 
 from ..facade.contracts import (
     AcceptFailedError,
@@ -57,6 +61,7 @@ from ..facade.enums import (
 )
 from ..models import WarehouseSuggestion
 from .analytics import SuggestionOutcome, report_outcomes
+from .candidates.base import reads_direct_source
 from .candidates.dematerialize import query_fingerprint
 from .payloads import payload_from_json
 from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
@@ -91,6 +96,7 @@ KEEP_MATERIALIZED_FIELD = "keep_materialized"
 WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
+READS_DIRECT_SOURCE = "This view now reads a direct-connection source, whose reads are not logged."
 
 
 @frozen
@@ -155,6 +161,8 @@ def stop_blocker(team_id: int, definition: SavedQueryDefinition) -> str | None:
         return OTHER_VIEWS_READ_IT
     if definition.id in saved_queries_feeding_consumers(team_id, [definition.id]):
         return SYNCS_READ_IT
+    if reads_direct_source(team_id, definition.id, direct_access_table_ids(team_id)):
+        return READS_DIRECT_SOURCE
     return None
 
 

@@ -17,7 +17,7 @@ from .analytics import report_candidates
 from .candidates.base import CandidateContext, CandidateResult
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
-from .lifecycle import OPPOSITE_KINDS, LifecycleResult, apply_run
+from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run
 from .reads import ReadWindow, RollupDays, TeamReads, read_rollup_days, read_team_reads
 from .rules import RULES, EligibilityRules, Rules
 
@@ -101,7 +101,7 @@ def _recent_flip_accepts(team_id: int, rules: Rules, now: datetime) -> dict[Ware
     since = now - timedelta(days=rules.lifecycle.flip_cooldown_days)
     accepted = (
         WarehouseSuggestion.objects.for_team(team_id)
-        .filter(status=WarehouseSuggestionStatus.ACCEPTED, kind__in=OPPOSITE_KINDS, reviewed_at__gte=since)
+        .filter(status=WarehouseSuggestionStatus.ACCEPTED, kind__in=FLIP_KINDS, reviewed_at__gte=since)
         .values_list("kind", "subject_id")
     )
     subject_ids: defaultdict[WarehouseSuggestionKind, set[UUID]] = defaultdict(set)
