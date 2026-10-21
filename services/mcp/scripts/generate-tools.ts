@@ -1088,6 +1088,15 @@ function renderHandler(config: ToolConfig, toolName: string, handlerFn: string):
     return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
 }
 
+function isSoftDeleteTool(config: ToolConfig): boolean {
+    return config.soft_delete !== undefined && config.soft_delete !== false
+}
+
+/** The HTTP method the handler sends. Soft-delete tools send PATCH to the DELETE operation's path. */
+function handlerHttpMethod(config: ToolConfig, resolved: ResolvedOperation): string {
+    return isSoftDeleteTool(config) ? 'PATCH' : resolved.method
+}
+
 // ------------------------------------------------------------------
 
 function generateToolCode(
@@ -1125,7 +1134,7 @@ function generateToolCode(
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
-    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const isSoftDelete = isSoftDeleteTool(config)
 
     // For soft-delete tools the original operation is DELETE (typically 204 no-content),
     // but the actual request is a PATCH to the same URL. Resolve the response type from
@@ -1232,7 +1241,7 @@ function generateToolCode(
     }
     const transformsBody = hasBody && !!config.hooks
 
-    const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
+    const httpMethod = handlerHttpMethod(config, resolved)
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
@@ -2181,6 +2190,9 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            // The endpoint the handler calls. The Django API reads it to refuse a write that a
+            // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
+            const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -2226,6 +2238,7 @@ function generateDefinitionsJson(
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2251,6 +2264,7 @@ function generateDefinitionsJson(
                     summary: baseSummary,
                     title: baseTitle,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2279,6 +2293,8 @@ function generateDefinitionsJson(
                 summary: wrapperConfig.title || name,
                 title: wrapperConfig.title || name,
                 required_scopes: wrapperConfig.scopes,
+                // Every query wrapper posts to the query endpoint.
+                api_operations: ['POST /api/projects/{project_id}/query/'],
                 annotations: {
                     destructiveHint: wrapperConfig.annotations.destructive,
                     idempotentHint: wrapperConfig.annotations.idempotent,
@@ -2468,6 +2484,8 @@ function generateQueryWrapperDefinitionsJson(
             summary: toolConfig.title || name,
             title: toolConfig.title || name,
             required_scopes: toolConfig.scopes,
+            // Every query wrapper posts to the query endpoint, actors lookups included.
+            api_operations: ['POST /api/projects/{project_id}/query/'],
             annotations: {
                 destructiveHint: toolConfig.annotations.destructive,
                 idempotentHint: toolConfig.annotations.idempotent,
