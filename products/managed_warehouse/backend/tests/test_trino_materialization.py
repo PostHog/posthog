@@ -83,7 +83,7 @@ class TestTrinoShadowMaterialization(BaseTest):
 
         compile_query.assert_called_once_with(
             self.team.pk,
-            HogQLQuery.model_validate(self.query),
+            HogQLQuery.model_validate({**self.query, "values": {"incremental_window_start": None}}),
             team=self.team,
             bypass_warehouse_access_control=True,
             expansion_mode=TrinoExpansionMode.DJANGO,

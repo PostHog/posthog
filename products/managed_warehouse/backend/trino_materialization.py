@@ -109,6 +109,7 @@ def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite |
     # The compiler expands placeholders before select_transform runs, so the window start is bound as a value.
     since = incremental.since if incremental is not None else None
     query = query.model_copy(update={"values": {**(query.values or {}), WINDOW_START_PLACEHOLDER: since}})
+
     def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         if incremental is None:
             return node
