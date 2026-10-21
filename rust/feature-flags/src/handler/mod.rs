@@ -22,7 +22,10 @@ use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::{flag_matching::EvaluationType, flag_service::FlagService},
     handler::phases::{Phase, PhaseGuard},
-    metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
+    metrics::consts::{
+        FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_BLOCKED_COUNTER,
+        FLAG_REQUEST_FAULTS_COUNTER,
+    },
     team::team_models::Team,
 };
 use std::collections::HashMap;
@@ -195,6 +198,18 @@ async fn process_request_inner(
         with_canonical_log(|log| log.team_id = Some(team.id));
 
         tracing::debug!("Team fetched: team_id={}", team.id);
+
+        // Before billing, so a blocked caller never counts toward the team's flags usage.
+        if let Some(reason) = team.request_block_reason(context.origin_host.as_deref(), context.ip)
+        {
+            with_canonical_log(|log| log.request_blocked_by = Some(reason));
+            inc(
+                FLAG_REQUEST_BLOCKED_COUNTER,
+                &[("reason".to_string(), reason.as_str().to_string())],
+                1,
+            );
+            return Ok(FlagsResponse::minimal(context.request_id));
+        }
 
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {

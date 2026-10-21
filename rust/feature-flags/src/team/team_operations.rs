@@ -51,7 +51,15 @@ const TEAM_COLUMNS: &str = "
     COALESCE(
         (SELECT property_matching_version FROM feature_flags_teamfeatureflagsconfig WHERE team_id = posthog_team.id),
         1
-    )::smallint AS property_matching_version
+    )::smallint AS property_matching_version,
+    COALESCE(
+        (SELECT blocked_hosts FROM feature_flags_teamfeatureflagpolicyconfig WHERE team_id = posthog_team.id),
+        '{}'
+    )::text[] AS flags_blocked_hosts,
+    COALESCE(
+        (SELECT blocked_ips FROM feature_flags_teamfeatureflagpolicyconfig WHERE team_id = posthog_team.id),
+        '{}'
+    )::text[] AS flags_blocked_ips
 ";
 
 impl Team {

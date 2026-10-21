@@ -5,8 +5,7 @@ use crate::{
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV3, LegacyFlagsResponse,
-            ServiceResponse,
+            FlagsQueryParams, FlagsResponse, FlagsResponseV3, LegacyFlagsResponse, ServiceResponse,
         },
     },
     config::BotFilterMode,
@@ -18,6 +17,7 @@ use crate::{
         FLAG_BOT_DETECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
     },
     router,
+    team::request_blocklist,
     utils::{bot_detection, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
@@ -28,8 +28,6 @@ use axum::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use governor::clock;
-use serde_json;
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, OnceLock};
 use tracing::Instrument;
@@ -175,21 +173,7 @@ fn get_minimal_flags_response(
     // decide/non-decide defaults.
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1));
 
-    let mut config = ConfigResponse::new();
-    config.set(
-        "supportedCompression",
-        serde_json::json!(["gzip", "gzip-js"]),
-    );
-    config.set(
-        "config",
-        serde_json::json!({"enable_collect_everything": true}),
-    );
-    config.set("toolbarParams", serde_json::json!({}));
-    config.set("isAuthenticated", serde_json::json!(false));
-    config.set("sessionRecording", serde_json::json!(false));
-
-    let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
-    response.config = config;
+    let response = FlagsResponse::minimal(request_id);
 
     let (service_response, _) =
         get_versioned_response(is_from_legacy_decide, version_num, v3_enabled, response).expect(
@@ -395,6 +379,8 @@ where
         .map(|v| v == "decide")
         .unwrap_or(false);
 
+    let origin_host = request_blocklist::origin_host(&headers);
+
     // Mutable: the IP rate-limit and bot branches below mark fields on
     // it directly because they run outside the canonical-log scope.
     // Fields resolved inside `run_with_canonical_log` go through
@@ -403,6 +389,7 @@ where
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
+        origin_host: origin_host.clone(),
         lib: ua_info.lib_for_logging().map(str::to_string),
         // The decoded body can override this later. Until then, prefer SDK User-Agent over legacy query params.
         lib_version: initial_lib_version(&ua_info, &query_params),
@@ -494,6 +481,7 @@ where
         request_entered_at,
         state: state.clone(),
         ip,
+        origin_host,
         headers: headers.clone(),
         meta: modified_query_params,
         body,

@@ -374,13 +374,26 @@ fn build_ranges(cidrs: &[(String, BotCategory)]) -> BotIpRanges {
     }
 }
 
-struct ParsedCidr {
+#[derive(Clone, Debug)]
+pub(crate) struct ParsedCidr {
     start: u128,
     end: u128,
     is_v4: bool,
 }
 
-fn parse_cidr(cidr: &str) -> Option<ParsedCidr> {
+impl ParsedCidr {
+    /// IPv4-mapped IPv6 addresses match IPv4 ranges, the same as the bot lookup.
+    pub(crate) fn contains(&self, ip: IpAddr) -> bool {
+        let value = match normalize(ip) {
+            IpAddr::V4(v4) if self.is_v4 => u128::from(u32::from(v4)),
+            IpAddr::V6(v6) if !self.is_v4 => u128::from(v6),
+            _ => return false,
+        };
+        self.start <= value && value <= self.end
+    }
+}
+
+pub(crate) fn parse_cidr(cidr: &str) -> Option<ParsedCidr> {
     let (addr_str, prefix_str) = cidr.split_once('/')?;
     let prefix: u8 = prefix_str.parse().ok()?;
     let addr: IpAddr = addr_str.parse().ok()?;
