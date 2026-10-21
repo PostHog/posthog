@@ -303,6 +303,9 @@ class PostgresDestinationWriter:
             try:
                 await stack.enter_async_context(client.connect(is_error_retryable=_is_connect_error_retryable))
             except PostgreSQLConnectionError as err:
+                # The client's host check refused the address. Its message hides which check failed.
+                if isinstance(err.__cause__, ValueError):
+                    raise DestinationConfigurationError(self._ctx.destination_name, str(err)) from err
                 detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
                 if detail is not None:
                     raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
