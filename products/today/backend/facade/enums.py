@@ -59,6 +59,11 @@ class HighlightMetricReason(LabeledStrEnum):
     KEY_METRIC = "key_metric", "Project key metric"
 
 
+class HighlightPinStatus(LabeledStrEnum):
+    READY = "ready", "Ready"
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
 class HighlightInterval(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"

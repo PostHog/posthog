@@ -135,5 +135,8 @@ class GenerationRecord(_Model):
     draft_variables: list[DraftVariable] = Field(default_factory=list)
     attributes: dict[str, list[str]] = Field(default_factory=dict)
     attribute_values: dict[str, list[str]] = Field(default_factory=dict)
+    # None when the attribute profile failed, so that a variable is not dropped for a count nobody read.
+    attribute_value_counts: dict[str, int] | None = None
+    variable_candidates: list[str] = Field(default_factory=list)
     dropped_panels: list[str] = Field(default_factory=list)
     error: str | None = None

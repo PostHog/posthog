@@ -89,6 +89,16 @@ def report_user_signed_up(
     if is_organization_first_user and user.organization is not None:
         exclude_internal_organization_from_crm(user.organization, user)
 
+    if oauth_connection is not None and is_organization_first_user and user.team is not None:
+        posthoganalytics.group_identify(
+            "project",
+            str(user.team.uuid),
+            properties={
+                "created_via_oauth_client": oauth_connection.client_name,
+                "created_via_oauth_client_id": oauth_connection.client_id,
+            },
+        )
+
 
 def report_user_verified_email(current_user: User) -> None:
     """
@@ -427,6 +437,8 @@ AnalyticsProps = TypedDict(
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
+        "upload_attempt_id": NotRequired[str],
+        "upload_run_id": NotRequired[str],
     },
     total=False,
 )
