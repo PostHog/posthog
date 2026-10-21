@@ -10,6 +10,12 @@ variable "database" {
   default     = "posthog"
 }
 
+variable "tiered_storage" {
+  description = "Keep data tables on the S3-tiered storage policy and move cold parts to its cold volume. Only PostHog Cloud servers have the policy."
+  type        = bool
+  default     = true
+}
+
 variable "ttl" {
   description = "Set table TTLs. Tests turn them off, because they insert rows with old timestamps."
   type        = bool
@@ -309,7 +315,7 @@ module "logs34_family" {
     partition_by = "toDate(original_expiry_timestamp)"
     order_by     = "(team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp)"
     ttl          = var.ttl ? "original_expiry_timestamp" : null
-    settings     = "add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1"
+    settings     = "add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1${var.tiered_storage ? ", storage_policy = 's3_tiered'" : ""}"
     indexes = [
       { name = "idx_severity_text_set", expression = "severity_text", type = "set(10)", granularity = 1 },
       { name = "idx_attributes_str_keys", expression = "mapKeys(attributes_map_str)", type = "bloom_filter(0.01)", granularity = 1 },

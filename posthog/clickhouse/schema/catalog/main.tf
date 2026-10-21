@@ -35,6 +35,12 @@ variable "deployment" {
   })
 }
 
+variable "tiered_storage" {
+  description = "Keep data tables on the S3-tiered storage policy and move cold parts to its cold volume. Only PostHog Cloud servers have the policy."
+  type        = bool
+  default     = true
+}
+
 variable "ttl" {
   type    = bool
   default = true
@@ -239,13 +245,14 @@ module "experiments_preaggregated" {
 }
 
 module "flag_evaluations" {
-  source     = "./flag_evaluations"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.flag_evaluations, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-  ttl        = var.ttl
+  source         = "./flag_evaluations"
+  node           = var.node
+  database       = var.database
+  deployment     = merge(try(var.deployment.families.flag_evaluations, {}), { overrides = var.overrides })
+  objects        = var.objects
+  test           = var.test
+  ttl            = var.ttl
+  tiered_storage = var.tiered_storage
 }
 
 module "groups" {
@@ -268,13 +275,14 @@ module "heatmaps" {
 }
 
 module "hog_invocation_results" {
-  source     = "./hog_invocation_results"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.hog_invocation_results, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-  ttl        = var.ttl
+  source         = "./hog_invocation_results"
+  node           = var.node
+  database       = var.database
+  deployment     = merge(try(var.deployment.families.hog_invocation_results, {}), { overrides = var.overrides })
+  objects        = var.objects
+  test           = var.test
+  ttl            = var.ttl
+  tiered_storage = var.tiered_storage
 }
 
 module "ingestion_warnings" {
@@ -297,23 +305,25 @@ module "llma_metrics_daily" {
 }
 
 module "log_entries" {
-  source     = "./log_entries"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.log_entries, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-  ttl        = var.ttl
+  source         = "./log_entries"
+  node           = var.node
+  database       = var.database
+  deployment     = merge(try(var.deployment.families.log_entries, {}), { overrides = var.overrides })
+  objects        = var.objects
+  test           = var.test
+  ttl            = var.ttl
+  tiered_storage = var.tiered_storage
 }
 
 module "logs" {
-  source     = "./logs"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.logs, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-  ttl        = var.ttl
+  source         = "./logs"
+  node           = var.node
+  database       = var.database
+  deployment     = merge(try(var.deployment.families.logs, {}), { overrides = var.overrides })
+  objects        = var.objects
+  test           = var.test
+  ttl            = var.ttl
+  tiered_storage = var.tiered_storage
 }
 
 module "marketing_preaggregated" {
@@ -514,13 +524,14 @@ module "tophog" {
 }
 
 module "traces" {
-  source     = "./traces"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.traces, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-  ttl        = var.ttl
+  source         = "./traces"
+  node           = var.node
+  database       = var.database
+  deployment     = merge(try(var.deployment.families.traces, {}), { overrides = var.overrides })
+  objects        = var.objects
+  test           = var.test
+  ttl            = var.ttl
+  tiered_storage = var.tiered_storage
 }
 
 module "usage_report_events_preagg" {

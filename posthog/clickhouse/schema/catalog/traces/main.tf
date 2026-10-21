@@ -10,6 +10,12 @@ variable "database" {
   default     = "posthog"
 }
 
+variable "tiered_storage" {
+  description = "Keep data tables on the S3-tiered storage policy and move cold parts to its cold volume. Only PostHog Cloud servers have the policy."
+  type        = bool
+  default     = true
+}
+
 variable "ttl" {
   description = "Set table TTLs. Tests turn them off, because they insert rows with old timestamps."
   type        = bool
@@ -156,7 +162,7 @@ module "trace_spans_family" {
     partition_by = "toDate(original_expiry_timestamp)"
     order_by     = "(team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp)"
     ttl          = var.ttl ? "original_expiry_timestamp" : null
-    settings     = "allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1"
+    settings     = "allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1${var.tiered_storage ? ", storage_policy = 's3_tiered'" : ""}"
     indexes = [
       { name = "idx_name", expression = "name", type = "ngrambf_v1(4, 5000, 2, 0)", granularity = 16 },
       { name = "idx_kind", expression = "kind", type = "minmax", granularity = 4 },

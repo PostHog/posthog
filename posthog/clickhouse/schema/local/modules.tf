@@ -25,6 +25,7 @@ module "catalog" {
 
   database            = var.database
   ttl                 = !var.test
+  tiered_storage      = false
   test                = var.test
   dictionary_user     = var.dictionary_user
   dictionary_password = var.dictionary_password

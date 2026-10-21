@@ -10,6 +10,12 @@ variable "database" {
   default     = "posthog"
 }
 
+variable "tiered_storage" {
+  description = "Keep data tables on the S3-tiered storage policy and move cold parts to its cold volume. Only PostHog Cloud servers have the policy."
+  type        = bool
+  default     = true
+}
+
 variable "ttl" {
   description = "Set table TTLs. Tests turn them off, because they insert rows with old timestamps."
   type        = bool
@@ -68,8 +74,8 @@ module "log_entries_data_family" {
     engine_args  = ["_timestamp"]
     partition_by = "toYYYYMMDD(timestamp)"
     order_by     = "(team_id, log_source, log_source_id, instance_id, timestamp)"
-    ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
-    settings     = "index_granularity = 1024, ttl_only_drop_parts = 1"
+    ttl          = var.ttl ? "${var.tiered_storage ? "toDate(timestamp) + toIntervalDay(7) TO VOLUME 'cold', " : ""}toDate(timestamp) + toIntervalDay(90)" : null
+    settings     = "index_granularity = 1024, ttl_only_drop_parts = 1${var.tiered_storage ? ", storage_policy = 's3_tiered'" : ""}"
   }
   routing      = { read = !var.test }
   sharding_key = ""

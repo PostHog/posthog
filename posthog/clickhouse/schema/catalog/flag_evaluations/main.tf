@@ -10,6 +10,12 @@ variable "database" {
   default     = "posthog"
 }
 
+variable "tiered_storage" {
+  description = "Keep data tables on the S3-tiered storage policy and move cold parts to its cold volume. Only PostHog Cloud servers have the policy."
+  type        = bool
+  default     = true
+}
+
 variable "ttl" {
   description = "Set table TTLs. Tests turn them off, because they insert rows with old timestamps."
   type        = bool
@@ -74,7 +80,7 @@ module "sharded_flag_evaluations_family" {
     partition_by = "toYYYYMM(timestamp)"
     order_by     = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))"
     ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
-    settings     = "index_granularity = 8192, ttl_only_drop_parts = 1"
+    settings     = "index_granularity = 8192, ttl_only_drop_parts = 1${var.tiered_storage ? ", storage_policy = 's3_tiered'" : ""}"
     indexes = [
       { name = "distinct_id_idx", expression = "distinct_id", type = "bloom_filter(0.01)", granularity = 1 },
       { name = "person_id_idx", expression = "person_id", type = "bloom_filter(0.01)", granularity = 1 },
