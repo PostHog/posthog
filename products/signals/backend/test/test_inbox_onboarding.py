@@ -24,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.models import (
+    SignalFirstReportNotification,
     SignalScoutConfig,
     SignalScoutSuggestionSet,
     SignalSourceConfig,
@@ -79,7 +80,7 @@ class TestInboxOnboarding(APIBaseTest):
     @parameterized.expand([("control",), ("test-ui",), ("test-github",)])
     def test_exposure_is_sticky_and_queued_once(self, variant: str) -> None:
         with (
-            patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
+            patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
                 "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True
             ) as flag,
@@ -95,7 +96,11 @@ class TestInboxOnboarding(APIBaseTest):
         assert second.json()["variant"] == variant
         assert capture.call_count == 1
         assert capture.call_args.kwargs["properties"]["variant"] == variant
+        assert capture.call_args.kwargs["properties"]["$feature/inbox-ui-onboarding"] == variant
         assert capture.call_args.kwargs["properties"]["self_driving_ubp"] is True
+        assert capture.call_args.kwargs["properties"]["$set_once"] == {"email": self.user.email}
+        assert capture.call_args.kwargs["groups"]["project"] == str(self.team.uuid)
+        assert capture.call_args.kwargs["groups"]["organization"] == str(self.organization.id)
         assert flag.call_args.args == ("self-driving-ubp", str(self.user.distinct_id))
         assert flag.call_args.kwargs["groups"]["organization"] == str(self.organization.id)
         if variant == "control":
@@ -213,7 +218,7 @@ class TestInboxOnboarding(APIBaseTest):
                 "products.signals.backend.onboarding_completion.InboxOnboardingReconciler.has_repository",
                 return_value=object(),
             ),
-            patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
+            patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
                 "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled",
                 return_value=not automatic_implementation,
@@ -238,9 +243,14 @@ class TestInboxOnboarding(APIBaseTest):
         assert config.autostart_enabled is automatic_implementation
         assert config.default_autostart_priority == "P1"
         assert config.onboarding["activated_by"] == self.user.id
+        notification = SignalFirstReportNotification.objects.for_team(self.team.id).get()
+        assert notification.activated_by_id == self.user.id
+        assert notification.queued_at is None
         assert capture.call_args.kwargs["properties"]["variant"] == variant
         assert capture.call_args.kwargs["properties"] == {
+            "$set_once": {"email": self.user.email},
             "variant": variant,
+            "$feature/inbox-ui-onboarding": variant,
             "project_id": self.team.id,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",

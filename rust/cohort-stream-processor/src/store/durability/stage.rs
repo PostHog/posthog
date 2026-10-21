@@ -12,6 +12,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use metrics::counter;
 use rdkafka::error::{KafkaError, KafkaResult};
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ use super::manifest::OffsetManifest;
 use super::metadata::CheckpointMetadata;
 use super::restore_plan::{ReplayWindow, RestorePlan};
 use crate::observability::metrics::CHECKPOINT_RESTORE_SLICES_RESET_TOTAL;
-use crate::partitions::{InputGroups, InputTopic, ResumeOffset};
+use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, ResumeOffset};
 use crate::store::{CohortStore, StoreError};
 
 /// The marker a published restore carries inside the store directory. RocksDB ignores files it
@@ -205,11 +206,24 @@ impl PendingRestore {
         &self.record.source
     }
 
-    /// Commits each follower's planned positions. Safe to repeat: nothing consumes a follower
-    /// before the restore finishes.
-    pub(crate) fn position_followers(&self, groups: &InputGroups) -> KafkaResult<()> {
+    /// When the restored checkpoint read its positions.
+    pub fn captured_at(&self) -> DateTime<Utc> {
+        self.record.manifest.captured_at()
+    }
+
+    /// Commits each follower's planned positions on the partitions `admitted` owns, with its stamp.
+    /// The other partitions belong to other pods, whose followers keep their own commits. Safe to
+    /// repeat: nothing consumes a follower before the restore finishes.
+    pub(crate) fn position_followers(
+        &self,
+        groups: &InputGroups,
+        admitted: &AdmittedSplit,
+    ) -> KafkaResult<()> {
         for follower in groups.followers() {
-            follower.commit(&self.plan.positions(follower.topic()))?;
+            follower.commit(
+                &admitted.stamp(),
+                &self.plan.positions(follower.topic(), &admitted.ownership()),
+            )?;
         }
         Ok(())
     }
@@ -328,8 +342,9 @@ mod tests {
     use rdkafka::error::KafkaResult;
     use tempfile::TempDir;
 
-    use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
-    use crate::store::durability::lineage::PodOrdinal;
+    use crate::partitions::{
+        InputPositions, InputTopic, OwnedPositions, PartitionOwnership, ResumeOffset,
+    };
     use crate::store::keyspace::{Behavioral, BehavioralKey, Meta, META_SCHEMA_VERSION};
     use crate::store::{LeafStateKey, StoreConfig};
 
@@ -368,9 +383,11 @@ mod tests {
             )
         };
         OffsetManifest::capture(
-            PodOrdinal::STANDALONE,
             &BTreeSet::from([0]),
-            vec![at(EVENTS, 42), at(MERGES, 5)],
+            OwnedPositions::for_test(
+                PartitionOwnership::single(1),
+                vec![at(EVENTS, 42), at(MERGES, 5)],
+            ),
         )
         .unwrap()
     }

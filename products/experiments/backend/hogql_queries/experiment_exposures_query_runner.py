@@ -9,6 +9,9 @@ from posthog.schema import (
     BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
+    ExperimentExposureHealthCheck,
+    ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthCheckStatus,
     ExperimentExposureHealthFinding,
     ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
@@ -23,7 +26,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -32,6 +34,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.experiments.backend.facade.contracts import ExperimentHealth
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
 from products.experiments.backend.health.context import ExposureTotals, load_health_context
 from products.experiments.backend.health.registry import (
@@ -46,7 +49,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentResultsCacheMixin
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.exposure_query_logic import aggregates_by_group, get_entity_key
 from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
@@ -305,8 +308,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             total_exposures=total_exposures,
         )
 
-    def _evaluate_health(self, exposures: ExposureTotals) -> list[ExperimentExposureHealthFinding]:
-        findings = evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
+    def _evaluate_health(self, exposures: ExposureTotals) -> ExperimentHealth:
+        return evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
+
+    @staticmethod
+    def _health_findings(health: ExperimentHealth) -> list[ExperimentExposureHealthFinding]:
         return [
             ExperimentExposureHealthFinding(
                 code=ExperimentExposureHealthFindingCode(finding.code.value),
@@ -318,7 +324,19 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 actions=[ExperimentExposureHealthFindingActionKind(action.value) for action in finding.actions],
                 diagnostic_ref=finding.diagnostic_ref,
             )
-            for finding in findings
+            for finding in health.findings
+        ]
+
+    @staticmethod
+    def _health_checks(health: ExperimentHealth) -> list[ExperimentExposureHealthCheck]:
+        return [
+            ExperimentExposureHealthCheck(
+                key=ExperimentExposureHealthCheckKey(check.key.value),
+                name=check.name,
+                status=ExperimentExposureHealthCheckStatus(check.status.value),
+                reason=check.reason,
+            )
+            for check in health.checks
         ]
 
     @experiment_error_handler
@@ -345,7 +363,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             team=self.team,
             user=self.user,
             timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
+            modifiers=self.modifiers,
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
 
@@ -390,12 +408,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         ).multiple_variant_handling
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures, multiple_variant_handling)
-        health_findings = self._evaluate_health(
+        health = self._evaluate_health(
             ExposureTotals(
                 total_exposures=total_exposures,
                 multiple_variant_handling=multiple_variant_handling,
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
                 hours_since_launch=self.experiment.hours_since_launch,
+                counts_groups=aggregates_by_group(self.group_type_index),
             )
         )
 
@@ -405,7 +424,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
-            health_findings=health_findings,
+            health_findings=self._health_findings(health),
+            health_checks=self._health_checks(health),
         )
 
     def to_query(self) -> ast.SelectQuery:
