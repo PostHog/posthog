@@ -62,7 +62,14 @@ export function command(executable: CommandExecutable, args: string[], options: 
     child.on('error', error => { clearTimeout(timer); reject(error) })
     child.on('close', code => {
       clearTimeout(timer)
-      if (failure) reject(failure)
+      if (failure) {
+        const diagnostics = Buffer.concat(stderr).subarray(-4096).toString('utf8').trim()
+        if (diagnostics) {
+          failure.message += `: ${diagnostics}`
+          options.onStderr?.(diagnostics)
+        }
+        reject(failure)
+      }
       else if (code !== 0) reject(new Error(`${executable}: exited ${code}: ${Buffer.concat(stderr).toString('utf8')}`))
       else {
         options.onStderr?.(Buffer.concat(stderr).toString('utf8'))

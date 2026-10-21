@@ -65,6 +65,17 @@ describe('bounded shared-image processes', () => {
     expect(diagnostic).not.toHaveBeenCalled()
   })
 
+  test.each(['timed out', 'output budget exhausted'])('killed helper retains bounded stderr after %s', async failure => {
+    const diagnostic = jest.fn()
+    const stderr = `${failure === 'output budget exhausted' ? `discarded prefix\n${'x'.repeat(5000)}\n` : ''}fixture primary diagnostic\n`
+    const script = `printf '%s' "$1" >&2; ${failure === 'timed out' ? 'sleep 30' : "printf '%*s' 2097152 ''"}`
+    await expect(command('helper', ['-c', script, 'fixture', stderr], {
+      cwd, timeoutMs: failure === 'timed out' ? 200 : 10000, maxBuffer: 1024 * 1024, onStderr: diagnostic
+    })).rejects.toThrow(`helper: ${failure}: ${stderr.slice(-4096).trim()}`)
+    expect(diagnostic).toHaveBeenCalledTimes(1)
+    expect(diagnostic).toHaveBeenCalledWith(stderr.slice(-4096).trim())
+  })
+
   test('successful command stderr is retained independently of stdout', async () => {
     const diagnostic = jest.fn()
     expect(await command('helper', ['-c', 'printf result; printf diagnostic >&2'], {cwd, timeoutMs: 10000, maxBuffer: 1024, onStderr: diagnostic})).toBe('result')

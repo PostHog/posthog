@@ -284,11 +284,14 @@ describe('shared-image publication', () => {
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
   })
 
-  test.each(['rejected', 'missing outcome', 'invalid outcome', 'reported unknown', 'reported absent', 'reported integrity-mismatch'])('helper failure preserves its outcome and reason: %s', async mode => {
+  test.each(['rejected', 'timed out', 'missing outcome', 'invalid outcome', 'reported unknown', 'reported absent', 'reported integrity-mismatch'])('helper failure preserves its outcome and reason: %s', async mode => {
     put('worker/run.py', 'relevant'); commit(); build()
     external.mockImplementation(async (executable, args, config) => {
       if (executable === 'helper' && args[1] === 'publish' && config.env?.ECR_REPO === 'workers/worker') {
         if (mode === 'rejected') throw new Error('copy helper crashed')
+        if (mode === 'timed out') return jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command('helper', [
+          '-c', 'printf "fixture primary diagnostic\\n" >&2; sleep 30'
+        ], {...config, timeoutMs: 200})
         if (mode.startsWith('reported ')) return jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command('helper', [
           '-c', 'printf "outcome=%s\\n" "$1" >> "$GITHUB_OUTPUT"; printf "fixture primary diagnostic\\n" >&2', 'fixture', mode.slice(9)
         ], config)
@@ -300,8 +303,12 @@ describe('shared-image publication', () => {
     const diagnostic = jest.spyOn(process.stderr, 'write').mockImplementation(() => true)
     try {
       const result = (await publishChannels(options)).find(row => row.channel.endsWith('/worker'))
-      expect(result).toMatchObject({decision: 'blocked', outcome: mode.startsWith('reported ') ? mode.slice(9) : 'unknown', reason: expect.stringContaining(mode.startsWith('reported ') ? 'fixture primary diagnostic' : mode === 'rejected' ? 'copy helper crashed' : 'no recognized outcome')})
+      expect(result).toMatchObject({decision: 'blocked', outcome: mode.startsWith('reported ') ? mode.slice(9) : 'unknown', reason: expect.stringContaining(mode.startsWith('reported ') || mode === 'timed out' ? 'fixture primary diagnostic' : mode === 'rejected' ? 'copy helper crashed' : 'no recognized outcome')})
       if (mode.startsWith('reported ')) expect(diagnostic).toHaveBeenCalledWith('fixture primary diagnostic\n')
+      if (mode === 'timed out') {
+        expect(diagnostic).toHaveBeenCalledWith('fixture primary diagnostic')
+        expect(result?.reason).toContain('helper: timed out')
+      }
       expect(tags.get('workers/worker')!.has(options.alias)).toBe(false)
       expect(JSON.parse(readFileSync(path.join(options.evidence, 'results.json'), 'utf8'))).toContainEqual(result)
     } finally { diagnostic.mockRestore() }
