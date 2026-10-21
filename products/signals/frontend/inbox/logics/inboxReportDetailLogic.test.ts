@@ -914,6 +914,72 @@ describe('inboxReportDetailLogic', () => {
             expect(artefactRequests).toBe(beforeKickoff + 1)
         })
 
+        it('refreshes Monitoring timing without changing check versions and stops after resolution', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+            jest.useFakeTimers({
+                doNotFake: [
+                    'Date',
+                    'performance',
+                    'queueMicrotask',
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                    'nextTick',
+                ],
+            })
+            let requests = 0
+            const check = {
+                id: 'monitoring-check',
+                status: 'active',
+                updated_at: '2026-09-29T00:00:00Z',
+                monitoring_timing: {
+                    state: 'scheduled',
+                    started_at: '2026-09-29T00:00:00Z',
+                    ends_at: '2026-09-30T00:00:00Z',
+                    next_measurement_at: '2026-09-29T18:00:00Z',
+                },
+            } as SignalReportCheckApi
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/': () => {
+                        requests += 1
+                        return {
+                            results: [
+                                {
+                                    ...check,
+                                    monitoring_timing: {
+                                        ...check.monitoring_timing,
+                                        state: requests > 1 ? 'window_ended' : 'scheduled',
+                                        next_measurement_at:
+                                            requests > 1 ? null : check.monitoring_timing?.next_measurement_at,
+                                    },
+                                },
+                            ],
+                        }
+                    },
+                },
+            })
+            try {
+                logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(requests).toBe(1)
+                jest.advanceTimersByTime(60000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(requests).toBe(2)
+                expect(logic.values.reportChecks?.[0].monitoring_timing?.state).toBe('window_ended')
+                logic.actions.setReport({ ...REPORT, status: SignalReportStatus.RESOLVED })
+                jest.advanceTimersByTime(60000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(requests).toBe(2)
+            } finally {
+                logic.unmount()
+                jest.useRealTimers()
+            }
+        })
+
         it.each([REPORT.id, 'another-report'])(
             'reloads checks and only the selected report %s when a task settles',
             async (selectedReportId) => {

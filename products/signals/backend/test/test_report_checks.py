@@ -1575,11 +1575,21 @@ class TestReportCheckAPI(APIBaseTest):
                 with self.assertRaisesMessage(CheckCreationError, "not enabled"):
                     self._create(config=config)
             response = self.client.get(f"{self.url}{check.id}/")
+            assert "monitoring_timing" not in response.json()
+            SignalReport.objects.filter(id=self.report.id).update(
+                status=SignalReport.Status.MONITORING, monitoring_started_at=timezone.now() - timedelta(hours=1)
+            )
+            monitoring_response = self.client.get(f"{self.url}{check.id}/")
         assert response.status_code == status.HTTP_200_OK
+        assert monitoring_response.status_code == status.HTTP_200_OK
         returned_config = response.json()["config"]
         assert ("monitoring" in returned_config) is (flag_result is True)
         assert returned_config["query"] == _PAGEVIEWS
         assert returned_config["comparison"] == config["comparison"]
+        assert ("monitoring_timing" in monitoring_response.json()) is (flag_result is True)
+        if flag_result is True:
+            assert monitoring_response.json()["monitoring_timing"]["state"] == "waiting"
+            assert monitoring_response.json()["monitoring_timing"]["next_measurement_at"] is None
         check.refresh_from_db()
         assert check.config["monitoring"] == monitoring
 
