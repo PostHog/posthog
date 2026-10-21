@@ -55,12 +55,8 @@ _save_failure_log() {
 }
 
 # ── Step runner ─────────────────────────────────────────────────────
-# Runs a command with a spinner and live output preview.
+# Runs a command and shows its progress with wait_bg_step.
 # Usage: run_step "Label" command [args...]
-#   - Shows a braille spinner with elapsed time while the command runs.
-#   - Below the spinner line, the last line of command output scrolls in-place.
-#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
-#   - Non-interactive: prints "... Label" while it runs, then the status line.
 run_step() {
   local label="$1"
   shift
@@ -76,9 +72,12 @@ run_step() {
   wait_bg_step "$label" $! "$start_time" "$tmpfile"
 }
 
-# Waits for a step running as a background process and reports its outcome
-# with the same display as run_step.
+# Waits for a step running as a background process and reports its outcome.
 # Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
+#   - Shows a braille spinner with elapsed time while the process runs.
+#   - Below the spinner line, the last line of its log scrolls in-place.
+#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
+#   - Non-interactive: prints "... Label" while it runs, then the status line.
 wait_bg_step() {
   local label="$1"
   local pid="$2"
@@ -96,10 +95,12 @@ wait_bg_step() {
       local elapsed=$(( $(date +%s) - start_time ))
       local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
 
-      # Read last non-empty line from output
+      # Read last line of output
       local last_line=""
       if [[ -s "$tmpfile" ]]; then
-        last_line=$(tail -n 1 "$tmpfile" 2>/dev/null | tr -d '\r' | cut -c1-70)
+        last_line=$(tail -n 1 "$tmpfile" 2>/dev/null)
+        last_line="${last_line//$'\r'/}"
+        last_line="${last_line:0:70}"
       fi
 
       # Redraw: clear previous output line if we had one
