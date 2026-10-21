@@ -30,14 +30,14 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=FINGERPRINT)
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
 
-    def _exception(self, hours_ago: int, *, session_id: str) -> str:
+    def _exception(self, ago: timedelta, *, session_id: str) -> str:
         event_uuid = str(uuid7())
         _create_event(
             event_uuid=event_uuid,
             distinct_id="user",
             event="$exception",
             team=self.team,
-            timestamp=NOW - timedelta(hours=hours_ago),
+            timestamp=NOW - ago,
             properties={
                 "$exception_issue_id": ISSUE_ID,
                 "$exception_fingerprint": FINGERPRINT,
@@ -82,18 +82,23 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_recording_filter_pages_through_exceptions_with_a_playable_recording(self) -> None:
-        sessions = [str(uuid7()) for _ in range(6)]
-        exceptions = [
-            self._exception(hours_ago=index + 1, session_id=session) for index, session in enumerate(sessions)
+        sessions = [str(uuid7()) for _ in range(7)]
+        # The first two exceptions fall in the same second, so the first page's cursor sits between them.
+        moments = [
+            timedelta(hours=1, milliseconds=-700),
+            timedelta(hours=1, milliseconds=-300),
+            *(timedelta(hours=hours) for hours in range(2, 7)),
         ]
+        exceptions = [self._exception(ago, session_id=session) for ago, session in zip(moments, sessions)]
         self._recording(sessions[0], hours_ago=1)
+        self._recording(sessions[1], hours_ago=1)
         # A deletion writes its own row, stamped later than the recording, like a production deletion.
-        self._recording(sessions[1], hours_ago=2)
-        self._deletion_marker(sessions[1])
-        self._recording(sessions[3], hours_ago=4)
+        self._recording(sessions[2], hours_ago=2)
+        self._deletion_marker(sessions[2])
+        self._recording(sessions[4], hours_ago=4)
         # The recording starts after the exception, later in the same session.
-        self._recording(sessions[4], hours_ago=2.5)
-        self._metadata_without_snapshots(sessions[5], hours_ago=6)
+        self._recording(sessions[5], hours_ago=2.5)
+        self._metadata_without_snapshots(sessions[6], hours_ago=6)
         flush_persons_and_events()
 
         seen: list[str] = []
@@ -105,7 +110,7 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             after="-7d",
             limit=1,
         )
-        for _ in range(7):
+        for _ in range(8):
             response = ErrorTrackingIssueEventsQueryRunner(
                 team=self.team,
                 query=ErrorTrackingIssueEventsQuery(
@@ -120,4 +125,4 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 break
             source = source.model_copy(update={"before": response.nextCursor})
 
-        assert seen == [exceptions[0], exceptions[3], exceptions[4]]
+        assert seen == [exceptions[0], exceptions[1], exceptions[4], exceptions[5]]

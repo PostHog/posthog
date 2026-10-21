@@ -23866,7 +23866,7 @@
                 },
                 "source": {
                     "$ref": "#/definitions/EventsQuery",
-                    "description": "The issue's exceptions list. It must order by `timestamp`, so that pages continue from a cursor."
+                    "description": "The issue's exceptions list. It must order by `timestamp DESC`, the default, so that pages continue from a cursor."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"

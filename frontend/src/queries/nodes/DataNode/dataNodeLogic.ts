@@ -1762,7 +1762,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         responseError ||
                         dataLoading ||
                         !issueEventsResponse?.hasMore ||
-                        !issueEventsResponse.nextCursor
+                        !issueEventsResponse.nextCursor ||
+                        (maxPaginationRows !== undefined && issueEventsResponse.results.length >= maxPaginationRows)
                     ) {
                         return null
                     }

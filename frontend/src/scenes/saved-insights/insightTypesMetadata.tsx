@@ -365,7 +365,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.ErrorTrackingIssueEventsQuery]: {
         name: 'Error Tracking Issue Exceptions',
-        description: "List an issue's exceptions, optionally only the ones with linked logs or a recording.",
+        description: "List an issue's exceptions, optionally only the ones with a session recording.",
         icon: IconWarning,
         inMenu: false,
     },

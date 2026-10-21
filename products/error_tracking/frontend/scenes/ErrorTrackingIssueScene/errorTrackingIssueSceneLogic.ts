@@ -69,7 +69,7 @@ import {
     errorTrackingIssueEventsListQuery,
     errorTrackingIssueQuery,
 } from '../../queries'
-import { syncSearchParams } from '../../utils'
+import { syncSearchParams, updateSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
@@ -195,6 +195,9 @@ export interface errorTrackingIssueSceneLogicActions {
         searchQuery: string
     } // issueFiltersLogic
     loadLinkedReports: () => any // linkedReportsLogic
+    setOnlyWithRecording: (onlyWithRecording: boolean) => {
+        onlyWithRecording: boolean
+    } // issueRecordingFilterLogic
     createExternalReference: (
         integrationId: IntegrationType['id'],
         config: Record<string, string>,
@@ -706,6 +709,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ],
             linkedReportsLogic({ issueId: props.id }),
             ['loadLinkedReports'],
+            issueRecordingFilterLogic({ issueId: props.id }),
+            ['setOnlyWithRecording'],
         ],
     })),
 
@@ -1112,9 +1117,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
                     actions.loadSpikeEvents()
-                    eventsSourceLogic
-                        .findMounted({ query: values.issueEventsQuery, queryKey: values.issueEventsQueryKey })
-                        ?.actions.loadData('force_blocking')
+                    // The issue page lists the issue events query, and the notebook widget lists the plain events query.
+                    for (const source of [
+                        { query: values.issueEventsQuery, queryKey: values.issueEventsQueryKey },
+                        { query: values.eventsQuery, queryKey: values.eventsQueryKey },
+                    ]) {
+                        eventsSourceLogic.findMounted(source)?.actions.loadData('force_blocking')
+                    }
                 }
             },
             selectEvent: ({ event }) => {
@@ -1167,6 +1176,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
                 }
                 triggerFilterActions(params, values, actions)
+                const onlyWithRecording = [true, 'true'].includes(params.onlyWithRecording)
+                if (onlyWithRecording !== values.onlyWithRecording) {
+                    actions.setOnlyWithRecording(onlyWithRecording)
+                }
             },
         }
     }),
@@ -1175,6 +1188,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         const buildURL = (): ReturnType<typeof syncSearchParams> =>
             syncSearchParams(router, (params: Params) => {
                 updateFilterSearchParams(params, values)
+                updateSearchParams(params, 'onlyWithRecording', values.onlyWithRecording, false)
                 delete params.tab
                 return params
             })
@@ -1184,6 +1198,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             setFilterGroup: buildURL,
             setSearchQuery: buildURL,
             setFilterTestAccounts: buildURL,
+            setOnlyWithRecording: buildURL,
         }
     }),
 ])
