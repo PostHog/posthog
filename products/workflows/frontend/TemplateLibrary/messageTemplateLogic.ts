@@ -690,8 +690,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
             saveTemplate: async (template) => {
                 // Saving the content publishes it, and the server clears the draft. The sensitive setting
-                // saves on its own, so a publish never sends it and can't undo a change still in flight.
-                const { sensitive: _sensitive, ...content } = template
+                // and the tags each save on their own, so a publish never sends them and can't undo a
+                // change made in another tab since this one loaded the template.
+                const { sensitive: _sensitive, tags: _tags, ...content } = template
                 const saved =
                     template.id === 'new'
                         ? await api.messaging.createTemplate(template)
@@ -755,21 +756,30 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         setTemplateValue: () => actions.autoSaveDraft(),
-        saveTags: async ({ tags }) => {
+        saveTags: async ({ tags }, breakpoint) => {
             // An unsaved template has no row yet, so its tags ride the create.
             if (!props.id || props.id === 'new') {
                 actions.setTemplateValue('tags', tags)
                 return
             }
+            // The editor fires one save per tag added or removed. Without this, a burst of clicks puts
+            // several writes in flight at once, and the one that lands last wins rather than the latest
+            // selection. The wait collapses the burst into a single write.
+            await breakpoint(300)
             // Tags are metadata: they apply live and must not publish a transactional template's draft,
             // which a full form save would.
+            let updated: MessageTemplate
             try {
-                const updated = await api.messaging.updateTemplate(props.id, { tags })
-                actions.setTemplate({ ...values.template, tags: updated.tags })
-                actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
+                updated = await api.messaging.updateTemplate(props.id, { tags })
             } catch (error: any) {
                 lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+                return
             }
+            // Outside the catch: a breakpoint throws to unwind a superseded listener, and catching that
+            // would report it as a failed save.
+            breakpoint()
+            actions.setTemplate({ ...values.template, tags: updated.tags })
+            actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
         },
         setTemplateValues: () => actions.autoSaveDraft(),
         autoSaveDraft: async (_, breakpoint) => {
