@@ -44,8 +44,7 @@ export function DevModeSetting(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            <p className="mb-0">
-                Create a token to call the AI gateway from your machine. Requests made with it are attributed to you.
+            <p className="max-w-160 mb-0">
                 Each token can spend up to ${usage?.token_cap_usd ?? '…'} and expires after{' '}
                 {usage ? Math.round(usage.ttl_seconds / 3600) : '…'} hours.
             </p>
