@@ -87,6 +87,7 @@ pub struct GroupLag {
 pub struct ChangelogView {
     pub config: Option<ChangelogConfig>,
     pub writer: Option<GroupLag>,
+    pub retire_groups: Vec<GroupLag>,
     pub migration: Option<MigrationState>,
     pub request: Option<MigrationRequest>,
     pub history: Vec<MigrationState>,
@@ -99,15 +100,18 @@ pub struct GroupDrain {
     pub drained_partitions: usize,
     pub partitions: usize,
     pub error: Option<String>,
+    /// The group's own drain report, which the coordinator retires on.
+    pub reported: bool,
 }
 
-/// A draining generation and how far the writer group has read it.
+/// A draining generation and how far each gating group has read it.
 #[derive(Serialize)]
 pub struct DrainingView {
     pub topic: String,
     pub partitions: u32,
     pub epoch: u64,
     pub writer: GroupDrain,
+    pub retire_groups: Vec<GroupDrain>,
 }
 
 async fn group_drain(config: &Config, group: &str, topic: &str) -> GroupDrain {
@@ -124,20 +128,45 @@ async fn group_drain(config: &Config, group: &str, topic: &str) -> GroupDrain {
             drained_partitions: drained.values().filter(|ok| **ok).count(),
             partitions: drained.len(),
             error: None,
+            reported: false,
         },
         Ok(Err(e)) => GroupDrain {
             group: group.to_string(),
             drained_partitions: 0,
             partitions: 0,
             error: Some(e.to_string()),
+            reported: false,
         },
         Err(e) => GroupDrain {
             group: group.to_string(),
             drained_partitions: 0,
             partitions: 0,
             error: Some(format!("probe task panicked: {e}")),
+            reported: false,
         },
     }
+}
+
+/// Add a consumer group, such as the relay's, that retire then waits on as well.
+pub async fn add_retire_group(client: &Client, prefix: &str, group: &str) -> anyhow::Result<()> {
+    if !store(client, prefix)
+        .add_changelog_retire_group(group)
+        .await?
+    {
+        bail!("config/changelog is not seeded or moved; refresh and retry");
+    }
+    Ok(())
+}
+
+/// Stop retire waiting on a group, for a consumer that no longer runs.
+pub async fn remove_retire_group(client: &Client, prefix: &str, group: &str) -> anyhow::Result<()> {
+    if !store(client, prefix)
+        .remove_changelog_retire_group(group)
+        .await?
+    {
+        bail!("config/changelog is not seeded or moved; refresh and retry");
+    }
+    Ok(())
 }
 
 /// Drop a drained generation from the config; deleting the topic stays a Terraform change.
@@ -149,28 +178,44 @@ pub async fn retire(
 ) -> anyhow::Result<()> {
     let config = &config.personhog_kafka();
     let store = store(client, prefix);
-    let live = store
-        .get_changelog_config()
+    let (live, mod_revision) = store
+        .get_changelog_config_with_mod_revision()
         .await?
         .context("config/changelog is not seeded")?;
     if !live.draining.iter().any(|g| g.topic == topic) {
         bail!("{topic} is not a draining generation");
     }
-    let group = &live.writer_group;
-    let drain = group_drain(config, group, topic).await;
-    if let Some(error) = drain.error {
-        bail!("group {group}: {error}");
-    }
-    if drain.partitions == 0 || drain.drained_partitions < drain.partitions {
+    if let Some(migration) = store.get_migration().await? {
         bail!(
-            "group {group} has read {} of {} partitions of {topic} to the end",
-            drain.drained_partitions,
-            drain.partitions
+            "migration {} is {:?}; retire once it completes",
+            migration.id,
+            migration.phase
         );
     }
-    if !store.retire_changelog_topic(topic).await? {
-        bail!("the config moved; refresh and retry");
+    for group in live.gated_groups() {
+        let drain = group_drain(config, group, topic).await;
+        if let Some(error) = drain.error {
+            bail!("group {group}: {error}");
+        }
+        if drain.partitions == 0 || drain.drained_partitions < drain.partitions {
+            bail!(
+                "group {group} has read {} of {} partitions of {topic} to the end",
+                drain.drained_partitions,
+                drain.partitions
+            );
+        }
     }
+    if !store
+        .retire_changelog_topic(&live, mod_revision, topic)
+        .await?
+    {
+        bail!("the config moved or a migration started; refresh and retry");
+    }
+    common_metrics::inc(
+        "personhog_changelog_retires_total",
+        &[("trigger".to_string(), "manual".to_string())],
+        1,
+    );
     Ok(())
 }
 
@@ -288,12 +333,30 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
     history.sort_by_key(|m| std::cmp::Reverse(m.created_at_ms));
     let mut draining = Vec::new();
     if let Some(changelog) = &changelog {
+        let reports = store.list_drain_reports().await?;
+        let drain = |group: &str, topic: &str| {
+            let reported = reports.iter().any(|r| r.group == group && r.topic == topic);
+            let (group, topic) = (group.to_string(), topic.to_string());
+            async move {
+                GroupDrain {
+                    reported,
+                    ..group_drain(config, &group, &topic).await
+                }
+            }
+        };
         for generation in &changelog.draining {
             draining.push(DrainingView {
                 topic: generation.topic.clone(),
                 partitions: generation.partitions,
                 epoch: generation.epoch,
-                writer: group_drain(config, &changelog.writer_group, &generation.topic).await,
+                writer: drain(&changelog.writer_group, &generation.topic).await,
+                retire_groups: {
+                    let mut drains = Vec::new();
+                    for group in &changelog.retire_groups {
+                        drains.push(drain(group, &generation.topic).await);
+                    }
+                    drains
+                },
             });
         }
     }
@@ -301,9 +364,16 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
         Some(changelog) => Some(group_lag(config, &changelog.writer_group, &changelog.topic).await),
         None => None,
     };
+    let mut retire_groups = Vec::new();
+    if let Some(changelog) = &changelog {
+        for group in &changelog.retire_groups {
+            retire_groups.push(group_lag(config, group, &changelog.topic).await);
+        }
+    }
     Ok(ChangelogView {
         config: changelog,
         writer,
+        retire_groups,
         migration,
         request,
         history,
