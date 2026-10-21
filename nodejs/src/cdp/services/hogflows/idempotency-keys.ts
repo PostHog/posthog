@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { Counter, Histogram } from 'prom-client'
 
 import type { CommonConfig } from '~/common/config'
 import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -20,6 +21,21 @@ const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.deco
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
 const MARK_QUEUED_ATTEMPTS = 2
+
+const idempotencyOperationsTotal = new Counter({
+    name: 'cdp_hogflow_idempotency_operations_total',
+    help: 'Idempotency key store operations by route scope, operation and outcome. A reserve outcome of unavailable means the request ran without deduplication or was refused, by route.',
+    labelNames: ['scope', 'operation', 'outcome'],
+})
+
+const idempotencyValkeyDurationSeconds = new Histogram({
+    name: 'cdp_hogflow_idempotency_valkey_duration_seconds',
+    help: 'Duration of idempotency key store calls to Valkey, by route scope and operation. Calls stop at the 1 second timeout.',
+    labelNames: ['scope', 'operation'],
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
+})
+
+type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release'
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     let timeoutId: NodeJS.Timeout | undefined
@@ -127,7 +143,19 @@ export class IdempotencyKeys {
         fingerprint: string,
         invocationId: string
     ): Promise<IdempotencyReservation> {
-        if (!this.valkey) {
+        const reservation = await this.reserveInStore(teamId, key, fingerprint, invocationId)
+        this.count('reserve', reservation.status)
+        return reservation
+    }
+
+    private async reserveInStore(
+        teamId: number,
+        key: string,
+        fingerprint: string,
+        invocationId: string
+    ): Promise<IdempotencyReservation> {
+        const valkey = this.valkey
+        if (!valkey) {
             return { status: 'unavailable' }
         }
         const value: StoredKey = { fingerprint, invocationId, queued: false }
@@ -135,8 +163,8 @@ export class IdempotencyKeys {
         try {
             // SET ... NX GET sets the key when absent and returns the existing value when present.
             // ioredis 4.x types only describe 'OK' | null, so cast to the GET payload.
-            existing = await withTimeout(
-                this.valkey.useClient(
+            existing = await this.timed('reserve', () =>
+                valkey.useClient(
                     { name: 'idempotency-reserve' },
                     (client: RedisClient) =>
                         client.set(this.redisKey(teamId, key), JSON.stringify(value), [
@@ -145,8 +173,7 @@ export class IdempotencyKeys {
                             'NX',
                             'GET',
                         ]) as Promise<string | null>
-                ),
-                VALKEY_TIMEOUT_MS
+                )
             )
         } catch (error) {
             logger.error('🔑', 'idempotency key reservation failed', { scope: this.scope, error: String(error) })
@@ -166,24 +193,26 @@ export class IdempotencyKeys {
         const value: StoredKey = { fingerprint, invocationId, queued: true }
         for (let attempt = 1; attempt <= MARK_QUEUED_ATTEMPTS; attempt++) {
             try {
-                const written = await withTimeout(
-                    this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
-                        client.eval(
-                            MARK_QUEUED_SCRIPT,
-                            1,
-                            this.redisKey(teamId, key),
-                            JSON.stringify(value),
-                            invocationId,
-                            QUEUED_TTL_SECONDS
-                        )
-                    ) ?? Promise.resolve(null),
-                    VALKEY_TIMEOUT_MS
+                const written = await this.timed(
+                    'mark_queued',
+                    () =>
+                        this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
+                            client.eval(
+                                MARK_QUEUED_SCRIPT,
+                                1,
+                                this.redisKey(teamId, key),
+                                JSON.stringify(value),
+                                invocationId,
+                                QUEUED_TTL_SECONDS
+                            )
+                        ) ?? Promise.resolve(null)
                 )
                 if (written === 0) {
                     logger.warn('🔑', 'idempotency key held by another request, run not recorded', {
                         scope: this.scope,
                     })
                 }
+                this.count('mark_queued', written === 0 ? 'not_owned' : 'written')
                 return
             } catch (error) {
                 // The run is already queued, so the request still succeeds. Without this record a retry
@@ -195,18 +224,35 @@ export class IdempotencyKeys {
                 })
             }
         }
+        this.count('mark_queued', 'failed')
     }
 
     async release(teamId: number, key: string, invocationId: string): Promise<void> {
         try {
-            await withTimeout(
-                this.valkey?.useClient({ name: 'idempotency-release' }, (client) =>
-                    client.eval(RELEASE_SCRIPT, 1, this.redisKey(teamId, key), invocationId)
-                ) ?? Promise.resolve(null),
-                VALKEY_TIMEOUT_MS
+            const released = await this.timed(
+                'release',
+                () =>
+                    this.valkey?.useClient({ name: 'idempotency-release' }, (client) =>
+                        client.eval(RELEASE_SCRIPT, 1, this.redisKey(teamId, key), invocationId)
+                    ) ?? Promise.resolve(null)
             )
+            this.count('release', released === 1 ? 'released' : 'not_owned')
         } catch (error) {
             logger.error('🔑', 'idempotency key release failed', { scope: this.scope, error: String(error) })
+            this.count('release', 'failed')
+        }
+    }
+
+    private count(operation: IdempotencyOperation, outcome: string): void {
+        idempotencyOperationsTotal.inc({ scope: this.scope, operation, outcome })
+    }
+
+    private async timed<T>(operation: IdempotencyOperation, call: () => Promise<T>): Promise<T> {
+        const stopTimer = idempotencyValkeyDurationSeconds.startTimer({ scope: this.scope, operation })
+        try {
+            return await withTimeout(call(), VALKEY_TIMEOUT_MS)
+        } finally {
+            stopTimer()
         }
     }
 

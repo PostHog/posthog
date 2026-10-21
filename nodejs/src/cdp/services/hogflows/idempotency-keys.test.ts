@@ -1,4 +1,5 @@
 import Redis from 'ioredis'
+import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -10,6 +11,12 @@ import { UUIDT } from '~/common/utils/utils'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './idempotency-keys'
 
 describe('IdempotencyKeys', () => {
+    // Alerts read this counter, so an outcome that stops being counted silences them.
+    const operations = async (scope: string, operation: string, outcome: string): Promise<number> =>
+        (await register.getSingleMetric('cdp_hogflow_idempotency_operations_total')!.get()).values.find(
+            (v) => v.labels.scope === scope && v.labels.operation === operation && v.labels.outcome === outcome
+        )?.value ?? 0
+
     let valkey: RedisV2
     let keys: IdempotencyKeys
     let key: string
@@ -25,6 +32,7 @@ describe('IdempotencyKeys', () => {
     })
 
     it('holds a key while the first request queues, then replays its run', async () => {
+        const replayedBefore = await operations('test', 'reserve', 'replayed')
         expect(await keys.reserve(1, key, 'request-a', 'run-1')).toEqual({ status: 'reserved' })
         expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'in_flight' })
         expect(await keys.reserve(1, key, 'request-b', 'run-3')).toEqual({ status: 'conflict' })
@@ -33,6 +41,7 @@ describe('IdempotencyKeys', () => {
 
         expect(await keys.reserve(1, key, 'request-a', 'run-4')).toEqual({ status: 'replayed', invocationId: 'run-1' })
         expect(await keys.reserve(2, key, 'request-a', 'run-5')).toEqual({ status: 'reserved' })
+        expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
     it('frees a key only for the request that holds it', async () => {
@@ -56,9 +65,12 @@ describe('IdempotencyKeys', () => {
     })
 
     it('reports the store as unavailable when it is not configured', async () => {
-        expect(await new IdempotencyKeys(null, 'test').reserve(1, key, 'request-a', 'run-1')).toEqual({
+        const unavailableBefore = await operations('unconfigured', 'reserve', 'unavailable')
+
+        expect(await new IdempotencyKeys(null, 'unconfigured').reserve(1, key, 'request-a', 'run-1')).toEqual({
             status: 'unavailable',
         })
+        expect(await operations('unconfigured', 'reserve', 'unavailable')).toEqual(unavailableBefore + 1)
     })
 
     it.each([
@@ -80,7 +92,7 @@ describe('IdempotencyKeys', () => {
         const warn = jest.spyOn(logger, 'warn')
         try {
             const pool = createRedisV2PoolFromConfig({
-                connection: { url: '127.0.0.1', exitOnRepeatedErrors: false },
+                connection: { url: '127.0.0.1', name: 'pause-test', exitOnRepeatedErrors: false },
                 poolMinSize: 0,
                 poolMaxSize: 1,
                 acquireTimeoutMillis: 1500,
@@ -92,7 +104,9 @@ describe('IdempotencyKeys', () => {
             await jest.advanceTimersByTimeAsync(1500)
             await call
             // Without the pause, generic-pool retries the failed create thousands of times in this window.
-            expect(create.mock.calls.length).toBeLessThanOrEqual(2)
+            // Only this pool's attempts count, because the suite's shared pool also creates connections.
+            const attempts = create.mock.calls.filter(([connection]) => connection.name === 'pause-test')
+            expect(attempts.length).toBeLessThanOrEqual(2)
 
             await jest.advanceTimersByTimeAsync(2000)
             expect(warn).not.toHaveBeenCalledWith('⌛', expect.stringContaining('delayed'), undefined)
