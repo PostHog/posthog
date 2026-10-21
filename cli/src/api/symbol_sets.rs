@@ -171,6 +171,8 @@ pub struct PresignedUrl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_attempt_id: Option<String>,
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
     force: bool,
@@ -198,6 +200,7 @@ struct HashedUpload<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
+    upload_attempt_id: String,
 }
 
 /// Upload symbol sets with optional retry on release_id_mismatch error.
@@ -381,7 +384,8 @@ fn upload_inner(
 
     for (i, batch) in to_upload.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch, force, skip_on_conflict)?;
+        let upload_attempt_id = uuid::Uuid::now_v7().to_string();
+        let start_response = start_upload(batch, force, skip_on_conflict, &upload_attempt_id)?;
 
         let id_map: HashMap<&str, HashedUpload> = batch
             .iter()
@@ -418,7 +422,7 @@ fn upload_inner(
         }
         let uploaded = content_hashes.len();
 
-        finish_upload(content_hashes)?;
+        finish_upload(content_hashes, &upload_attempt_id)?;
         summary.uploaded += uploaded;
     }
 
@@ -476,6 +480,7 @@ fn bulk_upload_request(
     skip_on_conflict: bool,
 ) -> BulkUploadRequest {
     BulkUploadRequest {
+        upload_attempt_id: None,
         symbol_sets: batch
             .iter()
             .map(|hashed| CreateSymbolSetRequest {
@@ -544,9 +549,13 @@ fn start_upload(
     batch: &[HashedUpload],
     force: bool,
     skip_on_conflict: bool,
+    upload_attempt_id: &str,
 ) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
-    let request = bulk_upload_request(batch, force, skip_on_conflict);
+    let request = BulkUploadRequest {
+        upload_attempt_id: Some(upload_attempt_id.to_string()),
+        ..bulk_upload_request(batch, force, skip_on_conflict)
+    };
 
     let res = retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -686,9 +695,15 @@ fn upload_to_s3(
     Ok(())
 }
 
-fn finish_upload(content_hashes: HashMap<String, String>) -> Result<(), UploadError> {
+fn finish_upload(
+    content_hashes: HashMap<String, String>,
+    upload_attempt_id: &str,
+) -> Result<(), UploadError> {
     let client = &context().client;
-    let request = BulkUploadFinishRequest { content_hashes };
+    let request = BulkUploadFinishRequest {
+        content_hashes,
+        upload_attempt_id: upload_attempt_id.to_string(),
+    };
 
     retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -1064,6 +1079,33 @@ mod tests {
     }
 
     #[test]
+    fn upload_attempt_id_is_sent_with_start_and_finish_but_not_check() {
+        let check = bulk_upload_request(&[], false, false);
+        assert!(serde_json::to_value(&check)
+            .unwrap()
+            .get("upload_attempt_id")
+            .is_none());
+
+        let upload_attempt_id = uuid::Uuid::now_v7().to_string();
+        let start = BulkUploadRequest {
+            upload_attempt_id: Some(upload_attempt_id.clone()),
+            ..check
+        };
+        let finish = BulkUploadFinishRequest {
+            content_hashes: HashMap::new(),
+            upload_attempt_id: upload_attempt_id.clone(),
+        };
+        assert_eq!(
+            serde_json::to_value(&start).unwrap()["upload_attempt_id"],
+            upload_attempt_id
+        );
+        assert_eq!(
+            serde_json::to_value(&finish).unwrap()["upload_attempt_id"],
+            upload_attempt_id
+        );
+    }
+
+    #[test]
     fn start_upload_response_parses_without_fallback_presigned_url() {
         let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
         let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
@@ -1262,10 +1304,10 @@ mod tests {
             crate::invocation_context::InvocationContext::new(config, client)
         });
 
-        let err = finish_upload(HashMap::from([(
-            "symbol-set-id".to_string(),
-            "content-hash".to_string(),
-        )]))
+        let err = finish_upload(
+            HashMap::from([("symbol-set-id".to_string(), "content-hash".to_string())]),
+            "test-attempt",
+        )
         .unwrap_err();
         let UploadError::Other(err) = err else {
             panic!("expected UploadError::Other");

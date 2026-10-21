@@ -100,6 +100,10 @@ class ErrorTrackingSymbolSetBulkCheckUploadResponseSerializer(serializers.Serial
 
 
 class ErrorTrackingSymbolSetBulkStartUploadSerializer(ErrorTrackingSymbolSetBulkCheckUploadSerializer):
+    upload_attempt_id = serializers.UUIDField(
+        required=False,
+        help_text="Optional ID used to correlate upload analytics across start and finish requests.",
+    )
     chunk_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -153,6 +157,10 @@ class ErrorTrackingSymbolSetBulkStartUploadResponseSerializer(serializers.Serial
 
 
 class ErrorTrackingSymbolSetBulkFinishUploadSerializer(serializers.Serializer):
+    upload_attempt_id = serializers.UUIDField(
+        required=False,
+        help_text="Optional ID from the corresponding bulk start request for upload analytics.",
+    )
     content_hashes = serializers.DictField(
         child=serializers.CharField(),
         help_text="Map of symbol set ID to uploaded content hash.",
@@ -436,7 +444,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         # get no entry in the id_map, so its size is the number of chunks being uploaded.
         total_chunks = len(symbol_sets) + len(chunk_ids)
         posthoganalytics.capture(
-            "error_tracking_symbol_set_upload_started",
+            "error_tracking_symbol_set_upload_started" if id_map else "error_tracking_symbol_set_upload_skipped",
             properties={
                 **get_request_analytics_properties(request),
                 "team_id": self.team.id,
@@ -445,6 +453,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 "skip_on_conflict": skip_on_conflict,
                 "total_chunks": total_chunks,
                 "chunks_skipped": total_chunks - len(id_map),
+                "chunks_to_upload": len(id_map),
+                **(
+                    {"upload_attempt_id": str(upload_data["upload_attempt_id"])}
+                    if "upload_attempt_id" in upload_data
+                    else {}
+                ),
             },
             groups=groups(self.team.organization, self.team),
         )
@@ -459,6 +473,13 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         if content_hashes is None:
             return Response({"detail": "content_hashes are required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        finish_data = {"content_hashes": content_hashes}
+        if "upload_attempt_id" in request.data:
+            finish_data["upload_attempt_id"] = request.data["upload_attempt_id"]
+        finish_serializer = ErrorTrackingSymbolSetBulkFinishUploadSerializer(data=finish_data)
+        finish_serializer.is_valid(raise_exception=True)
+        upload_attempt_id = finish_serializer.validated_data.get("upload_attempt_id")
+
         if len(content_hashes) == 0:
             # This can happen if someone re-runs an upload against a directory that's already been
             # uploaded - we'll return no new upload keys, they'll upload nothing, and then
@@ -466,7 +487,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             return Response({"success": True}, status=status.HTTP_201_CREATED)
 
         symbol_sets_facade.bulk_finish_upload(
-            self.team, content_hashes, analytics_props=get_request_analytics_properties(request)
+            self.team,
+            content_hashes,
+            analytics_props={
+                **get_request_analytics_properties(request),
+                **({"upload_attempt_id": str(upload_attempt_id)} if upload_attempt_id else {}),
+            },
         )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)

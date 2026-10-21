@@ -42226,6 +42226,8 @@ export namespace Schemas {
     export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
 
     export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Optional ID from the corresponding bulk start request for upload analytics. */
+      upload_attempt_id?: string;
       /** Map of symbol set ID to uploaded content hash. */
       content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
     }
@@ -42237,6 +42239,8 @@ export namespace Schemas {
       force?: boolean;
       /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
       skip_on_conflict?: boolean;
+      /** Optional ID used to correlate upload analytics across start and finish requests. */
+      upload_attempt_id?: string;
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**

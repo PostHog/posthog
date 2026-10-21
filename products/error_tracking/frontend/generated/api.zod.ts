@@ -1312,6 +1312,10 @@ export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.o
 })
 
 export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */ zod.object({
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID from the corresponding bulk start request for upload analytics.'),
     content_hashes: zod.record(zod.string(), zod.string()).describe('Map of symbol set ID to uploaded content hash.'),
 })
 
@@ -1352,6 +1356,10 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID used to correlate upload analytics across start and finish requests.'),
     chunk_ids: zod
         .array(zod.string())
         .optional()
