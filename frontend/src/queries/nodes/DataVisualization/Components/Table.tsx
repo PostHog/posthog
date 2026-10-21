@@ -315,7 +315,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
-                                className="max-w-full !text-inherit"
+                                // The negative margin cancels the button padding, so the value lines up with the header text
+                                className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
                                 tooltip="Explore this result"
                                 onClick={() =>
                                     props.onInspect?.(
