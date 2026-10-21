@@ -1,5 +1,7 @@
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -127,18 +129,25 @@ class DematerializeCandidate(Candidate):
         ids = [proposal.saved_query.id for proposal in proposals]
         dependents = dependent_saved_query_ids(context.team_id, ids)
         feeding_consumers = saved_queries_feeding_consumers(context.team_id, ids)
-        checked = []
-        for proposal in proposals:
-            saved_query_id = proposal.saved_query.id
-            if dependents.get(saved_query_id):
-                checked.append((proposal, DEPENDENTS_REJECTION))
-            elif saved_query_id in feeding_consumers:
-                checked.append((proposal, FEEDS_CONSUMERS_REJECTION))
-            elif context.reads_direct_source(saved_query_id):
-                checked.append((proposal, DIRECT_SOURCE_REJECTION))
-            else:
-                checked.append((proposal, None))
-        return checked
+        return [
+            (proposal, _graph_rejection(context, proposal.saved_query.id, dependents, feeding_consumers))
+            for proposal in proposals
+        ]
+
+
+def _graph_rejection(
+    context: CandidateContext,
+    saved_query_id: UUID,
+    dependents: Mapping[UUID, frozenset[UUID]],
+    feeding_consumers: frozenset[UUID],
+) -> str | None:
+    if dependents.get(saved_query_id):
+        return DEPENDENTS_REJECTION
+    if saved_query_id in feeding_consumers:
+        return FEEDS_CONSUMERS_REJECTION
+    if context.reads_direct_source(saved_query_id):
+        return DIRECT_SOURCE_REJECTION
+    return None
 
 
 def _payload(

@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -355,7 +356,7 @@ RARE_READS = {"human_requests": 4, "human_reads": 4, "background_reads": 0}
 DEMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.dematerialize"
 
 
-def hourly_refreshes(**overrides: float) -> SubjectRefreshes:
+def hourly_refreshes(**overrides: Any) -> SubjectRefreshes:
     refreshes = SubjectRefreshes(
         runs=HOURLY_RUNS,
         duration_ms=HOURLY_RUNS * FIVE_SECONDS_MS,
