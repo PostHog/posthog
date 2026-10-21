@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ..facade.enums import DevTokenClient
+from ..facade.enums import DevTokenClient, DevTokenStatus
 
 PKCE_CHALLENGE_PATTERN = r"^[A-Za-z0-9_-]{43}$"
 PKCE_VERIFIER_PATTERN = r"^[A-Za-z0-9._~-]{43,128}$"
@@ -12,6 +12,10 @@ class DevTokenSerializer(serializers.Serializer):
     cap_usd = serializers.DecimalField(max_digits=10, decimal_places=2, help_text="Most the token can spend, in USD.")
     created_at = serializers.DateTimeField(help_text="When the token was minted.")
     expires_at = serializers.DateTimeField(allow_null=True, help_text="When the gateway stops accepting the token.")
+    revoked_at = serializers.DateTimeField(allow_null=True, help_text="When the token was revoked, if it was.")
+    status = serializers.ChoiceField(
+        choices=DevTokenStatus.choices, help_text="Whether the token still works: live, revoked or expired."
+    )
 
 
 class DevTokenUsageSerializer(serializers.Serializer):
@@ -25,7 +29,10 @@ class DevTokenUsageSerializer(serializers.Serializer):
         max_digits=10, decimal_places=2, help_text="Cap of each new token, in USD."
     )
     ttl_seconds = serializers.IntegerField(help_text="Lifetime of each new token, in seconds.")
-    tokens = DevTokenSerializer(many=True, help_text="The user's live tokens, newest first.")
+    tokens = DevTokenSerializer(
+        many=True,
+        help_text="Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones.",
+    )
 
 
 class MintedDevTokenSerializer(serializers.Serializer):

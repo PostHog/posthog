@@ -26,11 +26,13 @@ import structlog
 import posthoganalytics
 
 from posthog.api.email_verification import email_verification_pending
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ..facade.contracts import DevToken, DevTokenRefused, DevTokenUsage, MintedDevToken
-from ..facade.enums import DevTokenClient
+from ..facade.enums import DevTokenClient, DevTokenStatus
 from ..models import DevGatewayToken
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +69,9 @@ def eligibility_refusal(user: User) -> DevTokenRefused | None:
     if not (user.email or "").lower().endswith(STAFF_EMAIL_DOMAIN) or email_verification_pending(user):
         return DevTokenRefused("not_staff", "Developer mode needs a verified @posthog.com email.", 403)
     if not user.distinct_id:
-        return DevTokenRefused("not_staff", "user has no distinct_id to attribute spend to.", 403)
+        return DevTokenRefused(
+            "not_staff", "Your account has no distinct_id, so spend can't be attributed to you.", 403
+        )
     if not configured():
         return DevTokenRefused("unconfigured", "Developer mode is not configured on this instance.", 503)
     try:
@@ -102,6 +106,13 @@ def _to_dto(row: DevGatewayToken) -> DevToken:
         created_at=row.created_at,
         expires_at=row.expires_at,
         revoked_at=row.revoked_at,
+        status=(
+            DevTokenStatus.REVOKED
+            if row.revoked_at
+            else DevTokenStatus.EXPIRED
+            if row.expires_at and row.expires_at <= timezone.now()
+            else DevTokenStatus.LIVE
+        ),
     )
 
 
@@ -112,9 +123,17 @@ def _reserve(user: User, client: DevTokenClient) -> DevGatewayToken:
         User.objects.select_for_update().filter(pk=user.pk).first()
         used = _used_usd(user.pk)
         if used + cap > daily_cap_usd():
+            oldest = (
+                DevGatewayToken.objects.filter(user_id=user.pk, created_at__gte=_window_start())
+                .order_by("created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
+            available_at = (oldest + timedelta(days=1)) if oldest else timezone.now()
             raise DevTokenRefused(
                 "daily_limit",
-                f"daily developer mode limit is {daily_cap_usd()} USD; {used} USD of token caps minted in the last 24 hours",
+                f"You've used ${used:.2f} of your ${daily_cap_usd():.2f} limit for the last 24 hours. "
+                f"You can create another token at {available_at:%Y-%m-%d %H:%M} UTC.",
                 429,
             )
         return DevGatewayToken.objects.create(
@@ -142,17 +161,34 @@ def _call_mint(user: User, cap: Decimal) -> dict:
     try:
         response = _gateway_post("/v1/tokens", body)
     except requests.RequestException as e:
-        raise DevTokenRefused("mint_failed", "AI gateway unreachable.", 503) from e
+        raise DevTokenRefused("mint_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
     if response.status_code != 201:
         logger.warning("ai_gateway_dev_mint_refused", status=response.status_code)
-        raise DevTokenRefused("mint_failed", f"AI gateway refused the mint with HTTP {response.status_code}.", 503)
+        raise DevTokenRefused(
+            "mint_failed",
+            f"The AI gateway rejected the request (HTTP {response.status_code}). Try again in a minute.",
+            503,
+        )
     try:
         minted = response.json()
     except ValueError as e:
-        raise DevTokenRefused("mint_failed", "AI gateway mint response was not JSON.", 503) from e
+        raise DevTokenRefused("mint_failed", "The AI gateway sent a response PostHog couldn't read.", 503) from e
     if not isinstance(minted, dict) or not minted.get("token") or not minted.get("expires_at"):
-        raise DevTokenRefused("mint_failed", "AI gateway mint response had no token.", 503)
+        raise DevTokenRefused("mint_failed", "The AI gateway sent a response without a token.", 503)
     return minted
+
+
+def _log(user: User, row: DevGatewayToken, activity: str, changes: list[Change]) -> None:
+    log_activity(
+        organization_id=Team.objects.only("organization_id").get(pk=row.team_id).organization_id,
+        team_id=row.team_id,
+        user=user,
+        was_impersonated=False,
+        item_id=row.id,
+        scope="DevGatewayToken",
+        activity=activity,
+        detail=Detail(name=f"Developer mode token for {user.email}", changes=changes),
+    )
 
 
 def mint(user: User, client: DevTokenClient) -> MintedDevToken:
@@ -168,6 +204,16 @@ def mint(user: User, client: DevTokenClient) -> MintedDevToken:
         row.expires_at = minted["expires_at"]
         row.save(update_fields=["token_hash", "expires_at"])
         row.refresh_from_db(fields=["expires_at"])
+        _log(
+            user,
+            row,
+            "minted",
+            [
+                Change(type="DevGatewayToken", action="created", field="client", after=row.client),
+                Change(type="DevGatewayToken", action="created", field="cap_usd", after=str(row.cap_usd)),
+                Change(type="DevGatewayToken", action="created", field="expires_at", after=row.expires_at.isoformat()),
+            ],
+        )
     logger.info("ai_gateway_dev_token_minted", user_id=user.pk, token_id=str(row.id), client=client.value)
     assert row.expires_at is not None
     return MintedDevToken(
@@ -182,10 +228,11 @@ def mint(user: User, client: DevTokenClient) -> MintedDevToken:
 
 def usage(user: User) -> DevTokenUsage:
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
-        active = DevGatewayToken.objects.filter(
-            user_id=user.pk, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
+        # Every token that counts against the daily limit, including revoked and expired ones.
+        recent = DevGatewayToken.objects.filter(
+            user_id=user.pk, token_hash__isnull=False, created_at__gte=_window_start()
         ).order_by("-created_at")
-        tokens = [_to_dto(row) for row in active]
+        tokens = [_to_dto(row) for row in recent]
         used = _used_usd(user.pk)
     return DevTokenUsage(
         daily_cap_usd=daily_cap_usd(),
@@ -200,23 +247,36 @@ def revoke(user: User, token_id: str | None) -> int:
     """Revokes one of `user`'s live tokens, or all of them when token_id is None. Returns how many
     the gateway deleted. A row is marked revoked only after the gateway confirms."""
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
-        rows = DevGatewayToken.objects.filter(user_id=user.pk, token_hash__isnull=False, revoked_at__isnull=True)
+        rows = DevGatewayToken.objects.filter(
+            user_id=user.pk, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
+        )
         if token_id is not None:
             rows = rows.filter(id=token_id)
         targets = list(rows)
         if token_id is not None and not targets:
-            raise DevTokenRefused("not_found", f"no live developer mode token with id {token_id}", 404)
+            raise DevTokenRefused("not_found", f"Token {token_id} is already revoked or expired.", 404)
         if not targets:
             return 0
         try:
             response = _gateway_post("/v1/tokens/revoke", {"token_hashes": [row.token_hash for row in targets]})
         except requests.RequestException as e:
-            raise DevTokenRefused("revoke_failed", "AI gateway unreachable.", 503) from e
+            raise DevTokenRefused("revoke_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
         if response.status_code != 200:
             raise DevTokenRefused(
-                "revoke_failed", f"AI gateway refused the revoke with HTTP {response.status_code}.", 503
+                "revoke_failed",
+                f"The AI gateway rejected the revoke (HTTP {response.status_code}). Try again in a minute.",
+                503,
             )
-        DevGatewayToken.objects.filter(id__in=[row.id for row in targets]).update(revoked_at=timezone.now())
+        revoked_at = timezone.now()
+        DevGatewayToken.objects.filter(id__in=[row.id for row in targets]).update(revoked_at=revoked_at)
+        # The bulk update skips save(), so each revoke is logged by hand.
+        for row in targets:
+            _log(
+                user,
+                row,
+                "revoked",
+                [Change(type="DevGatewayToken", action="changed", field="revoked_at", after=revoked_at.isoformat())],
+            )
     logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets))
     try:
         return int(response.json().get("revoked_count", 0))

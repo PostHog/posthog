@@ -82,6 +82,19 @@ export const DevTokenClientEnumApi = {
     Cli: 'cli',
 } as const
 
+/**
+ * * `live` - Live
+ * * `revoked` - Revoked
+ * * `expired` - Expired
+ */
+export type DevTokenStatusEnumApi = (typeof DevTokenStatusEnumApi)[keyof typeof DevTokenStatusEnumApi]
+
+export const DevTokenStatusEnumApi = {
+    Live: 'live',
+    Revoked: 'revoked',
+    Expired: 'expired',
+} as const
+
 export interface DevTokenApi {
     /** Token id, used to revoke it. */
     id: string
@@ -102,6 +115,17 @@ export interface DevTokenApi {
      * @nullable
      */
     expires_at: string | null
+    /**
+     * When the token was revoked, if it was.
+     * @nullable
+     */
+    revoked_at: string | null
+    /** Whether the token still works: live, revoked or expired.
+     *
+     * * `live` - Live
+     * * `revoked` - Revoked
+     * * `expired` - Expired */
+    status: DevTokenStatusEnumApi
 }
 
 export interface DevTokenUsageApi {
@@ -122,6 +146,6 @@ export interface DevTokenUsageApi {
     token_cap_usd: string
     /** Lifetime of each new token, in seconds. */
     ttl_seconds: number
-    /** The user's live tokens, newest first. */
+    /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
     tokens: DevTokenApi[]
 }

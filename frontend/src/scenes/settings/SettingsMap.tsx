@@ -2640,7 +2640,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'ai-gateway-dev-mode',
                 title: 'Developer mode tokens',
                 description:
-                    'Short-lived AI gateway tokens for PostHog staff, pinned to your identity. Use them in place of project secret keys when calling the gateway locally.',
+                    'Short-lived AI gateway tokens for PostHog staff. Use them instead of project secret keys when you call the gateway from your machine.',
                 component: <DevModeSetting />,
                 flag: 'AI_GATEWAY_DEV_MODE',
                 keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
