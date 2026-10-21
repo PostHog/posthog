@@ -44,6 +44,8 @@ class TestMCPIntentTopicRegistry(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         MCPIntentTopic.objects.create(team=self.team, label="B", centroid=b"", status=MCPIntentTopic.Status.ARCHIVED)
 
         assert list(MCPIntentTopic.active.filter(team=self.team)) == [active]
+        assert list(MCPIntentTopic.active.for_team(self.team.pk)) == [active]
+        assert list(MCPIntentTopic.active.unscoped().filter(team=self.team)) == [active]
         assert MCPIntentTopic.objects.filter(team=self.team).count() == 2
 
     def test_run_records_window_and_counts(self) -> None:

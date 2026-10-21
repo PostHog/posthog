@@ -590,6 +590,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "raw_mcp_intent_assignments": TableNode(
                         name="raw_mcp_intent_assignments", table=RawMCPIntentAssignmentsTable()
                     ),
+                    # Latest assignment per intent over raw_mcp_intent_assignments.
+                    "mcp_intent_assignments": TableNode(
+                        name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()
+                    ),
                     **{name: TableNode(name=name, table=table) for name, table in HOGQL_POSTHOG_MODEL_TABLES.items()},
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
@@ -663,8 +667,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
             "marketing_costs_precomputed": TableNode(
                 name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
             ),
-            # Latest assignment per intent over posthog.raw_mcp_intent_assignments, at root for the same reason.
-            "mcp_intent_assignments": TableNode(name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()),
             **children,
         }
 
