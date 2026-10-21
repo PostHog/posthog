@@ -10,6 +10,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from ..activity_logging import log_skill_activity, skill_activity_item_id, skill_change, version_changes
 from ..bundled_skills import bundled_skill_names
 from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
@@ -568,6 +569,14 @@ def publish_skill_version(
         else:
             _copy_files(current_latest, published_skill, edited_content=resolved_file_edits)
 
+        log_skill_activity(
+            team=team,
+            user=user,
+            skill_name=published_skill.name,
+            activity="updated",
+            changes=version_changes(current_latest, published_skill),
+        )
+
         refreshed = get_active_skill_queryset(team).filter(pk=published_skill.pk).first()
         return refreshed if refreshed is not None else published_skill
 
@@ -694,6 +703,8 @@ def create_skill(
                     raise LLMSkillFilePathConflictError(path="") from err
                 raise
 
+        log_skill_activity(team=team, user=user, item_id=str(new_skill.pk), skill_name=name, activity="created")
+
     refreshed = get_active_skill_queryset(team).filter(pk=new_skill.pk).first()
     return refreshed if refreshed is not None else new_skill
 
@@ -756,6 +767,15 @@ def duplicate_skill(
 
         _copy_files(source_latest, new_skill)
 
+        log_skill_activity(
+            team=team,
+            user=user,
+            item_id=str(new_skill.pk),
+            skill_name=new_name,
+            activity="created",
+            changes=[skill_change("duplicated_from", after=source_name)],
+        )
+
     refreshed = get_active_skill_queryset(team).filter(pk=new_skill.pk).first()
     return refreshed if refreshed is not None else new_skill
 
@@ -816,6 +836,13 @@ def _create_next_version_with_files(
                 for f in next_files
             ]
         )
+    log_skill_activity(
+        team=team,
+        user=user,
+        skill_name=next_skill.name,
+        activity="updated",
+        changes=version_changes(current_latest, next_skill),
+    )
     return next_skill
 
 
@@ -917,6 +944,8 @@ def archive_skill(team: Team, skill_name: str, *, acting_user: User | None, auth
         )
         if not skill_versions:
             raise LLMSkillNotFoundError()
+        # Read before the update below, which takes every row out of the live set.
+        item_id = skill_activity_item_id(team, skill_name)
         # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
         # derived from max(updated_at) across all team rows, advances on archive too — otherwise
         # archiving the most-recently-updated skill would regress the version.
@@ -928,6 +957,7 @@ def archive_skill(team: Team, skill_name: str, *, acting_user: User | None, auth
         # Owners are keyed on the logical `(team, skill_name)`, so they'd otherwise outlive the
         # archived skill and attach to a later skill that reuses the name. Retire them with it.
         clear_skill_owners(team, skill_name)
+        log_skill_activity(team=team, user=acting_user, item_id=item_id, skill_name=skill_name, activity="deleted")
     return skill_versions
 
 
@@ -986,6 +1016,14 @@ def rename_skill(
             version.stamp_digest()
         LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
         rename_skill_owners(team, skill_name, new_name)
+        log_skill_activity(
+            team=team,
+            user=acting_user,
+            item_id=str(locked_versions[0].pk),
+            skill_name=new_name,
+            activity="updated",
+            changes=[skill_change("name", before=skill_name, after=new_name)],
+        )
 
     return _renamed_skill_or_missing(team, new_name)
 
@@ -1112,7 +1150,7 @@ def seed_skill_owner(team: Team, skill_name: str, user: User) -> None:
     _owner_qs(team).get_or_create(team=team, skill_name=skill_name, user=user)
 
 
-def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[User]:
+def set_skill_owners(team: Team, skill_name: str, users: list[User], *, acting_user: User | None) -> list[User]:
     """Replace the owner set for a logical skill with `users` (deduped, order preserved).
 
     An empty list clears all owners. This is the explicit owner-management op — it is only ever
@@ -1127,11 +1165,22 @@ def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[Use
         ordered.append(user)
 
     with transaction.atomic():
-        _owner_qs(team).filter(skill_name=skill_name).delete()
+        owners_qs = _owner_qs(team).filter(skill_name=skill_name)
+        previous_ids = sorted(owners_qs.values_list("user_id", flat=True))
+        owners_qs.delete()
         for user in ordered:
             # One-by-one (not bulk_create) so `save()` runs per row; `_owner_qs` scoping keeps the
             # write context-independent (works outside a request too).
             _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
+        next_ids = sorted(seen)
+        if next_ids != previous_ids:
+            log_skill_activity(
+                team=team,
+                user=acting_user,
+                skill_name=skill_name,
+                activity="updated",
+                changes=[skill_change("owners", before=previous_ids, after=next_ids)],
+            )
     return resolve_skill_owners(team, skill_name)
 
 
