@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 MIGRATED_FROM_HEADER = "X-PostHog-Migrated-From"
 MIGRATION_SOURCES = frozenset({"resend"})
-SDK_USER_AGENT = re.compile(r"posthog-(?:node|edge)/(?P<version>\d[\w.+-]{0,31})(?=\s|$)")
+SDK_USER_AGENT = re.compile(r"posthog-(?:node|edge|python)/(?P<version>\d[\w.+-]{0,31})(?=\s|$)")
 
 
 @frozen

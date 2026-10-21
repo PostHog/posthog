@@ -400,28 +400,50 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("direct_api_call", {"HTTP_USER_AGENT": "curl/8.7.1"}, "api", None, None),
-            ("posthog_node", {"HTTP_USER_AGENT": "posthog-node/5.30.0"}, "sdk", "5.30.0", None),
-            ("posthog_edge", {"HTTP_USER_AGENT": "posthog-edge/5.30.0"}, "sdk", "5.30.0", None),
-            ("sdk_lookalike", {"HTTP_USER_AGENT": "posthog-node-proxy/1.0.0"}, "api", None, None),
-            ("sdk_behind_a_proxy", {"HTTP_USER_AGENT": "posthog-node/5.30.0 gateway/2.1"}, "sdk", "5.30.0", None),
-            (
-                "sdk_call_site_migrated_from_resend",
-                {"HTTP_USER_AGENT": "posthog-node/5.30.0", "HTTP_X_POSTHOG_MIGRATED_FROM": "Resend"},
-                "sdk",
-                "5.30.0",
-                "resend",
-            ),
-            ("fetch_call_site_migrated_from_resend", {"HTTP_X_POSTHOG_MIGRATED_FROM": "resend"}, "api", None, "resend"),
-            ("unknown_migration_source", {"HTTP_X_POSTHOG_MIGRATED_FROM": "<script>"}, "api", None, None),
+            (f"{case[0]}_{addressed_by}", addressed_by, *case[1:])
+            for addressed_by in ("url_id", "key")
+            for case in [
+                ("direct_api_call", {"HTTP_USER_AGENT": "curl/8.7.1"}, "api", None, None),
+                ("posthog_node", {"HTTP_USER_AGENT": "posthog-node/5.30.0"}, "sdk", "5.30.0", None),
+                ("posthog_edge", {"HTTP_USER_AGENT": "posthog-edge/5.30.0"}, "sdk", "5.30.0", None),
+                ("posthog_python", {"HTTP_USER_AGENT": "posthog-python/7.1.0"}, "sdk", "7.1.0", None),
+                ("sdk_lookalike", {"HTTP_USER_AGENT": "posthog-node-proxy/1.0.0"}, "api", None, None),
+                ("python_sdk_lookalike", {"HTTP_USER_AGENT": "posthog-pythonic/7.1.0"}, "api", None, None),
+                ("sdk_behind_a_proxy", {"HTTP_USER_AGENT": "posthog-node/5.30.0 gateway/2.1"}, "sdk", "5.30.0", None),
+                (
+                    "sdk_call_site_migrated_from_resend",
+                    {"HTTP_USER_AGENT": "posthog-python/7.1.0", "HTTP_X_POSTHOG_MIGRATED_FROM": "Resend"},
+                    "sdk",
+                    "7.1.0",
+                    "resend",
+                ),
+                (
+                    "fetch_call_site_migrated_from_resend",
+                    {"HTTP_X_POSTHOG_MIGRATED_FROM": "resend"},
+                    "api",
+                    None,
+                    "resend",
+                ),
+                ("unknown_migration_source", {"HTTP_X_POSTHOG_MIGRATED_FROM": "<script>"}, "api", None, None),
+            ]
         ]
     )
     def test_reports_where_each_send_came_from(
-        self, mock_post, _flag, capture, _name, headers, expected_source, expected_sdk_version, expected_migrated_from
+        self,
+        mock_post,
+        _flag,
+        capture,
+        _name,
+        addressed_by,
+        headers,
+        expected_source,
+        expected_sdk_version,
+        expected_migrated_from,
     ):
         self._cdp_accepts(mock_post)
+        url, body = self._send_request(addressed_by, self.body)
 
-        response = self._psak_client(["hog_flow:write"]).post(self.url, self.body, format="json", **headers)
+        response = self._psak_client(["hog_flow:write"]).post(url, body, format="json", **headers)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         properties = capture.call_args.kwargs["properties"]
@@ -438,8 +460,9 @@ class TestTransactionalEmail(APIBaseTest):
 
         client.post(self.url, self.body, format="json")
         group_identify.assert_not_called()
-        for _ in range(2):
-            response = client.post(self.url, self.body, format="json", HTTP_X_POSTHOG_MIGRATED_FROM="resend")
+        for addressed_by in ("key", "url_id", "key"):
+            url, body = self._send_request(addressed_by, self.body)
+            response = client.post(url, body, format="json", HTTP_X_POSTHOG_MIGRATED_FROM="resend")
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         group_identify.assert_called_once_with(
