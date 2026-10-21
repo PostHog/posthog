@@ -53,7 +53,6 @@ class ResolvePinsResult:
     keys: list[str]
     found: str
     pending: list[str]
-    errored: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)

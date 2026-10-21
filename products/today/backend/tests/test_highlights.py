@@ -292,7 +292,7 @@ class TestRunSource(BaseTest):
 PIN_READY = ResolvePinsResult(
     keys=["insight:a"], found=PINNED_METRICS.dump_json([metric("insight:a")]).decode(), pending=[]
 )
-PIN_ERRORED = ResolvePinsResult(keys=["insight:a"], found="[]", pending=[], errored=["insight:a"])
+PIN_MISSING = ResolvePinsResult(keys=["insight:a"], found="[]", pending=[])
 PIN_PENDING = ResolvePinsResult(keys=["insight:a"], found="[]", pending=["insight:a"])
 PIN_NOT_ATTEMPTED = ResolvePinsResult(keys=[], found="[]", pending=["insight:a"])
 
@@ -337,7 +337,7 @@ class TestFinalizeHighlights(BaseTest):
     @parameterized.expand(
         [
             ("every pin is ready", [ALERT_RESULT], [PIN_READY], True, False, "ready"),
-            ("a pin errored", [ALERT_RESULT], [PIN_ERRORED], True, True, "unavailable"),
+            ("a pin with no number", [ALERT_RESULT], [PIN_MISSING], True, False, "unavailable"),
             (
                 "a retry resolved a pin that was not attempted",
                 [ALERT_RESULT],
@@ -347,11 +347,11 @@ class TestFinalizeHighlights(BaseTest):
                 "ready",
             ),
             ("a pin still computing with retries to come", [ALERT_RESULT], [PIN_PENDING], False, False, "computing"),
-            ("a source failed while pins still retry", [FAILED_RESULT], [PIN_PENDING], False, False, "computing"),
-            ("a pin still computing after the last retry", [ALERT_RESULT], [PIN_PENDING], True, True, "unavailable"),
+            ("a source failed while pins still retry", [FAILED_RESULT], [PIN_PENDING], False, True, "computing"),
+            ("a pin still computing after the last retry", [ALERT_RESULT], [PIN_PENDING], True, False, "unavailable"),
         ]
     )
-    def test_pins_decide_whether_the_row_refreshes_soon(
+    def test_pins_show_as_computing_only_while_retries_remain_and_only_sources_refresh_the_row_soon(
         self,
         _name: str,
         results: list[HighlightSourceResult],

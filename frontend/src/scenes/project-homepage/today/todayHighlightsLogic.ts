@@ -74,6 +74,7 @@ export interface todayHighlightsLogicValues {
         owner: string
     } | null
     pulsePins: PulsePinApi[]
+    pulsePinsLoadFailed: boolean
     pulsePinsLoaded: boolean
     pulsePinsLoading: boolean
     pulsePinsSaving: boolean
@@ -166,6 +167,9 @@ export interface todayHighlightsLogicActions {
         metric: HighlightMetricApi
         position: number
     }
+    pulsePinsLoadGaveUp: () => {
+        value: true
+    }
     pulsePinsSaved: () => {
         value: true
     }
@@ -205,13 +209,16 @@ export interface todayHighlightsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pulsePinsUnavailableReason: (
             pulsePinsLoaded: boolean,
-            pulsePinsLoading: boolean,
+            pulsePinsLoadFailed: any,
             pulsePinsSaving: boolean
         ) => string | null
         pulseTiles: (
             pulsePins: PulsePinApi[],
             highlights: HighlightsApi | null,
-            pulseOrderHeld: string[] | null
+            pulseOrderHeld: {
+                keys: string[]
+                owner: string
+            } | null
         ) => TodayPulseTile[]
         highlightsPending: (highlights: HighlightsApi | null, highlightsLoading: boolean) => boolean
         doneHighlightKeys: (
@@ -256,6 +263,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         holdPulseOrder: (owner: string, keys: string[]) => ({ owner, keys }),
         releasePulseOrder: (owner: string) => ({ owner }),
         retryComputingPins: true,
+        pulsePinsLoadGaveUp: true,
     }),
     loaders(({ values, cache }) => ({
         pulseInsightResults: [
@@ -294,11 +302,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                         return null
                     }
                     try {
-                        const loaded = await todayHighlightsRetrieve(String(values.currentProjectId))
-                        const previous = values.highlights
-                        return loaded.generated_at === null && previous?.generated_at
-                            ? { ...previous, status: loaded.status }
-                            : loaded
+                        return await todayHighlightsRetrieve(String(values.currentProjectId))
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 404) {
                             return null
@@ -314,6 +318,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             setPinnedPulseKeys: (_, { metrics }) => metrics,
         },
         pulsePinsLoaded: [false, { loadPulsePinsSuccess: () => true }],
+        pulsePinsLoadFailed: [false, { pulsePinsLoadGaveUp: () => true, loadPulsePinsSuccess: () => false }],
         pulsePinsSaving: [false, { setPinnedPulseKeys: () => true, pulsePinsSaved: () => false }],
         pulseInsightSearchFailed: [
             false,
@@ -352,15 +357,15 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     }),
     selectors({
         pulsePinsUnavailableReason: [
-            (s) => [s.pulsePinsLoaded, s.pulsePinsLoading, s.pulsePinsSaving],
-            (pulsePinsLoaded: boolean, pulsePinsLoading: boolean, pulsePinsSaving: boolean): string | null =>
+            (s) => [s.pulsePinsLoaded, s.pulsePinsLoadFailed, s.pulsePinsSaving],
+            (pulsePinsLoaded: boolean, pulsePinsLoadFailed: boolean, pulsePinsSaving: boolean): string | null =>
                 pulsePinsSaving
                     ? 'Saving your pins…'
                     : pulsePinsLoaded
                       ? null
-                      : pulsePinsLoading
-                        ? 'Loading your pins…'
-                        : "Couldn't load your pins. Reload the page to try again.",
+                      : pulsePinsLoadFailed
+                        ? "Couldn't load your pins. Reload the page to try again."
+                        : 'Loading your pins…',
         ],
         pulseTiles: [
             (s) => [s.pulsePins, s.highlights, s.pulseOrderHeld],
@@ -528,6 +533,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         },
         loadPulsePinsFailure: () => {
             if ((cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES) {
+                actions.pulsePinsLoadGaveUp()
                 return
             }
             cache.pinsLoadRetries = (cache.pinsLoadRetries ?? 0) + 1

@@ -770,10 +770,14 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 46600,
 }
 
+let storyLastReady: HighlightsApi | null = null
+
 function storyHighlights(): HighlightsApi {
     if (storyComputingCalls > 0) {
         storyComputingCalls -= 1
-        return { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
+        return storyLastReady
+            ? { ...storyLastReady, status: 'computing' }
+            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
     }
     const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
     const chosen = storyPins.flatMap((pin) => {
@@ -785,13 +789,15 @@ function storyHighlights(): HighlightsApi {
         key: pin.key,
         status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
     }))
-    return { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
+    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
+    return storyLastReady
 }
 
 function keepNumbers(pins: { key: string; name: string }[]) {
     return function KeepNumbers(Story: () => JSX.Element): JSX.Element {
         storyPins = pins
         storyComputingCalls = 0
+        storyLastReady = null
         return <Story />
     }
 }

@@ -24,7 +24,7 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.chart_rules import is_chartable
+from products.product_analytics.backend.chart_rules import CHARTED_SQL_DISPLAYS, UNCHARTED_DISPLAYS, is_chartable
 from products.product_analytics.backend.facade.contracts import (
     ChartableInsight,
     InsightDashboardContext,
@@ -242,7 +242,14 @@ CHARTABLE_INSIGHTS_SCANNED = 200
 
 def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> list[ChartableInsight]:
     insights = Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True).filter(
-        Q(query__source__kind="TrendsQuery") | Q(query__kind="DataVisualizationNode")
+        (
+            Q(query__source__kind="TrendsQuery")
+            & (
+                Q(query__source__trendsFilter__display__isnull=True)
+                | ~Q(query__source__trendsFilter__display__in=UNCHARTED_DISPLAYS)
+            )
+        )
+        | (Q(query__kind="DataVisualizationNode") & Q(query__display__in=CHARTED_SQL_DISPLAYS))
     )
     if search.strip():
         insights = insights.filter(Q(name__icontains=search.strip()) | Q(derived_name__icontains=search.strip()))

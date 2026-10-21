@@ -70,8 +70,9 @@ export function TodayPulseEditor(): JSX.Element {
 
     const isPinned = (key: string): boolean => pulsePins.some((pinned) => pinned.key === key)
     const searching = search.trim().length > 0
+    const shownNow = [...shownOnOpen, ...pulsePins.filter((pin) => !shownOnOpen.some((shown) => shown.key === pin.key))]
     const rows = !searching
-        ? shownOnOpen
+        ? shownNow
         : pulseInsightResultsLoading || pulseInsightSearchFailed
           ? []
           : pulseInsightResults

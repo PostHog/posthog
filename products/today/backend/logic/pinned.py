@@ -47,17 +47,10 @@ def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
             else:
                 by_key = {metric.key: metric for metric in found}
                 metrics.extend(replace(tile(by_key[key]), reason=None) for key in key_metrics if key in by_key)
-    errored = [
-        pin.key
-        for pin in inputs.pins
-        if f"pinned {pin.key}" in context.failures
-        or (not pin.key.startswith(INSIGHT_PREFIX) and "pinned key metrics" in context.failures)
-    ]
     return ResolvePinsResult(
         keys=[pin.key for pin in inputs.pins],
         found=PINNED_METRICS.dump_json(metrics).decode(),
         pending=pending,
-        errored=errored,
     )
 
 

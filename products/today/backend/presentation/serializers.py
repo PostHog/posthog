@@ -1,5 +1,7 @@
 """DRF serializers for today. Response shapes come from the facade contracts."""
 
+from typing import Any
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -322,10 +324,10 @@ class PulsePinsSerializer(DataclassSerializer):
     class Meta:
         dataclass = PulsePins
 
-    def validate_pins(self, pins: list[PulsePin]) -> list[PulsePin]:
-        if len(pins) > MAX_PINS_IN_REQUEST:
-            raise serializers.ValidationError(f"Send at most {MAX_PINS_IN_REQUEST} pins.")
-        return pins
+    def to_internal_value(self, data: Any) -> PulsePins:
+        if isinstance(data, dict) and isinstance(data.get("pins"), list) and len(data["pins"]) > MAX_PINS_IN_REQUEST:
+            raise serializers.ValidationError({"pins": [f"Send at most {MAX_PINS_IN_REQUEST} pins."]})
+        return super().to_internal_value(data)
 
 
 class PinCandidatesQuerySerializer(serializers.Serializer):
@@ -444,7 +446,7 @@ class HighlightPinSerializer(DataclassSerializer):
     key = serializers.CharField(help_text="Key of a number the person keeps on their home.")
     status = serializers.ChoiceField(
         choices=HighlightPinStatus.choices,
-        help_text="`ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. After a failure or a timeout the highlights are computed again within a minute.",
+        help_text="`ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. The highlights are computed again within 15 minutes.",
     )
 
     class Meta:
