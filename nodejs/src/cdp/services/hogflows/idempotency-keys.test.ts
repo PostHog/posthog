@@ -111,10 +111,50 @@ describe('IdempotencyKeys', () => {
             const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
                 client.ttl(keys['redisKey'](1, key))
             )
+            expect(ttlSeconds).toBeGreaterThan((12 * HOUR_MS) / 1000 - 60)
             expect(ttlSeconds).toBeLessThanOrEqual((12 * HOUR_MS) / 1000)
         } finally {
             outage.mockRestore()
             clock.mockRestore()
+        }
+    })
+
+    it('records a retry whose completion fails while the earlier completion of its key is still writing', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const useClient = valkey.useClient
+        const connectionLost = new Error('connection lost')
+        let endSlowWrite!: () => void
+        const slowWrite = new Promise<void>((resolve) => (endSlowWrite = resolve))
+        const store = jest
+            .spyOn(valkey, 'useClient')
+            .mockRejectedValueOnce(connectionLost)
+            .mockRejectedValueOnce(connectionLost)
+            .mockImplementationOnce(async (...args) => {
+                await slowWrite
+                return useClient(...args)
+            })
+            .mockImplementationOnce(useClient)
+            .mockImplementationOnce(useClient)
+            .mockRejectedValueOnce(connectionLost)
+            .mockRejectedValueOnce(connectionLost)
+            .mockImplementation(useClient)
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            await waitForExpect(() => expect(store.mock.calls.length).toEqual(3))
+            // The pending hold of run-1 expires, and a retry of the request reserves the key again.
+            await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
+            expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'reserved' })
+            await keys.markQueued(1, key, 'request-a', 'run-2')
+            endSlowWrite()
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-3')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-2',
+                })
+            )
+        } finally {
+            store.mockRestore()
         }
     })
 

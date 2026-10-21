@@ -260,9 +260,16 @@ export class IdempotencyKeys {
                     return false
                 }
             }
-            this.pendingCompletions.delete(completion.redisKey)
+            this.forgetPendingCompletion(completion)
         }
         return true
+    }
+
+    private forgetPendingCompletion(completion: PendingCompletion): void {
+        // A retry of the request can replace the entry while its earlier completion writes.
+        if (this.pendingCompletions.get(completion.redisKey) === completion) {
+            this.pendingCompletions.delete(completion.redisKey)
+        }
     }
 
     private async writeQueued({ redisKey, value, expiresAt }: PendingCompletion): Promise<void> {
