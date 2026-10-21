@@ -545,12 +545,12 @@ describe('preserveGroupTargetingFilters', () => {
     ]
 
     // The set aggregates on person, so the candidates decide the type. The operator picks
-    // between two candidates that share a key, and the value picks between those. Without a
-    // match, the first one wins.
+    // between two candidates that share a key, and the value picks between those. When the
+    // remaining candidates hold more than one type, the property stays untyped.
     it.each([
         { name: 'the operator matches the cohort candidate', operator: 'in', expected: { type: 'cohort' } },
         { name: 'the operator matches the person candidate', operator: 'icontains', expected: { type: 'person' } },
-        { name: 'the operator matches neither candidate', operator: 'regex', expected: { type: 'person' } },
+        { name: 'the operator matches neither candidate', operator: 'regex', expected: {} },
         {
             name: 'the operator matches a group candidate',
             stored: groupAndPersonCandidates,
@@ -572,6 +572,26 @@ describe('preserveGroupTargetingFilters', () => {
             operator: 'exact',
             value: 'globex',
             expected: { type: 'group', group_type_index: 1 },
+        },
+        {
+            name: 'the value matches neither a person nor a group candidate with the same operator',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            expected: {},
+        },
+        {
+            name: 'the value matches neither a person nor a cohort candidate with the same operator',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'cohort', operator: 'exact', value: 42 },
+            ],
+            operator: 'exact',
+            value: 43,
+            expected: {},
         },
     ])(
         'picks a duplicate-key candidate by operator and value when $name',
