@@ -17,9 +17,7 @@ class ResolveRequestSerializer(serializers.Serializer):
 
 
 class CountAccountsRequestSerializer(serializers.Serializer):
-    # The CountableType Literal stays the one source of these values. drf-spectacular never names
-    # an enum for them, because the hub-only count endpoint is excluded from the OpenAPI schema.
-    target_type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- excluded from the schema
+    target_type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- not in the OpenAPI schema
         choices=list(get_args(CountableType)), help_text="How target_value matches accounts."
     )
     target_value = serializers.CharField(max_length=320, help_text="The value the hub normalized for this target type.")

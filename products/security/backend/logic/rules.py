@@ -21,7 +21,6 @@ _PATTERN_DOMAIN_LABEL = re.compile(r"[a-z0-9*-]+")
 class EmailPattern:
     """A whole-address glob. `*` matches any run of characters, and every other character is literal."""
 
-    # The literal text between the wildcards, so "abc*@*.example" holds ("abc", "@", ".example").
     segments: tuple[str, ...]
 
     @classmethod
@@ -51,9 +50,8 @@ class EmailPattern:
         return cls(segments=tuple(value.split(_WILDCARD)))
 
     def matches(self, address: str) -> bool:
-        # A scan for each literal segment instead of a regex. On a crafted address, a
-        # backtracking regex with three wildcards does work that grows with the cube of the
-        # address length, and signup and login run this for every pattern rule.
+        # Not a regex: with three wildcards a backtracking regex does cubic work on a crafted
+        # address, and signup and login run this for every pattern rule.
         if len(self.segments) == 1:
             return address == self.segments[0]
         head, *middle, tail = self.segments
