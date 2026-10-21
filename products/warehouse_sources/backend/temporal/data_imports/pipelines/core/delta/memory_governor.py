@@ -32,6 +32,9 @@ in deltalite 0.1.10 holds three things at its peak:
 * **Readers.** Each reader fetches one whole compressed row group before it decodes it. A reader
   reserves its row group from the per-call fetch budget (``max_fetch_bytes``) first, so all readers
   of one upsert together hold at most the budget, or one row group when a row group is larger.
+  Add actions record file sizes, not row groups, so a file's size is its reader bound. When that
+  bound keeps the plan narrow, the writer can read the footers (``row_group_sizes``) and use the
+  real largest row group of each file instead.
 * **Writers.** Each partition worker streams its open file into fixed-size chunks, so it holds about
   one ``target_file_size`` file, and less when the partition writes less. Each column also keeps
   page and dictionary buffers, so wide tables cost more per worker than narrow ones.
@@ -78,6 +81,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 if TYPE_CHECKING:
     import deltalake
 
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
+        RowGroupSizeReader,
+        RowGroupSizes,
+    )
+
 logger = logging.getLogger(__name__)
 
 MB = 1024 * 1024
@@ -114,6 +122,9 @@ _READER_PAGE_BUFFER_SHARE = 0.4
 #: deltalite's per-call ``max_fetch_bytes``, passed explicitly. All readers of one upsert hold at
 #: most this much fetched row-group data, or one row group when a row group is larger.
 _FETCH_BUDGET_BYTES = 128 * MB
+#: Files at or below this size are not worth a footer read: their whole size is already a small
+#: reader bound. It matches the default row-group cap of the files deltalite writes.
+_ROW_GROUP_PROBE_MIN_BYTES = 16 * MB
 #: Resident bytes per byte of the file one partition worker writes, up to ``target_file_size``.
 _WRITER_BYTES_PER_TARGET_BYTE = 1.8
 #: Page and dictionary buffers per column of one open output file, once the file is large enough
@@ -199,9 +210,9 @@ def _rss_retention(environ: Mapping[str, str] = os.environ) -> float:
 class PartitionShape:
     """The part of one touched partition that sizes its worker."""
 
-    #: Stored bytes of the largest files the merge can rewrite, largest first. Only as many as one
-    #: worker can read at once are kept; each bounds the row group a reader fetches.
-    largest_file_bytes: tuple[int, ...]
+    #: Per candidate file, the largest row group a reader of it fetches, largest first. Only as many
+    #: as one worker can read at once are kept. A file whose footer was not read counts its whole size.
+    largest_row_group_bytes: tuple[int, ...]
     #: All candidate files in the partition, and their stored bytes.
     files: int
     stored_bytes: int
@@ -212,14 +223,20 @@ class PartitionShape:
     decoded_bytes: int | None = None
 
     @staticmethod
-    def of(file_bytes: Sequence[int], source_bytes: int = 0, decoded_bytes: int | None = None) -> PartitionShape:
-        ordered = sorted(file_bytes, reverse=True)
+    def of(
+        file_bytes: Sequence[int],
+        source_bytes: int = 0,
+        decoded_bytes: int | None = None,
+        row_group_bytes: Sequence[int] | None = None,
+    ) -> PartitionShape:
+        """``row_group_bytes`` holds the largest row group of each file in ``file_bytes``, in the same order."""
+        readers = file_bytes if row_group_bytes is None else row_group_bytes
         return PartitionShape(
-            largest_file_bytes=tuple(ordered[:_MAX_PARALLEL_FILES]),
-            files=len(ordered),
-            stored_bytes=sum(ordered),
+            largest_row_group_bytes=tuple(sorted(readers, reverse=True)[:_MAX_PARALLEL_FILES]),
+            files=len(file_bytes),
+            stored_bytes=sum(file_bytes),
             source_bytes=source_bytes,
-            decoded_bytes=0 if not ordered else decoded_bytes,
+            decoded_bytes=0 if not file_bytes else decoded_bytes,
         )
 
 
@@ -235,6 +252,11 @@ class RewriteProfile:
     target_file_size: int = _DEFAULT_TARGET_FILE_SIZE
     #: Columns of the rows the merge writes. Each column of an open output file keeps buffers.
     columns: int = _UNKNOWN_COLUMNS
+    #: Candidate files whose reader bound is their largest row group, read from the footer. The
+    #: other candidates count their whole size.
+    row_group_sized_files: int = 0
+    #: Footers fetched from storage to size this merge. Cached footers are not counted.
+    footers_read: int = 0
 
     @property
     def files(self) -> int:
@@ -246,15 +268,23 @@ class RewriteProfile:
 
     @property
     def max_row_group_mb(self) -> float:
-        """Upper bound on the largest row group a reader fetches: the largest candidate file.
+        """Upper bound on the largest row group a reader fetches.
 
-        Add actions carry each file's size but not its row-group count, and the footer that has it
-        costs one request per file. A file holds at least one row group, so its size bounds its
-        largest one. The bound is exact for single-row-group files, which is what deltalite and
-        delta-rs write while a file stays under the 1M-row row-group limit. For files with several
-        row groups it over-counts (about 1.5× on 2–3 row-group files), so it errs toward a smaller plan.
+        A file holds at least one row group, so its size bounds its largest one. The bound is exact
+        for single-row-group files. For a file whose footer was read, the bound is its real largest
+        row group, which is much smaller for files written with a row-group cap.
         """
-        return max((p.largest_file_bytes[0] for p in self.partitions if p.largest_file_bytes), default=0) / MB
+        return max((p.largest_row_group_bytes[0] for p in self.partitions if p.largest_row_group_bytes), default=0) / MB
+
+
+@frozen
+class CandidateFile:
+    """One existing file that a merge can rewrite."""
+
+    partition: str | None
+    path: str | None
+    size_bytes: int
+    num_records: int | None
 
 
 def _files_that_can_match(add_actions: pa.Table, source: pa.Table, primary_keys: Sequence[str]) -> list[bool]:
@@ -291,19 +321,63 @@ def _files_that_can_match(add_actions: pa.Table, source: pa.Table, primary_keys:
     return [d is not True for d in disjoint.to_pylist()]
 
 
+def _rows_per_partition(source: pa.Table, partition_col: str | None) -> dict[str | None, int]:
+    if partition_col is None:
+        return {None: source.num_rows}
+    counts = pc.value_counts(source[partition_col].cast(pa.string()))
+    return {
+        value: int(count or 0)
+        for value, count in zip(counts.field("values").to_pylist(), counts.field("counts").to_pylist())
+    }
+
+
+def candidate_files(
+    add_actions: pa.Table, source: pa.Table, partition_col: str | None, primary_keys: Sequence[str]
+) -> list[CandidateFile]:
+    """The existing files a merge of ``source`` can rewrite.
+
+    A file is a candidate when it is in a partition the batch touches and its PK range overlaps the
+    batch. Every candidate is counted because duplicate target keys can make one source row match
+    several files.
+    """
+    if source.num_rows == 0 or add_actions.num_rows == 0:
+        return []
+    touched = _rows_per_partition(source, partition_col)
+    file_partitions: list[str | None] = (
+        [None] * add_actions.num_rows
+        if partition_col is None
+        else add_actions[f"partition.{partition_col}"].cast(pa.string()).to_pylist()
+    )
+    paths = add_actions["path"].to_pylist() if "path" in add_actions.column_names else [None] * add_actions.num_rows
+    file_rows = (
+        add_actions["num_records"].to_pylist()
+        if "num_records" in add_actions.column_names
+        else [None] * add_actions.num_rows
+    )
+    can_match = _files_that_can_match(add_actions, source, primary_keys)
+    return [
+        CandidateFile(partition=partition, path=path, size_bytes=size or 0, num_records=rows)
+        for partition, path, size, rows, candidate in zip(
+            file_partitions, paths, add_actions["size_bytes"].to_pylist(), file_rows, can_match
+        )
+        if candidate and partition in touched
+    ]
+
+
 def rewrite_profile(
     add_actions: pa.Table,
     source: pa.Table,
     partition_col: str | None,
     primary_keys: Sequence[str],
     target_file_size: int = _DEFAULT_TARGET_FILE_SIZE,
+    row_groups: RowGroupSizes | None = None,
+    candidates: Sequence[CandidateFile] | None = None,
 ) -> RewriteProfile:
     """Upper bound on the existing files a merge of ``source`` rewrites, from the table's add actions.
 
-    A file is a candidate when it is in a partition the batch touches and its PK range overlaps the
-    batch. Every candidate is counted because duplicate target keys can make one source row match
-    several files. Every touched partition gets an entry with its share of the source, also when it
-    has no candidate files.
+    Every touched partition gets an entry with its share of the source, also when it has no
+    candidate files. ``row_groups`` gives the largest row group of the files whose footer was read.
+    Each other file counts its whole size. ``candidates`` reuses a ``candidate_files`` result.
     """
     if source.num_rows == 0:
         return RewriteProfile(
@@ -313,35 +387,26 @@ def rewrite_profile(
             columns=source.num_columns,
         )
 
-    if partition_col is None:
-        rows_per_partition: dict[str | None, int] = {None: source.num_rows}
-        file_partitions: list[str | None] = [None] * add_actions.num_rows
-    else:
-        counts = pc.value_counts(source[partition_col].cast(pa.string()))
-        rows_per_partition = {
-            value: int(count or 0)
-            for value, count in zip(counts.field("values").to_pylist(), counts.field("counts").to_pylist())
-        }
-        file_partitions = (
-            add_actions[f"partition.{partition_col}"].cast(pa.string()).to_pylist() if add_actions.num_rows else []
-        )
-
+    rows_per_partition = _rows_per_partition(source, partition_col)
+    known_row_groups: Mapping[str, int] = row_groups.bytes_by_path if row_groups is not None else {}
     sizes_by_partition: dict[str | None, list[int]] = {partition: [] for partition in rows_per_partition}
+    readers_by_partition: dict[str | None, list[int]] = {partition: [] for partition in rows_per_partition}
     rows_by_partition: dict[str | None, int | None] = dict.fromkeys(rows_per_partition, 0)
-    if add_actions.num_rows:
-        can_match = _files_that_can_match(add_actions, source, primary_keys)
-        file_rows = (
-            add_actions["num_records"].to_pylist()
-            if "num_records" in add_actions.column_names
-            else [None] * add_actions.num_rows
+    row_group_sized = 0
+    if candidates is None:
+        candidates = candidate_files(add_actions, source, partition_col, primary_keys)
+    for file in candidates:
+        sizes_by_partition[file.partition].append(file.size_bytes)
+        largest_row_group = known_row_groups.get(file.path) if file.path is not None else None
+        if largest_row_group is None:
+            readers_by_partition[file.partition].append(file.size_bytes)
+        else:
+            row_group_sized += 1
+            readers_by_partition[file.partition].append(min(largest_row_group, file.size_bytes))
+        known = rows_by_partition[file.partition]
+        rows_by_partition[file.partition] = (
+            None if known is None or file.num_records is None else known + file.num_records
         )
-        for partition, size, rows, candidate in zip(
-            file_partitions, add_actions["size_bytes"].to_pylist(), file_rows, can_match
-        ):
-            if candidate and partition in sizes_by_partition:
-                sizes_by_partition[partition].append(size or 0)
-                known = rows_by_partition[partition]
-                rows_by_partition[partition] = None if known is None or rows is None else known + rows
 
     # The source has the table's columns, so its bytes per row also size the decoded candidates.
     bytes_per_row = source.nbytes / source.num_rows
@@ -353,6 +418,7 @@ def rewrite_profile(
                 sizes,
                 source_bytes=round(bytes_per_row * rows_per_partition[partition]),
                 decoded_bytes=None if candidate_rows is None else round(bytes_per_row * candidate_rows),
+                row_group_bytes=readers_by_partition[partition],
             )
         )
     return RewriteProfile(
@@ -360,19 +426,52 @@ def rewrite_profile(
         table_files=add_actions.num_rows,
         target_file_size=target_file_size,
         columns=source.num_columns,
+        row_group_sized_files=row_group_sized,
+        footers_read=row_groups.footers_read if row_groups is not None else 0,
     )
 
 
 def estimate_rewrite_profile(
-    table: deltalake.DeltaTable, source: pa.Table, partition_col: str | None, primary_keys: Sequence[str]
+    table: deltalake.DeltaTable,
+    source: pa.Table,
+    partition_col: str | None,
+    primary_keys: Sequence[str],
+    row_group_reader: RowGroupSizeReader | None = None,
+    wants_row_groups: Callable[[RewriteProfile], bool] | None = None,
 ) -> RewriteProfile | None:
-    """``rewrite_profile`` for a live table, or None when its add actions cannot be read."""
+    """``rewrite_profile`` for a live table, or None when its add actions cannot be read.
+
+    With a ``row_group_reader``, the footers of candidate files above ``_ROW_GROUP_PROBE_MIN_BYTES``
+    are read when ``wants_row_groups`` says the whole-file profile limits the plan. Any failure
+    there keeps the whole-file profile.
+    """
     try:
         add_actions = pa.table(table.get_add_actions(flatten=True))
-        return rewrite_profile(add_actions, source, partition_col, primary_keys, table_target_file_size(table))
+        target_file_size = table_target_file_size(table)
+        candidates = candidate_files(add_actions, source, partition_col, primary_keys)
+        profile = rewrite_profile(
+            add_actions, source, partition_col, primary_keys, target_file_size, candidates=candidates
+        )
     except Exception as e:  # noqa: BLE001 - an estimate must never fail a write; None sizes conservatively
         logger.debug("deltalite governor: could not estimate the rewrite size: %s", e)
         return None
+    if row_group_reader is None or profile.max_row_group_mb * MB <= _ROW_GROUP_PROBE_MIN_BYTES:
+        return profile
+    try:
+        if wants_row_groups is not None and not wants_row_groups(profile):
+            return profile
+        to_read = {
+            file.path: file.size_bytes
+            for file in candidates
+            if file.path is not None and file.size_bytes > _ROW_GROUP_PROBE_MIN_BYTES
+        }
+        row_groups = row_group_reader.largest_row_groups(to_read)
+        return rewrite_profile(
+            add_actions, source, partition_col, primary_keys, target_file_size, row_groups, candidates
+        )
+    except Exception as e:  # noqa: BLE001 - row-group sizing is an optimization; keep the whole-file bound
+        logger.debug("deltalite governor: could not read row group sizes: %s", e)
+        return profile
 
 
 @frozen
@@ -423,7 +522,7 @@ def _writer_mb(written_mb: float, target_mb: float, columns: int) -> float:
 
 
 def _worker_terms(shape: PartitionShape, files_per_worker: int, target_mb: float, columns: int) -> WorkerTerms:
-    row_groups_mb = [size / MB for size in shape.largest_file_bytes[:files_per_worker]]
+    row_groups_mb = [size / MB for size in shape.largest_row_group_bytes[:files_per_worker]]
     written = (shape.stored_bytes + shape.source_bytes) / MB
     return WorkerTerms(
         held_mb=sum(row_groups_mb),
@@ -552,6 +651,22 @@ def _reader_options(mpp: int) -> list[int]:
     return sorted({f for f in (widest, _DEFAULT_FILES_PER_WORKER, 2, 1) if f <= widest}, reverse=True)
 
 
+def _partition_cap(profile: RewriteProfile, n_partitions: int | None) -> int:
+    cap = min(_MAX_PARALLEL_PARTITIONS, max(1, len(profile.partitions)))
+    if n_partitions is not None and n_partitions >= 1:
+        cap = min(cap, n_partitions)
+    return cap
+
+
+def is_widest_plan(plan: UpsertPlan, profile: RewriteProfile, n_partitions: int | None = None) -> bool:
+    """True when ``plan`` fits and already runs the most workers and readers ``size_upsert`` ever picks."""
+    partition_cap = _partition_cap(profile, n_partitions)
+    return plan.fits and (plan.max_parallel_partitions, plan.max_parallel_files) == (
+        partition_cap,
+        _reader_options(partition_cap)[0],
+    )
+
+
 def size_upsert(
     available_mb: float,
     source_mb: float,
@@ -584,10 +699,7 @@ def size_upsert(
             columns=profile.columns,
         )
 
-    partition_cap = min(_MAX_PARALLEL_PARTITIONS, max(1, len(profile.partitions)))
-    if n_partitions is not None and n_partitions >= 1:
-        partition_cap = min(partition_cap, n_partitions)
-
+    partition_cap = _partition_cap(profile, n_partitions)
     # One pass over the partitions per reader count, however many plans are tried.
     costliest: dict[int, WorkerBounds] = {}
     for mpp in range(partition_cap, 0, -1):
@@ -792,8 +904,11 @@ class Admission:
     capacity_exceeded: bool = False
     #: The predicted peak by term, in-use and RSS.
     estimate: MemoryEstimate | None = None
-    #: Largest candidate file, the bound on the largest row group a reader fetches. None when unknown.
+    #: The bound on the largest row group a reader fetches. None when unknown.
     max_row_group_mb: float | None = None
+    #: Candidate files sized by their largest row group, and footers fetched for that. None when unknown.
+    row_group_sized_files: int | None = None
+    footers_read: int | None = None
     #: Stored MB of all candidate files the merge can rewrite, over every touched partition.
     rewrite_total_mb: float | None = None
     rewrite_files: int | None = None
@@ -873,6 +988,22 @@ class MemoryGovernor:
         """The memory slice one load slot may use, or None when the pod's limit is unreadable."""
         limit_mb = self.pod.limit_mb()
         return None if limit_mb is None else self._per_upsert_budget_mb(limit_mb)
+
+    def row_groups_can_widen(
+        self, profile: RewriteProfile, *, source_bytes: int, n_partitions: int | None = None
+    ) -> bool:
+        """True when the plan for ``profile`` is narrower than the widest plan.
+
+        Only then can smaller reader bounds change the plan, so only then are footer reads worth
+        their requests. False when this governor sizes no plan (mode off, or no pod limit).
+        """
+        limit_mb = self.pod.limit_mb()
+        if self.config.mode == "off" or limit_mb is None:
+            return False
+        plan = size_upsert(
+            self._per_upsert_budget_mb(limit_mb), source_bytes / MB, n_partitions, profile, self.config.rss_retention
+        )
+        return not is_widest_plan(plan, profile, n_partitions)
 
     def _has_room(self, reserve_mb: float, usable_mb: float) -> bool:
         return self._reserved_mb + reserve_mb <= usable_mb + _ROOM_TOLERANCE_MB
@@ -974,6 +1105,8 @@ class MemoryGovernor:
             capacity_exceeded=plan is not None and not plan.fits,
             estimate=plan.estimate if plan is not None else None,
             max_row_group_mb=round(rewrite.max_row_group_mb, 1) if rewrite is not None else None,
+            row_group_sized_files=rewrite.row_group_sized_files if rewrite is not None else None,
+            footers_read=rewrite.footers_read if rewrite is not None else None,
             rewrite_total_mb=round(rewrite.total_mb, 1) if rewrite is not None else None,
             rewrite_files=rewrite.files if rewrite is not None else None,
             columns=rewrite.columns if rewrite is not None else None,

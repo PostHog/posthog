@@ -13,13 +13,15 @@ class AmazonS3CombineFilesConfig(config.Config):
 
 
 @config.config
+class AmazonS3FileFormatConfig(config.Config):
+    selection: Literal["infer", "csv", "csv_no_header", "jsonl", "parquet", "delta"] = "infer"
+    csv_allow_double_quotes: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+
+
+@config.config
 class AmazonS3SourceConfig(config.Config):
-    bucket: str
-    region: str
+    url_pattern: str
     access_key_id: str
     secret_access_key: str
-    path: str | None = None
-    file_pattern: str | None = None
-    file_format: Literal["infer", "csv", "csv_no_header", "jsonl", "parquet", "delta"] = config.value(default="infer")
-    csv_allow_double_quotes: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    file_format: AmazonS3FileFormatConfig
     combine_files: AmazonS3CombineFilesConfig | None = None

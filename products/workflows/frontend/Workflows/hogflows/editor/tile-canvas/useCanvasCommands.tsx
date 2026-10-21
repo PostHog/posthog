@@ -10,6 +10,7 @@ import {
     IconGraph,
     IconList,
     IconPlay,
+    IconPlusSquare,
     IconScreen,
 } from '@posthog/icons'
 
@@ -27,13 +28,19 @@ export interface PanelCommand extends CanvasCommand {
 
 export interface CanvasCommands {
     panel: PanelCommand[]
-    morePanels: PanelCommand[]
     view: CanvasCommand[]
 }
 
 type PanelDefinition = Omit<PanelCommand, 'run'> & { needsSavedWorkflow?: boolean }
 
 const PANELS: PanelDefinition[] = [
+    {
+        id: 'build',
+        mode: 'build',
+        label: 'Build',
+        hint: 'Browse every step you can add',
+        icon: <IconPlusSquare />,
+    },
     {
         id: 'test',
         mode: 'test',
@@ -57,25 +64,23 @@ const PANELS: PanelDefinition[] = [
         hint: 'Values the steps can read and write',
         icon: <IconBrackets />,
     },
+    {
+        id: 'metrics',
+        mode: 'metrics',
+        label: 'Metrics',
+        hint: 'How many people each step reached',
+        icon: <IconGraph />,
+        needsSavedWorkflow: true,
+    },
+    {
+        id: 'history',
+        mode: 'history',
+        label: 'History',
+        hint: 'See and restore previous versions',
+        icon: <IconClock />,
+        needsSavedWorkflow: true,
+    },
 ]
-
-const METRICS_PANEL: PanelDefinition = {
-    id: 'metrics',
-    mode: 'metrics',
-    label: 'Metrics',
-    hint: 'How many people each step reached',
-    icon: <IconGraph />,
-    needsSavedWorkflow: true,
-}
-
-const HISTORY_PANEL: PanelDefinition = {
-    id: 'history',
-    mode: 'history',
-    label: 'History',
-    hint: 'See and restore previous versions',
-    icon: <IconClock />,
-    needsSavedWorkflow: true,
-}
 
 function tracked<Command extends CanvasCommand>(command: Command): Command {
     return {
@@ -112,7 +117,6 @@ export function useCanvasCommands(): CanvasCommands {
         }
         return {
             panel: available(PANELS),
-            morePanels: available([METRICS_PANEL, HISTORY_PANEL]),
             view: [...(hasPaths ? [pathsCommand] : []), fitCommand].map(tracked),
         }
     }, [openPanel, isSavedWorkflow, hasPaths, allPathsCollapsed, toggleAllPaths, requestFit])

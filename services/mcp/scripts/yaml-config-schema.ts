@@ -7,6 +7,8 @@
  */
 import { z } from 'zod'
 
+import { INGESTED_DATA_KINDS } from '../src/lib/no-data-guard'
+
 export const ToolConfigSchema = z
     .object({
         operation: z.string(),
@@ -212,6 +214,8 @@ export const ToolConfigSchema = z
          */
         /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
         hidden_when_flag_on: z.string().optional(),
+        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
+        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
@@ -626,6 +630,8 @@ export const QueryWrapperToolConfigSchema = z
          */
         /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
         hidden_when_flag_on: z.string().optional(),
+        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
+        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
