@@ -158,6 +158,17 @@ def owned_alert_destinations_qs(
     return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
 
 
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    """The named HogFunctions that are destinations of this alert, without reading their inputs."""
+    return frozenset(
+        owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .filter(pk__in=list(hog_function_ids))
+        .values_list("id", flat=True)
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
