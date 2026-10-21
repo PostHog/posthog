@@ -77,6 +77,8 @@ function buildBaseProperties(
         // Which kind of caller minted this token — scout, research run, implementation run, or
         // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
         $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
+        // Server-derived from introspection, so a refused call can be traced to the run it came from.
+        ...(state.sandboxTaskId ? { sandbox_task_id: state.sandboxTaskId } : {}),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,

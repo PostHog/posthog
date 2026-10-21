@@ -132,6 +132,21 @@ TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
 TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_memory_peak_ratio",)
 TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
 
+TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_cpu_pressure_ratio",)
+TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS = TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS
+
+TASKS_NETWORK_BYTES_HISTOGRAM_METRICS = ("tasks_sandbox_network_bytes",)
+TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS = [
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    67_108_864.0,
+    268_435_456.0,
+    1_073_741_824.0,
+    4_294_967_296.0,
+    17_179_869_184.0,
+]
+
 _RUN_TOKEN_KINDS = {
     "input": "input_tokens",
     "output": "output_tokens",
@@ -383,6 +398,36 @@ def record_memory_peak_ratio(ratio: float) -> None:
         _metric_meter().create_histogram_float(
             "tasks_sandbox_memory_peak_ratio",
             "Peak sandbox memory use as a fraction of the limit, read at teardown",
+        ).record(ratio)
+    except Exception:
+        pass
+
+
+def increment_sandbox_exit_status(status: str, runtime: str) -> None:
+    try:
+        _metric_meter({"status": status, "runtime": runtime}).create_counter(
+            "tasks_sandbox_exit_status",
+            "Sandbox exit status read at cleanup, running when the sandbox was still alive, unknown when the poll failed",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_sandbox_network_bytes(direction: str, value: int) -> None:
+    try:
+        _metric_meter({"direction": direction}).create_histogram(
+            "tasks_sandbox_network_bytes",
+            "Sandbox network bytes over non-loopback interfaces, read at teardown",
+        ).record(value)
+    except Exception:
+        pass
+
+
+def record_sandbox_cpu_pressure_ratio(ratio: float) -> None:
+    try:
+        _metric_meter().create_histogram_float(
+            "tasks_sandbox_cpu_pressure_ratio",
+            "Fraction of sandbox uptime with some task stalled on CPU, read at teardown",
         ).record(ratio)
     except Exception:
         pass

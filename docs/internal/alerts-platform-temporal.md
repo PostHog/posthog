@@ -296,6 +296,9 @@ so the machine reads what it read when both shared one field.
 
 A configuration's `snooze_until` mutes every instance, and an instance's own `snooze_until` mutes one group.
 The check input and the read API show each instance the later of the two.
+`POST /api/projects/:id/platform_alerts/:id/snooze_group/` sets or clears an instance's snooze on a grouped alert the platform owns.
+Unlike a snooze of the whole alert, it leaves the group's firing open and the schedule alone, so the group's incident edges still go out.
+`record_outcomes` reads each instance's mute again when it writes a verdict, so a check that was already running when a snooze landed records its fire or resolve as muted instead of announcing it.
 
 A configuration's `grouping` holds `max_instances` (100 by default), the most instance rows it keeps.
 A source calls `check.admit(keys)` with its groups in priority order: a group that already has an instance is always admitted, so it can resolve, and new groups fill the remaining room front first.
