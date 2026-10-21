@@ -48,9 +48,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
-            )
+            self.source_query_runner = self._build_source_query_runner()
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only
@@ -67,13 +65,17 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.strategy = self.determine_strategy()
         self.calculating = False
 
+    def _build_source_query_runner(self) -> QueryRunner:
+        assert self.query.source is not None
+        return get_query_runner(
+            self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
+        )
+
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
+        # The source runner and the strategy hold the user's access control, so they are rebuilt for the new user.
         if self.query.source is not None:
-            self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
-            )
-            self.modifiers = self.source_query_runner.modifiers
+            self.source_query_runner = self._build_source_query_runner()
         self.strategy = self.determine_strategy()
 
     def run(
