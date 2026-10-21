@@ -320,6 +320,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         authenticate: () => {
             toolbarLogger.info('auth', 'Authentication initiated')
 
+            // The extension signs in from its panel. OAuth here would write PKCE to the
+            // customer's storage and navigate their tab, so hand the panel an expired session.
+            if (!values.ownsPageSession) {
+                actions.tokenExpired()
+                return
+            }
+
             // If the uiHost check found a problem, open the config modal instead of proceeding.
             if (values.authStatus === 'error') {
                 toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
@@ -343,6 +350,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             actions.openAuthConfirmModal()
         },
         confirmAuthenticate: async () => {
+            if (!values.ownsPageSession) {
+                actions.tokenExpired()
+                return
+            }
             // Re-check status because the modal can sit open arbitrarily long — the
             // reachability check may have flipped to 'error' while the user read the
             // dialog, and we must not redirect to an unreachable host.
