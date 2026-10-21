@@ -70432,6 +70432,8 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineExperimentRead {
+      /** User who submitted the experiment, or null for service credentials. */
+      readonly created_by: UserBasic | null;
       /** Project tag names assigned to this experiment. */
       tags: string[];
       /** Stable experiment UUID. */
@@ -75169,6 +75171,8 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+      /** User who last updated the scorer or created a version. */
+      readonly updated_by: UserBasic | null;
       readonly team: number;
     }
 
@@ -114080,6 +114084,12 @@ export namespace Schemas {
          * @nullable
          */
       auto_publish_cloud_runs: boolean | null;
+      /**
+         * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+         * @nullable
+         * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+         */
+      default_cloud_target: string | null;
     }
 
     /**
@@ -114090,6 +114100,12 @@ export namespace Schemas {
       start_in_plan_mode?: boolean;
       /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
       auto_publish_cloud_runs?: boolean;
+      /**
+         * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+         * @nullable
+         * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+         */
+      default_cloud_target?: string | null;
     }
 
     /**
@@ -122970,6 +122986,15 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number;
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean;
+    /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
      * @maxLength 2048
@@ -123168,6 +123193,15 @@ export namespace Schemas {
      * @maxLength 255
      */
     application_version?: string;
+    /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number;
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean;
     /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
@@ -130417,6 +130451,10 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
+     * Filter by the creator's user ID.
+     */
+    created_by?: number;
+    /**
      * Filter by scorer kind.
      */
     kind?: string;
@@ -132656,7 +132694,71 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     *
+     * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
+     * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
+     * @minLength 1
+     */
+    origin_product?: SandboxCustomImagesListOriginProduct;
     };
+
+    export type SandboxCustomImagesListOriginProduct = typeof SandboxCustomImagesListOriginProduct[keyof typeof SandboxCustomImagesListOriginProduct];
+
+
+    export const SandboxCustomImagesListOriginProduct = {
+      Onboarding: 'onboarding',
+      AccountAudit: 'account_audit',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      UserCreated: 'user_created',
+      Slack: 'slack',
+      SupportQueue: 'support_queue',
+      SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
+      Experiments: 'experiments',
+      SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
+      SignalsScout: 'signals_scout',
+      ScoutSuggestions: 'scout_suggestions',
+      SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
+      ReviewHog: 'review_hog',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
+      Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
+      MetricsImport: 'metrics_import',
+    } as const;
 
     export type SandboxListParams = {
     /**
