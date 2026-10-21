@@ -133,6 +133,7 @@ export interface destinationModalLogicActions {
             | 'github'
             | 'gitlab'
             | 'google-ads'
+            | 'google-adsense'
             | 'google-analytics'
             | 'google-calendar'
             | 'google-cloud-service-account'
