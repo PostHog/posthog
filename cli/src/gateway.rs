@@ -8,8 +8,8 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::time::{Duration, Instant};
 use tracing::info;
 
@@ -17,6 +17,8 @@ const DEFAULT_HOST: &str = "https://us.posthog.com";
 const SETTINGS_PATH: &str = "/settings/user-ai-gateway-dev-mode";
 const EXCHANGE_PATH: &str = "/api/ai_gateway/dev_tokens/cli_exchange/";
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+const CONNECTION_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_REQUEST_LINE_BYTES: u64 = 8 * 1024;
 
 #[derive(Serialize)]
 struct ExchangeRequest<'a> {
@@ -57,7 +59,7 @@ pub fn token(host: Option<String>, json: bool) -> Result<()> {
         info!("could not open a browser: {e}");
     }
 
-    let code = wait_for_code(&listener, &state)?;
+    let code = wait_for_code(&listener, &state, APPROVAL_TIMEOUT, CONNECTION_READ_TIMEOUT)?;
     let minted = exchange(&host, &code, &verifier)?;
 
     if json {
@@ -72,33 +74,57 @@ pub fn token(host: Option<String>, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
+/// Waits for the browser callback. An error on one connection skips that connection only,
+/// so an idle, aborted or malformed connection cannot end the wait.
+fn wait_for_code(
+    listener: &TcpListener,
+    state: &str,
+    timeout: Duration,
+    read_timeout: Duration,
+) -> Result<String> {
     listener.set_nonblocking(true)?;
-    let deadline = Instant::now() + APPROVAL_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     loop {
+        if Instant::now() >= deadline {
+            bail!(
+                "No approval after {} seconds. Run the command again.",
+                timeout.as_secs()
+            );
+        }
         match listener.accept() {
             Ok((stream, _)) => {
-                if let Some(code) = handle_callback(stream, state)? {
+                if let Err(e) = stream
+                    .set_nonblocking(false)
+                    .and_then(|()| stream.set_read_timeout(Some(read_timeout)))
+                {
+                    info!("skipped a loopback connection: {e}");
+                    continue;
+                }
+                if let Some(code) = handle_callback(stream, state) {
                     return Ok(code);
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if Instant::now() >= deadline {
-                    bail!("No approval after 5 minutes. Run the command again.");
-                }
                 std::thread::sleep(Duration::from_millis(200));
             }
-            Err(e) => return Err(e).context("Failed to accept the browser callback"),
+            Err(e) => {
+                info!("could not accept a loopback connection: {e}");
+                std::thread::sleep(Duration::from_millis(200));
+            }
         }
     }
 }
 
 /// Answers one loopback request. Returns the code only for a `/callback` whose state matches.
-fn handle_callback(mut stream: TcpStream, state: &str) -> Result<Option<String>> {
-    stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+/// The response to the browser is best effort: a failed write does not discard a received code.
+fn handle_callback(mut stream: impl Read + Write, state: &str) -> Option<String> {
     let mut request_line = String::new();
-    BufReader::new(&stream).read_line(&mut request_line)?;
+    let read =
+        BufReader::new((&mut stream).take(MAX_REQUEST_LINE_BYTES)).read_line(&mut request_line);
+    if let Err(e) = read {
+        info!("skipped a loopback connection: {e}");
+        return None;
+    }
     let target = request_line.split_whitespace().nth(1).unwrap_or("");
     let code = parse_callback(target, state);
     let body = if code.is_some() {
@@ -111,12 +137,14 @@ fn handle_callback(mut stream: TcpStream, state: &str) -> Result<Option<String>>
     } else {
         "400 Bad Request"
     };
-    write!(
+    if let Err(e) = write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
-    )?;
-    Ok(code)
+    ) {
+        info!("could not answer the browser: {e}");
+    }
+    code
 }
 
 fn parse_callback(target: &str, state: &str) -> Option<String> {
@@ -199,6 +227,7 @@ fn base64url(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpStream;
 
     // RFC 7636 appendix B.
     #[test]
@@ -229,8 +258,78 @@ mod tests {
                 std::io::Read::read_to_string(&mut stream, &mut response).unwrap();
             }
         });
-        assert_eq!(wait_for_code(&listener, "s1").unwrap(), "c0de");
+        let code = wait_for_code(
+            &listener,
+            "s1",
+            Duration::from_secs(10),
+            CONNECTION_READ_TIMEOUT,
+        );
+        assert_eq!(code.unwrap(), "c0de");
         sender.join().unwrap();
+    }
+
+    #[test]
+    fn listener_skips_idle_and_malformed_connections() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        // The idle connection is first in the accept queue. It sends nothing, so its read times out.
+        let _idle = TcpStream::connect(addr).unwrap();
+        let mut malformed = TcpStream::connect(addr).unwrap();
+        malformed
+            .write_all(b"\xff\xfe /callback HTTP/1.1\r\n\r\n")
+            .unwrap();
+        let mut callback = TcpStream::connect(addr).unwrap();
+        write!(
+            callback,
+            "GET /callback?code=c0de&state=s1 HTTP/1.1\r\n\r\n"
+        )
+        .unwrap();
+        let code = wait_for_code(
+            &listener,
+            "s1",
+            Duration::from_secs(10),
+            Duration::from_millis(200),
+        );
+        assert_eq!(code.unwrap(), "c0de");
+    }
+
+    #[test]
+    fn wait_ends_at_the_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let error = wait_for_code(
+            &listener,
+            "s1",
+            Duration::from_millis(300),
+            CONNECTION_READ_TIMEOUT,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("No approval"), "{error}");
+    }
+
+    /// A stream that returns a fixed request and fails every write, like a closed browser tab.
+    struct ClosedTab(std::io::Cursor<&'static [u8]>);
+
+    impl Read for ClosedTab {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Write for ClosedTab {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    #[test]
+    fn a_failed_response_write_keeps_the_code() {
+        let stream = ClosedTab(std::io::Cursor::new(
+            b"GET /callback?code=c0de&state=s1 HTTP/1.1\r\n\r\n",
+        ));
+        assert_eq!(handle_callback(stream, "s1"), Some("c0de".to_string()));
     }
 
     #[test]
