@@ -9,7 +9,7 @@ import { ToolbarFeatureGateStatus, toolbarFeatureGateStatus } from '~/toolbar/to
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 
 import { EXTENSION_FEATURE_ENTRY_POINTS, ExtensionFeatureEntryPoint, ExtensionFeatureKey } from './extensionFeatures'
-import { extensionPopupLogic } from './extensionPopupLogic'
+import { extensionPanelLogic } from './extensionPanelLogic'
 
 const FEATURE_ICONS: Record<ExtensionFeatureKey, JSX.Element> = {
     heatmaps: <IconCursorClick />,
@@ -22,13 +22,13 @@ const FEATURE_ICONS: Record<ExtensionFeatureKey, JSX.Element> = {
 const GATE_DISABLED_REASONS: Record<ToolbarFeatureGateStatus, string | null> = {
     available: null,
     checking: 'Checking plan access…',
-    unknown: "Couldn't check plan access. Open the popup again to retry.",
+    unknown: "Couldn't check plan access. Close and open the panel to try again.",
     locked: 'Needs a pay-as-you-go subscription',
 }
 
 function ExtensionFeatureButton({ entryPoint }: { entryPoint: ExtensionFeatureEntryPoint }): JSX.Element {
-    const { entitlements } = useValues(extensionPopupLogic)
-    const { openFeature } = useActions(extensionPopupLogic)
+    const { entitlements } = useValues(extensionPanelLogic)
+    const { openFeature } = useActions(extensionPanelLogic)
     // Hooks run unconditionally, so features without a gate read the flag and ignore it.
     const rolloutEnabled = useToolbarFeatureFlag(entryPoint.gate?.rolloutFlag ?? FEATURE_FLAGS.TOOLBAR_PAID_HEATMAPS)
     const gateStatus = entryPoint.gate
