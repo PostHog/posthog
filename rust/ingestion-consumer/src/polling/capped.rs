@@ -73,11 +73,10 @@ impl CappedPolling {
                 if !self.accepting_new_batches && self.in_flight_polls.is_empty() {
                     return Step::Stop;
                 }
-                if let Some(step) = self.collect().await {
-                    return step;
-                }
-                if self.heartbeat.is_none() {
-                    continue;
+                match self.collect().await {
+                    Collected::Step(step) => return step,
+                    Collected::Again => continue,
+                    Collected::Wait => self.start_waiting(),
                 }
             }
             if let Some(step) = self.wait_on_oldest_poll().await {
@@ -93,9 +92,7 @@ impl CappedPolling {
         }
     }
 
-    /// Returns `None` when the loop must collect again or wait on the oldest
-    /// poll; `heartbeat` tells which.
-    async fn collect(&mut self) -> Option<Step> {
+    async fn collect(&mut self) -> Collected {
         self.drop_revoked_polls();
         // Consumer-level concurrency: how many Kafka batches are being
         // processed in parallel, bounded by `max_in_flight_polls`.
@@ -104,7 +101,7 @@ impl CappedPolling {
         // Not beside `collect_batch`: a tick there would drop a collection
         // in progress.
         if let Some(commit) = self.settlement.take_due(Instant::now()) {
-            return Some(Step::Commit(commit));
+            return Collected::Step(Step::Commit(commit));
         }
 
         let collect = self.accepting_new_batches
@@ -124,21 +121,19 @@ impl CappedPolling {
                         "Shutdown signal received, draining in-flight batches"
                     );
                     self.accepting_new_batches = false;
-                    self.start_waiting();
-                    return Some(Step::BeginShutdown);
+                    return Collected::Step(Step::BeginShutdown);
                 }
-                Some(Err(err)) => return Some(Step::Fail(err)),
+                Some(Err(err)) => return Collected::Step(Step::Fail(err)),
                 Some(Ok(collected)) if collected.accumulator.message_count() == 0 => {
                     self.handle.report_healthy();
                     if self.in_flight_polls.is_empty() {
-                        return None;
+                        return Collected::Again;
                     }
                 }
-                Some(Ok(collected)) => return Some(Step::Submit(collected)),
+                Some(Ok(collected)) => return Collected::Step(Step::Submit(collected)),
             }
         }
-        self.start_waiting();
-        None
+        Collected::Wait
     }
 
     /// Wait for completions to cover the oldest in-flight poll, then retire
@@ -266,6 +261,13 @@ impl CappedPolling {
             );
         }
     }
+}
+
+enum Collected {
+    Step(Step),
+    Again,
+    /// Wait on the oldest poll.
+    Wait,
 }
 
 enum Woke {
