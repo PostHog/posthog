@@ -10,6 +10,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
+    exit_condition_that_runs,
     literal_static_cohort_id,
     static_cohort_ids,
 )
@@ -47,4 +48,5 @@ __all__ = [
     "list_workflows",
     "workflow_from_fields",
     "workflow_publish_impact",
+    "exit_condition_that_runs",
 ]

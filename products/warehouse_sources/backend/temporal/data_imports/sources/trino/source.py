@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
     TRINO_COLUMN_NOT_FOUND_ERROR,
     TRINO_KNOWN_ERROR_MESSAGES,
+    TRINO_OUT_OF_SPILL_SPACE_ERROR,
     TRINO_QUERY_MEMORY_LIMIT_ERROR,
     TRINO_QUERY_NOT_FOUND_ERROR,
     TRINO_SCHEMA_NOT_FOUND_ERROR,
@@ -292,7 +293,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Both are self-recovering vendor-side blips: the coordinator only raises the worker-node
-        # error after exhausting its own attempts to reach the worker, and a fresh attempt gets a
-        # new query ID, so a query the coordinator no longer holds ("Query not found") clears itself.
-        return {TRINO_WORKER_NODE_ERROR, TRINO_QUERY_NOT_FOUND_ERROR}
+        # The worker-node error and "Query not found" are self-recovering vendor-side blips: the
+        # coordinator only raises the former after exhausting its own attempts to reach the worker,
+        # and a fresh attempt gets a new query ID, so a query the coordinator no longer holds clears
+        # itself. Spill exhaustion depends on the workers' free disk at that moment, which frees up
+        # as other queries finish, so a later attempt can succeed.
+        return {TRINO_WORKER_NODE_ERROR, TRINO_QUERY_NOT_FOUND_ERROR, TRINO_OUT_OF_SPILL_SPACE_ERROR}

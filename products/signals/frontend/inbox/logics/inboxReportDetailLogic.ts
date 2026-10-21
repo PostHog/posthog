@@ -59,12 +59,7 @@ import type {
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
-import {
-    deriveTaskPurpose,
-    PURPOSE_ORDER,
-    ReportTaskPurpose,
-    TaskRunArtefactContent,
-} from '../components/detail/artefactTypes'
+import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
     buildAddReviewerOptions,
@@ -924,11 +919,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     )
                     return entries
                         .filter((entry): entry is ReportTaskEntry => entry !== null)
-                        .sort(
-                            (a, b) =>
-                                PURPOSE_ORDER.indexOf(a.purpose) - PURPOSE_ORDER.indexOf(b.purpose) ||
-                                new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-                        )
+                        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
                 },
             },
         ],

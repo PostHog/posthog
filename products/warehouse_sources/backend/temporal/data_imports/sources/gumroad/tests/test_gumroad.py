@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 import requests
@@ -150,6 +151,57 @@ class TestGumroadTransport:
         assert result.params("page_key") == [None, "cursor-3"]
         assert result.rows == [{"id": "sale-1"}, {"id": "sale-2"}]
         assert result.saved_states == [GumroadResumeConfig(page_key="cursor-3")]
+
+    @parameterized.expand(
+        [
+            (
+                "stops_at_first_unavailable_year_below_last_year",
+                [404, 200, 200, 404],
+                [2025, 2024],
+                None,
+            ),
+            # Gumroad's clock can still be in the previous year, so last year is not yet available.
+            ("skips_unavailable_last_year", [404, 404, 200, 404], [2024], None),
+            ("account_created_this_year", [404, 404, 404], [], None),
+            ("tax_center_disabled", [403], [], "403 Client Error: Forbidden for url"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 1, 1, 3, 0, tzinfo=UTC), tick=False)
+    def test_earnings_walks_back_through_available_tax_years(
+        self, _name, statuses, expected_years, expected_error
+    ) -> None:
+        script = [
+            ScriptedResponse(status=status, json={"success": True, "year": 2026 - index, "net_cents": 100})
+            if status == 200
+            else ScriptedResponse(status=status, json={"success": False})
+            for index, status in enumerate(statuses)
+        ]
+
+        result = self._driver().run("earnings", script)
+
+        assert result.params("year") == [str(2026 - index) for index in range(len(statuses))]
+        assert [row["year"] for row in result.rows] == expected_years
+        assert all("success" not in row for row in result.rows)
+        if expected_error is None:
+            assert result.raised is None
+        else:
+            assert expected_error in str(result.raised)
+
+    def test_workflow_emails_fan_out_reads_steps_from_each_workflow(self) -> None:
+        result = self._driver().run(
+            "workflow_emails",
+            [
+                ScriptedResponse(json={"success": True, "workflows": [{"id": "wf-1"}, {"id": "wf-2"}]}),
+                ScriptedResponse(
+                    json={"success": True, "workflow": {"id": "wf-1", "emails": [{"id": "e-1", "sent_count": 3}]}}
+                ),
+                ScriptedResponse(json={"success": True, "workflow": {"id": "wf-2", "emails": []}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/workflows", "/v2/workflows/wf-1", "/v2/workflows/wf-2"]
+        assert result.rows == [{"id": "e-1", "sent_count": 3, "workflow_id": "wf-1"}]
 
     @parameterized.expand(
         [
