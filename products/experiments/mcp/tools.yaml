@@ -1557,8 +1557,8 @@ tools:
             rejected, so keep the hypothesis summary short.
 
 
-            Updating variant notes or screenshots checks the version read before the update. A concurrent edit
-            returns 409 without overwriting it. Read the latest experiment before retrying.
+            Updating variant notes or screenshots checks the version read before the update. A concurrent edit returns
+            409 without overwriting it. Read the latest experiment before retrying.
         include_params:
             - name
             - description
