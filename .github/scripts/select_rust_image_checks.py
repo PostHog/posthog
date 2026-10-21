@@ -3,9 +3,10 @@
 
 Cargo CI never runs the Docker build, so a change to a Dockerfile, the build context,
 or an image entry can pass on the pull request and fail only on master, where it
-blocks the deploy. One image per Dockerfile and target covers a build-recipe change,
-and an added or edited image entry covers itself. Output is a comma-separated image
-filter for _rust-build-images.yml, or an empty line when nothing needs a build.
+blocks the deploy. One image per Dockerfile, target, and set of optional build args
+covers a build-recipe change, and an added or edited image entry covers itself.
+Output is a comma-separated image filter for _rust-build-images.yml, or an empty
+line when nothing needs a build.
 
 Usage: select_rust_image_checks.py <base-ref>  (run from the repo root)
 """
@@ -19,22 +20,26 @@ import yaml
 
 IMAGES_FILE = ".github/rust-images.yml"
 SHARED_INPUTS = ("rust/.dockerignore", "rust/.cargo/", ".github/workflows/_rust-build-images.yml")
+# Each of these takes its own path through the Dockerfile, so an image that sets one
+# is not covered by an image that leaves it unset. Keep in step with the build-args
+# that _rust-build-images.yml passes.
+OPTIONAL_BUILD_ARGS = ("features", "extra_rustflags", "extra_cflags")
 
 
 def select_images(
     changed_files: list[str], base_images: list[dict[str, Any]], head_images: list[dict[str, Any]]
 ) -> list[str]:
-    representatives: dict[tuple[str, str], str] = {}
+    representatives: dict[tuple[str, str, tuple[str, ...]], str] = {}
     for entry in head_images:
         dockerfile = entry["dockerfile"].removeprefix("./")
-        representatives.setdefault((dockerfile, entry.get("target", "")), entry["image"])
+        build_args = tuple(arg for arg in OPTIONAL_BUILD_ARGS if arg in entry)
+        representatives.setdefault((dockerfile, entry.get("target", ""), build_args), entry["image"])
 
     shared_changed = any(f.startswith(SHARED_INPUTS) for f in changed_files)
     selected = {
-        image for (dockerfile, _), image in representatives.items() if shared_changed or dockerfile in changed_files
+        image for (dockerfile, _, _), image in representatives.items() if shared_changed or dockerfile in changed_files
     }
-    if IMAGES_FILE in changed_files:
-        selected.update(entry["image"] for entry in head_images if entry not in base_images)
+    selected.update(entry["image"] for entry in head_images if entry not in base_images)
     return sorted(selected)
 
 

@@ -15,6 +15,7 @@ IMAGES = [
     {"image": "sqlx-migrate", "dockerfile": "./rust/Dockerfile.sqlx-migrate"},
     {"image": "cymbal", "dockerfile": "./rust/Dockerfile"},
     {"image": "flags-cache-warmer", "dockerfile": "./rust/Dockerfile", "target": "runtime-jumphost"},
+    {"image": "flags-cache-builder", "dockerfile": "./rust/Dockerfile", "bin": "builder", "features": "builder"},
 ]
 ADDED = {"image": "new-service", "dockerfile": "./rust/Dockerfile"}
 EDITED_CYMBAL = {"image": "cymbal", "dockerfile": "./rust/Dockerfile", "features": "profiling"}
@@ -25,14 +26,18 @@ EDITED_CYMBAL = {"image": "cymbal", "dockerfile": "./rust/Dockerfile", "features
     [
         (["rust/capture/src/main.rs", "rust/Cargo.lock"], IMAGES, []),
         ([".github/workflows/rust-smoke-test-build.yml"], IMAGES, []),
-        (["rust/Dockerfile"], IMAGES, ["capture", "flags-cache-warmer"]),
+        (["rust/Dockerfile"], IMAGES, ["capture", "flags-cache-builder", "flags-cache-warmer"]),
         (["rust/Dockerfile.sqlx-migrate"], IMAGES, ["sqlx-migrate"]),
-        (["rust/.dockerignore"], IMAGES, ["capture", "flags-cache-warmer", "sqlx-migrate"]),
-        (["rust/.cargo/config.toml"], IMAGES, ["capture", "flags-cache-warmer", "sqlx-migrate"]),
-        ([".github/workflows/_rust-build-images.yml"], IMAGES, ["capture", "flags-cache-warmer", "sqlx-migrate"]),
+        (["rust/.dockerignore"], IMAGES, ["capture", "flags-cache-builder", "flags-cache-warmer", "sqlx-migrate"]),
+        (["rust/.cargo/config.toml"], IMAGES, ["capture", "flags-cache-builder", "flags-cache-warmer", "sqlx-migrate"]),
+        (
+            [".github/workflows/_rust-build-images.yml"],
+            IMAGES,
+            ["capture", "flags-cache-builder", "flags-cache-warmer", "sqlx-migrate"],
+        ),
         ([".github/rust-images.yml"], IMAGES, []),
         ([".github/rust-images.yml"], [*IMAGES, ADDED], ["new-service"]),
-        ([".github/rust-images.yml"], [IMAGES[0], IMAGES[1], EDITED_CYMBAL, IMAGES[3]], ["cymbal"]),
+        ([".github/rust-images.yml"], [IMAGES[0], IMAGES[1], EDITED_CYMBAL, *IMAGES[3:]], ["cymbal"]),
         (
             [".github/rust-images.yml", "rust/Dockerfile.sqlx-migrate"],
             [*IMAGES, ADDED],

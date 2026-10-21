@@ -34,7 +34,7 @@ const REDIS_CONNECT_RETRIES: u32 = 3;
 const TEAM_ID_PAGE_SIZE: i64 = 1000;
 
 #[derive(Parser, Debug)]
-#[command(name = "warm-flags-cache")]
+#[command(name = "warm-flags-cache", version)]
 struct Cli {
     #[arg(long, num_args = 1..)]
     team_ids: Option<Vec<TeamId>>,
@@ -128,10 +128,6 @@ fn resolve_redis_url(infra: &InfraConfig, allow_default: bool) -> Option<&str> {
 
 #[tokio::main]
 async fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
-        std::process::exit(0);
-    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::builder()

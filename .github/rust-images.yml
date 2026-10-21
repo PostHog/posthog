@@ -7,6 +7,8 @@
 #
 # To add a new service: append an entry here. The deploy matrix in
 # rust-docker-build.yml must also be updated for production deploys.
+# CI smoke tests each image with `--version`, so the binary must print
+# its version and exit 0 on that flag before it reads any configuration.
 - image: capture
   dockerfile: ./rust/Dockerfile
   project: kshskj225r
