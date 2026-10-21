@@ -244,5 +244,7 @@ Missing data, failed checks, and inconclusive results do not establish that the 
 
 ## Opening a report task
 
+The web report's Runs section lists linked tasks newest first, regardless of their purpose, using each task's first association with the report. Repository-selection tasks remain hidden.
+
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.

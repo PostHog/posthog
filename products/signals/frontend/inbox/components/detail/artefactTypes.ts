@@ -414,9 +414,6 @@ export function artefactAttributionLabel(artefact: SignalReportArtefact): string
 /** A task↔report association's derived purpose. `other` covers custom-agent runs. */
 export type ReportTaskPurpose = 'research' | 'implementation' | 'other'
 
-/** Sort order for linked-task rows: implementation first, then research, then everything else. */
-export const PURPOSE_ORDER: ReportTaskPurpose[] = ['implementation', 'research', 'other']
-
 export interface DerivedPurpose {
     purpose: ReportTaskPurpose
     purposeLabel: string
