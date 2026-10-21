@@ -5,8 +5,7 @@ from django.conf import settings
 from rest_framework.request import Request
 
 from posthog.models.identity_provider_config import IdentityProviderConfig
-
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
 
 from .auth import generate_scim_token
 

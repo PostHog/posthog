@@ -11,10 +11,9 @@ from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
 
 from products.access_control.backend.models.role import RoleMembership
-
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 
 class SCIMUserConflict(Exception):
