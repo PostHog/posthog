@@ -37,17 +37,26 @@ Add more `event = '...'` conditions to `windowFunnel` for more steps, and set `s
 
 ```sql
 WITH
-    funnel_actors AS (
+    actor_steps AS (
         SELECT
             person_id AS actor_id,
             windowFunnel(1209600)(toDateTime(timestamp), event = 'step one', event = 'step two') AS steps,
-            minIf(timestamp, event = 'step one') AS first_timestamp,
-            minIf(timestamp, event = 'step two') AS final_timestamp
+            arraySort(groupArrayIf(toDateTime(timestamp), event = 'step one')) AS entry_times,
+            arraySort(groupArrayIf(toDateTime(timestamp), event = 'step two')) AS final_times
         FROM events
         WHERE event IN ('step one', 'step two')
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY actor_id
         HAVING steps >= 1
+    ),
+    funnel_actors AS (
+        SELECT
+            actor_id,
+            steps,
+            arrayFirstIndex(t1 -> arrayExists(t2 -> t2 >= t1 AND t2 <= t1 + INTERVAL 14 DAY, final_times), entry_times) AS attempt,
+            entry_times[greatest(attempt, 1)] AS first_timestamp,
+            arrayFirst(t2 -> t2 >= first_timestamp, final_times) AS final_timestamp
+        FROM actor_steps
     ),
     totals AS (
         SELECT countIf(steps = 2) AS success_total, countIf(steps < 2) AS failure_total
@@ -82,7 +91,10 @@ LIMIT 20
 ```
 
 The query only counts events between funnel entry and conversion.
-For people who did not convert, it counts events until the conversion window closes.
+For people who converted, `attempt` picks the first entry that has a final step inside the window, so both timestamps come from the same attempt.
+For more steps, add one array per step and chain the `arrayExists` checks: each step must be at or after the step before it and inside the window.
+For people who did not convert, it counts events from their first entry until the conversion window closes.
+The arrays use `toDateTime` because `windowFunnel` compares whole seconds. Keep them the same, or some converters get no matched attempt.
 It excludes the funnel step events, because they correlate with conversion by definition.
 
 ## Property correlation
@@ -136,4 +148,4 @@ To look at the properties of one event instead, filter `per_event` to that event
 - If one group is more than 10 times bigger than the other, the ratios are less reliable. Tell the user.
 - If `success_total` or `failure_total` is 0, there is nothing to compare.
 - Noise events that everybody sends, such as `$pageview`, `$pageleave`, or `$feature_flag_called`, can fill the list. Exclude them when they hide the useful signals.
-- For group-based funnels, replace `person_id` with `$group_N` and the person properties with group properties.
+- For group-based funnels, replace `person_id` with `$group_N` and the person properties with group properties. Also add `AND $group_N != ''` to the funnel step `WHERE` clause. Events without that group have an empty key, and without the filter they become one fake actor that can convert.
