@@ -1121,15 +1121,19 @@ describe('EmailService', () => {
 
         // A person without an email property renders an empty `to`. Counting that as email_failed
         // lets one project's data trip the platform send failure rate alert.
+        // A suppressed cc or bcc must not turn the missing-recipient skip into a suppression.
         it.each([
-            ['an empty string', ''],
-            ['only whitespace', '   '],
-            ['no value', undefined],
-        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            ['an empty string', '', undefined],
+            ['only whitespace', '   ', undefined],
+            ['no value', undefined, undefined],
+            ['an empty string beside a suppressed cc', '', 'suppressed@example.com'],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email, cc) => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 to: { email: email as string, name: 'Test User' },
+                cc,
             })
+            jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
