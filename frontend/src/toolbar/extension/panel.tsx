@@ -5,13 +5,13 @@ import { loadersPlugin } from 'kea-loaders'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { createRoot } from 'react-dom/client'
 
-import { ExtensionPopup } from './ExtensionPopup'
-import { extensionPopupLogic } from './extensionPopupLogic'
+import { ExtensionPanel } from './ExtensionPanel'
+import { extensionPanelLogic } from './extensionPanelLogic'
 
 resetContext({ plugins: [loadersPlugin, subscriptionsPlugin] })
-extensionPopupLogic.mount()
+extensionPanelLogic.mount()
 
 const container = document.getElementById('root')
 if (container) {
-    createRoot(container).render(<ExtensionPopup />)
+    createRoot(container).render(<ExtensionPanel />)
 }

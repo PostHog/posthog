@@ -8,9 +8,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from '~/toolbar/urls'
 
 import { ExtensionFeatureList } from './ExtensionFeatureList'
-import { extensionPopupLogic } from './extensionPopupLogic'
-import { ExtensionPopupSettings } from './ExtensionPopupSettings'
-import type { ExtensionPopupState, UnsupportedPageReason } from './extensionPopupState'
+import { extensionPanelLogic } from './extensionPanelLogic'
+import { ExtensionPanelSettings } from './ExtensionPanelSettings'
+import type { ExtensionPanelState, UnsupportedPageReason } from './extensionPanelState'
 
 const UNSUPPORTED_PAGE_MESSAGES: Record<UnsupportedPageReason, string> = {
     'browser-page': "The toolbar can't run on this page. Open your website to use it.",
@@ -19,13 +19,13 @@ const UNSUPPORTED_PAGE_MESSAGES: Record<UnsupportedPageReason, string> = {
     'extension-store': "Browsers don't let extensions run on this page. Open your website to use the toolbar.",
 }
 
-function ExtensionPopupBody({ popupState }: { popupState: ExtensionPopupState }): JSX.Element {
-    const { uiHost, user } = useValues(extensionPopupLogic)
-    const { requestHostPermission, openPostHogPath, retry } = useActions(extensionPopupLogic)
+function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState }): JSX.Element {
+    const { uiHost, user } = useValues(extensionPanelLogic)
+    const { requestHostPermission, openPostHogPath, retry } = useActions(extensionPanelLogic)
     const host = new URL(uiHost).host
     const projectName = user?.team.name ?? 'this project'
 
-    switch (popupState.kind) {
+    switch (panelState.kind) {
         case 'checking':
             return (
                 <div className="flex items-center gap-2 text-secondary">
@@ -34,7 +34,7 @@ function ExtensionPopupBody({ popupState }: { popupState: ExtensionPopupState })
                 </div>
             )
         case 'unsupported-page':
-            return <LemonBanner type="info">{UNSUPPORTED_PAGE_MESSAGES[popupState.reason]}</LemonBanner>
+            return <LemonBanner type="info">{UNSUPPORTED_PAGE_MESSAGES[panelState.reason]}</LemonBanner>
         case 'host-permission-needed':
             return (
                 <LemonBanner
@@ -58,7 +58,7 @@ function ExtensionPopupBody({ popupState }: { popupState: ExtensionPopupState })
                         'data-attr': 'toolbar-extension-log-in',
                     }}
                 >
-                    Log in to PostHog on {host}, then open this popup again.
+                    Log in to PostHog on {host}, then come back to this tab.
                 </LemonBanner>
             )
         case 'no-toolbar-access':
@@ -81,7 +81,7 @@ function ExtensionPopupBody({ popupState }: { popupState: ExtensionPopupState })
                         'data-attr': 'toolbar-extension-authorized-urls',
                     }}
                 >
-                    {popupState.origin} isn't an authorized URL for {projectName}. Add it to use the toolbar here.
+                    {panelState.origin} isn't an authorized URL for {projectName}. Add it to use the toolbar here.
                 </LemonBanner>
             )
         case 'error':
@@ -94,21 +94,21 @@ function ExtensionPopupBody({ popupState }: { popupState: ExtensionPopupState })
                 </LemonBanner>
             )
         case 'ready':
-            return <ExtensionFeatureList origin={popupState.origin} />
+            return <ExtensionFeatureList origin={panelState.origin} />
     }
 }
 
-export function ExtensionPopup(): JSX.Element {
-    const { popupState } = useValues(extensionPopupLogic)
+export function ExtensionPanel(): JSX.Element {
+    const { panelState } = useValues(extensionPanelLogic)
 
     return (
-        <div className="flex flex-col gap-3 p-3 w-80">
+        <div className="flex min-h-screen flex-col gap-3 p-3">
             <div className="flex items-center gap-2 font-semibold">
                 <IconLogomark className="text-xl" />
                 PostHog toolbar
             </div>
-            <ExtensionPopupBody popupState={popupState} />
-            <ExtensionPopupSettings />
+            <ExtensionPanelBody panelState={panelState} />
+            <ExtensionPanelSettings />
         </div>
     )
 }

@@ -8,21 +8,21 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { canonicalizeUiHost } from '~/toolbar/toolbarConfigLogic'
 
-import { extensionPopupLogic } from './extensionPopupLogic'
+import { extensionPanelLogic } from './extensionPanelLogic'
 
 const CLOUD_HOSTS = ['https://us.posthog.com', 'https://eu.posthog.com']
 const CUSTOM_HOST = 'custom'
 
-export function ExtensionPopupSettings(): JSX.Element {
-    const { uiHost, user } = useValues(extensionPopupLogic)
-    const { setUiHost, switchProject } = useActions(extensionPopupLogic)
+export function ExtensionPanelSettings(): JSX.Element {
+    const { uiHost, user } = useValues(extensionPanelLogic)
+    const { setUiHost, switchProject } = useActions(extensionPanelLogic)
     const isCloudHost = CLOUD_HOSTS.includes(uiHost)
     const [editingCustomHost, setEditingCustomHost] = useState(false)
     const [customHost, setCustomHost] = useState(isCloudHost ? '' : uiHost)
     const canonicalCustomHost = canonicalizeUiHost(customHost)
 
     return (
-        <div className="flex flex-col gap-2 border-t pt-3">
+        <div className="mt-auto flex flex-col gap-2 border-t pt-3">
             {user ? (
                 <>
                     <LemonLabel>Project</LemonLabel>

@@ -1,6 +1,6 @@
-import { ExtensionPopupInputs, getExtensionPopupState } from './extensionPopupState'
+import { ExtensionPanelInputs, getExtensionPanelState } from './extensionPanelState'
 
-const READY_INPUTS: ExtensionPopupInputs = {
+const READY_INPUTS: ExtensionPanelInputs = {
     tabUrl: 'https://www.example.com/pricing',
     uiHost: 'https://us.posthog.com',
     hostPermission: true,
@@ -9,8 +9,8 @@ const READY_INPUTS: ExtensionPopupInputs = {
     authorizedUrls: ['https://example.com'],
 }
 
-describe('getExtensionPopupState', () => {
-    test.each<[string, Partial<ExtensionPopupInputs>, ReturnType<typeof getExtensionPopupState>]>([
+describe('getExtensionPanelState', () => {
+    test.each<[string, Partial<ExtensionPanelInputs>, ReturnType<typeof getExtensionPanelState>]>([
         ['authorized page', {}, { kind: 'ready', origin: 'https://www.example.com' }],
         ['tab not read yet', { tabUrl: undefined }, { kind: 'checking' }],
         ['browser page', { tabUrl: 'chrome://extensions' }, { kind: 'unsupported-page', reason: 'browser-page' }],
@@ -65,6 +65,6 @@ describe('getExtensionPopupState', () => {
             { kind: 'no-toolbar-access' },
         ],
     ])('%s', (_, overrides, expected) => {
-        expect(getExtensionPopupState({ ...READY_INPUTS, ...overrides })).toEqual(expected)
+        expect(getExtensionPanelState({ ...READY_INPUTS, ...overrides })).toEqual(expected)
     })
 })
