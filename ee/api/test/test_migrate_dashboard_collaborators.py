@@ -38,6 +38,9 @@ def _conversion_state() -> Any:
 class TestMigrateDashboardCollaborators(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        if "ee_dashboardprivilege" not in connection.introspection.table_names():
+            with connection.schema_editor() as schema_editor:
+                schema_editor.create_model(_conversion_state().apps.get_model("ee", "DashboardPrivilege"))
         self.organization.available_product_features = [
             {"key": feature, "name": feature}
             for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
@@ -461,6 +464,12 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
 
 
 class TestDashboardConversionTransactions(NonAtomicBaseTestKeepIdentities):
+    def setUp(self) -> None:
+        super().setUp()
+        if "ee_dashboardprivilege" not in connection.introspection.table_names():
+            with connection.schema_editor() as schema_editor:
+                schema_editor.create_model(_conversion_state().apps.get_model("ee", "DashboardPrivilege"))
+
     def test_failed_dashboard_rolls_back_without_undoing_completed_dashboards(self) -> None:
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save()
