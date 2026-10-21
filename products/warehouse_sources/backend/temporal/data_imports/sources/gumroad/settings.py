@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -26,7 +28,7 @@ EARNINGS_ENDPOINT = "earnings"
 EARNINGS_FIRST_YEAR = 2011
 
 
-@dataclass
+@frozen
 class GumroadEndpointConfig:
     name: str
     path: str
