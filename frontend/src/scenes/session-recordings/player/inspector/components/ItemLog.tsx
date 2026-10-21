@@ -1,14 +1,16 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { urls } from 'scenes/urls'
+
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { buildLogsSessionScope } from 'products/logs/frontend/utils'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { miniFiltersLogic } from '../miniFiltersLogic'
@@ -69,26 +71,7 @@ export function ItemLog({ item, groupCount }: ItemLogProps): JSX.Element {
 }
 
 export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): JSX.Element {
-    const logsUrl = sessionId
-        ? `${urls.logs()}?filterGroup=${encodeURIComponent(
-              JSON.stringify({
-                  type: 'AND',
-                  values: [
-                      {
-                          type: 'AND',
-                          values: [
-                              {
-                                  key: 'session_id',
-                                  value: sessionId,
-                                  operator: 'exact',
-                                  type: 'log_attribute',
-                              },
-                          ],
-                      },
-                  ],
-              })
-          )}`
-        : urls.logs()
+    const { openLogsViewerModal } = useActions(logsViewerModalLogic)
 
     const attributes =
         item.data.attributes && typeof item.data.attributes === 'object'
@@ -109,9 +92,15 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
                         data-attr="inspector-open-logs"
                         type="tertiary"
                         size="xsmall"
-                        icon={<IconOpenInNew />}
-                        targetBlank
-                        to={logsUrl}
+                        icon={<IconLive />}
+                        onClick={() =>
+                            openLogsViewerModal({
+                                id: `session-${sessionId}`,
+                                fullScreen: false,
+                                ...buildLogsSessionScope(sessionId, item.timestamp.toISOString()),
+                            })
+                        }
+                        disabledReason={sessionId ? undefined : 'No session ID associated with this log'}
                     >
                         View in Logs
                     </LemonButton>
