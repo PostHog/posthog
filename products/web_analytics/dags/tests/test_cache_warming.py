@@ -5,7 +5,7 @@ from concurrent.futures import Future
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase
@@ -14,6 +14,8 @@ from django.utils.dateparse import parse_datetime
 import dagster
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -516,18 +518,39 @@ class TestFleetQuerySelection(BaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            # The archive path drops preset ids, so only the preset lane may still pay
+            # for the system.query_log scan.
+            ("archive", False, "FROM query_log_archive", "system.query_log"),
+            ("preset_lane_query_log", True, "system.query_log", "query_log_archive"),
+        ]
+    )
+    @patch("products.web_analytics.dags.cache_warming._apply_preset_lane", side_effect=lambda _c, rows, _m: rows)
     @patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[])
-    def test_selection_sql_survives_driver_percent_formatting(self, mock_exec: MagicMock) -> None:
+    def test_selection_reads_the_source_its_lane_needs(
+        self,
+        _name: str,
+        preset_lane: bool,
+        expected_source: str,
+        unexpected_source: str,
+        mock_exec: MagicMock,
+        _mock_lane: MagicMock,
+    ) -> None:
         # clickhouse_driver %-formats the query when params are passed, so literal
         # % (the LIKE prefilter) must be written as %%. A bare % would crash only
         # in production, because tests mock sync_execute away.
-        queries_to_keep_fresh(dagster.build_op_context(), days=2, minimum_query_count=10, max_shapes=100)
+        queries_to_keep_fresh(
+            dagster.build_op_context(), days=2, minimum_query_count=10, max_shapes=100, preset_lane=preset_lane
+        )
 
         sql, params = mock_exec.call_args[0]
         rendered = sql % dict.fromkeys(params, "1")  # what the driver's substitution does
 
-        self.assertIn("LIKE '%Web%'", rendered)
-        self.assertIn("system.query_log", rendered)
+        self.assertIn(expected_source, rendered)
+        self.assertNotIn(unexpected_source, rendered)
+        if preset_lane:
+            self.assertIn("""LIKE '%"kind":"Web%'""", rendered)
 
     @patch("products.web_analytics.dags.cache_warming._read_cached_warmable_queries", return_value=None)
     @patch("products.web_analytics.dags.cache_warming._write_cached_warmable_queries")
@@ -567,6 +590,56 @@ class TestFleetQuerySelection(BaseTest):
         # can never be amplified into raw background scans.
         self.assertLess(entry["representative_query_count"], cache_warming.RAW_REPLAY_MIN_QUERY_COUNT)
         self.assertIsInstance(entry["normalized_query_hash"], int)
+
+
+class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
+    def _insert_chain(
+        self,
+        chain_id: str,
+        query: dict,
+        lc_kind: str = "request",
+        status: str = "QueryFinish",
+        query_type: str = "web_overview_query",
+    ) -> None:
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
+                (initial_query_start_time, team_id, initial_query_id, is_initial_query, type,
+                 query_kind_by_root, lc_kind, lc_feature, lc_query_type, lc_query__kind, lc_query)
+            VALUES (now64(6), %(team_id)s, %(chain_id)s, 1, %(status)s,
+                    (1, 'Select'), %(lc_kind)s, 'query', %(query_type)s, %(kind)s, %(lc_query)s)
+            """,
+            {
+                "team_id": self.team.pk,
+                "chain_id": chain_id,
+                "status": status,
+                "lc_kind": lc_kind,
+                "query_type": query_type,
+                "kind": query["kind"],
+                "lc_query": json.dumps(query),
+            },
+        )
+
+    def test_counts_user_requests_and_ignores_background_replays(self) -> None:
+        user_shape = {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}, "properties": []}
+        background_shape = {"kind": "WebStatsTableQuery", "breakdownBy": "Page", "dateRange": {"date_from": "-7d"}}
+        self._insert_chain("user-1", user_shape)
+        self._insert_chain("user-2", {**user_shape, "dateRange": {"date_from": "-30d"}})
+        self._insert_chain("failed", user_shape, status="ExceptionWhileProcessing")
+        self._insert_chain("bucket-build", user_shape, query_type="web_overview_lazy_insert")
+        # The archive has no trigger tag, so the warmer's own replays (no kind),
+        # stale revalidation (celery) and batch workflows (temporal) are told apart
+        # from user reads by kind alone. Any of them leaking in keeps a shape hot forever.
+        for index, lc_kind in enumerate(["", "", "celery", "celery", "temporal", "temporal"]):
+            self._insert_chain(f"background-{index}", background_shape, lc_kind=lc_kind)
+
+        result = queries_to_keep_fresh(dagster.build_op_context(), days=1, minimum_query_count=2, max_shapes=100)
+
+        rows = [row for row in result if row["team_id"] == self.team.pk]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["query_json"]["kind"], "WebOverviewQuery")
+        self.assertEqual(rows[0]["query_count"], 2)
+        self.assertEqual(sorted(rows[0]["observed_date_froms"]), ["-30d", "-7d"])
 
 
 class TestPresetLane(BaseTest):
