@@ -132,6 +132,7 @@ class MaterializePayloadSerializer(DataclassSerializer):
 class DematerializePayloadSerializer(DataclassSerializer):
     class Meta:
         dataclass = DematerializePayload
+        exclude = ["query_fingerprint"]
         extra_kwargs = {
             "subject_name": {"help_text": "Name of the rarely read materialized view to turn back into a plain view."},
             "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},

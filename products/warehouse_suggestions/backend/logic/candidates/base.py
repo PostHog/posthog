@@ -44,6 +44,8 @@ class CandidateContext:
         return self.rules.deprecate.counts_background_reads or reads.human_requests > 0
 
     def reads_direct_source(self, saved_query_id: UUID) -> bool:
+        if not self.inventory.direct_table_ids:
+            return False
         return any(
             ref.warehouse_table_id is not None and UUID(ref.warehouse_table_id) in self.inventory.direct_table_ids
             for ref in upstream_table_refs(self.team_id, saved_query_id)

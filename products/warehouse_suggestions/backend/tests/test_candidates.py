@@ -28,7 +28,10 @@ from products.warehouse_suggestions.backend.logic.candidates.base import (
     CandidateContext,
 )
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
-from products.warehouse_suggestions.backend.logic.candidates.dematerialize import DematerializeCandidate
+from products.warehouse_suggestions.backend.logic.candidates.dematerialize import (
+    DematerializeCandidate,
+    query_fingerprint,
+)
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
 from products.warehouse_suggestions.backend.logic.candidates.materialize import (
     MaterializeCandidate,
@@ -394,6 +397,7 @@ class TestDematerializeCandidate(BaseTest):
             live_seconds_per_month=20.0,
             live_bytes_per_month=4.0 * 10**6,
             read_seconds=5.0,
+            query_fingerprint=query_fingerprint("SELECT timestamp, event FROM events"),
         )
 
     @parameterized.expand(

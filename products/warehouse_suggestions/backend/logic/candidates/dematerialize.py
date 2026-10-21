@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime
 
 from posthog.dataclasses import frozen
@@ -154,7 +155,12 @@ def _payload(
         live_seconds_per_month=reads_per_month * seconds_per_run,
         live_bytes_per_month=reads_per_month * bytes_per_run,
         read_seconds=refreshes.p90_duration_ms / MILLISECONDS_PER_SECOND,
+        query_fingerprint=query_fingerprint(saved_query.hogql),
     )
+
+
+def query_fingerprint(hogql: str) -> str:
+    return hashlib.sha256(hogql.encode()).hexdigest()
 
 
 def _subject(saved_query: SavedQueryDefinition) -> Subject:

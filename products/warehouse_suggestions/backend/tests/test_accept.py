@@ -35,6 +35,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionStatus,
 )
 from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
+from products.warehouse_suggestions.backend.logic.candidates.dematerialize import query_fingerprint
 from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -50,6 +51,7 @@ DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
+ORDERS_SQL = "SELECT timestamp, event FROM events"
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 MATERIALIZE_PAYLOAD = MaterializePayload(
     subject_name="orders",
@@ -80,6 +82,7 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         live_seconds_per_month=20,
         live_bytes_per_month=10**6,
         read_seconds=5,
+        query_fingerprint=query_fingerprint(ORDERS_SQL),
     ),
 }
 
@@ -88,7 +91,7 @@ def create_view_in_dag(team: Team, user: User) -> DataWarehouseSavedQuery:
     view = DataWarehouseSavedQuery.objects.create(
         team=team,
         name="orders",
-        query={"kind": "HogQLQuery", "query": "SELECT timestamp, event FROM events"},
+        query={"kind": "HogQLQuery", "query": ORDERS_SQL},
         created_by=user,
     )
     Node.objects.create(
@@ -122,6 +125,12 @@ def add_dependent_view(view: DataWarehouseSavedQuery) -> None:
 
 def switch_to_incremental(view: DataWarehouseSavedQuery) -> None:
     DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=STORED_DAY_KEY)
+
+
+def change_query(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+        query={"kind": "HogQLQuery", "query": "SELECT timestamp, event, properties FROM events"}
+    )
 
 
 def add_destination(view: DataWarehouseSavedQuery) -> None:
@@ -333,6 +342,7 @@ class TestAcceptSuggestion(APIBaseTest):
             ("stops_refreshes", None, status.HTTP_200_OK),
             ("a_view_was_built_on_it_since", add_dependent_view, status.HTTP_409_CONFLICT),
             ("it_refreshes_incrementally_since", switch_to_incremental, status.HTTP_409_CONFLICT),
+            ("its_query_changed_since", change_query, status.HTTP_409_CONFLICT),
         ]
     )
     def test_accepting_a_dematerialize_suggestion_turns_the_view_back_into_a_plain_view(

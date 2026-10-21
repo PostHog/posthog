@@ -55,6 +55,7 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         live_seconds_per_month=20,
         live_bytes_per_month=0,
         read_seconds=5,
+        query_fingerprint="fingerprint",
     ),
 }
 

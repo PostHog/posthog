@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Case, Exists, F, OuterRef, Value, When
 
 from posthog.dataclasses import frozen
 
@@ -133,22 +133,26 @@ def _accepted_then_reversed(
 ) -> list[WarehouseSuggestion]:
     """Accepted materialize and dematerialize suggestions the view has since flipped away from, past the cooldown."""
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
-    accepted = suggestions.filter(
-        fingerprint__in=drafts_by_fingerprint, status=WarehouseSuggestionStatus.ACCEPTED, kind__in=OPPOSITE_KINDS
-    )
     cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
-    return [
-        row
-        for row in accepted
-        if suggestions.filter(
-            status=WarehouseSuggestionStatus.ACCEPTED,
-            kind=OPPOSITE_KINDS[WarehouseSuggestionKind(row.kind)],
-            subject_kind=row.subject_kind,
-            subject_id=row.subject_id,
-            reviewed_at__gt=row.reviewed_at,
-            reviewed_at__lte=cooled_down_before,
-        ).exists()
-    ]
+    later_opposite_accept = suggestions.filter(
+        status=WarehouseSuggestionStatus.ACCEPTED,
+        kind=OuterRef("opposite_kind"),
+        subject_kind=OuterRef("subject_kind"),
+        subject_id=OuterRef("subject_id"),
+        reviewed_at__gt=OuterRef("reviewed_at"),
+        reviewed_at__lte=cooled_down_before,
+    )
+    return list(
+        suggestions.filter(
+            fingerprint__in=drafts_by_fingerprint, status=WarehouseSuggestionStatus.ACCEPTED, kind__in=OPPOSITE_KINDS
+        )
+        .annotate(opposite_kind=_opposite_kind())
+        .filter(Exists(later_opposite_accept))
+    )
+
+
+def _opposite_kind() -> Case:
+    return Case(*(When(kind=kind, then=Value(opposite.value)) for kind, opposite in OPPOSITE_KINDS.items()))
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:

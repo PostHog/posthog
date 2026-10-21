@@ -70,6 +70,7 @@ class DematerializePayload:
     live_seconds_per_month: float
     live_bytes_per_month: float
     read_seconds: float
+    query_fingerprint: str
 
 
 SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | DematerializePayload

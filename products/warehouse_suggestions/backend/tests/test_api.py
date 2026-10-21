@@ -144,6 +144,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
                     live_seconds_per_month=20.0,
                     live_bytes_per_month=0.0,
                     read_seconds=5.0,
+                    query_fingerprint="fingerprint",
                 ),
             ),
         )
@@ -154,6 +155,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         rows = {row["id"]: row for row in listed.json()["results"]}
         assert [row_id for row_id in rows if row_id != str(dematerialize.id)] == [str(high.id), str(low.id)]
         assert rows[str(dematerialize.id)]["payload"]["read_seconds"] == 5.0
+        assert "query_fingerprint" not in rows[str(dematerialize.id)]["payload"]
         assert all(row["can_act"] for row in listed.json()["results"])
 
         dismissed = self.client.post(

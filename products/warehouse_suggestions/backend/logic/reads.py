@@ -15,6 +15,7 @@ from .rules import Rules, Surface, SurfaceRules, TrafficRules
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
 FIRST_QUANTILE = 1
 SECOND_QUANTILE = 2
+REFRESH_TIME_QUANTILE = 0.9
 
 DAYS_FILTER = """day >= %(window_start)s
         AND day < %(window_end)s"""
@@ -242,13 +243,17 @@ GROUP BY subject_kind, subject_id, surface
 REFRESHES_SQL = f"""
 SELECT
     subject_id,
-    uniq(workflow_id),
-    sum(duration_ms_sum),
-    sum(read_bytes_sum),
-    quantilesMerge(0.5, 0.9)(duration_ms_quantiles)[{SECOND_QUANTILE}]
-FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
-WHERE {WINDOW_FILTER}
-    AND read_kind = %(refresh)s
+    count(),
+    sum(run_duration_ms),
+    sum(run_read_bytes),
+    quantile({REFRESH_TIME_QUANTILE})(run_duration_ms)
+FROM (
+    SELECT subject_id, workflow_id, sum(duration_ms_sum) AS run_duration_ms, sum(read_bytes_sum) AS run_read_bytes
+    FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+    WHERE {WINDOW_FILTER}
+        AND read_kind = %(refresh)s
+    GROUP BY subject_id, workflow_id
+)
 GROUP BY subject_id
 """
 

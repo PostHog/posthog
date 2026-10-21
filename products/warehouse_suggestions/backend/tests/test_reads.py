@@ -99,6 +99,17 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
                     workflow_id="run-2",
                     duration_ms=3000,
                 ),
+                *(
+                    RollupRead(
+                        subject_id=view,
+                        day=YESTERDAY,
+                        request_id=f"refresh-2-describe-{statement}",
+                        read_kind=ReadKind.REFRESH,
+                        workflow_id="run-2",
+                        duration_ms=10,
+                    )
+                    for statement in range(9)
+                ),
                 RollupRead(
                     subject_id=uuid4(),
                     day=YESTERDAY,
@@ -118,8 +129,8 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
         assert view_reads.background_reads == 1
         refreshes = reads.refreshes[view]
-        assert (refreshes.runs, refreshes.duration_ms) == (2, 4000)
-        assert 2000 < refreshes.p90_duration_ms <= 3000
+        assert (refreshes.runs, refreshes.duration_ms) == (2, 4090)
+        assert 2500 < refreshes.p90_duration_ms <= 3090
         assert (view_reads.human_reads, view_reads.human_duration_ms, view_reads.alone_reads) == (3, 1300, 2)
         assert 100 <= view_reads.alone_duration_ms_median < view_reads.alone_duration_ms_p90 <= 300
         assert view_reads.last_read_at == datetime.combine(YESTERDAY, time(hour=12), tzinfo=UTC)
