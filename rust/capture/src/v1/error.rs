@@ -1,7 +1,7 @@
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use metrics::counter;
+use metrics::{counter, Label};
 use serde::Serialize;
 use serde_json::error::Category;
 use thiserror::Error;
@@ -278,29 +278,18 @@ impl Error {
 
     pub(crate) fn stat_error(&self, ctx: Option<&RequestContext>) {
         let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
-        let status = self.status_code().as_str().to_owned();
+        let mut labels = vec![
+            Label::new("error", self.tag()),
+            Label::new("level", self.level_tag()),
+            Label::new("path", path),
+            Label::new("status_code", self.status_code().as_str().to_owned()),
+        ];
         // Field errors add bounded `field` and `kind` labels; sums by the existing labels are unchanged.
         if let Self::RequestParsingError(ParseFailure::Field(field)) = self {
-            counter!(
-                CAPTURE_V1_ERROR_METRIC,
-                "error" => self.tag(),
-                "level" => self.level_tag(),
-                "path" => path,
-                "status_code" => status,
-                "field" => field.field,
-                "kind" => field.kind.as_str(),
-            )
-            .increment(1);
-            return;
+            labels.push(Label::new("field", field.field));
+            labels.push(Label::new("kind", field.kind.as_str()));
         }
-        counter!(
-            CAPTURE_V1_ERROR_METRIC,
-            "error" => self.tag(),
-            "level" => self.level_tag(),
-            "path" => path,
-            "status_code" => status,
-        )
-        .increment(1);
+        counter!(CAPTURE_V1_ERROR_METRIC, labels).increment(1);
     }
 
     pub fn status_code(&self) -> StatusCode {
