@@ -613,6 +613,7 @@ export function AgentsRoster(): JSX.Element {
     const {
         externalSourceStates,
         rosterGroups,
+        visibleSourceRecommendations,
         sourcesLoadError,
         dataWarehouseSourcesLoading,
         conversationsConfig,
@@ -643,6 +644,7 @@ export function AgentsRoster(): JSX.Element {
     } = useValues(signalSourcesLogic)
     const {
         openSourceCatalog,
+        hideSourceRecommendations,
         loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
@@ -968,18 +970,30 @@ export function AgentsRoster(): JSX.Element {
 
             {rosterGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                         <AgentRosterGroupHeader group={group} />
                         {group.id === 'external' && (
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPlus />}
-                                onClick={openSourceCatalog}
-                                data-attr="signal-source-catalog-open"
-                            >
-                                Add source
-                            </LemonButton>
+                            <div className="flex flex-wrap items-center gap-1">
+                                {visibleSourceRecommendations.length > 0 && (
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        onClick={hideSourceRecommendations}
+                                        data-attr="signal-source-recommendations-hide"
+                                    >
+                                        Hide recommendations
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconPlus />}
+                                    onClick={openSourceCatalog}
+                                    data-attr="signal-source-catalog-open"
+                                >
+                                    Add source
+                                </LemonButton>
+                            </div>
                         )}
                     </div>
                     {group.agents.length > 0 && (
