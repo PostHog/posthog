@@ -1,6 +1,7 @@
 import json
 import time
 import asyncio
+import functools
 import contextlib
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
@@ -303,6 +304,9 @@ class DeltaWriter:
                 estimate_rewrite_profile,
                 get_governor,
             )
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
+                RowGroupSizeReader,
+            )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
                 DELTALITE_WRITE_DURATION_SECONDS,
                 DELTALITE_WRITE_TOTAL,
@@ -325,12 +329,25 @@ class DeltaWriter:
             # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
             # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs with
             # the smallest plan (governor logs a capacity_exceeded ops signal). The shape of the files
-            # the merge can rewrite comes from the handle's add actions, so this costs no object-store
-            # request.
+            # the merge can rewrite comes from the handle's add actions. Footers of large candidate
+            # files are read only when their whole sizes keep the plan narrow.
             governor = get_governor()
+            row_group_reader = (
+                RowGroupSizeReader(uri, storage_options)
+                if settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING
+                else None
+            )
             rewrite = (
                 await asyncio.to_thread(
-                    estimate_rewrite_profile, existing_delta_table, data, partition_key, normalized_primary_keys
+                    estimate_rewrite_profile,
+                    existing_delta_table,
+                    data,
+                    partition_key,
+                    normalized_primary_keys,
+                    row_group_reader,
+                    functools.partial(
+                        governor.row_groups_can_widen, source_bytes=data.nbytes, n_partitions=n_partitions
+                    ),
                 )
                 if governor.config.mode != "off"
                 else None
@@ -415,6 +432,8 @@ class DeltaWriter:
                 governor_mpp=adm.planned_mpp,
                 governor_mpf=adm.planned_mpf,
                 governor_max_row_group_mb=adm.max_row_group_mb,
+                governor_row_group_sized_files=adm.row_group_sized_files,
+                governor_footers_read=adm.footers_read,
                 governor_rewrite_total_mb=adm.rewrite_total_mb,
                 governor_rewrite_files=adm.rewrite_files,
                 governor_columns=adm.columns,
