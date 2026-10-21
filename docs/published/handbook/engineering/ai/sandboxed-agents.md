@@ -77,7 +77,7 @@ The thinking indicator stops at stream end, and a history error stays visible ev
 `sandbox_stream_recovered` records successful recovery after history reconciliation, with the phase, run status, attempt counts, and elapsed time.
 Neither event includes transcript contents or proxy tokens.
 
-After deployment, verify recovery with `tasks-stream-via-proxy` both enabled and disabled: interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
+After deployment, verify recovery on both stream legs (agent proxy and Django): interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
 Also exhaust retries and verify that Retry works for both an active run and an ended run with an unreadable history snapshot.
 
 ```text
@@ -108,6 +108,15 @@ The run's `state.systemPrompt` is server-owned. Set it through trusted server-si
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
 only to the task-bound sandbox, so it can initialize the agent session.
+
+### Pi project resources
+
+Cloud Pi sessions treat checked-out projects as untrusted, including when resuming a session.
+Project extensions, settings, prompt templates, system prompt overrides, and `.pi/mcp.json` are not loaded.
+Project skills in `.pi/skills` and `.agents/skills` are not automatically discovered.
+Repository `AGENTS.md` instructions continue to load.
+Bundled extensions and MCP servers supplied by the task runtime remain available.
+Local Desktop Pi sessions retain their existing project-resource behavior.
 
 ## Creating a sandboxed agent
 
@@ -549,10 +558,7 @@ When a sandbox was sized by a worker that does not know the preview flag, the pr
 Known limit for v1: the dev stack runs with `DEBUG=1`, so a server error renders Django's debug
 page inside the preview.
 
-Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
-The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
-and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
-Modal is the authoritative network enforcement layer whenever that flag is enabled, including on VMs.
+Modal is the authoritative network enforcement layer on every restricted Modal run, including on VMs.
 AgentSH also applies the compiled policy to the agent-server process tree as defense in depth. The
 provider policy applies outside the sandbox, so it covers traffic from the VM and its Docker containers
 without relying on AgentSH process tracing.
@@ -626,9 +632,8 @@ task = Task.create_and_run(
 
 The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
 take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
-Modal enforces the network boundary on every restricted run when
-`tasks-modal-network-allowlist` is enabled. During the rollout, restricted runs without that flag stay
-on gVisor and use agentsh; they cannot route to a VM without the provider policy.
+Modal enforces the network boundary on every restricted run that provisions on Modal.
+Hogland runs rely on agentsh inside the sandbox.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge};
+use tracing::warn;
 
 use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger, TakenFrontier};
@@ -207,7 +208,7 @@ impl TopicOffsetLedger {
             (taken, ledger.held())
         };
         publish_held(topic_partition, held);
-        count_gap_offsets(topic_partition, taken.gap_offset_count);
+        report_gap_offsets(topic_partition, &taken);
         Some(taken)
     }
 
@@ -275,13 +276,21 @@ fn publish_held(topic_partition: &TopicPartition, held: Held) {
     .set(held.charge.bytes as f64);
 }
 
-fn count_gap_offsets(topic_partition: &TopicPartition, gap_offset_count: usize) {
-    if gap_offset_count == 0 {
+fn report_gap_offsets(topic_partition: &TopicPartition, taken: &TakenFrontier) {
+    if taken.gap_offset_count == 0 {
         return;
     }
     let (topic, partition) = labels(topic_partition);
     counter!(GAP_OFFSETS, "topic" => topic, "partition" => partition)
-        .increment(gap_offset_count as u64);
+        .increment(taken.gap_offset_count as u64);
+    warn!(
+        topic = %topic_partition.topic,
+        partition = topic_partition.partition,
+        window_base = taken.first.0,
+        frontier = taken.offset.0,
+        gap_offsets = taken.gap_offset_count,
+        "Commit frontier walked over offsets Kafka never delivered"
+    );
 }
 
 /// Count one charge or settlement the ledger rejected. A stale slice is

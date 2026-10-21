@@ -297,6 +297,8 @@ export interface EmailTemplateApi {
     subject?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
+    /** Preview text that most inboxes show after the subject. Supports Liquid templating. */
+    preheader?: string
     /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
     /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
@@ -395,6 +397,8 @@ export interface MessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+    sensitive?: boolean
     /**
      * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
      * @nullable
@@ -439,6 +443,8 @@ export interface PatchedMessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
+    sensitive?: boolean
     /**
      * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
      * @nullable
@@ -540,6 +546,8 @@ export interface SendTransactionalEmailApi {
 export interface SendTransactionalEmailResponseApi {
     /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
     message_id: string
+    /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+    replayed: boolean
 }
 
 export type MessagingCategoriesListParams = {

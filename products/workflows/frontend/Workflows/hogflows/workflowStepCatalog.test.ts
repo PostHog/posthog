@@ -2,7 +2,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import type { HogFunctionTemplateType } from '~/types'
 
-import { isPickableDestination, StepCatalogContext, workflowStepSections } from './workflowStepCatalog'
+import type { HogFlowAction } from './types'
+import {
+    customStepName,
+    destinationSteps,
+    StepCatalogContext,
+    stepKindName,
+    workflowStepSections,
+} from './workflowStepCatalog'
 
 const mainEnvironment = { id: 1, project_id: 1 }
 
@@ -69,8 +76,43 @@ describe('workflowStepCatalog', () => {
         const template = (id: string, name: string): HogFunctionTemplateType =>
             ({ id, name, type: 'destination', status: 'stable', description: '' }) as HogFunctionTemplateType
 
-        const templates = [template('template-slack', 'Slack'), template('template-hubspot', 'HubSpot')]
+        const steps = destinationSteps([template('template-slack', 'Slack'), template('template-hubspot', 'HubSpot')])
 
-        expect(templates.filter(isPickableDestination).map((template) => template.name)).toEqual(['HubSpot'])
+        expect(steps.map((step) => step.name)).toEqual(['HubSpot'])
+    })
+
+    it.each([
+        ['a conditional branch', { type: 'conditional_branch', config: {} }, 'Conditional branch'],
+        ['a wait for a condition', { type: 'wait_until_condition', config: {} }, 'Wait until'],
+        ['a Slack step', { type: 'function', config: { template_id: 'template-slack' } }, 'Slack'],
+        [
+            'a ticket reply',
+            { type: 'function', config: { template_id: 'template-posthog-send-ticket-message' } },
+            'Send message',
+        ],
+        [
+            'a Replay Vision step',
+            { type: 'function', config: { template_id: 'template-posthog-replay-vision' } },
+            'Replay Vision',
+        ],
+        [
+            'a destination it does not list',
+            { type: 'function', config: { template_id: 'template-hubspot' } },
+            undefined,
+        ],
+    ])('names %s the way the step picker does', (_, action, name) => {
+        expect(stepKindName(action as HogFlowAction)).toBe(name)
+    })
+
+    it.each([
+        ['keeps a name someone gave the step', 'Nudge trial users', [], 'Nudge trial users'],
+        ['skips the name the step picker gave it', 'Delay', [], undefined],
+        ['skips the name of the destination it runs', 'HubSpot', ['HubSpot'], undefined],
+        ['skips a name the caption already shows', 'Wait 1 day', ['Wait 1 day'], undefined],
+        ['skips an empty name', '  ', [], undefined],
+    ])('%s', (_, name, shownElsewhere, expected) => {
+        const action = { type: 'delay', name, config: { delay_duration: '1h' } } as HogFlowAction
+
+        expect(customStepName(action, shownElsewhere)).toBe(expected)
     })
 })

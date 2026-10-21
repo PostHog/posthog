@@ -4,8 +4,17 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
+import {
+    ExperimentVariantNotesSchema,
+    ExperimentVariantScreenshotMediaIdsSchema,
+    SavedMetricsAttachSchema,
+} from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import hooks_experimentCreate from '@/tools/experiments/createExperimentHooks'
+import hooks_experimentGet from '@/tools/experiments/getExperimentHooks'
+import hooks_experimentList from '@/tools/experiments/listExperimentsHooks'
+import hooks_experimentUpdate from '@/tools/experiments/updateExperimentHooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import {
     withPostHogUrl,
     omitResponseFields,
@@ -243,6 +252,8 @@ const ExperimentCreateSchema = () => {
         running_time_calculation: ExperimentsCreateBody.shape['running_time_calculation'].describe(
             "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one."
         ),
+        variant_notes: ExperimentVariantNotesSchema,
+        variant_screenshot_media_ids: ExperimentVariantScreenshotMediaIdsSchema,
     })
 }
 
@@ -250,64 +261,75 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
     withUiApp('experiment', {
         name: 'experiment-create',
         schema: ExperimentCreateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentCreateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
+        handler: withToolHooks(
+            hooks_experimentCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.name !== undefined) {
+                    body['name'] = params.name
+                }
+                if (params.description !== undefined) {
+                    body['description'] = params.description
+                }
+                if (params.feature_flag_key !== undefined) {
+                    body['feature_flag_key'] = params.feature_flag_key
+                }
+                if (params.feature_flag !== undefined) {
+                    body['feature_flag'] = params.feature_flag
+                }
+                if (params.holdout_id !== undefined) {
+                    body['holdout_id'] = params.holdout_id
+                }
+                if (params.running_time_calculation !== undefined) {
+                    body['running_time_calculation'] = params.running_time_calculation
+                }
+                if (params.exposure_criteria !== undefined) {
+                    body['exposure_criteria'] = params.exposure_criteria
+                }
+                if (params.stats_config !== undefined) {
+                    body['stats_config'] = params.stats_config
+                }
+                if (params.allow_unknown_events !== undefined) {
+                    body['allow_unknown_events'] = params.allow_unknown_events
+                }
+                if (params.tags !== undefined) {
+                    body['tags'] = params.tags
+                }
+                if (params.variant_notes !== undefined) {
+                    body['variant_notes'] = params.variant_notes
+                }
+                if (params.variant_screenshot_media_ids !== undefined) {
+                    body['variant_screenshot_media_ids'] = params.variant_screenshot_media_ids
+                }
+                const result = await context.api.request<Schemas.Experiment>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
+                    body: await transformRequestBody(hooks_experimentCreate, context, params, body),
+                })
+                const filtered = pickResponseFields(result, [
+                    'id',
+                    'name',
+                    'description',
+                    'type',
+                    'feature_flag_key',
+                    'status',
+                    'archived',
+                    'start_date',
+                    'end_date',
+                    'created_at',
+                    'running_time_calculation',
+                    'parameters.variant_notes',
+                    'parameters.variant_screenshot_media_ids',
+                    'metrics',
+                    'metrics_secondary',
+                    'conclusion',
+                    'conclusion_comment',
+                    'tags',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
             }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.feature_flag_key !== undefined) {
-                body['feature_flag_key'] = params.feature_flag_key
-            }
-            if (params.feature_flag !== undefined) {
-                body['feature_flag'] = params.feature_flag
-            }
-            if (params.holdout_id !== undefined) {
-                body['holdout_id'] = params.holdout_id
-            }
-            if (params.running_time_calculation !== undefined) {
-                body['running_time_calculation'] = params.running_time_calculation
-            }
-            if (params.exposure_criteria !== undefined) {
-                body['exposure_criteria'] = params.exposure_criteria
-            }
-            if (params.stats_config !== undefined) {
-                body['stats_config'] = params.stats_config
-            }
-            if (params.allow_unknown_events !== undefined) {
-                body['allow_unknown_events'] = params.allow_unknown_events
-            }
-            if (params.tags !== undefined) {
-                body['tags'] = params.tags
-            }
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
-                body,
-            })
-            const filtered = pickResponseFields(result, [
-                'id',
-                'name',
-                'description',
-                'type',
-                'feature_flag_key',
-                'status',
-                'archived',
-                'start_date',
-                'end_date',
-                'created_at',
-                'running_time_calculation',
-                'metrics',
-                'metrics_secondary',
-                'conclusion',
-                'conclusion_comment',
-                'tags',
-            ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
-        },
+        ),
     })
 
 const ExperimentCreateFromPromptSchema = () => {
@@ -549,15 +571,21 @@ const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithP
     withUiApp('experiment', {
         name: 'experiment-get',
         schema: ExperimentGetSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentGetSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
-            })
-            const filtered = omitResponseFields(result, ['saved_metrics.*.effective_query', 'health']) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
-        },
+        handler: withToolHooks(
+            hooks_experimentGet,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentGetSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.Experiment>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
+                })
+                const filtered = omitResponseFields(result, [
+                    'saved_metrics.*.effective_query',
+                    'health',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            }
+        ),
     })
 
 const ExperimentHoldoutsCreateSchema = () => {
@@ -770,57 +798,64 @@ const experimentList = (): ToolBase<
     withUiApp('experiment-list', {
         name: 'experiment-list',
         schema: ExperimentListSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentListSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedExperimentBasicList>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
-                query: {
-                    archived: params.archived,
-                    created_by_id: params.created_by_id,
-                    event: params.event,
-                    excluded_tags: params.excluded_tags,
-                    feature_flag_id: params.feature_flag_id,
-                    limit: params.limit,
-                    offset: params.offset,
-                    order: params.order,
-                    prompt_name: params.prompt_name,
-                    search: params.search,
-                    status: params.status,
-                    tags: params.tags,
-                },
-            })
-            const filtered = {
-                ...result,
-                results: (result.results ?? []).map((item: any) =>
-                    pickResponseFields(item, [
-                        'id',
-                        'name',
-                        'description',
-                        'feature_flag_key',
-                        'feature_flag',
-                        'start_date',
-                        'end_date',
-                        'archived',
-                        'type',
-                        'status',
-                        'created_at',
-                        'updated_at',
-                        'tags',
-                    ])
-                ),
-            } as typeof result
-            return await withPostHogUrl(
-                context,
-                {
-                    ...filtered,
-                    results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
+        handler: withToolHooks(
+            hooks_experimentList,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentListSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.PaginatedExperimentBasicList>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
+                    query: {
+                        archived: params.archived,
+                        created_by_id: params.created_by_id,
+                        event: params.event,
+                        excluded_tags: params.excluded_tags,
+                        feature_flag_id: params.feature_flag_id,
+                        limit: params.limit,
+                        offset: params.offset,
+                        order: params.order,
+                        prompt_name: params.prompt_name,
+                        search: params.search,
+                        status: params.status,
+                        tags: params.tags,
+                    },
+                })
+                const filtered = {
+                    ...result,
+                    results: (result.results ?? []).map((item: any) =>
+                        pickResponseFields(item, [
+                            'id',
+                            'name',
+                            'description',
+                            'feature_flag_key',
+                            'feature_flag',
+                            'start_date',
+                            'end_date',
+                            'archived',
+                            'type',
+                            'status',
+                            'created_at',
+                            'updated_at',
+                            'tags',
+                            'parameters.variant_notes',
+                            'parameters.variant_screenshot_media_ids',
+                        ])
                     ),
-                },
-                '/experiments'
-            )
-        },
+                } as typeof result
+                return await withPostHogUrl(
+                    context,
+                    {
+                        ...filtered,
+                        results: await Promise.all(
+                            (filtered.results ?? []).map((item) =>
+                                withPostHogUrl(context, item, `/experiments/${item.id}`)
+                            )
+                        ),
+                    },
+                    '/experiments'
+                )
+            }
+        ),
     })
 
 const ExperimentMetricsRecalculationCreateSchema = () => {
@@ -1471,6 +1506,8 @@ const ExperimentUpdateSchema = () => {
                     "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
                 ),
                 saved_metrics_ids: SavedMetricsAttachSchema.optional(),
+                variant_notes: ExperimentVariantNotesSchema.optional(),
+                variant_screenshot_media_ids: ExperimentVariantScreenshotMediaIdsSchema.optional(),
             })
     )
 }
@@ -1479,93 +1516,104 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
     withUiApp('experiment', {
         name: 'experiment-update',
         schema: ExperimentUpdateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentUpdateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
+        handler: withToolHooks(
+            hooks_experimentUpdate,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentUpdateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.name !== undefined) {
+                    body['name'] = params.name
+                }
+                if (params.description !== undefined) {
+                    body['description'] = params.description
+                }
+                if (params.feature_flag !== undefined) {
+                    body['feature_flag'] = params.feature_flag
+                }
+                if (params.holdout_id !== undefined) {
+                    body['holdout_id'] = params.holdout_id
+                }
+                if (params.running_time_calculation !== undefined) {
+                    body['running_time_calculation'] = params.running_time_calculation
+                }
+                if (params.excluded_variants !== undefined) {
+                    body['excluded_variants'] = params.excluded_variants
+                }
+                if (params.saved_metrics_ids !== undefined) {
+                    body['saved_metrics_ids'] = params.saved_metrics_ids
+                }
+                if (params.archived !== undefined) {
+                    body['archived'] = params.archived
+                }
+                if (params.exposure_criteria !== undefined) {
+                    body['exposure_criteria'] = params.exposure_criteria
+                }
+                if (params.metrics !== undefined) {
+                    body['metrics'] = params.metrics
+                }
+                if (params.metrics_secondary !== undefined) {
+                    body['metrics_secondary'] = params.metrics_secondary
+                }
+                if (params.stats_config !== undefined) {
+                    body['stats_config'] = params.stats_config
+                }
+                if (params.allow_unknown_events !== undefined) {
+                    body['allow_unknown_events'] = params.allow_unknown_events
+                }
+                if (params.conclusion !== undefined) {
+                    body['conclusion'] = params.conclusion
+                }
+                if (params.conclusion_comment !== undefined) {
+                    body['conclusion_comment'] = params.conclusion_comment
+                }
+                if (params.update_feature_flag_params !== undefined) {
+                    body['update_feature_flag_params'] = params.update_feature_flag_params
+                }
+                if (params.tags !== undefined) {
+                    body['tags'] = params.tags
+                }
+                if (params.variant_notes !== undefined) {
+                    body['variant_notes'] = params.variant_notes
+                }
+                if (params.variant_screenshot_media_ids !== undefined) {
+                    body['variant_screenshot_media_ids'] = params.variant_screenshot_media_ids
+                }
+                const result = await context.api.request<Schemas.Experiment>({
+                    method: 'PATCH',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
+                    body: await transformRequestBody(hooks_experimentUpdate, context, params, body),
+                })
+                const filtered = pickResponseFields(result, [
+                    'id',
+                    'name',
+                    'description',
+                    'type',
+                    'feature_flag_key',
+                    'status',
+                    'archived',
+                    'start_date',
+                    'end_date',
+                    'created_at',
+                    'running_time_calculation',
+                    'parameters.variant_notes',
+                    'parameters.variant_screenshot_media_ids',
+                    'excluded_variants',
+                    'metrics',
+                    'metrics_secondary',
+                    'saved_metrics.*.id',
+                    'saved_metrics.*.experiment',
+                    'saved_metrics.*.saved_metric',
+                    'saved_metrics.*.metadata',
+                    'saved_metrics.*.created_at',
+                    'saved_metrics.*.query',
+                    'saved_metrics.*.name',
+                    'conclusion',
+                    'conclusion_comment',
+                    'tags',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
             }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.feature_flag !== undefined) {
-                body['feature_flag'] = params.feature_flag
-            }
-            if (params.holdout_id !== undefined) {
-                body['holdout_id'] = params.holdout_id
-            }
-            if (params.running_time_calculation !== undefined) {
-                body['running_time_calculation'] = params.running_time_calculation
-            }
-            if (params.excluded_variants !== undefined) {
-                body['excluded_variants'] = params.excluded_variants
-            }
-            if (params.saved_metrics_ids !== undefined) {
-                body['saved_metrics_ids'] = params.saved_metrics_ids
-            }
-            if (params.archived !== undefined) {
-                body['archived'] = params.archived
-            }
-            if (params.exposure_criteria !== undefined) {
-                body['exposure_criteria'] = params.exposure_criteria
-            }
-            if (params.metrics !== undefined) {
-                body['metrics'] = params.metrics
-            }
-            if (params.metrics_secondary !== undefined) {
-                body['metrics_secondary'] = params.metrics_secondary
-            }
-            if (params.stats_config !== undefined) {
-                body['stats_config'] = params.stats_config
-            }
-            if (params.allow_unknown_events !== undefined) {
-                body['allow_unknown_events'] = params.allow_unknown_events
-            }
-            if (params.conclusion !== undefined) {
-                body['conclusion'] = params.conclusion
-            }
-            if (params.conclusion_comment !== undefined) {
-                body['conclusion_comment'] = params.conclusion_comment
-            }
-            if (params.update_feature_flag_params !== undefined) {
-                body['update_feature_flag_params'] = params.update_feature_flag_params
-            }
-            if (params.tags !== undefined) {
-                body['tags'] = params.tags
-            }
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'PATCH',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
-                body,
-            })
-            const filtered = pickResponseFields(result, [
-                'id',
-                'name',
-                'description',
-                'type',
-                'feature_flag_key',
-                'status',
-                'archived',
-                'start_date',
-                'end_date',
-                'created_at',
-                'running_time_calculation',
-                'excluded_variants',
-                'metrics',
-                'metrics_secondary',
-                'saved_metrics.*.id',
-                'saved_metrics.*.experiment',
-                'saved_metrics.*.saved_metric',
-                'saved_metrics.*.metadata',
-                'saved_metrics.*.created_at',
-                'saved_metrics.*.query',
-                'saved_metrics.*.name',
-                'conclusion',
-                'conclusion_comment',
-                'tags',
-            ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
-        },
+        ),
     })
 
 const ExperimentsBulkUpdateTagsCreateSchema = () => {
