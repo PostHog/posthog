@@ -65,7 +65,7 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
-    source_with_wrapper_modifiers,
+    unwrapped_source,
 )
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
@@ -697,7 +697,7 @@ def process_query_model(
     if hasattr(query, "source") and isinstance(query.source, BaseModel):
         return process_query_model(
             team,
-            source_with_wrapper_modifiers(query, query.source),
+            unwrapped_source(query, query.source),
             modifiers=modifiers,
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,

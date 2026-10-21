@@ -1855,15 +1855,15 @@ def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     return modifiers
 
 
-def source_with_wrapper_modifiers(query: BaseModel, source: SourceT) -> SourceT:
+def unwrapped_source(wrapper: BaseModel, source: SourceT) -> SourceT:
     """The source of a wrapper query, for code that runs the source in place of the wrapper.
 
     It carries the modifiers the wrapper resolves to, so the source runs with the same settings a
     runner for the wrapper would use.
     """
-    if getattr(query, "modifiers", None) is None:
+    if getattr(wrapper, "modifiers", None) is None:
         return source
-    return source.model_copy(update={"modifiers": query_node_modifiers(query)})
+    return source.model_copy(update={"modifiers": query_node_modifiers(wrapper)})
 
 
 def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
