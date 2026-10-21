@@ -45,15 +45,15 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
     parse_restart_payload,
     reschedule,
     sample_dispatch_metrics,
-    start_dispatch_now,
 )
-from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
-    Command,
+from products.tasks.backend.logic.services.workflow_dispatch_processing import (
     _capture_run_feature_flags_in_worker_thread,
     _scheduled_run_usage_error,
     _user_can_dispatch,
     dispatch_attempt_already_started,
+    start_dispatch_now,
 )
+from products.tasks.backend.management.commands.run_task_workflow_dispatcher import Command
 from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
@@ -164,7 +164,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             ("immediate_unchanged", False, True, False),
         ]
     )
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing._capture_run_feature_flags")
     @patch("products.tasks.backend.logic.services.code_usage_gate.organization_deactivated")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_dispatch_rechecks_scheduled_usage(
@@ -224,9 +224,9 @@ class TestWorkflowDispatchPersistence(TestCase):
             get_usage.assert_not_called()
 
     @parameterized.expand([("member", True), ("removed", False)])
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing._capture_run_feature_flags")
     @patch(
-        "products.tasks.backend.management.commands.run_task_workflow_dispatcher._scheduled_run_usage_error",
+        "products.tasks.backend.logic.services.workflow_dispatch_processing._scheduled_run_usage_error",
         return_value=None,
     )
     def test_scheduled_dispatch_requires_private_channel_access(
@@ -283,8 +283,8 @@ class TestWorkflowDispatchPersistence(TestCase):
             ("unavailable", RPCStatusCode.UNAVAILABLE, "pending"),
         ]
     )
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._scheduled_run_usage_error")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing._capture_run_feature_flags")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing._scheduled_run_usage_error")
     def test_scheduled_retry_checks_temporal_before_rejecting_usage(
         self,
         name: str,
@@ -860,7 +860,7 @@ class TestWorkflowDispatchPersistence(TestCase):
                 TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True, TASKS_WORKFLOW_DISPATCH_ON_COMMIT_ENABLED=True
             ),
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as start,
-            patch("products.tasks.backend.logic.services.workflow_dispatch.start_dispatch_now") as start_now,
+            patch("products.tasks.backend.logic.services.workflow_dispatch_processing.start_dispatch_now") as start_now,
             self.captureOnCommitCallbacks(execute=True),
         ):
             dispatch_task_processing_workflow(
@@ -875,7 +875,7 @@ class TestWorkflowDispatchPersistence(TestCase):
         row = TaskWorkflowDispatch.objects.unscoped().get(task_run=self.task_run)
         self.assertEqual(row.payload["slack_thread_context"], {"channel": "C1", "thread_ts": "123.45"})
         start.assert_not_called()
-        start_now.assert_called_once_with(row.id)
+        start_now.assert_called_once_with(row)
 
     @parameterized.expand(
         [
@@ -905,16 +905,22 @@ class TestWorkflowDispatchPersistence(TestCase):
             self.task_run.workflow_id,
         )
         if dispatcher_claimed_first:
-            claim_dispatch(dispatch.id, "dispatcher-1", timedelta(minutes=1))
+            claim_dispatch(
+                TaskWorkflowDispatch.objects.unscoped().get(id=dispatch.id), "dispatcher-1", timedelta(minutes=1)
+            )
 
         with (
-            patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock, side_effect=connect_error),
             patch(
-                "products.tasks.backend.management.commands.run_task_workflow_dispatcher.process_dispatch",
+                "products.tasks.backend.logic.services.workflow_dispatch_processing.async_connect",
+                new_callable=AsyncMock,
+                side_effect=connect_error,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch_processing.process_dispatch",
                 new_callable=AsyncMock,
             ) as process,
         ):
-            start_dispatch_now(dispatch.id)
+            start_dispatch_now(dispatch)
 
         dispatch.refresh_from_db()
         self.assertEqual(
@@ -979,8 +985,8 @@ class TestWorkflowDispatchPersistence(TestCase):
 
 class TestWorkflowDispatchPermissions(SimpleTestCase):
     @parameterized.expand([("allowed", None), ("blocked", "Usage limit reached"), ("error", "error")])
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.usage_limit_response")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing.close_old_connections")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing.usage_limit_response")
     def test_usage_worker_releases_connections(
         self, name: str, error: str | None, usage_response: Mock, close_connections: Mock
     ) -> None:
@@ -995,8 +1001,8 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
         self.assertEqual(close_connections.call_count, 2)
 
     @parameterized.expand([("captured", False), ("error", True)])
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing.close_old_connections")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing._capture_run_feature_flags")
     def test_flag_capture_worker_releases_connections(
         self, _name: str, capture_fails: bool, capture_flags: Mock, close_connections: Mock
     ) -> None:
@@ -1034,7 +1040,7 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
                 *(Command()._process(client, dispatch, "worker", semaphore) for dispatch in dispatches)
             )
 
-        module = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+        module = "products.tasks.backend.logic.services.workflow_dispatch_processing"
         with (
             patch(f"{module}.TaskRun.objects") as runs,
             patch(f"{module}.Team.objects.aget", new_callable=AsyncMock),
@@ -1053,8 +1059,8 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
         self.assertEqual(client.start_workflow.await_count, 2)
         reschedule_dispatch.assert_not_called()
 
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.UserPermissions")
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.User.objects")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing.UserPermissions")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing.User.objects")
     def test_user_requires_current_effective_team_access(self, users: Mock, permissions: Mock) -> None:
         user = users.filter.return_value.first.return_value
         permissions.return_value.current_team.effective_membership_level = None
@@ -1064,7 +1070,7 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
         users.filter.assert_called_once_with(id=42, is_active=True)
         permissions.assert_called_once_with(user=user, team=run.task.team)
 
-    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.User.objects")
+    @patch("products.tasks.backend.logic.services.workflow_dispatch_processing.User.objects")
     def test_trusted_system_dispatch_skips_user_lookup(self, users: Mock) -> None:
         run = Mock(task=Mock(team=Mock()))
 
