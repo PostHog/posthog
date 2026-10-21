@@ -213,9 +213,17 @@ async def test_planner_failure_wrapped_with_stage(_mock_bep: object) -> None:
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
+@pytest.mark.parametrize("url_case", ["short", "large_enum", "oversized_url"])
 async def test_successful_report_emits_slo_success(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock, url_case: str
 ) -> None:
+    source_urls: tuple[str, ...] = ("https://example.com/reports/weekly?view=traffic#pages",)
+    expected_urls = list(source_urls)
+    if url_case == "large_enum":
+        source_urls = tuple(f"https://example.com/{index:03}/" + "a" * 2000 for index in range(100))
+        expected_urls = list(source_urls[:29])
+    elif url_case == "oversized_url":
+        source_urls = ("https://example.com/" + "a" * 60000, *source_urls)
     mock_bep.return_value = _spec(steps=2)
     mock_run.return_value = PlanExecution(
         rendered=["### s0\n\nok", "### s1\n\nok"],
@@ -225,7 +233,7 @@ async def test_successful_report_emits_slo_success(
             QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
         ],
         charts=[],
-        source_urls=("https://example.com/reports/weekly?view=traffic#pages",),
+        source_urls=source_urls,
     )
     mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
         topic=None,
@@ -238,9 +246,7 @@ async def test_successful_report_emits_slo_success(
     assert result.markdown == "# Report"
     assert mock_chat.return_value.with_structured_output.call_args.kwargs["strict"] is True
     schema = mock_chat.return_value.with_structured_output.call_args.args[0]
-    assert schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] == [
-        "https://example.com/reports/weekly?view=traffic#pages",
-    ]
+    assert schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] == expected_urls
     props = _slo_completed(mock_capture)
     assert props["operation"] == "ai_subscription_prompt_generation"
     assert props["outcome"] == "success"

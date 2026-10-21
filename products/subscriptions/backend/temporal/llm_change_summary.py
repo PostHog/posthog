@@ -499,37 +499,40 @@ def generate_change_summary(
         posthog_properties["team_id"] = team.id
         extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    result = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        temperature=0.3,
-        max_tokens=1500 if slack_formatting else 500,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "subscription_summary",
-                "strict": True,
-                "schema": to_strict_json_schema(SlackSummaryContent),
-            },
-        }
-        if slack_formatting
-        else {"type": "text"},
-        timeout=60,
-        messages=messages,
-        user=user_tag,
-        posthog_distinct_id=user_tag,
-        posthog_properties=posthog_properties,
-        **extra_capture_kwargs,
-    )
+    prompt_tokens, completion_tokens = 0, 0
+    for max_tokens in (1500, 4500) if slack_formatting else (500,):
+        result = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            temperature=0.3,
+            max_tokens=max_tokens,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "subscription_summary",
+                    "strict": True,
+                    "schema": to_strict_json_schema(SlackSummaryContent),
+                },
+            }
+            if slack_formatting
+            else {"type": "text"},
+            timeout=60,
+            messages=messages,
+            user=user_tag,
+            posthog_distinct_id=user_tag,
+            posthog_properties=posthog_properties,
+            **extra_capture_kwargs,
+        )
+        if result.usage:
+            prompt_tokens += result.usage.prompt_tokens
+            completion_tokens += result.usage.completion_tokens
+        if not result.choices or result.choices[0].finish_reason != "length":
+            break
 
     content: str = ""
     if result.choices and result.choices[0].message.content:
         content = result.choices[0].message.content
     if slack_formatting and content:
         content = SlackSummaryContent.model_validate_json(content).render()
-
-    prompt_tokens, completion_tokens = 0, 0
-    if result.usage:
-        prompt_tokens, completion_tokens = result.usage.prompt_tokens, result.usage.completion_tokens
 
     logger.info(
         "change_summary_generated",

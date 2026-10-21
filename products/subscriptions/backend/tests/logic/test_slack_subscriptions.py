@@ -925,7 +925,7 @@ class TestSlackSummaryNotice(APIBaseTest):
             self.subscription,
             [self.asset],
             total_asset_count=1,
-            change_summary="• **Requests** reached *80* in _this interval_, with <u>missing source data</u>.\n\n• *Latency* fell.",
+            change_summary="• **Requests** reached *80* in _this interval_, with <u>missing source data</u>. See [report](https://posthog.com/docs) or [other](https://example.com/).\n\n• *Latency* fell.",
         )
         summary_card = next(block for block in message.blocks if block["type"] == "container")
         assert summary_card["title"]["text"] == "✨ AI summary"
@@ -941,6 +941,8 @@ class TestSlackSummaryNotice(APIBaseTest):
         assert styles["this interval"] == {"italic": True}
         assert styles["missing source data"] == {"underline": True}
         assert styles[" reached "] == {}
+        assert {"type": "link", "url": "https://posthog.com/docs", "text": "report", "style": {}} in spans
+        assert {"type": "text", "text": "other", "style": {}} in spans
         assert [element["type"] for element in rich_text["elements"]] == [
             "rich_text_list",
             "rich_text_section",
@@ -1082,7 +1084,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         attachment_errors = [
             block
             for block in gallery.blocks
-            if block.get("text", {}).get("text") == "Could not attach My Test subscription"
+            if block["type"] == "section" and block["text"].get("text") == "Could not attach My Test subscription"
         ]
         assert len(attachment_errors) == 1
         assert "Could not generate" in gallery.initial_comment

@@ -12,6 +12,16 @@ class TestStripExternalLinks(SimpleTestCase):
     @parameterized.expand(
         [
             ("encoded", "[source]: h&#116;tps://example.com/report", []),
+            (
+                "unicode_line_separator",
+                "\u2028\n\n[source]: h&#116;tps://example.com/report\n[safe]: https://posthog.com/docs",
+                [],
+            ),
+            (
+                "carriage_returns",
+                "[source]: https://posthog.com/docs\r\n[safe]: https://posthog.com/",
+                ["https://posthog.com/docs"],
+            ),
             ("duplicate", "[source]: h&#116;tps://example.com/one\n[source]: h&#116;tps://example.com/two", []),
             (
                 "posthog",

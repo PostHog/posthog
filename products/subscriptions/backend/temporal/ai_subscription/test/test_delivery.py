@@ -123,8 +123,11 @@ class TestExternalUrlExfilGuard:
             ),
         ],
     )
-    async def test_slack_reference_destinations_follow_url_policy(self, definitions: str, expected: set[str]) -> None:
-        markdown = f"## Highlights\n\n- [Open report][source]\n\n  {definitions}\n"
+    @pytest.mark.parametrize("padding", ["", "\n\n" + "Supporting detail. " * 800 + "\n\n"])
+    async def test_slack_reference_destinations_follow_url_policy(
+        self, definitions: str, expected: set[str], padding: str
+    ) -> None:
+        markdown = f"## Highlights\n\n- [Open report][source]\n\n{padding}{definitions}\n"
         with (
             patch(f"{_DELIVERY}.absolute_uri", return_value="https://reports.example.com/"),
             patch(f"{_DELIVERY}.deliver_slack_message_data", new_callable=AsyncMock) as send,
@@ -273,6 +276,21 @@ _CHART = {"title": "signups by day", "image_url": "https://ph.test/img.png"}
 
 
 class TestSlackMarkdownContinuation:
+    @pytest.mark.parametrize("underline_every_paragraph", [False, True])
+    def test_formatted_report_respects_message_block_limit(self, underline_every_paragraph: bool) -> None:
+        paragraphs = [f"## Topic {index}\n\nFinding {index}." for index in range(80)]
+        if underline_every_paragraph:
+            paragraphs = [paragraph + " <u>Important</u>" for paragraph in paragraphs]
+        message = _build_message("<u>Overview</u>\n\n" + "\n\n".join(paragraphs))
+        messages = [message.blocks, *(reply["blocks"] for reply in message.thread_messages)]
+        assert all(len(blocks) <= 50 for blocks in messages)
+        rendered = str(messages)
+        assert all(f"Finding {index}." in rendered for index in range(80))
+        if underline_every_paragraph:
+            assert message.thread_messages
+        else:
+            assert not message.thread_messages
+
     @pytest.mark.parametrize("kind", ["table", "wide_row", "backticks", "tildes"])
     @pytest.mark.parametrize("overflow", [0, 1])
     def test_markdown_keeps_its_structure_at_the_message_limit(self, kind: str, overflow: int) -> None:

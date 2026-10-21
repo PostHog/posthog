@@ -80,6 +80,7 @@ logger = structlog.get_logger(__name__)
 # activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
 # single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
+_SYNTHESIS_SOURCE_URL_CHAR_BUDGET = 60_000
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
@@ -483,8 +484,17 @@ async def _synthesize(
         posthog_properties["subscription_id"] = trace_correlation_id
 
     report_schema = to_strict_json_schema(ReportDocument)
-    if source_urls:
-        report_schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] = list(source_urls)
+    allowed_urls: list[str] = []
+    url_characters = 0
+    for url in dict.fromkeys(source_urls):
+        if url_characters + len(url) > _SYNTHESIS_SOURCE_URL_CHAR_BUDGET:
+            continue
+        allowed_urls.append(url)
+        url_characters += len(url)
+        if len(allowed_urls) == 100:
+            break
+    if allowed_urls:
+        report_schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] = allowed_urls
     else:
         report_schema["$defs"]["ReportText"]["properties"]["items"]["items"] = {"$ref": "#/$defs/ReportTextItem"}
     chat = MaxChatOpenAI(

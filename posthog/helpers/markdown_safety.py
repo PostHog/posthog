@@ -96,13 +96,14 @@ def _strip_inline_links(markdown: str, additional_allowed_origin: str | None) ->
 
 def strip_external_links_markdown(markdown: str, *, additional_allowed_origin: str | None = None) -> str:
     """The extra origin must come from trusted instance configuration, never report content."""
+    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
     env: EnvType = {}
     MarkdownIt("commonmark", {"html": False}).parse(markdown, env)
     references = sorted(
         [*env.get("references", {}).values(), *env.get("duplicate_refs", [])],
         key=lambda reference: reference["map"][0],
     )
-    lines = markdown.splitlines(keepends=True)
+    lines = re.findall(r"[^\n]*\n|[^\n]+$", markdown)
     parts: list[str] = []
     cursor = 0
     for reference in references:

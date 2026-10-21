@@ -8,11 +8,13 @@ from django.conf import settings
 
 import aiohttp
 import structlog
+from markdown_it import MarkdownIt
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
 from posthog.dataclasses import frozen
+from posthog.helpers.markdown_safety import is_allowed_link_url
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
 from posthog.storage import object_storage
@@ -170,6 +172,7 @@ def _subscription_header_blocks(
 
 
 _SUMMARY_INLINE_MARKUP = re.compile(
+    r"(?P<link>\[[^\[\]\n]*\]\((?:[^()\s]|\([^)]*\))+\))|"
     r"<u>(?P<underline>[\s\S]+?)</u>|(?P<bold_marker>\*{1,2})(?P<bold>[^*\n]+)(?P=bold_marker)|"
     r"(?<!\w)_(?P<italic>[^_\n]+)_(?!\w)|~(?P<strike>[^~\n]+)~|`(?P<code>[^`\n]+)`"
 )
@@ -181,6 +184,14 @@ def _summary_inline_elements(text: str, style: dict[str, bool]) -> list[dict[str
     for match in _SUMMARY_INLINE_MARKUP.finditer(text):
         if match.start() > cursor:
             elements.append({"type": "text", "text": text[cursor : match.start()], "style": style})
+        if match.group("link") is not None:
+            tokens = MarkdownIt("commonmark", {"html": False}).parseInline(match.group("link"))[0].children or []
+            destination = next((str(token.attrGet("href")) for token in tokens if token.type == "link_open"), "")
+            label = "".join(token.content for token in tokens if token.type in {"text", "code_inline"})
+            if is_allowed_link_url(destination, absolute_uri("/")):
+                elements.append({"type": "link", "url": destination, "text": label, "style": style})
+            else:
+                elements.append({"type": "text", "text": label, "style": style})
         for name in ("bold", "italic", "underline", "strike", "code"):
             content = match.group(name)
             if content is not None:

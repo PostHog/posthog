@@ -460,6 +460,22 @@ def _mock_openai_response(content: str = "", prompt_tokens: int = 0, completion_
 
 
 class TestGenerateChangeSummary:
+    @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
+    def test_truncated_structured_summary_retries_with_more_tokens(self, mock_get_client: MagicMock) -> None:
+        client = mock_get_client.return_value
+        truncated = _mock_openai_response('{"findings":[', 100, 1500)
+        truncated.choices[0].finish_reason = "length"
+        complete = _mock_openai_response(
+            '{"findings":[{"items":[{"kind":"text","text":"Traffic is stable."}]}]}', 100, 50
+        )
+        complete.choices[0].finish_reason = "stop"
+        client.chat.completions.create.side_effect = [truncated, complete]
+
+        result = generate_change_summary([], [_make_state(1, "Traffic", "100 views")], slack_formatting=True)
+
+        assert result == "• Traffic is stable."
+        assert [call.kwargs["max_tokens"] for call in client.chat.completions.create.call_args_list] == [1500, 4500]
+
     @parameterized.expand([(False,), (True,)])
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_returns_content_with_correct_params(self, slack_formatting, mock_get_client):
