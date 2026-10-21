@@ -148,7 +148,7 @@ class TestRecentlyActiveTeamIds(SimpleTestCase):
             {"team_id": team_id, "query_type": query_type, "days_ago": days_ago},
         )
 
-    def test_reads_marketing_query_types_within_window_from_archive(self):
+    def test_reads_marketing_query_types_within_window_from_archive(self) -> None:
         self._archive_query(101, "marketing_analytics_table_query", days_ago=1)
         self._archive_query(102, "marketing_analytics_aggregated_query", days_ago=29)
         self._archive_query(103, "web_overview_query", days_ago=1)
