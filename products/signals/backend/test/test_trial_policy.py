@@ -17,6 +17,7 @@ from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.scouts import trial_scout_runtime
 
 
 class TestTrialPolicy(BaseTest):
@@ -96,6 +97,25 @@ class TestTrialPolicy(BaseTest):
         self.flag_mock.side_effect = None
         self.flag_mock.return_value = False
         assert self.policy.flag_decision().enabled is False
+
+    @parameterized.expand(
+        [("enabled", True), ("disabled", False), ("unavailable", None), ("failed", RuntimeError("flag unavailable"))]
+    )
+    def test_trial_scout_runtime_requires_a_confirmed_enabled_flag(
+        self, _name: str, decision: bool | None | Exception
+    ) -> None:
+        self.claim()
+        if isinstance(decision, Exception):
+            self.flag_mock.side_effect = decision
+        else:
+            self.flag_mock.return_value = decision
+        runtime = trial_scout_runtime(self.team)
+        if decision is True:
+            assert runtime is not None
+            assert runtime.runtime_adapter == "codex"
+            assert runtime.model == "gpt-6-luna"
+        else:
+            assert runtime is None
 
     def test_activation_pauses_excess_scouts_and_preserves_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]

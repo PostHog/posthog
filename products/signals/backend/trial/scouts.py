@@ -4,10 +4,13 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
+from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, lock_organization_trial
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     from products.signals.backend.models import SignalScoutConfig
 
 
@@ -60,3 +63,12 @@ def trial_scout_limit(team_id: int) -> int | None:
 
     grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
     return grant.scout_limit if grant is not None and grant.exhausted_at is None else None
+
+
+def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
+    if trial_scout_limit(team.parent_team_id or team.id) is None:
+        return None
+    decision = TrialPolicy(team).flag_decision()
+    if not decision.confirmed or decision.enabled is not True:
+        return None
+    return AgentRuntime(runtime_adapter="codex", model="gpt-6-luna")
