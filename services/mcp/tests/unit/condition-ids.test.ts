@@ -28,9 +28,13 @@ function idOnRead(group: FlagConditionGroup, flagLevel?: number | null): unknown
     return read?.condition_id
 }
 
-function echoWithId(group: FlagConditionGroup, overrides: Partial<FlagConditionGroup> = {}): FlagConditionGroup {
+function echoWithId(
+    group: FlagConditionGroup,
+    overrides: Partial<FlagConditionGroup> = {},
+    flagLevel?: number
+): FlagConditionGroup {
     return {
-        condition_id: idOnRead(group),
+        condition_id: idOnRead(group, flagLevel),
         properties: (group.properties ?? []).map(({ key, operator, value }) => ({ key, operator, value })),
         rollout_percentage: group.rollout_percentage,
         ...overrides,
@@ -39,6 +43,7 @@ function echoWithId(group: FlagConditionGroup, overrides: Partial<FlagConditionG
 
 type MergeRow = {
     name: string
+    flagLevel?: number
     stored: FlagConditionGroup[]
     sent: (stored: FlagConditionGroup[]) => FlagConditionGroup[]
     expected: unknown[][]
@@ -323,12 +328,34 @@ describe('condition ids', () => {
                 [null, ['group', 1]],
             ],
         },
-    ])('restores each condition from the stored condition with its ID when $name', ({ stored, sent, expected }) => {
-        const merged = preserveGroupTargetingFilters({ groups: stored }, { groups: sent(stored) })
+        {
+            name: 'two group sets that take the flag level trade places',
+            flagLevel: 0,
+            stored: [
+                planOn(0, 'enterprise'),
+                {
+                    properties: [{ key: 'seats', type: 'group', group_type_index: 0, operator: 'gt', value: 10 }],
+                    rollout_percentage: 100,
+                },
+            ],
+            sent: (stored) => [echoWithId(stored[1]!, {}, 0), echoWithId(stored[0]!, {}, 0)],
+            expected: [
+                [null, ['group', 0]],
+                [null, ['group', 0]],
+            ],
+        },
+    ])(
+        'restores each condition from the stored condition with its ID when $name',
+        ({ flagLevel, stored, sent, expected }) => {
+            const merged = preserveGroupTargetingFilters(
+                { groups: stored, aggregation_group_type_index: flagLevel },
+                { groups: sent(stored) }
+            )
 
-        expect(typings(merged)).toEqual(expected)
-        expect(merged?.groups?.every((group) => !('condition_id' in group))).toBe(true)
-    })
+            expect(typings(merged)).toEqual(expected)
+            expect(merged?.groups?.every((group) => !('condition_id' in group))).toBe(true)
+        }
+    )
 
     it('refuses a condition ID that matches no stored condition', () => {
         const stored = [planOn(0, 'enterprise'), planOn(1, 'pro')]
