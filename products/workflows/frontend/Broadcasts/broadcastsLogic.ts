@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -313,7 +314,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         rowDetailsById: [
             {} as Record<string, BroadcastRowDetails>,
             {
@@ -360,15 +361,16 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         filters: [
             DEFAULT_FILTERS,
             // The list unmounts when a broadcast opens, so the filters are persisted to survive that and
-            // be restored when the user comes back to the list.
-            { persist: true, storageKey: 'broadcastsListFilters' },
+            // be restored when the user comes back to the list. The key carries the user and the team, so
+            // another account or another project never reads these filters.
+            buildUserScopedPersistenceConfig('broadcasts_list_filters__'),
             {
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
                 setFiltersFromUrl: (_, { filters }) => filters,
             },
         ],
-    }),
+    })),
     selectors({
         filtersPending: [
             (s) => [s.filters, s.loadedFilters],
