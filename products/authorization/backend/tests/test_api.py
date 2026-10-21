@@ -7,7 +7,7 @@ from products.authorization.backend.facade.contracts import CreateSplineReticula
 from products.authorization.backend.facade.enums import SplineStatus
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases={"default", "authorization_db_writer", "authorization_db_reader"})
 class TestSplineReticulatorAPI:
     def test_create_and_list(self, team):
         dto = api.create(CreateSplineReticulatorInput(team_id=team.id, name="test-spline"))

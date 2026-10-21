@@ -8,7 +8,7 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
-from .. import logic
+from ..logic import reticulators
 from ..models import SplineReticulator
 from . import contracts
 from .enums import SplineStatus
@@ -24,9 +24,9 @@ def _to_dto(obj: SplineReticulator) -> contracts.SplineReticulatorDTO:
 
 
 def create(input: contracts.CreateSplineReticulatorInput) -> contracts.SplineReticulatorDTO:
-    obj = logic.create_spline_reticulator(team_id=input.team_id, name=input.name)
+    obj = reticulators.create_spline_reticulator(team_id=input.team_id, name=input.name)
     return _to_dto(obj)
 
 
 def list_all() -> list[contracts.SplineReticulatorDTO]:
-    return [_to_dto(obj) for obj in logic.list_spline_reticulators()]
+    return [_to_dto(obj) for obj in reticulators.list_spline_reticulators()]
