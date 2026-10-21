@@ -46,6 +46,7 @@ from products.alerts.backend.llm_detector_limits import (
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert as follow_alert
+from products.alerts.backend.platform_alert_reads import moved_alert_check_page, moved_alert_statuses
 
 logger = structlog.get_logger(__name__)
 
@@ -234,4 +235,6 @@ __all__ = [
     "follow_insight_alert",
     "is_llm_detector_config",
     "llm_detector_access_error",
+    "moved_alert_check_page",
+    "moved_alert_statuses",
 ]
