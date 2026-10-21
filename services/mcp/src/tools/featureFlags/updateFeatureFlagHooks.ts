@@ -70,6 +70,7 @@ function propertyTypeRecoveryStep(path: string, key: string): string {
         `The property at ${path} (key ${quotedKey}) has a missing or invalid \`type\`. Read the flag. ` +
         `If the flag already filters on ${quotedKey}, copy that filter's \`type\`, and its \`group_type_index\` ` +
         `for a group property, from the stored condition you mean. ` +
+        `If that stored filter has no \`type\` either, ask the user which type to use. ` +
         `Don't guess \`person\`: the API accepts it, and the condition then filters on a person property named ${quotedKey}. ` +
         `If the flag doesn't filter on ${quotedKey} yet, set the \`type\` you mean, plus \`group_type_index\` for a group property.`
     )
