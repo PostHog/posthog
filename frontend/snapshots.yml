@@ -3281,9 +3281,9 @@ snapshots:
     experiments-healthchecksoverview--checks-that-could-not-run--light:
         hash: v1.k794b7964.8c51277755331ab88e7b5bf4bcdc2c9a3c0c9c87fa5ea946f549b70df6c58ce6.vJaps4AlW1x8oWaPFZMzIky0VccXRtIpAw5elQ8Q424
     experiments-healthchecksoverview--draft--dark:
-        hash: v1.k794b7964.f9bbebb78696c5c06e4f5572959db8f2874162e0e965c8db58cd4669cc7da9b2.O6UuEfwDD1O2LsejFRqibQsm_1_O3vKAK-bnRQ-J1kA
+        hash: v1.k794b7964.998711a45ae74b0bc74066f1d70b2b58c809e9d9e0bd7d4d0b541698a312cad3.IPJlc0qZzHtFDsZ5Gb06zukOf9kk_JnT6-OU2V-Pwa0
     experiments-healthchecksoverview--draft--light:
-        hash: v1.k794b7964.b68bab92c07165ef321158a7d33578cc1916c22da7b7653e6a4d1733dc5408c7.H9wWUyEizaXI4E6yp0lk1DzoPLAKSdtVXkzmA59Z4SU
+        hash: v1.k794b7964.5b098ee13c120e815fdf13e18a59d6234a4c904e747a7cc83fec0e1406cd3491.YrNkI7P5QfXa-TnjviRwcQIIML09K1-POg889feICRg
     experiments-howtoreadtooltip--intervals-bayesian--dark:
         hash: v1.k794b7964.a06d267cee9cb54bafc732335b35d461d3c1a59250c6daa8becace0fcb8492d2.vR5tecOozn6B51xE8LrByAFVsi03J4w-iUu-j2hQUTU
     experiments-howtoreadtooltip--intervals-bayesian--light:
@@ -10747,9 +10747,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.4ddea1c7537af9d50c57b4b9a76d4bcba39f743a23b4715683c0ce59d4c24f57.0ueR8XMLqRby_u6I0EyNIiUwXkbjmWMH3vBdoFNYmII
     scenes-app-experiments--experiment-health-debug-tab--dark:
-        hash: v1.k794b7964.8a6f16e2e2dd9eddfcd892926ea82e83e96dc8d4d0a7a691b4bef4bd95890e80.fmB2_WJ6xKnT5hBKzZ8t2Ba1jDP0XvVrjbQitJk9FH0
+        hash: v1.k794b7964.eae73ea7b85aef09cd37d294cdb0bd2cf191348232c9df704588d2c25499c839.GaCHEbAy8iVYYnI_jir5s_XFuJNNHii1sYqzXPlf3i4
     scenes-app-experiments--experiment-health-debug-tab--light:
-        hash: v1.k794b7964.699a38e41fb7d0e936e5db90702e786fdde6692b1cccd8d91acc250672c5653c.b8tZKLOytCcqqZ9N3fvxU0Ztf0ELU-dbQ39SiM9sNSo
+        hash: v1.k794b7964.f7b8889003f93b6a829f42658ac4c50a895d28d7d417da5c336cd5ad7b918886.OHBwsWdtYlEQAHwZ3Hl24xUUeB8nAWC8gfZ_dGXBT3w
     scenes-app-experiments--experiment-recordings-dropped-metric--dark:
         hash: v1.k794b7964.e0e7181f2c9e61a8324eff9aa7a9230fef25b3cf37e0b24ef875780186ed25dc.9VEvZ4iVieVJwmDol0gwtAsr3wgZYW5gj2KXAGZJfiw
     scenes-app-experiments--experiment-recordings-dropped-metric--light:
