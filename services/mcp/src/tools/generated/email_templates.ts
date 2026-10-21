@@ -28,6 +28,9 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.content !== undefined) {
             body['content'] = params.content
         }
@@ -39,6 +42,9 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
         }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
@@ -190,6 +196,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.content !== undefined) {
             body['content'] = params.content
         }
@@ -201,6 +210,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
         }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',

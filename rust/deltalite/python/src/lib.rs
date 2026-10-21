@@ -15,8 +15,9 @@ use deltalake::writer::RecordBatchWriter;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
 use deltalite_core::limits::ProcessLimits;
+use deltalite_core::probecache::ProbeCache;
 use deltalite_core::schema::import_column;
-use deltalite_core::table::{open_table, MultipartConfig};
+use deltalite_core::table::{open_table, table_exists, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -152,6 +153,8 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub files_probed: usize,
     #[pyo3(get)]
+    pub files_probe_cached: usize,
+    #[pyo3(get)]
     pub rows_updated: usize,
     #[pyo3(get)]
     pub rows_inserted: usize,
@@ -165,6 +168,8 @@ pub struct UpsertStats {
     pub plan_ms: u64,
     #[pyo3(get)]
     pub rewrite_ms: u64,
+    #[pyo3(get)]
+    pub probe_ms: u64,
     #[pyo3(get)]
     pub commit_ms: u64,
     #[pyo3(get)]
@@ -186,14 +191,15 @@ impl UpsertStats {
     fn __repr__(&self) -> String {
         format!(
             "UpsertStats(version={}, partitions_touched={}, files_added={}, files_removed={}, \
-             files_carried_over={}, files_probed={}, rows_updated={}, rows_inserted={}, \
-             rows_copied={})",
+             files_carried_over={}, files_probed={}, files_probe_cached={}, rows_updated={}, \
+             rows_inserted={}, rows_copied={})",
             self.version,
             self.partitions_touched,
             self.files_added,
             self.files_removed,
             self.files_carried_over,
             self.files_probed,
+            self.files_probe_cached,
             self.rows_updated,
             self.rows_inserted,
             self.rows_copied
@@ -210,6 +216,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             files_added: s.files_added,
             files_carried_over: s.files_carried_over,
             files_probed: s.files_probed,
+            files_probe_cached: s.files_probe_cached,
             rows_updated: s.rows_updated,
             rows_inserted: s.rows_inserted,
             rows_copied: s.rows_copied,
@@ -217,6 +224,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             null_pk_rows: s.null_pk_rows,
             plan_ms: s.plan_ms,
             rewrite_ms: s.rewrite_ms,
+            probe_ms: s.probe_ms,
             commit_ms: s.commit_ms,
             columns_relaxed: s.columns_relaxed,
             open_ms: s.open_ms,
@@ -266,6 +274,20 @@ impl DeltaLiteTable {
         Ok(py
             .detach(|| runtime().block_on(open_table(&uri, so)))
             .is_ok())
+    }
+
+    /// `deltalake.DeltaTable.is_deltatable`'s check. Unlike `is_deltatable`, storage errors
+    /// raise: a caller that reads "no table" can create a new table over an existing one.
+    #[staticmethod]
+    #[pyo3(signature = (uri, storage_options = None))]
+    fn table_exists(
+        py: Python<'_>,
+        uri: String,
+        storage_options: Option<HashMap<String, String>>,
+    ) -> PyResult<bool> {
+        let so = storage_options.unwrap_or_default();
+        py.detach(|| runtime().block_on(table_exists(&uri, so)))
+            .map_err(to_py_err)
     }
 
     /// The table version this handle currently observes (-1 before any load).
@@ -377,6 +399,9 @@ impl DeltaLiteTable {
     /// `max_row_group_bytes` closes an output row group once its encoded bytes reach the
     /// value, so a later reader fetches less per row group. `None` (the default) closes
     /// row groups only at the encoder's row cap.
+    ///
+    /// `use_probe_cache=False` makes the probe read every candidate file from storage
+    /// instead of using the process-wide probe cache (see `set_probe_cache_max_bytes`).
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -398,6 +423,7 @@ impl DeltaLiteTable {
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
+        use_probe_cache = true,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn upsert(
@@ -422,6 +448,7 @@ impl DeltaLiteTable {
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        use_probe_cache: bool,
     ) -> PyResult<UpsertStats> {
         // Import while holding the GIL (it reads a Python object), then release it for
         // all the I/O.
@@ -458,6 +485,7 @@ impl DeltaLiteTable {
             // Shared with every other concurrent upsert in this process, so the
             // process-level memory bound holds regardless of thread count.
             limits: ProcessLimits::global().clone(),
+            probe_cache: use_probe_cache.then(|| ProbeCache::global().clone()),
         };
         let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
 
@@ -594,6 +622,30 @@ impl DeltaLiteTable {
         Ok(d.into_any().unbind())
     }
 
+    /// Returns the keys delta-rs's `DeltaTable.restore` returns, plus the committed `version`.
+    #[pyo3(signature = (version, *, commit_metadata = None))]
+    fn restore(
+        &mut self,
+        py: Python<'_>,
+        version: u64,
+        commit_metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let metadata = commit_metadata.map(|m| {
+            m.into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect::<HashMap<String, Value>>()
+        });
+        let handle = &mut self.handle;
+        let metrics = py
+            .detach(|| runtime().block_on(handle.restore(version, metadata)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("numRemovedFile", metrics.num_removed_file)?;
+        d.set_item("numRestoredFile", metrics.num_restored_file)?;
+        d.set_item("version", self.handle.version())?;
+        Ok(d.into_any().unbind())
+    }
+
     /// Commit metadata of the most recent `limit` commits, oldest first.
     fn history(&self, py: Python<'_>, limit: usize) -> PyResult<Py<PyAny>> {
         let table = self.handle.table().clone();
@@ -621,9 +673,41 @@ impl DeltaLiteTable {
     }
 }
 
+/// Set the byte cap of the process-wide probe cache, evicting entries down to it. `0`
+/// turns the cache off. The default comes from `DELTALITE_PROBE_CACHE_BYTES` (128 MiB
+/// when unset).
+#[pyfunction]
+fn set_probe_cache_max_bytes(max_bytes: usize) {
+    ProbeCache::global().set_max_bytes(max_bytes);
+}
+
+/// Drop every entry of the process-wide probe cache.
+#[pyfunction]
+fn clear_probe_cache() {
+    ProbeCache::global().clear();
+}
+
+/// Size and counters of the process-wide probe cache.
+#[pyfunction]
+fn probe_cache_stats(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProbeCache::global().stats();
+    let d = PyDict::new(py);
+    d.set_item("entries", s.entries)?;
+    d.set_item("bytes", s.bytes)?;
+    d.set_item("max_bytes", s.max_bytes)?;
+    d.set_item("hits", s.hits)?;
+    d.set_item("misses", s.misses)?;
+    d.set_item("inserts", s.inserts)?;
+    d.set_item("evictions", s.evictions)?;
+    Ok(d.into_any().unbind())
+}
+
 #[pymodule]
 fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DeltaLiteTable>()?;
+    m.add_function(wrap_pyfunction!(set_probe_cache_max_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_probe_cache, m)?)?;
+    m.add_function(wrap_pyfunction!(probe_cache_stats, m)?)?;
     m.add_class::<UpsertStats>()?;
     m.add("DeltaLiteError", m.py().get_type::<DeltaLiteError>())?;
     m.add(

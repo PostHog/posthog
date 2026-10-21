@@ -8,7 +8,7 @@ from pydantic.dataclasses import dataclass
 
 from .enums import DecisionQuestionType
 
-DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+DEFAULT_DECISION_MODEL = "posthog/hogference/jeeves-0.1"
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 

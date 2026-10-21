@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +18,6 @@ import { hogFlowsBatchJobsList, hogFlowsList, hogFlowsSchedulesList } from 'prod
 import type {
     HogFlowApi,
     HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
@@ -63,6 +63,10 @@ export interface BroadcastsFilters {
 }
 
 const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
+
+// The search params actionToUrl writes below. A URL that carries none of them states no filters at all,
+// which is different from stating that every filter is off.
+const FILTER_URL_PARAMS = ['search', 'status', 'created_by', 'page']
 
 type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 
@@ -130,10 +134,6 @@ export function canMoveToDraft(
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
         canEditInWizard(broadcast.actions, broadcast.edges)
     )
-}
-
-export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
-    return flow.origin_product !== 'broadcasts'
 }
 
 export function getBroadcastStatus(
@@ -299,9 +299,8 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     }
                     const requested = values.filters
                     const response = await hogFlowsList(String(values.currentProjectId), {
-                        // Broadcasts plus the ordinary workflows already shaped like one (a batch
-                        // trigger and a single email), so existing sends show up here too.
-                        broadcast_eligible: true,
+                        // Only broadcasts. A workflow shaped like one stays under workflows until someone moves it.
+                        type: 'broadcast',
                         search: values.filters.search || undefined,
                         broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
                         created_by: values.filters.createdBy || undefined,
@@ -315,7 +314,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         rowDetailsById: [
             {} as Record<string, BroadcastRowDetails>,
             {
@@ -361,13 +360,17 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         ],
         filters: [
             DEFAULT_FILTERS,
+            // The list unmounts when a broadcast opens, so the filters are persisted to survive that and
+            // be restored when the user comes back to the list. The key carries the user and the team, so
+            // another account or another project never reads these filters.
+            buildUserScopedPersistenceConfig('broadcasts_list_filters__'),
             {
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
                 setFiltersFromUrl: (_, { filters }) => filters,
             },
         ],
-    }),
+    })),
     selectors({
         filtersPending: [
             (s) => [s.filters, s.loadedFilters],
@@ -488,6 +491,15 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         [urls.broadcasts()]: (_, searchParams) => {
+            // An in-app link back to the list, such as the breadcrumb out of a broadcast, carries no filter
+            // params. Parsing that URL would clear every filter, so the filters held in state are restored
+            // and written back into the URL instead.
+            if (!FILTER_URL_PARAMS.some((param) => param in searchParams)) {
+                if (!objectsEqual(values.filters, DEFAULT_FILTERS)) {
+                    actions.setFilters(values.filters)
+                }
+                return
+            }
             const status = searchParams['status']
             const parsed: BroadcastsFilters = {
                 // The API rejects longer search terms.

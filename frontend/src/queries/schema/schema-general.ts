@@ -98,7 +98,6 @@ export enum NodeKind {
     ActorsQuery = 'ActorsQuery',
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
-    FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
@@ -139,7 +138,6 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
-    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics + Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -380,7 +378,6 @@ export type QuerySchema =
     | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
-    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -1745,6 +1742,7 @@ interface InsightVizNodeViewProps {
     full?: boolean
     showHeader?: boolean
     showTable?: boolean
+    /** @deprecated Funnel correlation was removed. The value is ignored. */
     showCorrelationTable?: boolean
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
@@ -2031,6 +2029,13 @@ export type TrendsQuerySeriesNodeUnion = EventsNode | ActionsNode | DataWarehous
 
 export type TrendsQuerySeriesNode = TrendsQuerySeriesNodeUnion
 
+export interface MarketingAnalyticsCostFallback {
+    /** @minItems 1 @maxItems 200 */
+    series: DataWarehouseNode[]
+    /** @minItems 1 @maxItems 200 */
+    sourceIds: string[]
+}
+
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
     /**
@@ -2044,6 +2049,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      * @maxItems 200
      */
     series: TrendsQuerySeriesNode[]
+    /** Live series for a Marketing cost trend when materialization coverage is incomplete. */
+    marketingAnalyticsCostFallback?: MarketingAnalyticsCostFallback
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /**
@@ -2117,8 +2124,6 @@ export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
     | keyof FilterType
     | 'funnel_step_breakdown'
-    | 'funnel_correlation_person_entity'
-    | 'funnel_correlation_person_converted'
     | 'entrance_period_start'
     | 'drop_off'
     | 'funnel_step'
@@ -2944,7 +2949,8 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     /**
-     * Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.
+     * Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name,
+     * the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.
      * @default null
      */
     error_code: string | null
@@ -3024,7 +3030,6 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?:
         | InsightActorsQuery
         | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
@@ -5682,20 +5687,6 @@ export interface ExperimentVariantFunnelsBaseStats {
     failure_count: number
 }
 
-export interface ExperimentMaxBayesianContext {
-    key: string
-    chance_to_win: number
-    credible_interval: [number, number]
-    significant: boolean
-}
-
-export interface ExperimentMaxFrequentistContext {
-    key: string
-    p_value: number
-    confidence_interval: [number, number]
-    significant: boolean
-}
-
 export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
@@ -6354,6 +6345,26 @@ export interface ExperimentExposureHealthFinding {
     diagnostic_ref: string | null
 }
 
+export type ExperimentExposureHealthCheckKey =
+    | 'zero_exposures'
+    | 'srm'
+    | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
+
+export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
+
+/** What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`. */
+export interface ExperimentExposureHealthCheck {
+    /** Stable identifier of the check. */
+    key: ExperimentExposureHealthCheckKey
+    /** What the check looks at, as the health panel lists it. */
+    name: string
+    /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
+    status: ExperimentExposureHealthCheckStatus
+    /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
+    reason: string | null
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -6363,6 +6374,8 @@ export interface ExperimentExposureQueryResponse {
     bias_risk?: BiasRisk
     /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
     health_findings?: ExperimentExposureHealthFinding[]
+    /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
+    health_checks?: ExperimentExposureHealthCheck[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -6460,14 +6473,6 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     compare?: 'current' | 'previous'
 }
 
-export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.FunnelCorrelationActorsQuery
-    source: FunnelCorrelationQuery
-    funnelCorrelationPersonConverted?: boolean
-    funnelCorrelationPersonEntity?: AnyEntityNode
-    funnelCorrelationPropertyValues?: AnyPropertyFilter[]
-}
-
 /** The kind of journey grid element a PathsV2ActorsQuery drills into. */
 export enum PathsV2ElementType {
     Node = 'node',
@@ -6515,58 +6520,6 @@ export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.PathsV2ActorsQuery
     source: PathsV2Query
     element: PathsV2ElementSelector
-}
-
-export interface EventDefinition {
-    event: string
-    properties: Record<string, any>
-    elements: any[]
-}
-
-export interface EventOddsRatioSerialized {
-    event: EventDefinition
-    success_count: integer
-    failure_count: integer
-    odds_ratio: number
-    correlation_type: 'success' | 'failure'
-}
-
-export interface FunnelCorrelationResult {
-    events: EventOddsRatioSerialized[]
-    skewed: boolean
-}
-
-export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase {
-    results: FunnelCorrelationResult
-    columns?: any[]
-    types?: any[]
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-}
-export type CachedFunnelCorrelationResponse = FunnelCorrelationResponse & CachedRetentionQueryResponse
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
-}
-
-export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> {
-    kind: NodeKind.FunnelCorrelationQuery
-    source: FunnelsActorsQuery
-    funnelCorrelationType: FunnelCorrelationResultsType
-
-    /* Events */
-    funnelCorrelationExcludeEventNames?: string[]
-
-    /* Events with properties */
-    funnelCorrelationEventNames?: string[]
-    funnelCorrelationEventExcludePropertyNames?: string[]
-
-    /* Properties */
-    funnelCorrelationNames?: string[]
-    funnelCorrelationExcludeNames?: string[]
 }
 
 /**  @format date-time */
@@ -6619,13 +6572,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source:
-        | InsightActorsQuery
-        | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
-        | StickinessActorsQuery
-        | ExperimentActorsQuery
-        | PathsV2ActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
