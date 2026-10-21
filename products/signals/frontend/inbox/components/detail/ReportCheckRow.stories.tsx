@@ -133,3 +133,55 @@ export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: { checks: everyState },
 }
+
+export const Monitoring: Story = {
+    args: {
+        checks: [
+            check({
+                id: 'monitoring-scheduled',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                run_interval_minutes: 360,
+                next_run_at: '2026-09-21T21:00:00Z',
+                monitoring_timing: {
+                    state: 'scheduled',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: '2026-09-21T21:00:00Z',
+                },
+            }),
+            check({
+                id: 'monitoring-ended',
+                title: 'The export backlog stays clear',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'window_ended',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'monitoring-paused',
+                title: 'No new reports of the export timeout',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-22T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+        ],
+    },
+}
+
+export const MonitoringNarrowRail: Story = {
+    ...Monitoring,
+    parameters: { railWidth: 'narrow' },
+}
