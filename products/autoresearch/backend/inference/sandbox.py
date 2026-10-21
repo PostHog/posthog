@@ -71,6 +71,7 @@ from products.autoresearch.backend.dataset.labeling import (
     MATERIALIZE_ROW_LIMIT,
     TrainingSample,
     TrainingSampleTooLarge,
+    build_fixed_anchors_sql,
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_prediction_coverage_sql,
@@ -541,6 +542,7 @@ def _materialize_score_data(
     cutoff_ts: int | None = None,
     user: User | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
+    anchor_person_ids: list[str] | None = None,
 ) -> InferenceRows:
     """
     Predict run materialization: the bundle's feature SQL against the inference anchors
@@ -550,11 +552,29 @@ def _materialize_score_data(
 
     A population at or above the cap scores a rolling subset: the ``ROLLING_SCORE_LIMIT``
     persons whose last score by this pipeline is oldest.
+
+    ``anchor_person_ids`` scores those of these persons who are still live instead of the population,
+    with no rolling selection. Deferred shadow scoring passes the people the champion scored.
     """
-    eligible = count_inference_anchors(
-        team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
-    )
-    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
+    if anchor_person_ids is not None:
+        anchors_sql, anchors_values = build_fixed_anchors_sql(anchor_person_ids=anchor_person_ids, cutoff_ts=cutoff_ts)
+        eligible = int(
+            _count_rows(
+                team=team,
+                sql=f"SELECT count() FROM ({anchors_sql})",
+                values=anchors_values,
+                user=user,
+                what="Fixed anchor count",
+                query_context=query_context,
+            )[0]
+            or 0
+        )
+        rolling = None
+    else:
+        eligible = count_inference_anchors(
+            team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+        )
+        rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     score_sql, score_values = build_inference_features_sql(
         feature_sql=feature_sql_resolved,
@@ -565,6 +585,7 @@ def _materialize_score_data(
         target_definition=pipeline.target_definition,
         team=team,
         rolling=rolling,
+        anchor_person_ids=anchor_person_ids,
     )
     score_rows = _materialize_rows(
         team=team, sql=score_sql, values=score_values, user=user, query_context=query_context

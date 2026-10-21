@@ -14,11 +14,6 @@ import type { ExperimentHealthInputsApi } from 'products/experiments/frontend/ge
 
 import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
-const SPLIT_BEFORE = [
-    { key: 'control', rollout_percentage: 50 },
-    { key: 'test-1', rollout_percentage: 25 },
-    { key: 'test-2', rollout_percentage: 25 },
-]
 const SPLIT_AFTER = [
     { key: 'control', rollout_percentage: 34 },
     { key: 'test-1', rollout_percentage: 33 },
@@ -43,6 +38,12 @@ const EXPERIMENT_HEALTH = {
             diagnostic_ref: 'E3',
         },
     ],
+    checks: [
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'finding', reason: null },
+        { key: 'flag_state', name: 'Feature flag rollout', status: 'passed', reason: null },
+        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
+        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+    ],
 }
 
 // Typed as the generated response, so a new required field on the serializer breaks the typecheck here.
@@ -64,15 +65,27 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
             { number: 2, rollout_percentage: 100, property_count: 0, reachable: true, pinned_variant: null },
         ],
         variants: SPLIT_AFTER,
+        split_text: 'control 34%, test-1 33%, test-2 33%',
     },
-    split_history: {
+    flag_history: {
         checked: true,
         not_checked_reason: null,
         launched_at: '2025-01-06T10:00:00Z',
         team_timezone: 'UTC',
-        changes: [{ changed_at: '2025-01-20T14:30:00Z', before: SPLIT_BEFORE, after: SPLIT_AFTER, counted: true }],
+        changes: [
+            {
+                kind: 'split',
+                changed_at: '2025-01-20T14:30:00Z',
+                changed: 'Split',
+                before: 'control 50%, test-1 25%, test-2 25%',
+                after: 'control 34%, test-1 33%, test-2 33%',
+                counted: true,
+            },
+        ],
         exposed_before_first: true,
-        exposed_between: null,
+        exposed_between: [
+            { kind: 'split', question: 'Exposed between the first and last split change', exposed: null },
+        ],
     },
     condition_set_traffic_status: 'read',
     condition_set_traffic: {
@@ -84,6 +97,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         ],
         calls: 4200,
         remotely_evaluated_calls: 4116,
+        people_assigned_outside: 0,
     },
     reader_access: { can_read_flag_history: true, can_query_events: true, denied_event_properties: [] },
     exposures: {

@@ -36,6 +36,7 @@ MODEL_ROUTER_TIMEOUT_SECONDS = 5.0
 
 _QUESTION_ID = "model"
 DECISION_SPAN_NAME = "slack_model_router_decision"
+MODEL_ROUTER_AI_PRODUCT = "slack_app_model_router"
 
 
 @frozen
@@ -63,7 +64,7 @@ def classify_slack_app_model_router(
     # No TypeSafe fallback: the request is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
         model=MODEL_ROUTER_DECISION_MODEL,
-        ai_product="slack_app_routing",
+        ai_product=MODEL_ROUTER_AI_PRODUCT,
         team_id=team_id,
         distinct_id=distinct_id,
         trace_id=trace_id,
@@ -120,7 +121,7 @@ def _capture_decision(
                 }
             ],
             CLASSIFIER_PROPERTY: "slack_model_router",
-            "ai_product": "slack_app_routing",
+            "ai_product": MODEL_ROUTER_AI_PRODUCT,
         },
     )
 

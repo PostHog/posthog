@@ -1109,3 +1109,18 @@ class LivingArtifactVersionPreview:
 class LivingArtifactVersionDownload:
     url: str | None
     error: Literal["not_found", "not_stored", "unavailable"] | None
+
+
+class SandboxRunStartDenial(StrEnum):
+    """Why a task sandbox cannot start a run."""
+
+    NO_ACTOR = "no_actor"
+    NESTED = "nested"
+
+
+@dataclass(frozen=True)
+class SandboxRunStarter:
+    """The task and run whose sandbox starts a run for the task's owner."""
+
+    parent_task_id: UUID
+    parent_run_id: UUID

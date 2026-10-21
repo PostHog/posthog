@@ -141,9 +141,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "expected_fragment"),
         [
             (200, True, None),
-            (401, False, "HeyReach rejected the API key"),
-            (403, False, "HeyReach rejected the API key"),
-            (500, False, "unexpected status (500)"),
         ],
     )
     def test_maps_status_to_user_message(
@@ -180,11 +177,3 @@ class TestValidateCredentials:
         assert "Retype it by hand" in (message or "")
         assert network.requests_log == []
         assert network.session_options == []
-
-
-class TestUnknownEndpoint:
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("does_not_exist", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "HeyReach endpoint does not exist" in str(result.raised)

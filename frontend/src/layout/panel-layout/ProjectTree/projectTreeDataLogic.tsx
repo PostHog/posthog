@@ -41,6 +41,7 @@ import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     formatUrlAsName,
+    isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
     matchesRefType,
@@ -601,7 +602,7 @@ export interface projectTreeDataLogicMeta {
             homeFolder: FileSystemHomeFolderApi | null,
             viableItems: FileSystemEntry[]
         ) => FileSystemHomeFolderApi | null
-        savedItems: (folders: Record<string, FileSystemEntry[]>) => FileSystemEntry[]
+        savedItems: (folders: Record<string, FileSystemEntry[]>, featureFlags: FeatureFlagsSet) => FileSystemEntry[]
         shortcutEntryIdMap: (shortcutData: FileSystemEntry[]) => Map<string, string>
         savedItemsLoading: (folderStates: Record<string, FolderState>) => boolean
         viableItems: (savedItems: FileSystemEntry[], pendingActions: ProjectTreeAction[]) => FileSystemEntry[]
@@ -1078,11 +1079,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 addShortcutItem: async ({ item }) => {
                     const shortcutItem = shortcutFromEntry(item)
-                    const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    posthog.capture('navbar starred item added', {
-                        item_type: shortcutItem.type ?? 'unknown',
-                        item_name: shortcutItem.path,
-                    })
+                    const { shortcut: response, created } = await api.fileSystemShortcuts.create(shortcutItem)
+                    // A star the user already has, for example from another tab, is not a new add.
+                    if (created) {
+                        posthog.capture('navbar starred item added', {
+                            item_type: shortcutItem.type ?? 'unknown',
+                            item_name: shortcutItem.path,
+                        })
+                    }
                     lemonToast.success('Added to starred')
                     // The API returns the existing shortcut when the item is already starred, so
                     // appending it unconditionally would show the same star twice until a reload.
@@ -1332,9 +1336,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         savedItems: [
-            (s) => [s.folders],
-            (folders: Record<string, FileSystemEntry[]>): FileSystemEntry[] =>
-                Object.entries(folders).reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[]),
+            (s) => [s.folders, s.featureFlags],
+            (folders: Record<string, FileSystemEntry[]>, featureFlags: FeatureFlagsSet): FileSystemEntry[] =>
+                Object.entries(folders)
+                    .reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[])
+                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags)),
         ],
         // Maps each top-level Starred row's tree id to the underlying FileSystemEntry id, so the
         // drag handler can resolve sibling drops without rebuilding the lookup on every render.

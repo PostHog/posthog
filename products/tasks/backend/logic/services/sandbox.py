@@ -373,7 +373,6 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
-    event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
@@ -400,7 +399,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
-            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+            "false" if settings.DEBUG and not event_ingest_url else "true"
         ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
@@ -683,7 +682,6 @@ class SandboxBase(ABC):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,

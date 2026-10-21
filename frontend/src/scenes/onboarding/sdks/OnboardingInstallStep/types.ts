@@ -42,4 +42,5 @@ export interface VariantProps {
     /** Step heading, e.g. "Install AI observability"; a lone install step stays a generic "Install". */
     installTitle: string
     installSubtitle?: string
+    compact?: boolean
 }

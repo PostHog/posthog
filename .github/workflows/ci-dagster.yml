@@ -178,6 +178,8 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
+                        - 'posthog/api/embedding_worker.py'
+                        - 'posthog/security/outbound_proxy.py'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/personhog_client/**'
@@ -224,6 +226,10 @@ jobs:
                         - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
+                        # The activity summary DAG reads tasks through this one facade module.
+                        # Narrow on purpose: tasks is a busy backend that no other DAG imports.
+                        - 'products/tasks/backend/facade/user_task_summaries.py'
+                        - 'products/tasks/backend/logic/user_task_summaries.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'

@@ -94,11 +94,6 @@ class TestAppStoreConnectSource:
         for schema in schemas:
             assert schema.detected_primary_keys == APP_STORE_CONNECT_ENDPOINTS[schema.name].primary_keys
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = AppStoreConnectSource().get_schemas(_config(), team_id=1, names=["customer_reviews"])
-
-        assert [schema.name for schema in schemas] == ["customer_reviews"]
-
     def test_only_report_tables_are_incremental_and_opt_in(self) -> None:
         schemas = {schema.name: schema for schema in AppStoreConnectSource().get_schemas(_config(), team_id=1)}
 

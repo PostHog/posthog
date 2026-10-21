@@ -169,7 +169,7 @@ The experiment metadata records `skill_delivery`; compare the shared `expected_s
 
 ### Codex runtime
 
-`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
+`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
 Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
@@ -191,8 +191,8 @@ eval_comparison_args=(
     --skill-delivery exec
     --trials 1
 )
-EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5
-EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-5.5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5-5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-6.1-sol
 ```
 
 Compare the named scorer results, completed cases, timeouts, infrastructure errors, and total duration in both final summaries.
@@ -387,22 +387,25 @@ The summary includes the trial ID, the agent trace ID when available, phase dura
 Case names and `--eval` filters stay the same.
 
 `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
-`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
-PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
+`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service by default; local logs are still written.
+Both sandboxed and one-shot suites can set `send_to_posthog=True` with `offline_suite` to publish only to PostHog while Braintrust uploads remain disabled, or `send_to_posthog=False` to disable PostHog uploads independently.
+The 11 experiment-skill suites use this PostHog-only mode.
+PostHog result uploads default to following `no_send_logs`, independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
 
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
 It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
-Other public suites report scores to Braintrust until they opt into offline publishing.
-Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
+PostHog AI and Slack app public suites also opt into offline publishing with their own tagged scorer versions.
+Agent and judge trace capture remains available. `no_send_logs=True` suppresses offline result uploads unless `send_to_posthog=True` is explicitly set.
 
-Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal key with `offline_evaluation_ingestion:write`, `evaluation:write`, and access to project `2` to upload and tag results. An ingestion-only personal or project secret key can upload results, but tagging will warn and leave the run untagged.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
-The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metrics and explains local and CI key configuration.
+The [suite configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#configured-offline-experiment-suites) lists the metrics and explains local and CI key configuration.
 Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
+A completed upload records its results link before tagging begins. Tagging has a separate five-second deadline; failures, timeouts, and shutdown interruptions only warn and preserve the successful upload status.
 Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to the full 60-second upload deadline for delivery to finish.
 Requests use a 5-second timeout and up to two retries within that overall deadline. Terminal API failures trigger a best-effort attempt to mark the experiment failed, limited to 5 seconds; pauses and interruptions leave it resumable.
 Both sandboxed and one-shot suites can opt in through `offline_suite`. Rich scorer recording runs only when offline publishing is configured and uploads are allowed.

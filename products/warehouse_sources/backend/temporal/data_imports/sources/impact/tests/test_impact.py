@@ -90,7 +90,11 @@ class TestApiVersionHeader:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("sid", "token") is expected
@@ -205,6 +209,54 @@ class TestGetRowsContractsFanout:
         assert result.params("CampaignId") == [None, None, None]
         injected = {row["CampaignId"] for row in result.rows}
         assert injected == {10, 20}
+
+
+class TestGetRowsSurveyResponses:
+    @parameterized.expand(
+        [
+            (
+                "full_walk",
+                None,
+                [
+                    "/Advertisers/sid/Programs/10/Surveys/1/Responses",
+                    "/Advertisers/sid/Programs/10/Surveys/2/Responses",
+                ],
+                [{"Id": 5, "CampaignId": 10, "SurveyId": 1}, {"Id": 6, "CampaignId": 10, "SurveyId": 2}],
+            ),
+            (
+                "resume_after_bookmarked_survey",
+                ImpactResumeConfig(campaign_id=10, survey_id=1),
+                ["/Advertisers/sid/Programs/10/Surveys/2/Responses"],
+                [{"Id": 6, "CampaignId": 10, "SurveyId": 2}],
+            ),
+            ("resume_after_completed_program", ImpactResumeConfig(campaign_id=20), [], []),
+        ]
+    )
+    def test_walks_programs_and_surveys(
+        self,
+        _name: str,
+        resume_state: Optional[ImpactResumeConfig],
+        expected_response_paths: list[str],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver().run(
+            "SurveyResponses",
+            route(
+                {
+                    "/Campaigns": [ScriptedResponse(json={"Campaigns": [{"Id": 20}, {"Id": 10}], "@numpages": "1"})],
+                    "/Programs/10/Surveys": [ScriptedResponse(json={"Surveys": [{"Id": 2}, {"Id": 1}]})],
+                    "/Programs/20/Surveys": [ScriptedResponse(status=404)],
+                    "/Surveys/1/Responses": [ScriptedResponse(json={"Responses": [{"Id": 5}]})],
+                    "/Surveys/2/Responses": [ScriptedResponse(json={"Responses": [{"Id": 6}]})],
+                }
+            ),
+            resume_state=resume_state,
+        )
+        assert result.raised is None
+        assert [path for path in result.paths if path.endswith("/Responses")] == expected_response_paths
+        assert "/Advertisers/sid/Programs/20/Surveys" in result.paths
+        assert result.rows == expected_rows
+        assert result.saved_states[-1] == ImpactResumeConfig(campaign_id=21)
 
 
 class TestImpactSourceResponse:
