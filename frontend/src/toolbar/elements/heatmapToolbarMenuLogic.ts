@@ -175,17 +175,20 @@ export function buildElementStatsProperties(
     wildcardHref: string,
     areaSelector: string | null
 ): AnyPropertyFilter[] {
+    const urlFilter = wildcardHref === href ? null : resolveHeatmapUrlFilter(wildcardHref)
     const properties: AnyPropertyFilter[] = [
-        wildcardHref === href
+        wildcardHref === href || urlFilter?.matchType === 'exact'
             ? {
                   key: '$current_url',
-                  value: href,
+                  value: urlFilter?.href ?? href,
                   operator: PropertyOperator.Exact,
                   type: PropertyFilterType.Event,
               }
             : {
                   key: '$current_url',
-                  value: heatmapUrlPatternToRegex(wildcardHref.split('*').map(escapeUnescapedRegex).join('*')),
+                  value:
+                      urlFilter?.regex ??
+                      heatmapUrlPatternToRegex(wildcardHref.split('*').map(escapeUnescapedRegex).join('*')),
                   operator: PropertyOperator.Regex,
                   type: PropertyFilterType.Event,
               },
@@ -1223,9 +1226,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         enableHeatmap: () => {
-            const urlFilter = resolveHeatmapUrlFilter(values.wildcardHref)
-            actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
-            actions.setDataHref(urlFilter?.href ?? '')
+            if (values.wildcardHref === values.href) {
+                actions.setHrefMatchType('exact')
+                actions.setDataHref(values.href)
+            } else {
+                const urlFilter = resolveHeatmapUrlFilter(values.wildcardHref)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
+                actions.setDataHref(urlFilter?.href ?? '')
+            }
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
@@ -1365,9 +1373,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setHref: ({ href }) => {
             if (values.heatmapEnabled) {
-                const urlFilter = resolveHeatmapUrlFilter(href)
-                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
-                actions.setDataHref(urlFilter?.href ?? '')
+                actions.setHrefMatchType('exact')
+                actions.setDataHref(href)
             }
             // the area filter describes an element on the page it was picked on; carrying it
             // across navigation would filter the new page by the old page's selector and bounds

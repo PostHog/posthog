@@ -103,6 +103,13 @@ describe('heatmapToolbarMenuLogic', () => {
                 ],
             ],
             [
+                'an exact url filter on the normalized url when the wildcard href is a url without a wildcard',
+                'https://example.com/page',
+                'https://example.com',
+                null,
+                [{ key: '$current_url', value: 'https://example.com/', operator: 'exact', type: 'event' }],
+            ],
+            [
                 'an element selector filter when an area is chosen',
                 'https://example.com/page',
                 'https://example.com/page',
@@ -360,12 +367,7 @@ describe('heatmapToolbarMenuLogic', () => {
                 'exact',
                 'https://example.com/other?filter=[a-b]&count={2,1}',
             ],
-            [
-                'setHref',
-                'https://example.com/products/*?filter=[a-b]',
-                'pattern',
-                String.raw`https\:\/\/example\.com\/products\/*\?filter\=\[a-b\]`,
-            ],
+            ['setHref', 'https://example.com/search?q=*', 'exact', 'https://example.com/search?q=*'],
             [
                 'setWildcardHref',
                 'https://example.com/products/*?filter=[a-b]',
@@ -385,31 +387,43 @@ describe('heatmapToolbarMenuLogic', () => {
         })
 
         it.each([
-            ['https://example.com/products/*', false, 'pattern', String.raw`https\:\/\/example\.com\/products\/*`],
             [
+                'setWildcardHref',
+                'https://example.com/products/*',
+                false,
+                'pattern',
+                String.raw`https\:\/\/example\.com\/products\/*`,
+            ],
+            [
+                'setWildcardHref',
                 'https://example.com/products/123?lang=en',
                 true,
                 'pattern',
                 String.raw`https\:\/\/example\.com\/products\/*\?lang\=en`,
             ],
             [
+                'setWildcardHref',
                 'https://example.com/products/latest?lang=en',
                 true,
                 'exact',
                 'https://example.com/products/latest?lang=en',
             ],
-        ] as const)('preserves matching for %s when reopening the menu', async (input, automatic, matchType, href) => {
-            logic.actions.setWildcardHref(input)
-            if (automatic) {
-                currentPageLogic.actions.autoWildcardHref()
+            ['setHref', 'https://example.com/search?q=*', false, 'exact', 'https://example.com/search?q=*'],
+        ] as const)(
+            'preserves matching for %s %s when reopening the menu',
+            async (action, input, automatic, matchType, href) => {
+                logic.actions[action](input)
+                if (automatic) {
+                    currentPageLogic.actions.autoWildcardHref()
+                }
+                await expectLogic(heatmapDataLogic({ context: 'toolbar' }), () =>
+                    logic.actions.enableHeatmap()
+                ).toMatchValues({
+                    href,
+                    hrefMatchType: matchType,
+                })
             }
-            await expectLogic(heatmapDataLogic({ context: 'toolbar' }), () =>
-                logic.actions.enableHeatmap()
-            ).toMatchValues({
-                href,
-                hrefMatchType: matchType,
-            })
-        })
+        )
 
         it('does not fetch element stats when clickmaps are toggled off while the request is debouncing', async () => {
             await expectLogic(logic, () => {
