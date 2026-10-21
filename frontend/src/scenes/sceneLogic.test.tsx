@@ -67,6 +67,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
+    [Scene.AIObservabilityOfflineExperiments]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
@@ -464,9 +465,11 @@ describe('sceneLogic', () => {
     })
 
     it.each([
-        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
-        [AccessControlLevel.None, Scene.ErrorAccessDenied],
-    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.None, Scene.ErrorAccessDenied],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.Viewer, Scene.AIObservabilityOfflineExperiments],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates %s with scorer and dataset access %s', async (targetScene, scorerAccess, expectedScene) => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
             window.POSTHOG_APP_CONTEXT = {
@@ -477,7 +480,7 @@ describe('sceneLogic', () => {
                     [AccessControlResourceType.LlmAnalytics]: scorerAccess,
                 },
             } as AppContext
-            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+            logic.actions.setScene(targetScene as Scene, targetScene, {
                 params: {},
                 searchParams: {},
                 hashParams: {},

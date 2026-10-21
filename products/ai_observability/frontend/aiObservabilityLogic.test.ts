@@ -43,7 +43,7 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilitySelfDriving()).toBe('/ai-observability/self-driving')
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
-        expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
+        expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/evaluations/offline/experiments?tab=datasets')
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityScorers()).toBe('/ai-evals/evaluations/scorers')
@@ -92,6 +92,36 @@ describe('LLM analytics URL split', () => {
                     }
                 )
             ).toBe('/ai-evals/evaluations/scorers?search=quality&page=2&archived=all')
+        }
+    )
+
+    it.each(['/ai-evals/datasets', '/llm-analytics/datasets'])(
+        'redirects dataset bookmarks with their filters and hash: %s',
+        (path) => {
+            const redirected = new URL(
+                redirectUrl(
+                    path,
+                    {},
+                    {
+                        tab: 'metadata',
+                        search: 'quality',
+                        dataset_status: 'archived',
+                        datasets_page: '2',
+                        tags: 'regression',
+                    },
+                    { section: 'list' }
+                ),
+                'https://example.com'
+            )
+            expect(redirected.pathname).toBe(urls.aiObservabilityOfflineEvaluations())
+            expect(Object.fromEntries(redirected.searchParams)).toEqual({
+                tab: 'datasets',
+                search: 'quality',
+                dataset_status: 'archived',
+                datasets_page: '2',
+                tags: 'regression',
+            })
+            expect(redirected.hash).toBe('#section=list')
         }
     )
 

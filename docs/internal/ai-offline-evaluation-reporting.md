@@ -553,6 +553,14 @@ Opening those resources requires their own permissions.
 ## Inspecting offline results
 
 Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
+When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
+with `tab=datasets` in the query string. Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
+links redirect there, preserving filters and pagination. Dataset detail URLs remain unchanged.
+Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
+including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
+The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
+your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
+keep their data when collapsed and expanded again. Refresh or a filter change updates loaded charts.
 A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
 The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
 Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.

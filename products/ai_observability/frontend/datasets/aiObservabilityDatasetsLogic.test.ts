@@ -96,6 +96,7 @@ describe('aiObservabilityDatasetsLogic', () => {
         })
         expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).toContain('datasets_page=2')
         expect(getDatasetListUrl(searchParams)).toContain('datasets_page=2')
+        expect(getDatasetListUrl(searchParams)).toContain('tab=datasets')
         expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('item=')
     })
 
@@ -106,7 +107,11 @@ describe('aiObservabilityDatasetsLogic', () => {
         await expectLogic(logic, () =>
             logic.actions.setFilters({ tags: ['quality', 'a,b'], tag_match: 'all' }, true, false)
         ).toFinishAllListeners()
-        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'a,b'], tag_match: 'all' })
+        expect(router.values.searchParams).toMatchObject({
+            tab: 'datasets',
+            tags: ['quality', 'a,b'],
+            tag_match: 'all',
+        })
         expect(mockDatasetsApi.listDatasets).toHaveBeenLastCalledWith(
             expect.objectContaining({ tags: '["quality","a,b"]', tag_match: 'all' })
         )
