@@ -6604,9 +6604,9 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(data["feature_flags"]["has_more"])
         self.assertEqual(data["feature_flags"]["results"][0]["key"], "my-flag")
         self.assertEqual(data["feature_flags"]["results"][0]["name"], "My Flag")
-        self.assertTrue(data["feature_flags"]["results"][0]["active"])
-        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False})
+        self.assertFalse(data["feature_flags"]["results"][0]["archived"])
+        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
         self.assertEqual(data["test_account_filters"], {"results": [], "total": 0, "has_more": False})
 
     @patch("posthog.api.cohort.report_user_action")
@@ -6622,36 +6622,46 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
         self.assertEqual(data["test_account_filters"], {"results": [], "total": 0, "has_more": False})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_used_in_includes_inactive_flags(self, patch_calculate_cohort, patch_capture):
+    def test_used_in_includes_inactive_and_archived_flags(self, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Target Cohort", "groups": [{"properties": {"team_id": 5}}]},
         )
         cohort_id = response.json()["id"]
 
+        filters = {"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]}
         FeatureFlag.objects.create(
             team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            filters=filters,
             name="Inactive Flag",
             key="inactive-flag",
             created_by=self.user,
             active=False,
         )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters=filters,
+            name="Archived Flag",
+            key="archived-flag",
+            created_by=self.user,
+            active=False,
+            archived=True,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         flags = response.json()["feature_flags"]["results"]
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0]["key"], "inactive-flag")
-        # An inactive flag never blocks a delete, so the caller has to be able to tell it apart.
-        self.assertFalse(flags[0]["active"])
+        self.assertEqual(
+            [(flag["key"], flag["archived"]) for flag in flags],
+            [("inactive-flag", False), ("archived-flag", True)],
+        )
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -6704,7 +6714,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{source_cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7020,7 +7030,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["insights"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(response.json()["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7056,8 +7066,8 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False})
-        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(data["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
+        self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7087,7 +7097,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_used_in_keeps_active_flags_when_truncating(self, patch_calculate_cohort, patch_capture):
+    def test_used_in_keeps_blocking_flags_when_truncating(self, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Many Flags Cohort", "groups": [{"properties": {"team_id": 5}}]},
@@ -7099,19 +7109,20 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             FeatureFlag.objects.create(
                 team=self.team,
                 filters=flag_filters,
-                name=f"Paused flag {i}",
-                key=f"paused-flag-{i}",
+                name=f"Archived flag {i}",
+                key=f"archived-flag-{i}",
                 created_by=self.user,
                 active=False,
+                archived=True,
             )
-        # Created last, so it has the highest id and only survives truncation if active flags sort first.
+        # Created last, so it has the highest id and only survives truncation if blocking flags sort first.
         FeatureFlag.objects.create(
             team=self.team,
             filters=flag_filters,
-            name="Live flag",
-            key="live-flag",
+            name="Paused flag",
+            key="paused-flag",
             created_by=self.user,
-            active=True,
+            active=False,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
@@ -7119,7 +7130,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         block = response.json()["feature_flags"]
         self.assertEqual(len(block["results"]), COHORT_USED_IN_PAGE_SIZE)
-        self.assertEqual(block["results"][0]["key"], "live-flag")
+        self.assertEqual(block["results"][0]["key"], "paused-flag")
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -7172,7 +7183,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

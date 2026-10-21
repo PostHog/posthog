@@ -30,11 +30,17 @@ export function cohortUsedInSections(
     usedIn: CohortUsedInResponseApi,
     { blockingOnly = false }: CohortUsedInSectionsOptions = {}
 ): CohortUsedInSection[] {
-    // Only an enabled flag blocks a delete, so the blocking list drops the disabled ones and
-    // counts what is left instead of the server's total.
+    // Every flag that is not archived blocks a delete, enabled or not, so the blocking list drops the
+    // archived ones and counts what is left instead of the server's total.
     const flags = blockingOnly
-        ? usedIn.feature_flags.results.filter((flag) => flag.active)
+        ? usedIn.feature_flags.results.filter((flag) => !flag.archived)
         : usedIn.feature_flags.results
+    // The editor lists what the caller can view. Only the blocking list counts hidden uses, because
+    // they still stop a delete.
+    const hiddenIn = (block: { hidden?: number }): number => (blockingOnly ? (block.hidden ?? 0) : 0)
+    const hiddenFlags = hiddenIn(usedIn.feature_flags)
+    const hiddenInsights = hiddenIn(usedIn.insights)
+    const hiddenCohorts = hiddenIn(usedIn.cohorts)
     // During a rollout the frontend can reach a backend that predates these blocks.
     const environments = usedIn.test_account_filters?.results ?? []
     const workflows = usedIn.workflows ?? { results: [], total: 0, hidden: 0, has_more: false }
@@ -43,7 +49,8 @@ export function cohortUsedInSections(
         {
             title: 'Feature flags',
             noun: 'feature flag',
-            total: blockingOnly ? flags.length : usedIn.feature_flags.total,
+            total: (blockingOnly ? flags.length : usedIn.feature_flags.total) + hiddenFlags,
+            hidden: hiddenFlags,
             items: flags.map((flag) => ({
                 key: `flag-${flag.id}`,
                 url: urls.featureFlag(flag.id),
@@ -53,7 +60,8 @@ export function cohortUsedInSections(
         {
             title: 'Insights',
             noun: 'insight',
-            total: usedIn.insights.total,
+            total: usedIn.insights.total + hiddenInsights,
+            hidden: hiddenInsights,
             items: usedIn.insights.results.map((insight) => ({
                 key: `insight-${insight.id}`,
                 url: urls.insightView(insight.short_id as InsightShortId),
@@ -63,7 +71,8 @@ export function cohortUsedInSections(
         {
             title: 'Cohorts',
             noun: 'cohort',
-            total: usedIn.cohorts.total,
+            total: usedIn.cohorts.total + hiddenCohorts,
+            hidden: hiddenCohorts,
             items: usedIn.cohorts.results.map((cohort) => ({
                 key: `cohort-${cohort.id}`,
                 url: urls.cohort(cohort.id),

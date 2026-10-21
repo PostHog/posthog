@@ -6,20 +6,23 @@ import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generate
 
 import { DeleteCohortDialog } from './DeleteCohortDialog'
 
-const emptyBlock = { results: [], total: 0, has_more: false }
+const emptyBlock = { results: [], total: 0, hidden: 0, has_more: false }
 
 const usedIn: CohortUsedInResponseApi = {
     feature_flags: {
         results: [
-            { id: 1, key: 'new-checkout', name: 'New checkout', active: true },
-            { id: 2, key: 'paused-banner', name: 'Paused banner', active: false },
+            { id: 1, key: 'new-checkout', name: 'New checkout', archived: false },
+            { id: 2, key: 'paused-banner', name: 'Paused banner', archived: false },
+            { id: 3, key: 'old-banner', name: 'Old banner', archived: true },
         ],
-        total: 2,
+        total: 3,
+        hidden: 0,
         has_more: false,
     },
     insights: {
         results: [{ id: 5, short_id: 'abc123', name: 'Weekly signups' }],
         total: 1,
+        hidden: 0,
         has_more: false,
     },
     cohorts: emptyBlock,

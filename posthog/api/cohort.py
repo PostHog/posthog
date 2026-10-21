@@ -658,8 +658,8 @@ class CohortUsedInFlagSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Feature flag database ID")
     key = serializers.CharField(help_text="Feature flag key (URL slug)")
     name = serializers.CharField(allow_null=True, allow_blank=True, help_text="Feature flag display name")
-    active = serializers.BooleanField(
-        help_text="True when the flag is enabled. Only active flags prevent the cohort from being deleted"
+    archived = serializers.BooleanField(
+        help_text="True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not"
     )
 
 
@@ -694,7 +694,10 @@ class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
         many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
     )
     total = serializers.IntegerField(
-        help_text="Total number of feature flags referencing this cohort, before truncation"
+        help_text="Total number of feature flags referencing this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
     )
     has_more = serializers.BooleanField(help_text="True when more feature flags exist beyond the truncation cap")
 
@@ -703,7 +706,12 @@ class CohortUsedInInsightsBlockSerializer(serializers.Serializer):
     results = CohortUsedInInsightSerializer(
         many=True, help_text=f"Insights referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
     )
-    total = serializers.IntegerField(help_text="Total number of insights referencing this cohort, before truncation")
+    total = serializers.IntegerField(
+        help_text="Total number of insights referencing this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
+    )
     has_more = serializers.BooleanField(help_text="True when more insights exist beyond the truncation cap")
 
 
@@ -712,7 +720,12 @@ class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
         many=True,
         help_text=f"Cohorts that include this cohort as a criterion, capped at {COHORT_USED_IN_PAGE_SIZE} results",
     )
-    total = serializers.IntegerField(help_text="Total number of cohorts referencing this cohort, before truncation")
+    total = serializers.IntegerField(
+        help_text="Total number of cohorts referencing this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
+    )
     has_more = serializers.BooleanField(help_text="True when more cohorts exist beyond the truncation cap")
 
 
@@ -2002,6 +2015,14 @@ def _used_in_block(page: list[dict], total: int) -> dict[str, Any]:
     return {"results": page, "total": total, "has_more": total > len(page)}
 
 
+def _hidden_reference_count(all_references: QuerySet, visible_references: QuerySet, visible_total: int) -> int:
+    # filter_queryset_by_access_level returns the queryset it was given when it applies no filter,
+    # so that case skips a second run of the reference predicate.
+    if visible_references is all_references:
+        return 0
+    return max(all_references.count() - visible_total, 0)
+
+
 def _workflows_block(
     request: Request, user_access_control: Optional[UserAccessControl], cohort: Cohort
 ) -> dict[str, Any]:
@@ -2613,21 +2634,29 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def used_in(self, request: request.Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
-        # Hide references the caller has been denied at the object level, matching the
-        # access-level filtering on the flag/insight list endpoints.
+        # Hide references the caller has been denied at the object level. Org admins see every
+        # reference, because they can open every object.
         uac = self.user_access_control
 
-        # Access-filter before the Python-side expansion so denied flags are never
-        # loaded or expanded. Active flags sort first because only they block a delete, and the
-        # page below is truncated: a cohort behind more flags than the cap would otherwise report
-        # no blocker while the deletion guard still refuses.
-        flags_qs = uac.filter_queryset_by_access_level(
-            _flags_with_cohort_filters(cohort), include_all_if_admin=True
-        ).order_by("-active", "id")
-        flags = _filter_flags_referencing_cohort(flags_qs, cohort, stop_traversal_at_static=True)
-        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name, "active": flag.active} for flag in flags]
+        # Flags that are not archived sort first because they block a delete, and the page below
+        # is truncated: a cohort behind more flags than the cap would otherwise report no blocker
+        # while the deletion guard still refuses.
+        all_flags_qs = _flags_with_cohort_filters(cohort)
+        visible_flags_qs = uac.filter_queryset_by_access_level(all_flags_qs, include_all_if_admin=True)
+        referencing_flags = _filter_flags_referencing_cohort(
+            all_flags_qs.order_by("archived", "-active", "id"), cohort, stop_traversal_at_static=True
+        )
+        flags, hidden_flags = referencing_flags, 0
+        if visible_flags_qs is not all_flags_qs:
+            visible_flag_ids = set(
+                visible_flags_qs.filter(id__in=[flag.id for flag in referencing_flags]).values_list("id", flat=True)
+            )
+            flags = [flag for flag in referencing_flags if flag.id in visible_flag_ids]
+            hidden_flags = sum(1 for flag in referencing_flags if flag.id not in visible_flag_ids and not flag.archived)
+        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name, "archived": flag.archived} for flag in flags]
 
-        insights_qs = uac.filter_queryset_by_access_level(get_insights_using_cohort(cohort))
+        all_insights_qs = get_insights_using_cohort(cohort)
+        insights_qs = uac.filter_queryset_by_access_level(all_insights_qs, include_all_if_admin=True)
         insights_page, insights_total = _truncate_used_in_queryset(
             insights_qs.values("id", "short_id", "name", "derived_name")
         )
@@ -2640,7 +2669,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             for insight in insights_page
         ]
 
-        cohorts_qs = uac.filter_queryset_by_access_level(get_cohorts_using_cohort(cohort))
+        all_cohorts_qs = get_cohorts_using_cohort(cohort)
+        cohorts_qs = uac.filter_queryset_by_access_level(all_cohorts_qs, include_all_if_admin=True)
         cohorts_page, cohorts_total = _truncate_used_in_queryset(cohorts_qs.values("id", "name"))
         cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
 
@@ -2652,9 +2682,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response(
             {
-                "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
-                "insights": _used_in_block(insights_data, insights_total),
-                "cohorts": _used_in_block(cohorts_data, cohorts_total),
+                "feature_flags": {
+                    **_used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
+                    "hidden": hidden_flags,
+                },
+                "insights": {
+                    **_used_in_block(insights_data, insights_total),
+                    "hidden": _hidden_reference_count(all_insights_qs, insights_qs, insights_total),
+                },
+                "cohorts": {
+                    **_used_in_block(cohorts_data, cohorts_total),
+                    "hidden": _hidden_reference_count(all_cohorts_qs, cohorts_qs, cohorts_total),
+                },
                 "test_account_filters": _used_in_block(
                     environments_data[:COHORT_USED_IN_PAGE_SIZE], len(environments_data)
                 ),
