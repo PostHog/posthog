@@ -16,10 +16,6 @@ class TestLessAnnoyingCRMSource:
         self.team_id = 123
         self.config = LessAnnoyingCRMSourceConfig(api_key="test-key")
 
-    def test_get_schemas_names_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "tasks"])
-        assert {s.name for s in schemas} == {"contacts", "tasks"}
-
     def test_validate_credentials_success(self) -> None:
         with scripted_network([ScriptedResponse(json={"UserId": "1"})]) as network:
             assert self.source.validate_credentials(self.config, self.team_id) == (True, None)

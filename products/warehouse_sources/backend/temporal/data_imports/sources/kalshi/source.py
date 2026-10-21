@@ -53,10 +53,10 @@ class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
             name=ExternalDataSourceType.KALSHI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Kalshi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Kalshi's market data endpoints are public, so this source needs no API key.
 
-It syncs markets, events, series, trades, milestones, and daily market candlesticks. It also syncs the historical archive of markets and trades. Portfolio data (your own orders, fills, and positions) needs a signed API key and is not supported yet.""",
+It syncs markets, events, series, trades, milestones, daily market candlesticks, and the per-minute weather index for each city. It also syncs the historical archive of markets and trades. Portfolio data (your own orders, fills, and positions) needs a signed API key and is not supported yet.""",
             iconPath="/static/services/kalshi.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kalshi",
             keywords=["prediction market", "event contracts", "trading"],
@@ -86,9 +86,10 @@ It syncs markets, events, series, trades, milestones, and daily market candlesti
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the trade and candlestick endpoints carry incremental fields, so build_endpoint_schemas
+        # Only the trade, candlestick, and weather index endpoints carry incremental fields, so build_endpoint_schemas
         # marks them incremental and leaves the rest full-refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Append would duplicate the hour each weather index run re-reads; merge dedupes it.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("weather_index",))
 
     def validate_credentials(
         self,

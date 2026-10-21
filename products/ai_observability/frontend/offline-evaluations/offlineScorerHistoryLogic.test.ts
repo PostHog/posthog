@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { saveTagFilters } from '../components/resourceTagFilters'
 import * as api from '../generated/api'
 import { offlineScorerHistoryLogic, offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
 import { OFFLINE_STORY_DEFINITION, OFFLINE_STORY_VERSION, makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
@@ -21,6 +22,7 @@ describe('offlineScorerHistoryLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
+        localStorage.clear()
         jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve).mockResolvedValue(OFFLINE_STORY_DEFINITION)
         jest.mocked(api.llmAnalyticsScoreDefinitionsVersionsList).mockResolvedValue({
             results: [OFFLINE_STORY_VERSION],
@@ -33,6 +35,43 @@ describe('offlineScorerHistoryLogic', () => {
             next_cursor: 'older',
             count: 150,
         })
+    })
+
+    it('shares tag filters across periods, persists them, and lets an explicit URL clear them', async () => {
+        const props = { scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 }
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId))
+        const logic = offlineScorerHistoryLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setFilters({ compare: 'previous' })).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.changePage('primary', 'older')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.changePage('comparison', 'older')).toFinishAllListeners()
+        jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockClear()
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ tags: ['quality', 'production'], tag_match: 'all' })
+        ).toFinishAllListeners()
+        expect(logic.values.primaryCursors).toEqual([null])
+        expect(logic.values.comparisonCursors).toEqual([null])
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'production'], tag_match: 'all' })
+        const calls = jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mock.calls
+        expect(calls).toHaveLength(2)
+        for (const [, , query] of calls) {
+            expect(query).toMatchObject({ tags: '["quality","production"]', tag_match: 'all' })
+            expect(query?.cursor).toBeUndefined()
+        }
+        router.actions.push(urls.aiObservabilityScorers())
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(['quality', 'production'])
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'production'], tag_match: 'all' })
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId), { tags: [] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual([])
+        expect(api.aiObservabilityOfflineScorersHistoryList).toHaveBeenLastCalledWith(
+            '1',
+            props.scorerId,
+            expect.objectContaining({ tags: '[]' })
+        )
     })
 
     it('keeps the periods cursors independent and freezes both resolved windows while paging', async () => {
@@ -145,6 +184,7 @@ describe('offlineScorerHistoryLogic', () => {
     ] as const)(
         'includes %s experiments started %i days ago when opened from their scorer link',
         async (status, age) => {
+            saveTagFilters('experiments', { tags: ['production'], tag_match: 'all' }, 1)
             const startedAt = dayjs().subtract(age, 'day').toISOString()
             router.actions.push(
                 offlineScorerHistoryUrl(
@@ -160,6 +200,7 @@ describe('offlineScorerHistoryLogic', () => {
             expect(query?.scorer_version_ids).toBe(OFFLINE_STORY_VERSION.id)
             expect(query?.statuses?.split(',')).toContain(status)
             expect(dayjs(query?.date_from).isAfter(startedAt)).toBe(false)
+            expect(query?.tags).toBe('[]')
         }
     )
 

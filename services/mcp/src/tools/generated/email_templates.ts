@@ -40,12 +40,15 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             body,
         })
-        const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
+        const filtered = omitResponseFields(result, ['content', 'draft_content', 'created_by']) as typeof result
         return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
     },
 })
@@ -67,7 +70,11 @@ const workflowsGetEmailTemplate = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = omitResponseFields(result, ['content.email.html', 'created_by']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'content.email.html',
+            'created_by',
+            'draft_content',
+        ]) as typeof result
         return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
     },
 })
@@ -95,7 +102,9 @@ const workflowsListEmailTemplates = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['content', 'created_by'])),
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['content', 'created_by', 'draft_content'])
+            ),
         } as typeof result
         return await withPostHogUrl(
             context,
@@ -129,7 +138,7 @@ const workflowsPatchEmailTemplate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(id))}/design/`,
             body,
         })
-        const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
+        const filtered = omitResponseFields(result, ['content', 'created_by', 'draft_content']) as typeof result
         return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
     },
 })
@@ -152,7 +161,11 @@ const workflowsShowEmailTemplate = (): ToolBase<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
             })
-            const filtered = omitResponseFields(result, ['content.email.design', 'created_by']) as typeof result
+            const filtered = omitResponseFields(result, [
+                'content.email.design',
+                'created_by',
+                'draft_content',
+            ]) as typeof result
             return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
         },
     })
@@ -192,12 +205,15 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
+        const filtered = omitResponseFields(result, ['content', 'draft_content', 'created_by']) as typeof result
         return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
     },
 })

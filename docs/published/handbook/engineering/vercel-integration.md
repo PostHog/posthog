@@ -128,6 +128,16 @@ sequenceDiagram
 
 **Note:** Connectable installs do NOT call the billing service. The customer keeps their existing PostHog billing. On uninstall, the `OrganizationIntegration` record is simply deleted with no billing side effects.
 
+### C. Transfer to another Vercel team
+
+A Vercel user can move a Marketplace install, with its resources, to another Vercel team ([Vercel docs](https://vercel.com/docs/integrations/install-an-integration/transferring-an-integration)). The installation ID, its access token, the PostHog organization and its billing stay the same. Vercel enables transfers per integration, so ask in [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) before relying on them.
+
+- Vercel calls `GET /v1/installations/{id}/resources/{resourceId}/plans` during the transfer, and the transfer stalls until that call succeeds.
+- Vercel does not call the installation endpoint. The `integration-configuration.transferred` webhook refreshes `config.account` (team name, dashboard URL, contact) from Vercel's account endpoint instead.
+- Connectable installs cannot be transferred, and the webhook handler leaves them unchanged.
+- The new team's contact becomes an Owner. If they signed in through Vercel before the webhook arrived, the webhook promotes them. If not, they become an Owner when they first sign in.
+- Members of the old team keep their PostHog access. Nothing removes them.
+
 ---
 
 ## 3. Billing & subscriptions

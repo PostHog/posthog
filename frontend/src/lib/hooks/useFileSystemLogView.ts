@@ -17,6 +17,7 @@ type FileSystemLogViewType =
     | 'early_access_feature'
     | 'link'
     | 'notebook'
+    | 'canvas'
     | 'session_recording_playlist'
     | `hog_function/${string}`
 

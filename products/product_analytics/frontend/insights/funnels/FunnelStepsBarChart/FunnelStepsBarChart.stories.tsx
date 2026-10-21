@@ -133,7 +133,7 @@ export const BreakdownAndCompare: Story = {
 }
 
 // Full insight scene in edit mode — the steps funnel editor, and the funnels query kind's full data pipeline
-const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini']
+const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]']
 
 export const EditScene: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
 EditScene.decorators = [insightSceneMswDecorator]

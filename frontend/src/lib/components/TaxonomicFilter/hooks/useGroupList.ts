@@ -212,7 +212,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const trimmedSearch = searchQuery.trim()
     const needsMoreSearchCharacters = minSearchQueryLength > 0 && trimmedSearch.length < minSearchQueryLength
 
-    const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters
+    const remoteEnabled =
+        hasRemoteDataSource && !needsMoreSearchCharacters && group.shouldSearch?.(searchQuery) !== false
 
     // `clientFilterFirstPage` groups (e.g. Cohorts) pin the remote query to
     // the empty-search first page and let local Fuse handle keystroke

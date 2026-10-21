@@ -107,6 +107,9 @@ _OWN_REPO_PR = """arrayFirst(
                         AND JSONExtractInt(p, 'base', 'repo', 'id') = ifNull(JSONExtractInt(repository, 'id'), 0),
                     JSONExtractArrayRaw(ifNull(pull_requests, '[]'))
                 )"""
+# The PR number of that association, read off raw runs columns. A merge-queue gate run's association
+# is the gate PR the queue opened, not the PR it lands, which ``pr_number`` names instead.
+ASSOCIATION_PR_NUMBER = f"JSONExtractInt({_OWN_REPO_PR}, 'number')"
 
 # The squash-merge PR number off the head commit's subject: the fallback when the merge-commit
 # join can't resolve the run (see module docstring). Anchored to a line end ((?m), the squash
@@ -195,7 +198,7 @@ def build_query(
                 status,
                 conclusion,
                 run_attempt,
-                JSONExtractInt({_OWN_REPO_PR}, 'number') AS association_pr_number,
+                {ASSOCIATION_PR_NUMBER} AS association_pr_number,
                 -- ``actor`` is read inline, not via an alias: an alias defined later in this same
                 -- SELECT is not reliably resolvable as another expression's input (see the two-layer
                 -- note above). It is the account GitHub recorded as triggering the run, which whoever

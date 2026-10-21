@@ -3,6 +3,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -30,6 +31,8 @@ import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
+    type InterviewRecruitmentDiagnostics,
+    type InterviewRecruitmentUnavailableReason,
     resolveInterviewRecruitmentConfig,
     MCP_INTERVIEW_RECRUITMENT_FLAG,
 } from './interview-recruitment'
@@ -49,12 +52,18 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
     intentPrompt?: string
+    interviewRecruitmentUnavailableReason?: InterviewRecruitmentUnavailableReason
+    interviewRecruitmentDiagnostics?: InterviewRecruitmentDiagnostics
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
+    projectHasData?: boolean | undefined
+    /** Set on the per-call state when the no-data notice blocked or warned this call. */
+    noDataAction?: NoDataAction | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -62,6 +71,14 @@ export interface ResolvedState {
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
     flagGatedTools: FlagGatedTool[]
+    /**
+     * The tools a scout run with a picked tool list holds, from token introspection.
+     * Undefined means no per-tool policy. Every other tool is hidden, and exec refuses it
+     * as `tool_not_granted`.
+     */
+    heldTools?: ReadonlySet<string> | undefined
+    /** The task a sandbox token is bound to, from token introspection. */
+    sandboxTaskId?: string | undefined
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -74,6 +91,7 @@ export interface ResolvedState {
      * the full roster into the instructions payload.
      */
     gatewayToolsEnabled: boolean
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     distinctId: string
     renderUiEnabled: boolean
 }
@@ -173,6 +191,7 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
+                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
             ]),
         ]
 
@@ -213,13 +232,25 @@ export class RequestStateResolver {
                 // Local opt-in still requires explicit, valid invitation content.
             }
         }
-        const interviewRecruitmentConfig =
-            source === EVENT_SOURCE.MCP &&
-            !_apiKey?.scopes?.includes('internal_run:read') &&
-            !props.taskId &&
-            !props.taskOriginProduct
-                ? resolveInterviewRecruitmentConfig(mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG], recruitmentPayload)
-                : undefined
+        const recruitmentFlagValue = mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        let interviewRecruitmentUnavailableReason: InterviewRecruitmentUnavailableReason | undefined
+        if (source !== EVENT_SOURCE.MCP) {
+            interviewRecruitmentUnavailableReason = 'surface_excluded'
+        } else if (_apiKey?.scopes?.includes('internal_run:read')) {
+            interviewRecruitmentUnavailableReason = 'internal_run'
+        } else if (props.taskId || props.taskOriginProduct) {
+            interviewRecruitmentUnavailableReason = 'task_bound'
+        } else if (recruitmentFlagValue === undefined) {
+            interviewRecruitmentUnavailableReason = 'flag_unavailable'
+        } else if (recruitmentFlagValue === false) {
+            interviewRecruitmentUnavailableReason = 'flag_disabled'
+        }
+        const interviewRecruitmentConfig = interviewRecruitmentUnavailableReason
+            ? undefined
+            : resolveInterviewRecruitmentConfig(recruitmentFlagValue, recruitmentPayload)
+        if (!interviewRecruitmentUnavailableReason && !interviewRecruitmentConfig) {
+            interviewRecruitmentUnavailableReason = 'invalid_configuration'
+        }
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
@@ -277,29 +308,39 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
+        // The held set is a server-derived ceiling on top of every other filter, so a tool
+        // outside it is neither listed nor offered as a gated hint the agent could chase.
+        const heldTools = _apiKey?.mcp_allowed_tools ? new Set(_apiKey.mcp_allowed_tools) : undefined
+        const isHeld = (tool: { name: string }): boolean => !heldTools || heldTools.has(tool.name)
+
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
-        )
+        const allTools = (
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            )
+        ).filter(isHeld)
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
-        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions).filter(isHeld) : []
 
         return {
             reqCtx,
             context,
             useSingleExec,
+            viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
             intentPrompt,
+            interviewRecruitmentUnavailableReason,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
+            projectHasData: flagAnalyticsContext?.projectHasData,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -307,6 +348,9 @@ export class RequestStateResolver {
             allTools,
             scopeGatedTools,
             flagGatedTools,
+            gatewayToolFilter: { tools, features, excludeTools },
+            heldTools,
+            sandboxTaskId: _apiKey?.sandbox_task_id,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

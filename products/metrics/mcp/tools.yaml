@@ -98,6 +98,7 @@ tools:
         description_file: ./prompts/query-metrics.md
         system_prompt_hint: Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas
         feature_flag: metrics
+        reads_ingested_data: events
         response:
             include:
                 - results

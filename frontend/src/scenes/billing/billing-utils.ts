@@ -702,7 +702,7 @@ export function formatProductNames(names: string[]): string {
  * Get the consequence message for a product when it reaches its usage limit
  */
 export function getUsageLimitConsequence(productName: string): string {
-    if (productName === 'Data warehouse') {
+    if (productName === 'Data warehouse' || productName === 'Sources') {
         return 'data will not be synced'
     }
     if (productName === 'Feature flags & Experiments') {

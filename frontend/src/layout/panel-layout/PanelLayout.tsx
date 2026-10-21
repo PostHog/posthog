@@ -1,5 +1,6 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -66,7 +67,7 @@ const panelLayoutStyles = cva({
     ],
 })
 
-export function PanelLayout({ className }: { className?: string }): JSX.Element {
+export const PanelLayout = memo(function PanelLayout({ className }: { className?: string }): JSX.Element {
     const {
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
@@ -105,6 +106,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         isMobileLayout,
                         isLayoutNavCollapsed,
                     }),
+                    '[--side-panel-width:initial] [--scene-layout-rect-width:initial] [--scene-layout-rect-right:initial]',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -187,4 +189,4 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
             />
         </>
     )
-}
+})

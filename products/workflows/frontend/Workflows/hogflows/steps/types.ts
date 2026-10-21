@@ -173,6 +173,10 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('schedule'),
     }),
+    // A transactional email: its message template's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
+    }),
     z.object({
         type: z.literal('cohort'),
         // Null until a cohort is picked. The backend requires one before the workflow runs.

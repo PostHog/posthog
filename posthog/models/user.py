@@ -233,6 +233,14 @@ class OnboardingSkippedReason(models.TextChoices):
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
+    CONNECTOR = "connector", "Signed up through an OAuth connector"
+
+
+class OnboardingFlowVariant(models.TextChoices):
+    # pinned: analytics property values. "legacy" names the default flow, because funnel
+    # insights filter on it.
+    LEGACY = "legacy", "Default onboarding"
+    SIMPLE = "simple", "Simple onboarding"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]

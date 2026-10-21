@@ -72,7 +72,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
-from products.review_hog.backend.reviewer.finding_budget import FindingBudget, budget_arm
+from products.review_hog.backend.reviewer.finding_budget import FindingBudget, ReviewRound, budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -1816,7 +1816,9 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 first_review=input.run_index == 1,
             )
             survivors = flash_selection.kept
-            flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
+            flash_stats = flash_turn_stats(
+                issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines, changed_since=changed_since
+            )
         else:
             # Flash posts what it finds whatever other comments say; only Full checks the PR's comments.
             pr_comments = (
@@ -2225,6 +2227,9 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_kept": turn.kept,
                 "flash_dedup_fallback": turn.dedup_fell_back,
                 "flash_budget_left": turn.budget_left,
+                "flash_changed_lines": turn.changed_lines,
+                "flash_must_fix_on_change": turn.must_fix_on_change,
+                "flash_must_fix_off_change": turn.must_fix_off_change,
             }
         )
     if sessions is not None:
@@ -2487,6 +2492,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "pr_draft": _pr_draft(snapshot),
             # Split by this to measure the finding budget against pull requests that keep posting.
             "finding_budget_arm": budget_arm(report.repository, report.pr_number),
+            "review_round": ReviewRound.for_turn(report, run_index=input.run_index).number,
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,

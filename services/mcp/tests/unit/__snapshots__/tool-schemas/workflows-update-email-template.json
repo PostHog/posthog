@@ -66,8 +66,12 @@
                                     "required": ["schemaVersion", "body"],
                                     "type": "object"
                                 },
+                                "preheader": {
+                                    "description": "Preview text that most inboxes show after the subject. Supports Liquid templating.",
+                                    "type": "string"
+                                },
                                 "subject": {
-                                    "description": "Email subject line. Supports Liquid templating. Required for email-type templates.",
+                                    "description": "Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published.",
                                     "type": "string"
                                 },
                                 "text": {
@@ -119,6 +123,10 @@
             "description": "Human-readable template name shown in the library.",
             "maxLength": 400,
             "type": "string"
+        },
+        "sensitive": {
+            "description": "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+            "type": "boolean"
         },
         "type": {
             "description": "Message channel of the template. Currently 'email'.",

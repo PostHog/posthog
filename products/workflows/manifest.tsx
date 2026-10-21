@@ -63,6 +63,7 @@ export const manifest: ProductManifest = {
         '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
         '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
         '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -76,7 +77,7 @@ export const manifest: ProductManifest = {
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
         workflowsLibraryTemplateFromMessage: (id?: string): string =>
             `/workflows/library/templates/new?messageId=${id}`,
-        broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+        broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
     },
