@@ -30,6 +30,10 @@ Case names stay the same across trials.
 For a repeatable smoke comparison, use the [Claude and Codex command pair](../../products/posthog_ai/eval_harness/README.md#claude-and-codex-smoke-comparison).
 Both commands select the same MCP case and record the model, runtime, delivery mode, and checkout.
 Compare completed coverage and infrastructure errors alongside named scores and duration.
+Add `--compare` to one selected sandboxed run to execute both default models and save a combined local comparison.
+Repeated `--compare-model RUNTIME:MODEL` options select explicit models. The comparison checks both configurations
+before running agents, retains each model's results, and reports case or scorer selection differences.
+This local comparison does not change the suite's upload or capture settings.
 Trial metadata and local summaries also record phase durations in seconds.
 The scoring phase includes time waiting for the experiment results, rather than scorer execution alone.
 A failed final metadata upload produces a warning and keeps the completed results available locally.
@@ -54,6 +58,17 @@ Provide the API key through the environment before running the suite:
 
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
+
+Experiments submitted with a personal API key are attributed to that user. Project secret API key submissions
+have no author. Attribution is recorded on the first accepted submission and stays unchanged on retries.
+The offline evaluations overview shows the author and supports filtering experiments and score trends by author,
+including experiments with no author. Choose "Any author" to clear the filter.
+Scorer history includes the same author control, so filters carried from the overview remain visible and can be cleared.
+API requests cannot combine `created_by` with `created_by_is_null=true`.
+Each scorer chart displays the loaded versions with results in the selected date range and filters as separate series,
+while the summary defaults to the latest matching version. The version arrows change only the summary.
+Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
+The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
 
 The SQL suite uses these existing scorers:
 
@@ -479,11 +494,11 @@ When no scores are selected, the overview selects up to three from recent comple
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
 The shared date picker supports presets, custom ranges, and all time.
-History pages are bounded; the scorer history shows how many matching points are loaded.
+History pages are bounded; each overview card loads at most five pages of 100 experiment/version results. The scorer history shows how many matching points are loaded.
 Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
-Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
-The card summary aggregates the loaded experiments in the selected period for the displayed scorer version, using the same history points as the chart.
+Overview charts show each loaded scorer version as a separate series. Arrows browse version summaries without changing the chart.
+The card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
 Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.

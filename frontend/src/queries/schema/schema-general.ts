@@ -5549,6 +5549,7 @@ export type FileSystemIconType =
     | 'logs'
     | 'tracing'
     | 'metrics'
+    | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
     | 'notebook'
@@ -9232,6 +9233,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
+    UPTIME_MONITORING = 'uptime_monitoring',
     METRICS = 'metrics',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
