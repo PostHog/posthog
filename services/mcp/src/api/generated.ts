@@ -28736,7 +28736,7 @@ export namespace Schemas {
          */
       display_name?: string;
       /**
-         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
          * @maxLength 300
          */
       description: string;
@@ -28798,7 +28798,7 @@ export namespace Schemas {
          * @nullable
          */
       confidence?: number | null;
-      /** AI author's reasoning, surfaced as review context. */
+      /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
       readonly created_by: UserBasic;
@@ -69160,6 +69160,62 @@ export namespace Schemas {
       inconclusive_total: number;
     }
 
+    /**
+     * * `scheduled` - Scheduled
+     * * `due` - Due
+     * * `window_ended` - Window ended
+     * * `no_interim_measurements` - No interim measurements
+     * * `waiting` - Waiting for scheduling
+     * * `paused` - Paused during Monitoring
+     * * `archived` - Archived
+     * * `unavailable` - Timing unavailable
+     * * `expiry_reached` - Expiry reached
+     */
+    export type MonitoringCheckTimingStateEnum = typeof MonitoringCheckTimingStateEnum[keyof typeof MonitoringCheckTimingStateEnum];
+
+
+    export const MonitoringCheckTimingStateEnum = {
+      Scheduled: 'scheduled',
+      Due: 'due',
+      WindowEnded: 'window_ended',
+      NoInterimMeasurements: 'no_interim_measurements',
+      Waiting: 'waiting',
+      Paused: 'paused',
+      Archived: 'archived',
+      Unavailable: 'unavailable',
+      ExpiryReached: 'expiry_reached',
+    } as const;
+
+    export interface MonitoringCheckTiming {
+      /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+       *
+       * * `scheduled` - Scheduled
+       * * `due` - Due
+       * * `window_ended` - Window ended
+       * * `no_interim_measurements` - No interim measurements
+       * * `waiting` - Waiting for scheduling
+       * * `paused` - Paused during Monitoring
+       * * `archived` - Archived
+       * * `unavailable` - Timing unavailable
+       * * `expiry_reached` - Expiry reached */
+      state: MonitoringCheckTimingStateEnum;
+      /**
+         * Original Monitoring start for this check's report.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * End of this check's soak window, independent of its target reference period and safety expiry.
+         * @nullable
+         */
+      ends_at: string | null;
+      /**
+         * Stored next interim attempt, only when it falls before the soak deadline and expiry. Null when no interim measurement is scheduled.
+         * @nullable
+         */
+      next_measurement_at: string | null;
+    }
+
     export interface MoveTileTile {
       /** Dashboard tile ID to move. */
       id: number;
@@ -75704,21 +75760,23 @@ export namespace Schemas {
       readonly status: SignalReportCheckStatusEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
       config: SignalReportCheckConfig;
+      /** Server-derived timing for open checks on Monitoring reports, including archived Monitoring periods. Omitted when Monitoring is disabled or the check is outside that lane. */
+      readonly monitoring_timing?: MonitoringCheckTiming | null;
       /** @nullable */
       readonly approved_at: string | null;
-      /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
+      /** Stored coordinator schedule, provisional while pending. During Monitoring this can be the observation-window end rather than another measurement; use `monitoring_timing` for interim timing. */
       readonly next_run_at: string;
       /**
-         * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
+         * This check's observation window during Monitoring, in minutes. Otherwise the minimum wait after resolution; metric checks also wait for a full post-resolution query window. Null on legacy checks.
          * @nullable
          */
       readonly soak_minutes: number | null;
       /**
-         * Gap between runs for a recurring check; null for a one-shot.
+         * Gap between interim Monitoring measurements or recurring verdicts. Null uses the Monitoring executor's default cadence, otherwise denotes a one-shot check.
          * @nullable
          */
       readonly run_interval_minutes: number | null;
-      /** Evaluations still owed before the check retires as passed. */
+      /** Terminal evaluations still owed before the check retires as passed. Interim Monitoring observations do not consume this count. */
       readonly runs_remaining: number;
       /** Horizon after which the check retires without running again. */
       readonly expires_at: string;
@@ -81463,7 +81521,7 @@ export namespace Schemas {
          */
       display_name?: string;
       /**
-         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
          * @maxLength 300
          */
       description?: string;
@@ -81525,7 +81583,7 @@ export namespace Schemas {
          * @nullable
          */
       confidence?: number | null;
-      /** AI author's reasoning, surfaced as review context. */
+      /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
       readonly created_by?: UserBasic;
@@ -122635,6 +122693,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -122747,6 +122806,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -122845,6 +122905,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -122945,6 +123006,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
