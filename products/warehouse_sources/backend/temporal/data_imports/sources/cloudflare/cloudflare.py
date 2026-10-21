@@ -115,8 +115,6 @@ query DnsAnalyticsReport($zoneTag: string, $since: Time, $until: Time) {
 }
 """
 
-# Raised when no zone returned DNS analytics, so a removed or refused dataset fails the
-# sync instead of syncing zero rows.
 DNS_ANALYTICS_ALL_ZONES_FAILED = "Cloudflare refused the DNS analytics query for every zone"
 
 

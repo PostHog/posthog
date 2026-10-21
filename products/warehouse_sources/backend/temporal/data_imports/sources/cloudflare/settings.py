@@ -14,8 +14,7 @@ PAGE_PAGINATION = "page"  # ?page= / ?per_page=, terminated by result_info
 CURSOR_PAGINATION = "cursor"  # ?cursor=, terminated by an absent next cursor
 SINGLE_PAGE = "single"  # the whole collection comes back in one response
 
-# The DNS analytics report covers this window up to the sync time, which is the default
-# window of the REST report it replaces.
+# Matches the default window of the REST report this replaces.
 DNS_ANALYTICS_WINDOW = timedelta(hours=6)
 
 
@@ -216,8 +215,6 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
     # --- Zone-scoped analytics ---
     "dns_analytics_report": CloudflareEndpointConfig(
         name="dns_analytics_report",
-        # Reads every zone itself (see `_dns_analytics_report`), because the REST fan-out
-        # can only put the zone id in the path and GraphQL takes it as a variable.
         path="/graphql",
         primary_keys=("_zone_id", "queryType", "responseCode"),
     ),
