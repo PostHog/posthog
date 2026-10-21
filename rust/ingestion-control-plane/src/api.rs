@@ -512,25 +512,25 @@ async fn personhog_retire_topic(
 }
 
 #[derive(Deserialize)]
-struct SetRelayGroupRequest {
-    relay_group: String,
+struct AddRetireGroupRequest {
+    group: String,
 }
 
-async fn personhog_set_relay_group(
+async fn personhog_add_retire_group(
     State(state): State<AppState>,
-    Json(request): Json<SetRelayGroupRequest>,
+    Json(request): Json<AddRetireGroupRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let prefix = state.config.personhog_etcd_prefix.clone();
     validated_etcd_key(&state, &prefix)?;
-    let group = request.relay_group.trim();
+    let group = request.group.trim();
     if group.is_empty() {
-        return Err(ApiError::bad_request("relay_group must not be empty"));
+        return Err(ApiError::bad_request("group must not be empty"));
     }
     let client = etcd_client(&state).await?;
-    changelog::set_relay_group(&client, &prefix, group)
+    changelog::add_retire_group(&client, &prefix, group)
         .await
-        .map_err(|e| ApiError::bad_request(format!("set relay group refused: {e:#}")))?;
-    Ok(Json(json!({ "relay_group": group })))
+        .map_err(|e| ApiError::bad_request(format!("add retire group refused: {e:#}")))?;
+    Ok(Json(json!({ "group": group })))
 }
 
 #[derive(Deserialize)]
@@ -600,8 +600,8 @@ pub fn router(state: AppState) -> Router {
             post(personhog_retire_topic),
         )
         .route(
-            "/api/personhog/changelog/relay-group",
-            post(personhog_set_relay_group),
+            "/api/personhog/changelog/retire-groups",
+            post(personhog_add_retire_group),
         )
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by

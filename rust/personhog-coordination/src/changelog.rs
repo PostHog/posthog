@@ -311,7 +311,7 @@ mod tests {
             partitions,
             epoch: 9,
             writer_group: String::new(),
-            relay_group: None,
+            retire_groups: vec![],
             draining: draining
                 .into_iter()
                 .map(|(partitions, epoch)| Generation {

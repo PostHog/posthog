@@ -327,9 +327,10 @@ pub struct ChangelogConfig {
     pub epoch: u64,
     /// The writer's consumer group; a generation retires only once it has read it to the end.
     pub writer_group: String,
-    /// The changelog relay's consumer group, which retire also waits on once set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relay_group: Option<String>,
+    /// Other consumer groups of the changelog, such as the relay's; a
+    /// generation retires only once each of them has read it to the end too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retire_groups: Vec<String>,
     /// Generations some consumer may still be reading.
     pub draining: Vec<Generation>,
 }
@@ -349,9 +350,15 @@ impl ChangelogConfig {
             partitions,
             epoch: 1,
             writer_group: String::new(),
-            relay_group: None,
+            retire_groups: Vec::new(),
             draining: Vec::new(),
         }
+    }
+
+    /// Every consumer group a draining generation waits on before it retires.
+    pub fn gated_groups(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.writer_group.as_str())
+            .chain(self.retire_groups.iter().map(String::as_str))
     }
 
     pub fn target(&self) -> ChangelogTarget {

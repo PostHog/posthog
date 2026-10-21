@@ -151,7 +151,7 @@ impl PersonhogStore {
             partitions: migration.to.partitions,
             epoch: config.epoch + 1,
             writer_group: config.writer_group.clone(),
-            relay_group: config.relay_group.clone(),
+            retire_groups: config.retire_groups.clone(),
             draining,
         };
         let mut record = migration.clone();
@@ -235,19 +235,19 @@ impl PersonhogStore {
         Ok(self.inner.list(&key).await?)
     }
 
-    /// Name the relay's consumer group, once: false when the config is not
-    /// seeded or already names a different group.
-    pub async fn set_changelog_relay_group(&self, group: &str) -> Result<bool> {
-        count_call("set_changelog_relay_group");
+    /// Add a consumer group that retire waits on: false when the config is not
+    /// seeded or moved. A group the config already gates on is a no-op.
+    pub async fn add_changelog_retire_group(&self, group: &str) -> Result<bool> {
+        count_call("add_changelog_retire_group");
         let Some((mut config, mod_revision)) =
             self.get_changelog_config_with_mod_revision().await?
         else {
             return Ok(false);
         };
-        match config.relay_group.as_deref() {
-            Some(existing) => return Ok(existing == group),
-            None => config.relay_group = Some(group.to_string()),
+        if config.gated_groups().any(|g| g == group) {
+            return Ok(true);
         }
+        config.retire_groups.push(group.to_string());
         let key = self.key(StoreKey::ChangelogConfig);
         let txn = Txn::new()
             .when(vec![Compare::mod_revision(
