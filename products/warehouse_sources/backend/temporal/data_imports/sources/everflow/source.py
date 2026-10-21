@@ -126,7 +126,7 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
             caption="Sync offers, partners, advertisers, conversions and daily performance from your Everflow network.",
             docsUrl="https://posthog.com/docs/cdp/sources/everflow",
             iconPath="/static/services/everflow.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

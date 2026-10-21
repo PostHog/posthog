@@ -55,6 +55,7 @@ _LAZY = {
     "MaterializationFailedError": "facade.contracts",
     "MaterializationForbiddenError": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
+    "IncrementalConfigRefusedError": "facade.contracts",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
@@ -106,6 +107,8 @@ _LAZY = {
     "apply_incremental_filter": "logic.incremental_filter",
     "EligibilityResult": "logic.incremental_eligibility",
     "check_incremental_eligibility": "logic.incremental_eligibility",
+    "propose_incremental_config": "logic.incremental_eligibility",
+    "definition_database": "logic.incremental_eligibility",
 }
 
 __all__ = sorted(_LAZY)

@@ -2921,47 +2921,6 @@ const llmaSummarizationCreate = (): ToolBase<
     },
 })
 
-const LlmaTaggerCreateSchema = () => {
-    const TaggersCreateBody = orvalSchemas.TaggersCreateBody()
-    return TaggersCreateBody
-}
-
-const llmaTaggerCreate = (): ToolBase<ReturnType<typeof LlmaTaggerCreateSchema>, WithPostHogUrl<Schemas.Tagger>> => ({
-    name: 'llma-tagger-create',
-    schema: LlmaTaggerCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaTaggerCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.tagger_type !== undefined) {
-            body['tagger_type'] = params.tagger_type
-        }
-        if (params.tagger_config !== undefined) {
-            body['tagger_config'] = params.tagger_config
-        }
-        if (params.conditions !== undefined) {
-            body['conditions'] = params.conditions
-        }
-        if (params.model_configuration !== undefined) {
-            body['model_configuration'] = params.model_configuration
-        }
-        const result = await context.api.request<Schemas.Tagger>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/ai-evals/taggers/${result.id}`)
-    },
-})
-
 const LlmaTaggerListSchema = () => {
     const TaggersListQueryParams = orvalSchemas.TaggersListQueryParams()
     return TaggersListQueryParams
@@ -3598,7 +3557,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-version-get': llmaScoreDefinitionVersionGet,
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,
-    'llma-tagger-create': llmaTaggerCreate,
     'llma-tagger-list': llmaTaggerList,
     'llma-tagger-test-hog': llmaTaggerTestHog,
     'llma-trace-review-create': llmaTraceReviewCreate,

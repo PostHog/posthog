@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -51,13 +51,14 @@ def report_outcomes(
     *,
     team: "Team",
     user: "User | None" = None,
+    properties: Mapping[str, Any] | None = None,
 ) -> None:
     now = timezone.now()
     for suggestion in suggestions:
         SUGGESTION_OUTCOMES.labels(kind=suggestion.kind, outcome=outcome.value).inc()
         report_user_or_team_action(
             f"warehouse suggestion {outcome.value}",
-            _properties(suggestion, now, is_system=user is None),
+            {**_properties(suggestion, now, is_system=user is None), **(properties or {})},
             user=user,
             team=team,
         )
