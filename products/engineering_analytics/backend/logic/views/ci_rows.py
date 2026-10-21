@@ -107,11 +107,12 @@ JOB_FIELDS: dict[str, FieldOrTable] = {
     "native_job_id": StringDatabaseField(name="native_job_id", nullable=True),
     "native_attempt_id": StringDatabaseField(name="native_attempt_id", nullable=True),
     **{column: job_costs.FIELDS[column] for column in job_costs.COST_COLUMNS},
+    "is_handoff_shell": BooleanDatabaseField(name="is_handoff_shell"),
 }
 
 RUN_COLUMNS = tuple(column for column in RUN_FIELDS if column not in _SOURCE_FIELDS)
 JOB_COLUMNS = tuple(column for column in JOB_FIELDS if column not in _SOURCE_FIELDS)
-assert JOB_COLUMNS == (*workflow_jobs.COLUMNS, *job_costs.COST_COLUMNS)
+assert JOB_COLUMNS == (*workflow_jobs.COLUMNS, *job_costs.COST_COLUMNS, "is_handoff_shell")
 
 
 def _stored_rows(source: JobSourceTables, columns: tuple[str, ...], rows: str) -> str:
@@ -142,6 +143,20 @@ def runs_select(source: JobSourceTables) -> str:
 def jobs_select(source: JobSourceTables) -> str:
     jobs = depot_ci.stored_jobs(source.github_workflow_jobs, source.depot_job_attempts)
     rows = job_costs.build_costed_jobs_query(workflow_jobs.build_query(jobs, compact_duplicates=False))
+    if source.depot_job_attempts is not None:
+        # A new retry job can belong to an old run, so the suppression lookup must cover run history.
+        runs = depot_ci.stored_runs(
+            source.github_workflow_runs,
+            source.depot_job_attempts,
+            source.pull_requests,
+            source.github_workflow_jobs,
+            optional_columns=source.workflow_runs_optional_columns,
+            full_history=True,
+        )
+        shell = f"(ci_engine, run_id) IN (SELECT ci_engine, id FROM {runs} WHERE is_handoff_shell)"
+    else:
+        shell = "0"
+    rows = f"SELECT j.*, {shell} AS is_handoff_shell FROM ({rows}) AS j"
     return _stored_rows(source, JOB_COLUMNS, rows)
 
 

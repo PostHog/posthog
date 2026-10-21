@@ -445,7 +445,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, 2, {"is_handoff_shell": 0}),
-            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, 3, {"is_rerun_copy": 0}),
+            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, 3, {"is_rerun_copy": 0, "is_handoff_shell": 0}),
         ]
     )
     def test_view_runs_with_the_window_start_bound(
