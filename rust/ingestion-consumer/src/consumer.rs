@@ -26,7 +26,7 @@ use crate::polling::{
     RevokedPartition, Selected, Step,
 };
 use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
-use crate::settlement::{self, Commit, Pause, Settlement};
+use crate::settlement::{self, Commit, Settlement};
 
 /// The consumer's revocation hook: purge the batcher, and record the revoked
 /// partitions, because the purge means their polls never complete.
@@ -441,6 +441,7 @@ impl IngestionConsumer {
             partitions,
             stats,
         } = collected;
+        let mut uncommitted = HashMap::with_capacity(partitions.len());
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
         for (topic_partition, partition) in &partitions {
@@ -450,8 +451,12 @@ impl IngestionConsumer {
                 .settlement
                 .charge(topic_partition, partition.generation, &partition.charges)
             {
-                Ok(Some(Pause)) => self.pause_partition(topic_partition),
-                Ok(None) => {}
+                Ok(charged) => {
+                    if charged.pause.is_some() {
+                        self.pause_partition(topic_partition);
+                    }
+                    uncommitted.insert(topic_partition.clone(), charged.uncommitted);
+                }
                 Err(rejection) => report_rejection(
                     "charge",
                     topic_partition,
@@ -491,6 +496,7 @@ impl IngestionConsumer {
             poll_id,
             assignment_epoch,
             partitions,
+            uncommitted,
             message_count: message_count as u32,
             covered: 0,
             accepted: 0,
@@ -648,7 +654,7 @@ mod tests {
 
     use common_kafka_consumer::{Charge, Offset as MessageOffset};
 
-    use crate::settlement::GroupSettlement;
+    use crate::settlement::{GroupSettlement, Pause};
 
     #[rstest::rstest]
     #[case::group_below_a_second(CompletionGranularity::Group, 200, 200)]
@@ -688,7 +694,12 @@ mod tests {
                 bytes: 0,
             },
         )];
-        assert_eq!(settlement.charge(&p0, 0, &one_event), Ok(Some(Pause)));
+        assert_eq!(
+            settlement
+                .charge(&p0, 0, &one_event)
+                .map(|charged| charged.pause),
+            Ok(Some(Pause))
+        );
         settlement.settle_run(&p0, 0, &[MessageOffset(10)]).unwrap();
 
         on_assign(std::slice::from_ref(&p0));
@@ -697,7 +708,9 @@ mod tests {
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(epoch.current(), 2);
         assert_eq!(
-            settlement.charge(&p0, 1, &one_event),
+            settlement
+                .charge(&p0, 1, &one_event)
+                .map(|charged| charged.pause),
             Ok(Some(Pause)),
             "the regained partition starts unpaused"
         );

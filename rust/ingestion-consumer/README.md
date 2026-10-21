@@ -73,11 +73,11 @@ With the cap full, it waits on the oldest poll and applies completions only whil
 `continuous` reads Kafka, applies completions, and commits in one loop, and nothing waits on a submitted poll.
 A poll is submitted when it reaches the batch size or the byte bound, or when `CONSUMER_BATCH_TIMEOUT_MS` passes after its first message.
 Kafka is read while every partition is paused, so rebalance callbacks do not wait for completions.
-The partition budget bounds each partition's replay exposure, and the in-flight limit bounds memory: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the events and bytes polled and not yet completed, for the whole pod.
-At the limit the loop stops reading Kafka until completions free room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
-A completion releases its events at once; a poll's bytes for a partition release when completions cover all of that partition's messages in the poll.
+The partition budget bounds each partition's replay exposure, and the in-flight limit bounds the whole pod: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the uncommitted charge of every partition, as the partition budget counts it, plus the poll being built.
+Room frees when a commit hands out offsets, as it does for the partition budget, not when a completion arrives.
+At the limit the loop stops reading Kafka until a commit frees room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
 `continuous` needs `CONSUMER_COMPLETION_GRANULARITY=group`, a partition budget, and an in-flight limit. Without all three the consumer logs a warning and runs `capped`, so switching a lane back to `poll` rolls back both.
-`ingestion_consumer_in_flight_events` and `ingestion_consumer_in_flight_bytes` gauge what the loop holds, and `ingestion_consumer_in_flight_limit_reached_total` counts each time it stops reading at the limit.
+`ingestion_consumer_in_flight_limit_reached_total` counts each time the loop stops reading at the limit; the `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
 
 ## Batcher
 

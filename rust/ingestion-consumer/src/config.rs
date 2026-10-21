@@ -300,14 +300,14 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_POLLING_STRATEGY", default = "capped")]
     pub consumer_polling_strategy: Polling,
 
-    /// Events polled and not yet completed at which the continuous strategy
-    /// stops reading from Kafka. `0` (default) sets no event limit.
+    /// Uncommitted events across all partitions at which the continuous
+    /// strategy stops reading from Kafka. `0` (default) sets no event limit.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_EVENTS", default = "0")]
     pub consumer_in_flight_events: u64,
 
-    /// Key-plus-value-plus-header bytes polled and not yet completed at which
-    /// the continuous strategy stops reading from Kafka. `0` (default) sets no
-    /// byte limit.
+    /// Uncommitted key-plus-value-plus-header bytes across all partitions at
+    /// which the continuous strategy stops reading from Kafka. `0` (default)
+    /// sets no byte limit.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_BYTES", default = "0")]
     pub consumer_in_flight_bytes: u64,
 

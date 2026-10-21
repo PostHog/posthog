@@ -3044,7 +3044,7 @@ async fn continuous_polling_commits_the_ledger_frontier() {
 }
 
 #[tokio::test]
-async fn the_in_flight_limit_stops_reading_until_completions_free_room() {
+async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
     let topic = format!("e2e-in-flight-limit-{}", Uuid::new_v4());
     let harness = Harness::start_continuous(
         common::PRODUCTION_PACK_TARGETS,

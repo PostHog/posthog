@@ -14,7 +14,7 @@ use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries, Po
 use super::{Collector, LoopParts, RevokedPartition, Step};
 use crate::charge_limit::ChargeLimit;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
-use crate::settlement::Settlement;
+use crate::settlement::{Commit, Settlement};
 
 /// Reads Kafka while it applies completions and commits. A poll is submitted
 /// once it is full or its batch timeout passes, and nothing waits on it after
@@ -28,6 +28,7 @@ pub(crate) struct ContinuousPolling {
     handle: Handle,
     commit_tick: Interval,
     in_flight: InFlight,
+    uncommitted: UncommittedCharges,
     limits: ChargeLimit,
     at_limit: bool,
     poll: Option<PollBuilder>,
@@ -73,6 +74,7 @@ impl ContinuousPolling {
             handle,
             commit_tick,
             in_flight: InFlight::new(group_id, debug_recorder),
+            uncommitted: UncommittedCharges::default(),
             limits,
             at_limit: false,
             poll: None,
@@ -91,9 +93,6 @@ impl ContinuousPolling {
                 }
             }
             self.drop_revoked_slices();
-            let held = self.in_flight.held();
-            gauge!("ingestion_consumer_in_flight_events").set(held.events as f64);
-            gauge!("ingestion_consumer_in_flight_bytes").set(held.bytes as f64);
             if !self.accepting_new_batches && self.in_flight.is_empty() {
                 return Step::Stop;
             }
@@ -129,7 +128,7 @@ impl ContinuousPolling {
             match woke {
                 Woke::Shutdown => {
                     info!(
-                        in_flight_events = held.events,
+                        uncommitted_events = self.uncommitted.total().events,
                         "Shutdown signal received, draining in-flight events"
                     );
                     self.accepting_new_batches = false;
@@ -149,7 +148,7 @@ impl ContinuousPolling {
                         Err(err) => return Step::Fail(err),
                     };
                     counter!("ingestion_consumer_messages_processed_total").increment(processed);
-                    if let Some(commit) = self.settlement.take_due(Instant::now()) {
+                    if let Some(commit) = self.take_due() {
                         return Step::Commit(commit);
                     }
                 }
@@ -162,7 +161,7 @@ impl ContinuousPolling {
                 }
                 Woke::Tick => {
                     self.handle.report_healthy();
-                    if let Some(commit) = self.settlement.take_due(Instant::now()) {
+                    if let Some(commit) = self.take_due() {
                         return Step::Commit(commit);
                     }
                 }
@@ -192,7 +191,14 @@ impl ContinuousPolling {
     }
 
     pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
+        self.uncommitted.charged(&poll);
         self.in_flight.submitted(poll);
+    }
+
+    fn take_due(&mut self) -> Option<Commit> {
+        let commit = self.settlement.take_due(Instant::now())?;
+        self.uncommitted.committed(&commit);
+        Some(commit)
     }
 
     fn take_poll(&mut self) -> Option<Step> {
@@ -200,11 +206,11 @@ impl ContinuousPolling {
         (poll.message_count() > 0).then(|| Step::Submit(poll.finish()))
     }
 
-    /// The in-flight charge plus the poll in progress, whose messages the
+    /// The uncommitted charge plus the poll in progress, whose messages the
     /// process holds too.
     fn pending(&self) -> Charge {
         let building = self.poll.as_ref().map_or(Charge::ZERO, PollBuilder::charge);
-        self.in_flight.held() + building
+        self.uncommitted.total() + building
     }
 
     fn reached_limit(&mut self, pending: Charge) -> bool {
@@ -228,6 +234,7 @@ impl ContinuousPolling {
         if revoked.is_empty() {
             return;
         }
+        self.uncommitted.revoked(&revoked);
         let stripped = self.in_flight.drop_revoked(&revoked);
         if stripped > 0 {
             counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
@@ -241,7 +248,6 @@ struct Slice {
     poll: u64,
     assignment_epoch: u64,
     deliveries: PartitionDeliveries,
-    bytes: u64,
 }
 
 impl Slice {
@@ -256,7 +262,6 @@ impl Slice {
 /// order.
 struct InFlight {
     partitions: HashMap<TopicPartition, VecDeque<Slice>>,
-    held: Charge,
     latest_processed_ms: HashMap<TopicPartition, i64>,
     group_id: String,
     next_poll: u64,
@@ -279,7 +284,6 @@ impl InFlight {
     fn new(group_id: String, debug_recorder: Option<Arc<DebugRecorder>>) -> Self {
         Self {
             partitions: HashMap::new(),
-            held: Charge::ZERO,
             latest_processed_ms: HashMap::new(),
             group_id,
             next_poll: 0,
@@ -290,12 +294,6 @@ impl InFlight {
 
     fn is_empty(&self) -> bool {
         self.partitions.is_empty()
-    }
-
-    /// A completion releases its events. A slice's bytes release when
-    /// completions cover the whole slice, so the byte figure is never low.
-    fn held(&self) -> Charge {
-        self.held
     }
 
     fn submitted(&mut self, poll: InFlightPoll) {
@@ -315,13 +313,6 @@ impl InFlight {
             );
         }
         for (topic_partition, deliveries) in poll.partitions {
-            let bytes = deliveries
-                .charges
-                .iter()
-                .map(|(_, charge)| charge.bytes)
-                .sum();
-            self.held.events += u64::from(deliveries.delivered);
-            self.held.bytes += bytes;
             self.partitions
                 .entry(topic_partition)
                 .or_default()
@@ -329,7 +320,6 @@ impl InFlight {
                     poll: seq,
                     assignment_epoch: poll.assignment_epoch,
                     deliveries,
-                    bytes,
                 });
         }
     }
@@ -379,7 +369,6 @@ impl InFlight {
                 .take_while(|offset| span.first <= offset.0 && offset.0 <= span.last)
                 .count();
             let (run, rest) = remaining.split_at(run_len);
-            self.held.events -= u64::from(slice.uncovered().min(run_len as u32));
             slice.deliveries.covered += run_len as u32;
             slice.deliveries.accepted += run_len as u32;
             let settleable = slice.deliveries.credit_run(run);
@@ -390,7 +379,6 @@ impl InFlight {
             if slice.uncovered() == 0 {
                 let slice = slices.remove(index).expect("the index is in range");
                 finished = Some((slice.poll, slice.deliveries.accepted));
-                self.held.bytes -= slice.bytes;
                 let latest = self
                     .latest_processed_ms
                     .entry(topic_partition.clone())
@@ -443,8 +431,6 @@ impl InFlight {
                     return true;
                 }
                 stripped += u64::from(slice.deliveries.delivered);
-                self.held.events -= u64::from(slice.uncovered());
-                self.held.bytes -= slice.bytes;
                 dropped_polls.push(slice.poll);
                 false
             });
@@ -482,6 +468,67 @@ impl InFlight {
             duration_ms: progress.dispatched_at.elapsed().as_millis() as u64,
             partitions: progress.partitions,
         });
+    }
+}
+
+/// Each partition's uncommitted charge as the settlement last reported it:
+/// set when a poll is charged, lowered when a commit hands out offsets.
+#[derive(Default)]
+struct UncommittedCharges {
+    partitions: HashMap<TopicPartition, PartitionCharge>,
+    total: Charge,
+}
+
+struct PartitionCharge {
+    generation: u64,
+    charge: Charge,
+}
+
+impl UncommittedCharges {
+    fn total(&self) -> Charge {
+        self.total
+    }
+
+    fn charged(&mut self, poll: &InFlightPoll) {
+        for (topic_partition, &charge) in &poll.uncommitted {
+            let generation = poll.partitions[topic_partition].generation;
+            let previous = self.partitions.insert(
+                topic_partition.clone(),
+                PartitionCharge { generation, charge },
+            );
+            self.replace(previous.map(|previous| previous.charge), charge);
+        }
+    }
+
+    fn committed(&mut self, commit: &Commit) {
+        for (topic_partition, &charge) in &commit.uncommitted {
+            if let Some(partition) = self.partitions.get_mut(topic_partition) {
+                let previous = std::mem::replace(&mut partition.charge, charge);
+                self.replace(Some(previous), charge);
+            }
+        }
+    }
+
+    /// A partition charged under the revoke's generation or later belongs to
+    /// a later assignment and stays.
+    fn revoked(&mut self, revoked: &[RevokedPartition]) {
+        for revoked in revoked {
+            let older = self
+                .partitions
+                .get(&revoked.topic_partition)
+                .is_some_and(|partition| partition.generation < revoked.generation);
+            if older {
+                let partition = self
+                    .partitions
+                    .remove(&revoked.topic_partition)
+                    .expect("the partition is tracked");
+                self.replace(Some(partition.charge), Charge::ZERO);
+            }
+        }
+    }
+
+    fn replace(&mut self, previous: Option<Charge>, charge: Charge) {
+        self.total = self.total - previous.unwrap_or(Charge::ZERO) + charge;
     }
 }
 
@@ -525,6 +572,7 @@ mod tests {
             poll_id: format!("poll-{epoch}-{partition}-{first}"),
             assignment_epoch: epoch,
             partitions: HashMap::from([(p(partition), deliveries)]),
+            uncommitted: HashMap::new(),
             message_count: (last - first + 1) as u32,
             covered: 0,
             accepted: 0,
@@ -567,23 +615,17 @@ mod tests {
     }
 
     #[test]
-    fn a_completion_releases_its_events_and_a_covered_slice_its_bytes() {
+    fn a_slice_stays_in_flight_until_completions_cover_it() {
         let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
-        assert_eq!(in_flight.held(), charge(4, 40));
 
         assert_eq!(
             settled_runs(&mut in_flight, &completion(1, 0, &[0, 1])),
             vec![(0, 0, vec![0, 1])]
         );
-        assert_eq!(
-            in_flight.held(),
-            charge(2, 40),
-            "the slice is not covered yet"
-        );
+        assert!(!in_flight.is_empty());
 
         settled_runs(&mut in_flight, &completion(1, 0, &[2, 3]));
-        assert_eq!(in_flight.held(), Charge::ZERO);
         assert!(in_flight.is_empty());
     }
 
@@ -597,7 +639,6 @@ mod tests {
             settled_runs(&mut in_flight, &completion(1, 0, &[2, 3, 4, 5])),
             vec![(0, 0, vec![2, 3]), (0, 1, vec![4, 5])]
         );
-        assert_eq!(in_flight.held(), charge(4, 80));
     }
 
     #[test]
@@ -611,7 +652,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(processed, 0);
-        assert_eq!(in_flight.held(), charge(4, 40));
+        assert!(!in_flight.is_empty());
     }
 
     #[test]
@@ -645,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn a_revoke_drops_only_the_older_generations_slices_and_releases_them() {
+    fn a_revoke_drops_only_the_older_generations_slices() {
         let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
         in_flight.submitted(poll(1, 1, 0, 10, 11));
@@ -658,11 +699,6 @@ mod tests {
         }]);
 
         assert_eq!(stripped, 4);
-        assert_eq!(
-            in_flight.held(),
-            charge(4, 40),
-            "partition 1 and the reassigned slice stay"
-        );
         assert!(
             settled_runs(&mut in_flight, &completion(1, 0, &[1, 2, 3])).is_empty(),
             "a late completion for the revoked slice is stale"
@@ -671,6 +707,56 @@ mod tests {
             settled_runs(&mut in_flight, &completion(2, 0, &[0, 1])),
             vec![(0, 1, vec![0, 1])]
         );
+        assert_eq!(
+            settled_runs(&mut in_flight, &completion(1, 1, &[10, 11])),
+            vec![(1, 0, vec![10, 11])]
+        );
+    }
+
+    fn charged_poll(partition: i32, generation: u64, uncommitted: Charge) -> InFlightPoll {
+        let mut poll = poll(1, partition, generation, 0, 0);
+        poll.uncommitted = HashMap::from([(p(partition), uncommitted)]);
+        poll
+    }
+
+    fn commit_leaving(partition: i32, uncommitted: Charge) -> Commit {
+        Commit {
+            offsets: HashMap::new(),
+            uncommitted: HashMap::from([(p(partition), uncommitted)]),
+            resume: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_uncommitted_total_follows_each_partitions_latest_charge() {
+        let mut uncommitted = UncommittedCharges::default();
+        uncommitted.charged(&charged_poll(0, 0, charge(4, 40)));
+        uncommitted.charged(&charged_poll(1, 0, charge(2, 20)));
+        uncommitted.charged(&charged_poll(0, 0, charge(6, 60)));
+        assert_eq!(uncommitted.total(), charge(8, 80));
+
+        uncommitted.committed(&commit_leaving(0, charge(1, 10)));
+        assert_eq!(uncommitted.total(), charge(3, 30));
+    }
+
+    #[test]
+    fn a_revoke_releases_only_an_older_generations_charge() {
+        let mut uncommitted = UncommittedCharges::default();
+        uncommitted.charged(&charged_poll(0, 0, charge(4, 40)));
+        uncommitted.charged(&charged_poll(1, 1, charge(2, 20)));
+
+        uncommitted.revoked(&[
+            RevokedPartition {
+                topic_partition: p(0),
+                generation: 1,
+            },
+            RevokedPartition {
+                topic_partition: p(1),
+                generation: 1,
+            },
+        ]);
+
+        assert_eq!(uncommitted.total(), charge(2, 20));
     }
 
     fn completed_polls(recorder: &DebugRecorder) -> Vec<(String, u32)> {
