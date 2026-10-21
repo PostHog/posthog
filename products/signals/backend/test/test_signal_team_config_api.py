@@ -63,6 +63,26 @@ class TestSignalTeamConfigAPI(APIBaseTest):
             assert response.status_code == 403, response.content
         assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
 
+    @parameterized.expand(
+        [
+            ("inbox_only", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("inbox_and_task", ["inbox:write", "task:write"], status.HTTP_200_OK),
+            ("legacy_task_only", ["task:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_implementation_instructions_need_task_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._url(), {"implementation_instructions": "Push to main."}, format="json")
+
+        assert response.status_code == expected, response.content
+        self.config.refresh_from_db()
+        assert (self.config.implementation_instructions == "Push to main.") is (expected == status.HTTP_200_OK)
+
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
