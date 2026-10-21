@@ -8,11 +8,18 @@ import itertools
 import subprocess
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import InterfaceError, OperationalError
+
 import requests_mock
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
 
 from products.posthog_ai.eval_harness import long_lived_subprocess
 from products.posthog_ai.eval_harness.harness import services
@@ -208,22 +215,30 @@ def test_gateway_build_from_relative_clone_creates_the_binary_used_at_startup(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_type", [None, InterfaceError, OperationalError, RedisConnectionError, RedisTimeoutError]
+)
 async def test_gateway_mint_credential_is_renewed_without_rotating_the_key(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, error_type: type[Exception] | None
 ) -> None:
     loop = asyncio.get_running_loop()
     refreshed = asyncio.Event()
     parked = asyncio.Event()
     intervals: list[float] = []
     keys: list[str] = []
+    attempts = 0
 
     async def tick(seconds: float) -> None:
         intervals.append(seconds)
-        if len(intervals) > 1:
+        if len(intervals) > (2 if error_type else 1):
             await parked.wait()
 
     def command(name: str, *args: str, **_kwargs: object) -> None:
+        nonlocal attempts
         if name == "setup_local_gateway_credential":
+            attempts += 1
+            if attempts == 1 and error_type:
+                raise error_type("temporary connection failure")
             keys.append(args[args.index("--phs") + 1])
             loop.call_soon_threadsafe(refreshed.set)
 
@@ -234,3 +249,32 @@ async def test_gateway_mint_credential_is_renewed_without_rotating_the_key(
 
     assert keys == ["phs_test"]
     assert intervals[0] < services.GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
+    if error_type:
+        assert intervals[1] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [OperationalError, RedisConnectionError, ValueError])
+async def test_gateway_mint_credential_refresh_stops_at_expiry_or_permanent_failure(
+    monkeypatch: pytest.MonkeyPatch, error_type: type[Exception]
+) -> None:
+    now = 0.0
+    intervals: list[float] = []
+
+    async def tick(seconds: float) -> None:
+        nonlocal now
+        intervals.append(seconds)
+        now += seconds
+
+    monkeypatch.setattr(services, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(services.asyncio, "sleep", tick)
+    monkeypatch.setattr(services, "GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL", 10)
+    monkeypatch.setattr(services, "AI_GATEWAY_CREDENTIAL_REFRESH_SECONDS", 3)
+    monkeypatch.setattr(services, "refresh_ai_gateway_mint_key", MagicMock(side_effect=error_type("refresh failed")))
+
+    with pytest.raises(ExceptionGroup) as failure:
+        async with maintain_ai_gateway_mint_key(42, "phs_test"):
+            await asyncio.wait_for(asyncio.Event().wait(), timeout=5)
+
+    assert isinstance(failure.value.exceptions[0], error_type)
+    assert intervals == ([3] if error_type is ValueError else [3, 1, 2, 4])

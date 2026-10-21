@@ -19,9 +19,13 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management import call_command
-from django.db import close_old_connections
+from django.db import InterfaceError, OperationalError, close_old_connections
 
 import requests
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
 
 from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
 
@@ -204,14 +208,27 @@ def refresh_ai_gateway_mint_key(team_id: int, mint_key: str) -> None:
 @contextlib.asynccontextmanager
 async def maintain_ai_gateway_mint_key(team_id: int, mint_key: str) -> AsyncIterator[None]:
     async def refresh() -> None:
+        expires_at = time.monotonic() + GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
         while True:
             await asyncio.sleep(AI_GATEWAY_CREDENTIAL_REFRESH_SECONDS)
-            pending = asyncio.create_task(asyncio.to_thread(refresh_ai_gateway_mint_key, team_id, mint_key))
-            try:
-                await asyncio.shield(pending)
-            except asyncio.CancelledError:
-                await pending
-                raise
+            retry_delay = 1.0
+            while True:
+                pending = asyncio.create_task(asyncio.to_thread(refresh_ai_gateway_mint_key, team_id, mint_key))
+                try:
+                    await asyncio.shield(pending)
+                except asyncio.CancelledError:
+                    await pending
+                    raise
+                except (InterfaceError, OperationalError, RedisConnectionError, RedisTimeoutError):
+                    remaining = expires_at - time.monotonic()
+                    if remaining <= 0:
+                        raise
+                    logger.warning("Gateway credential refresh failed; retrying", exc_info=True)
+                    await asyncio.sleep(min(retry_delay, remaining))
+                    retry_delay = min(retry_delay * 2, 60)
+                else:
+                    expires_at = time.monotonic() + GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
+                    break
 
     async with asyncio.TaskGroup() as group:
         task = group.create_task(refresh())
