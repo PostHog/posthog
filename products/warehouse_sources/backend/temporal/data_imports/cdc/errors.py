@@ -28,6 +28,7 @@ class CDCErrorCategory(enum.StrEnum):
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
+    POOLER_TENANT_NOT_FOUND = "pooler_tenant_not_found"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -36,7 +37,6 @@ class CDCErrorCategory(enum.StrEnum):
     PERMISSION_DENIED = "permission_denied"
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
-    SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
     RESERVED_COLUMN_CONFLICT = "reserved_column_conflict"
     UNKNOWN = "unknown"
 
@@ -73,25 +73,14 @@ class CDCReservedColumnError(Exception):
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
 
-    For the engine position column it is raised only on the buffered-ingress path — buffer
-    files derive their name, ordering, and retry cleanup from it, and a same-named source column
-    means the batcher could not append it. Writing anyway would order and clean up by customer
-    data, which can silently delete unconsumed buffer files. The legacy path passes the
-    customer's column through untouched.
+    For the engine position column it is raised when capture writes the buffer — buffer files
+    derive their name, ordering, and retry cleanup from it, and a same-named source column means
+    the batcher could not append it. Writing anyway would order and clean up by customer data,
+    which can silently delete unconsumed buffer files.
 
     For the history table's validity columns it is raised on every path, from the SCD2 stamp
     itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
     names the column instead of a qualified field in a schema error.
-    """
-
-
-class CDCSchemaMergeError(Exception):
-    """A column's values can't be reconciled into one Parquet type across micro-batches.
-
-    Non-retryable: the conflicting batches replay identically, so re-running re-fails. The
-    activity raises this when an Arrow schema merge rejects the data (e.g. a source column
-    that genuinely changed type mid-stream — int in one batch, text in another). Defined
-    here so the shared classifier owns the mapping to ``SCHEMA_MERGE_INCOMPATIBLE``.
     """
 
 
@@ -127,6 +116,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "change data capture.",
         False,
     ),
+    CDCErrorCategory.POOLER_TENANT_NOT_FOUND: (
+        "Your connection pooler couldn't find your database project or user. Check that the project "
+        "is active and the pooler username is correct, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (
         "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
         "Check that the SSH host and port point to a reachable SSH server (not the database port), "
@@ -150,7 +144,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (
-        "The replication slot is currently in use by another connection. PostHog will retry shortly.",
+        "Another connection held your replication slot, so this run couldn't read changes. If this keeps "
+        "happening, check that no other tool or PostHog source reads from that slot.",
         True,
     ),
     CDCErrorCategory.PERMISSION_DENIED: (
@@ -169,12 +164,6 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.TRANSACTION_TOO_LARGE: (
         "A single database transaction contained more changes than change data capture can process at "
         "once. Reduce the size of bulk operations on the source, then re-sync.",
-        False,
-    ),
-    CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE: (
-        "A source column changed type partway through the change stream (for example, numbers and text "
-        "in the same column), so the changes can no longer be combined into one table. Disable and "
-        "re-enable change data capture to re-sync from a fresh snapshot.",
         False,
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
@@ -218,8 +207,6 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
             return cdc_error_info(CDCErrorCategory.SLOT_NOT_CONFIGURED)
         if isinstance(err, CDCTransactionTooLargeError):
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
-        if isinstance(err, CDCSchemaMergeError):
-            return cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE)
         if isinstance(err, CDCReservedColumnError):
             return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
         if adapter is not None:

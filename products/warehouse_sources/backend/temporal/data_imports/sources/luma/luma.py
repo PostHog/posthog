@@ -4,10 +4,11 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import (
     EVENTS_PATH,
@@ -26,13 +27,15 @@ DEFAULT_PROBE_PATH = EVENTS_PATH
 
 
 class LumaRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LumaResumeConfig:
-    # `next_cursor` from the last fully processed page, passed back as `pagination_cursor`. For the
-    # guests fan-out this is the *events list* cursor: state is saved only after every guest of an
+    # `next_cursor` from the last fully processed page, passed back as `pagination_cursor`. For
+    # fan-out endpoints this is the *events list* cursor: state is saved only after every child of an
     # events page has been yielded, so a resume re-pulls at most one page of parents and merge
     # dedupes the re-pulled rows on the primary key.
     pagination_cursor: str | None = None
@@ -42,10 +45,32 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"x-luma-api-key": api_key, "Accept": "application/json"}
 
 
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    try:
+        seconds = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+    if not 0 < seconds < float("inf"):
+        return None
+    return min(seconds, max_retry_after_seconds())
+
+
+_EXPONENTIAL_WAIT = wait_exponential_jitter(initial=1, max=30)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, LumaRetryableError) and exc.retry_after is not None:
+        return exc.retry_after
+    return _EXPONENTIAL_WAIT(retry_state)
+
+
+# Luma holds a rate-limited key for one minute, so the waits must add up to more than that.
+# Eight attempts wait about 1+2+4+8+16+30+30 = 91 seconds in total.
 @retry(
     retry=retry_if_exception_type((LumaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    stop=stop_after_attempt(8),
+    wait=_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -54,8 +79,11 @@ def _fetch_page(
     cursor: str | None,
     logger: FilteringBoundLogger,
     extra_params: dict[str, Any] | None = None,
+    paginate: bool = True,
 ) -> tuple[list[dict[str, Any]], Optional[str]]:
-    params: dict[str, Any] = {"pagination_limit": PAGE_SIZE, **(extra_params or {})}
+    params: dict[str, Any] = {**(extra_params or {})}
+    if paginate:
+        params["pagination_limit"] = PAGE_SIZE
     # The first request omits the cursor; subsequent requests pass `next_cursor` from the previous page.
     if cursor is not None:
         params["pagination_cursor"] = cursor
@@ -64,7 +92,10 @@ def _fetch_page(
 
     # Luma returns 429 on rate-limit overage with a one-minute back-off window.
     if response.status_code == 429 or response.status_code >= 500:
-        raise LumaRetryableError(f"Luma API error (retryable): status={response.status_code}, path={path}")
+        raise LumaRetryableError(
+            f"Luma API error (retryable): status={response.status_code}, path={path}",
+            retry_after=_retry_after_seconds(response),
+        )
 
     if not response.ok:
         logger.error(f"Luma API error: status={response.status_code}, body={response.text}, path={path}")
@@ -102,18 +133,23 @@ def _get_event_api_ids(entries: list[dict[str, Any]]) -> list[str]:
     return api_ids
 
 
-def _get_guest_rows_for_event(
+def _get_child_rows_for_event(
     session: requests.Session,
+    config: LumaEndpointConfig,
     event_api_id: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = LUMA_ENDPOINTS["guests"]
     cursor: str | None = None
     while True:
         entries, next_cursor = _fetch_page(
-            session, config.path, cursor, logger, extra_params={"event_api_id": event_api_id}
+            session,
+            config.path,
+            cursor,
+            logger,
+            extra_params={config.event_id_param: event_api_id, **config.static_params},
+            paginate=config.paginated,
         )
-        rows = [{**_flatten_entry(entry, config.nested_key), "event_api_id": event_api_id} for entry in entries]
+        rows = [{**_flatten_entry(entry, config.nested_key), config.event_id_param: event_api_id} for entry in entries]
         if rows:
             yield rows
         if not next_cursor or not entries:
@@ -123,13 +159,14 @@ def _get_guest_rows_for_event(
 
 def _get_fan_out_rows(
     session: requests.Session,
+    config: LumaEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[LumaResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     events_cursor = resume.pagination_cursor if resume else None
     if events_cursor is not None:
-        logger.debug(f"Luma: resuming guests fan-out from events cursor {events_cursor}")
+        logger.debug(f"Luma: resuming {config.name} fan-out from events cursor {events_cursor}")
 
     while True:
         event_entries, next_events_cursor = _fetch_page(session, EVENTS_PATH, events_cursor, logger)
@@ -137,16 +174,16 @@ def _get_fan_out_rows(
         skipped = len(event_entries) - len(event_api_ids)
         if skipped:
             logger.warning(
-                f"Luma: {skipped} of {len(event_entries)} events had no usable api_id; their guests are skipped"
+                f"Luma: {skipped} of {len(event_entries)} events had no usable api_id; their {config.name} are skipped"
             )
         for event_api_id in event_api_ids:
-            yield from _get_guest_rows_for_event(session, event_api_id, logger)
+            yield from _get_child_rows_for_event(session, config, event_api_id, logger)
 
         if not next_events_cursor or not event_entries:
             break
 
         events_cursor = next_events_cursor
-        # Save AFTER yielding every guest of this events page, so a crash re-pulls at most one page
+        # Save AFTER yielding every child row of this events page, so a crash re-pulls at most one page
         # of parents; merge dedupes the re-pulled rows on the primary key.
         resumable_source_manager.save_state(LumaResumeConfig(pagination_cursor=events_cursor))
 
@@ -163,7 +200,9 @@ def _get_top_level_rows(
         logger.debug(f"Luma: resuming {config.name} from cursor {cursor}")
 
     while True:
-        entries, next_cursor = _fetch_page(session, config.path, cursor, logger)
+        entries, next_cursor = _fetch_page(
+            session, config.path, cursor, logger, extra_params=config.static_params, paginate=config.paginated
+        )
         rows = [_flatten_entry(entry, config.nested_key) for entry in entries]
         if rows:
             yield rows
@@ -189,7 +228,7 @@ def get_rows(
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     if config.fan_out_over_events:
-        yield from _get_fan_out_rows(session, logger, resumable_source_manager)
+        yield from _get_fan_out_rows(session, config, logger, resumable_source_manager)
     else:
         yield from _get_top_level_rows(session, config, logger, resumable_source_manager)
 

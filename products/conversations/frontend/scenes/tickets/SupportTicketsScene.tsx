@@ -15,7 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ComposeTicketButton } from '../../components/ComposeTicket'
+import { ComposeTicketButton } from '../../components/ComposeTicket/ComposeTicketButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
 import { supportEmptyState } from '../../emptyState/supportEmptyState'

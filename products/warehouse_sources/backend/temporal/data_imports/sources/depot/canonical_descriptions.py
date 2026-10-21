@@ -1,0 +1,121 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "job_attempts": {
+        "description": (
+            "One row per attempt of a Depot CI job, with the context of its run, workflow, and job. "
+            "Jobs that never ran, such as skipped jobs and matrix expansion placeholders, have no rows."
+        ),
+        "docs_url": "https://depot.dev/docs/api/ci/reference",
+        "columns": {
+            "run_id": "Unique identifier of the Depot CI run.",
+            "run_workflow_count": "Number of workflows the run started.",
+            "repo": "GitHub repository of the run, as owner/name.",
+            "ref": "Git ref the run was triggered for.",
+            "sha": "Commit SHA of the run.",
+            "head_sha": "Head commit SHA reported for the run.",
+            "trigger": "Event that triggered the run.",
+            "run_status": "Terminal status of the run: finished, failed, or cancelled.",
+            "run_created_at": "Time the run was created, as an RFC 3339 timestamp.",
+            "run_started_at": "Time the run started, as an RFC 3339 timestamp.",
+            "run_finished_at": "Time the run finished, as an RFC 3339 timestamp.",
+            "workflow_id": "Unique identifier of the workflow within the run.",
+            "workflow_name": "Name of the workflow.",
+            "workflow_path": "Path of the workflow file in the repository.",
+            "workflow_status": "Status of the workflow.",
+            "workflow_created_at": "Time the workflow was created, as an RFC 3339 timestamp.",
+            "workflow_started_at": "Time the workflow started, as an RFC 3339 timestamp.",
+            "workflow_finished_at": "Time the workflow finished, as an RFC 3339 timestamp.",
+            "job_id": "Unique identifier of the job.",
+            "job_key": "Key of the job, as workflow file and job ID, for example ci-backend.yml:turbo-tests:matrix-38 for a matrix cell.",
+            "job_display_name": "Human-readable job name, including matrix values.",
+            "job_status": "Status of the job: finished, failed, cancelled or skipped.",
+            "job_started_at": "Time the job started, as an RFC 3339 timestamp.",
+            "job_finished_at": "Time the job finished, as an RFC 3339 timestamp.",
+            "attempt_id": "Unique identifier of the job attempt.",
+            "attempt": "Attempt number of the job.",
+            "attempt_status": "Status of the attempt: finished, failed or cancelled.",
+            "attempt_started_at": "Time the attempt started, as an RFC 3339 timestamp.",
+            "attempt_finished_at": "Time the attempt finished, as an RFC 3339 timestamp.",
+            "sandbox_id": "Identifier of the sandbox that ran the attempt.",
+        },
+    },
+    "job_metrics": {
+        "description": (
+            "One row per attempt of a Depot CI job, with CPU and memory statistics from the sandbox that ran it. "
+            "Jobs that never ran have no rows."
+        ),
+        "docs_url": "https://depot.dev/docs/api/ci/reference",
+        "columns": {
+            "run_id": "Unique identifier of the Depot CI run.",
+            "run_created_at": "Time the run was created, as an RFC 3339 timestamp.",
+            "workflow_id": "Unique identifier of the workflow within the run.",
+            "workflow_name": "Name of the workflow.",
+            "workflow_path": "Path of the workflow file in the repository.",
+            "job_id": "Unique identifier of the job.",
+            "job_key": "Key of the job from the workflow.",
+            "job_status": "Status of the job.",
+            "job_conclusion": "Conclusion of the job: success, failure, cancelled, skipped or timed_out.",
+            "snapshot_at": "Time Depot computed the metrics, as an RFC 3339 timestamp.",
+            "attempt_id": "Unique identifier of the job attempt.",
+            "attempt": "Attempt number of the job.",
+            "attempt_status": "Status of the attempt.",
+            "attempt_conclusion": "Conclusion of the attempt: success, failure, cancelled, skipped or timed_out.",
+            "attempt_started_at": "Time the attempt started, as an RFC 3339 timestamp.",
+            "attempt_finished_at": "Time the attempt finished, as an RFC 3339 timestamp.",
+            "sandbox_id": "Identifier of the sandbox that ran the attempt.",
+            "availability": "Why metrics are present or not, for example available, no_sandbox, no_time_range or no_samples.",
+            "sample_count": "Number of CPU and memory samples Depot observed for the attempt.",
+            "peak_cpu_utilization": "Peak CPU utilization, as a fraction from 0 to 1.",
+            "average_cpu_utilization": "Average CPU utilization, as a fraction from 0 to 1.",
+            "peak_memory_utilization": "Peak memory utilization, as a fraction from 0 to 1.",
+            "average_memory_utilization": "Average memory utilization, as a fraction from 0 to 1.",
+            "peak_memory_usage_bytes": "Peak memory usage in bytes.",
+            "average_memory_usage_bytes": "Average memory usage in bytes.",
+            "observed_started_at": "Time of the first sample, as an RFC 3339 timestamp.",
+            "observed_finished_at": "Time of the last sample, as an RFC 3339 timestamp.",
+        },
+    },
+    "artifacts": {
+        "description": "One row per artifact that a Depot CI job attempt uploaded. Download URLs are not synced.",
+        "docs_url": "https://depot.dev/docs/api/ci/reference",
+        "columns": {
+            "artifact_id": "Unique identifier of the artifact.",
+            "run_id": "Unique identifier of the Depot CI run.",
+            "run_created_at": "Time the run was created, as an RFC 3339 timestamp.",
+            "workflow_id": "Unique identifier of the workflow that produced the artifact.",
+            "workflow_path": "Path of the workflow file in the repository.",
+            "job_id": "Unique identifier of the job that produced the artifact.",
+            "job_key": "Key of the job from the workflow.",
+            "attempt_id": "Unique identifier of the job attempt that produced the artifact.",
+            "attempt": "Attempt number that produced the artifact.",
+            "name": "Artifact name from the workflow.",
+            "size_bytes": "Size of the artifact in bytes.",
+            "created_at": "Time the artifact was created, as an RFC 3339 timestamp.",
+        },
+    },
+    "failure_diagnoses": {
+        "description": (
+            "One row per failure group in a failed or cancelled Depot CI run. Depot groups failures whose errors "
+            "match after it removes variable details such as timestamps and IDs. A run with too many failed jobs "
+            "to diagnose one by one has no rows."
+        ),
+        "docs_url": "https://depot.dev/docs/api/ci/reference",
+        "columns": {
+            "run_id": "Unique identifier of the Depot CI run.",
+            "run_created_at": "Time the run was created, as an RFC 3339 timestamp.",
+            "run_status": "Terminal status of the run: failed or cancelled.",
+            "fingerprint": "Identifier of the failure group, computed from the normalized error text.",
+            "source": "Origin of the error text: attempt_error, job_error, workflow_error or status.",
+            "count": "Number of attempts in the failure group.",
+            "error_message": "Representative error message of the group, possibly truncated.",
+            "error_message_truncated": "True when Depot truncated the error message.",
+            "diagnosis": "AI-generated summary of the failure. Empty when not available.",
+            "possible_fix": "AI-generated suggested fix. Empty when not available.",
+            "representatives": "Sample attempts of the failure, with their workflow, job, error, and relevant log lines.",
+            "omitted_representative_count": "Number of attempts in the group that are not in representatives.",
+        },
+    },
+}

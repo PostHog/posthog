@@ -1055,6 +1055,52 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
 
+    @parameterized.expand(
+        [
+            ("array_raw", "JSONExtractArrayRaw(properties.list)", ["1", "2"], []),
+            ("array_raw_to_string", "JSONExtractArrayRaw(toString(properties.list))", ["1", "2"], []),
+            ("keys", "JSONExtractKeys(properties.obj)", ["a", "b"], []),
+            ("keys_and_values_raw", "JSONExtractKeysAndValuesRaw(properties.map)", [("k", '"v"')], []),
+            ("keys_and_values", "JSONExtractKeysAndValues(properties.map, 'String')", [("k", "v")], []),
+            ("extract_array", "JSONExtract(properties.list, 'Array(Int64)')", [1, 2], []),
+            ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
+            ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
+            ("null_literal_keeps_null", "JSONExtractArrayRaw(NULL)", None, None),
+            ("null_through_function_returns_empty", "JSONExtractArrayRaw(toString(NULL))", [], []),
+            ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
+            ("cte_to_string", "JSONExtractArrayRaw(toString(list))", ["1", "2"], [], "t"),
+            ("cte_unknown_function", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t", "toValidUTF8(properties.list)"),
+            ("cte_equality_unchanged", "list = 'x'", False, None, "t"),
+            ("cte_inequality_unchanged", "list != 'x'", True, None, "t"),
+        ]
+    )
+    def test_json_container_functions_accept_nullable_input(
+        self,
+        _name: str,
+        expression: str,
+        expected_with: Any,
+        expected_without: Any,
+        source: str = "events",
+        cte_expression: str = "properties.list",
+    ) -> None:
+        _create_event(
+            distinct_id="d1",
+            event="with",
+            team=self.team,
+            properties={"list": [1, 2], "obj": {"a": 1, "b": 2}, "map": {"k": "v"}, "num": 7},
+        )
+        _create_event(distinct_id="d1", event="without", team=self.team, properties={})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"WITH t AS (SELECT event, {cte_expression} AS list FROM events) SELECT event, {expression} FROM {source}",
+            team=self.team,
+            pretty=False,
+        )
+
+        rows = sorted(response.results, key=lambda row: row[0])
+        self.assertEqual(rows, [("with", expected_with), ("without", expected_without)])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):
         # latest_os_version is Nullable, splitByChar does not access Nullable argument
@@ -1524,8 +1570,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array_obj",
                 ]:
                     self.assertIn(f"events.properties.{property_key}", clickhouse)
-                self.assertIn(json_dynamic_read_sql("events.properties", ["array_str", 1]), clickhouse)
-                self.assertIn(json_dynamic_read_sql("events.properties", ["obj_array", "id", 1]), clickhouse)
+                # An index reads the JSON text of the value, so a row holding a non-array there reads NULL.
+                self.assertIn(
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['array_str'], as_json=True)}, ",
+                    clickhouse,
+                )
+                self.assertIn(
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['obj_array', 'id'], as_json=True)}, ",
+                    clickhouse,
+                )
             else:
                 self.assertEqual(expected_legacy_clickhouse, clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -2298,6 +2351,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
+
+    def test_currency_conversion_with_null_currency_from(self):
+        # A source row with no currency must convert to 0 like an unknown one, not fail the whole query.
+        query = (
+            "SELECT convertCurrency(c, 'EUR', 100, _toDate('2024-01-01')) FROM (SELECT arrayJoin([NULL, 'USD']) AS c)"
+        )
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),), (Decimal("90.49"),)])
 
     def test_currency_conversion_with_bogus_currency_to(self):
         query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"

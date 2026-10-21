@@ -173,7 +173,7 @@ Windsurf, and ~30 other buckets). It is resolved at query time only, with no sto
 `mcp_harness.py::HARNESS_TOKEN_SQL` picks the strongest available signal in priority order,
 over exactly three properties — the ones the SDK schemas can emit
 (`$mcp_vendor_client`, with the legacy non-`$` `mcp_vendor_client` coalesced for historical
-rows -> Claude Code user-agent surface -> Grok user-agent -> `$mcp_client_name` -> generic
+rows -> Claude Code user-agent surface -> Grok and Kimchi user-agents -> `$mcp_client_name` -> generic
 user-agent token, both from `$mcp_client_user_agent`), then
 `harness_label_sql()` buckets it (or `harness_label_or_token_sql()`, which names an
 unrecognized client verbatim instead of collapsing it into "Other" — use it for ranked
@@ -278,8 +278,10 @@ reports), `MCPIntentEmbeddingCache`.
 
 **Seeding local data:** `./manage.py seed_mcp_sessions --team-id N`
 (`backend/management/commands/`), with `--sessions`, `--min-calls`/`--max-calls`, `--days`,
-`--missing-capabilities`, `--seed`, and `--clear`. Seeded events are tagged `$mcp_seeded` so
+`--missing-capabilities`, `--feedback`, `--surge-tool`, `--seed`, and `--clear`. Seeded events are tagged `$mcp_seeded` so
 `--clear` removes only seeded data.
+The defaults spread 2,000 sessions over 30 days with smooth growth toward now, cover every harness label and every AI lab, and make one tool regress near the end of the window.
+Dashboard queries are cached, so a card loaded before seeding can stay empty: pick a different date range to see the new data.
 
 ## Which repo to change
 

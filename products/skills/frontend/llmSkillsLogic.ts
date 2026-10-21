@@ -501,7 +501,9 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         window.scrollTo(0, 0)
                     }
 
-                    return await llmSkillsList(String(ApiConfig.getCurrentTeamId()), params)
+                    // The API layer returns null for a body-less response, which would crash every selector here.
+                    const response = await llmSkillsList(String(ApiConfig.getCurrentTeamId()), params)
+                    return response ?? { results: [], count: 0 }
                 },
             },
         ],

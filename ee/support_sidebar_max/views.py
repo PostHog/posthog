@@ -16,12 +16,12 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from posthoganalytics.ai.anthropic import Anthropic
 from rest_framework import status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.auth import SessionAuthentication
 from posthog.models import User
 
 from ee.support_sidebar_max.prompt import get_system_prompt

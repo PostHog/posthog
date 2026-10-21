@@ -18,6 +18,7 @@ import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
     accountsTableCell,
+    accountsTableDatasetKey,
     buildAccountsTableQueryPlan,
 } from './accountsTableQuery'
 
@@ -76,6 +77,7 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         accountIdFilter: null,
         tileFilter: null,
         accountFilters: [],
+        accountFilterGroups: [],
         relationshipDefinitionsById: {
             [RELATIONSHIP_ID]: { id: RELATIONSHIP_ID, name: 'CSM' } as AccountRelationshipDefinitionApi,
         },
@@ -129,6 +131,48 @@ describe('accountsTableQuery', () => {
                 direction: AccountsTableSortDirection.Descending,
             },
         })
+    })
+
+    it('keeps global filters outside OR groups of supported property filters', () => {
+        const input = queryInput({
+            searchQuery: 'Account',
+            accountFilters: [relationshipFilter(), customFilter({ operator: PropertyOperator.IsNotSet, value: null })],
+            accountFilterGroups: [[customFilter({ operator: PropertyOperator.Exact, value: 20 })]],
+        })
+        const plan = buildAccountsTableQueryPlan(input)
+
+        expect(plan.query.filters).toEqual([{ kind: 'search', query: 'Account' }])
+        expect(plan.query.filterGroups).toEqual([
+            [
+                { kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] },
+                { kind: 'custom_property', definitionId: CUSTOM_PROPERTY_ID, operator: 'is_not_set', values: [] },
+            ],
+            [{ kind: 'custom_property', definitionId: CUSTOM_PROPERTY_ID, operator: 'exact', values: [20] }],
+        ])
+        expect(accountsTableDatasetKey(input)).not.toEqual(
+            accountsTableDatasetKey({ ...input, accountFilterGroups: [[accountFieldFilter()]] })
+        )
+    })
+
+    it('keeps valid conditions when a restored group contains deleted properties', () => {
+        const validName = accountFieldFilter({
+            key: AccountsTableAccountField.Name,
+            operator: PropertyOperator.Exact,
+            value: 'Example',
+        })
+        const missingProperty = customFilter({ key: '99999999-9999-9999-9999-999999999999' })
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [validName, missingProperty],
+                accountFilterGroups: [[relationshipFilter(), missingProperty], [missingProperty]],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([])
+        expect(plan.query.filterGroups).toEqual([
+            [{ kind: 'account_field', field: AccountsTableAccountField.Name, operator: 'exact', values: ['Example'] }],
+            [{ kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] }],
+        ])
     })
 
     it('translates typed native account field filters', () => {

@@ -18,7 +18,7 @@ from pydantic.dataclasses import dataclass
 
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
-# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
 
@@ -120,6 +120,20 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueUpdate:
+    issue: ErrorTrackingIssue
+    # Only the fields whose value differs from the stored one, so a no-op update lists nothing.
+    changed_fields: list[str]
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueMerge:
+    result: Literal["merged", "no_source_issues", "stale_issues", "stale_fingerprints"]
+    # Source issues that disappeared before the merge locked its rows are not counted.
+    merged_issue_count: int
 
 
 @dataclass(frozen=True)

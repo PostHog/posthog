@@ -83,6 +83,8 @@ from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, Ava
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
+    report_user_email_change_requested,
+    report_user_identity_change_refused,
     report_user_logged_in,
     report_user_updated,
     report_user_verified_email,
@@ -115,7 +117,13 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
+from posthog.models.user import (
+    ROLE_CHOICES,
+    Notifications,
+    OnboardingFlowVariant,
+    OnboardingSkippedReason,
+    ShortcutPosition,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -148,7 +156,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -162,6 +170,10 @@ NUM_2FA_BACKUP_CODES = 10
 # `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
 # is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
 MAX_PRODUCT_INTROS_SEEN = 100
+
+# Building the person properties runs several queries. The user's own edits refresh them through
+# "user updated", so the per-request refresh only catches slower drift such as project counts.
+PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS = 60 * 60
 
 
 logger = structlog.get_logger(__name__)
@@ -227,6 +239,23 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
     )
+    flow_variant = serializers.ChoiceField(
+        choices=OnboardingFlowVariant.choices,
+        required=False,
+        help_text="Which onboarding flow the user skipped from, for analytics only.",
+    )
+
+
+def _person_properties_refresh_due(user: User) -> bool:
+    # Store the last refreshed project, not one key per project. A project switch through
+    # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
+    # must refresh too.
+    key = f"user_person_properties_refreshed:{user.id}"
+    context = f"{user.current_organization_id}:{user.current_team_id}"
+    if get_safe_cache(key) == context:
+        return False
+    safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
+    return True
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -276,9 +305,9 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers "
-            "sidebar section and item visibility. Send the complete object: it replaces the stored value "
-            "wholesale. Null means no customization; absent keys mean the element is shown."
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL "
+            "editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the "
+            "stored value wholesale. Null means no customization."
         ),
     )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
@@ -428,9 +457,10 @@ class UserSerializer(serializers.ModelSerializer):
             return self.instance.email
         reject_plus_addressed_email(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
+        exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
-            value, exclude_user_id=self.instance.pk if self.instance else None
-        ):
+            value, exclude_user_id=exclude_user_id
+        ) or EmailValidationHelper.user_exists_with_gmail_canonical(value, exclude_user_id=exclude_user_id):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         # The alias check above reads active accounts, so a deactivated holder of the same folded
         # address passes it. Resolve on the fold every lookup shares, across every account.
@@ -775,6 +805,7 @@ class UserSerializer(serializers.ModelSerializer):
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
             email_verification_code_verifier.send_code(instance, target_email=new_email)
+            report_user_email_change_requested(cast(User, instance), verification_required=True)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -808,6 +839,11 @@ class UserSerializer(serializers.ModelSerializer):
             # Revoke other sessions after update_session_auth_hash so the current (rotated) session is kept.
             revoke_other_sessions_for_request(self.context["request"], instance)
 
+        if changes_email and "email" in validated_data:
+            # Without email configured the new address lands on the account directly, so the change
+            # completes here rather than at verification.
+            report_user_email_change_requested(instance, verification_required=False)
+
         report_user_updated(instance, updated_attrs)
 
         return instance
@@ -821,12 +857,13 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        with tracer.start_as_current_span("user_serializer.identify"):
-            posthoganalytics.capture(
-                distinct_id=instance.distinct_id,
-                event="update user properties",
-                properties={"$set": instance.get_analytics_metadata()},
-            )
+        if _person_properties_refresh_due(instance):
+            with tracer.start_as_current_span("user_serializer.identify"):
+                posthoganalytics.capture(
+                    distinct_id=instance.distinct_id,
+                    event="update user properties",
+                    properties={"$set": instance.get_analytics_metadata()},
+                )
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
@@ -1041,7 +1078,8 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    time_sensitive_allow_actions = ["hedgehog_config"]
+    # Skipping onboarding only hides the onboarding redirect, so an older session may do it.
+    time_sensitive_allow_actions = ["hedgehog_config", "onboarding_skip"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
@@ -1110,6 +1148,11 @@ class UserViewSet(
         # OAuth token must not reset either of them.
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             if changes_email or "password" in data:
+                report_user_identity_change_refused(
+                    cast(User, request.user),
+                    field="email" if changes_email else "password",
+                    reason="token_auth",
+                )
                 raise exceptions.PermissionDenied(
                     "You can only change your email or password from the PostHog app, not with an API key or token."
                 )
@@ -1119,6 +1162,7 @@ class UserViewSet(
         # TimeSensitiveActionPermission is hours wide. The account holder re-authenticates first, which
         # for an account without a password means a passkey or an SSO round trip.
         if changes_email and not reauth_is_fresh(request.session):
+            report_user_identity_change_refused(cast(User, request.user), field="email", reason="stale_reauth")
             raise exceptions.PermissionDenied(
                 "Confirm it's you before changing your email.",
                 code="sensitive_action_required_reauth",
@@ -1246,6 +1290,7 @@ class UserViewSet(
             # Anyone can claim the address while the change waits for this code.
             taken = (
                 EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
+                or EmailValidationHelper.user_exists_with_gmail_canonical(new_email, exclude_user_id=user.pk)
                 or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
             )
             if taken:
@@ -1363,6 +1408,7 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         reason = validated["reason"]
         step_at_skip = validated.get("step_at_skip") or ""
+        flow_variant = validated.get("flow_variant")
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -1435,7 +1481,11 @@ class UserViewSet(
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event="onboarding skipped",
-                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                            properties={
+                                "step_at_skip": step_at_skip or None,
+                                "reason": reason,
+                                "flow_variant": flow_variant,
+                            },
                         )
                     except Exception as exc:
                         capture_exception(exc)

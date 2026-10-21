@@ -123,7 +123,9 @@ Existing recording, person, team, and organization deletion flows enqueue ML del
 Person deletion resolves the combined supplied and profile distinct IDs through the replay ClickHouse index.
 This lookup also runs when the user does not select replay deletion and includes IDs with no remaining person profile.
 Only the resulting session IDs enter the ML deletion outbox.
-A lookup failure stops the request before profile deletion so it can retry.
+The lookup runs in a background task, so person deletion waits only until the task is queued.
+The task carries the distinct IDs, because the profile they belong to is deleted by then.
+A failed lookup retries with backoff for about 24 hours, then fails the task, which the task failure metric reports.
 Team deletion and its deletion outbox request commit in the same database transaction.
 If the outbox write fails, team deletion fails and can retry.
 Consent changes do not enqueue deletion requests.
@@ -136,7 +138,7 @@ Its team IDs refer to the original environment, without resolving a child enviro
 | Person  | Resolve its session IDs through replay, then apply session deletion to each result.       |
 | Team    | Remove its session keys and its image keys, and close the current month and the next one. |
 
-The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
+The person lookup matches any available replay row for the requested IDs that began before the deletion, then deduplicates and paginates sessions.
 It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.
 Replay index retention limits this lookup: after those rows expire, person deletion cannot discover the corresponding ML sessions.
 New sessions from the same person can be collected if consent permits them.
@@ -230,10 +232,12 @@ Inline images have an encrypted lookup for each reference, published after the s
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
 The image scrubber hands the images it scrubbed to a write lane every 30 seconds or when its buffer is full, writes them while it scrubs the next batches, and writes the shard groups of one hand-off concurrently.
 The offsets of a hand-off are stored after its writes complete, in hand-off order, so a failed write stops every later store and the pod replays from the last stored offset.
-Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
+Source deduplication uses the image reference, which names the team and the session month, so one fetch serves every session of that team month.
+Session deletion does not remove images, so a session cannot lose an image that another session fetched.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 Its URL history expires eight days after the end of the session's UTC month.
-Explicit HTTP freshness or cache restrictions can shorten this expiry; they cannot extend it.
+HTTP freshness and cache directives do not change this expiry, because the stored image for a team, month and URL is write-once.
+A `no-store` response leaves no cache metadata in that history.
 Robots.txt and TDM reservation caches keep their shared origin keys and existing expiry rules.
 It does not inherit v1 seen flags or successful fetch results.
 

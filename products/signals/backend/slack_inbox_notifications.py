@@ -21,6 +21,9 @@ from collections.abc import Callable, Iterable
 
 from django.conf import settings
 
+from rest_framework import serializers
+from slack_sdk.errors import SlackApiError
+
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import User
@@ -29,6 +32,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
     escape_slack_mrkdwn as _escape_mrkdwn,
+    markdown_links_to_labels,
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
@@ -37,6 +41,7 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportSlackThread,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -48,6 +53,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
@@ -127,21 +133,6 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
         return True
     # Lower index = higher priority (P0 < P4).
     return report_rank <= min_rank
-
-
-def _report_repository(report: SignalReport) -> str | None:
-    """The repository the report's research selected, from the latest repo_selection artefact."""
-    art = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION).order_by("-created_at").first()
-    if art is None:
-        return None
-    try:
-        data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    repo = data.get("repository")
-    return repo.strip() if isinstance(repo, str) and repo.strip() else None
 
 
 def _latest_priority(report: SignalReport) -> str | None:
@@ -284,9 +275,17 @@ def _posthog_user_display_name(user: User) -> str:
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
     # `<@U…>` mention when the reviewer's email resolves in this workspace, else escaped name.
+    # A failed lookup (a missing users:read.email scope, a spent lookup budget) costs only the
+    # mention. The next lookup fails the same way, so the remaining reviewers get names too.
     mentions: list[str] = []
+    lookups_available = True
     for user in reviewer_users[:_MAX_REVIEWER_MENTIONS]:
-        slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
+        slack_user_id = None
+        if user.email and lookups_available:
+            try:
+                slack_user_id = lookup_slack_user_id_by_email(slack, user.email)
+            except (SlackApiError, serializers.ValidationError):
+                lookups_available = False
         mentions.append(f"<@{slack_user_id}>" if slack_user_id else _escape_mrkdwn(_posthog_user_display_name(user)))
     return mentions
 
@@ -306,6 +305,9 @@ def _summary_excerpt(summary: str) -> str:
     first_line = text.splitlines()[0].strip()
     if not first_line:
         return ""
+    if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
+        return first_line
+    first_line = markdown_links_to_labels(first_line)
     if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
         return first_line
     return first_line[: _SUMMARY_EXCERPT_MAX_LEN - 3].rstrip() + "..."
@@ -369,7 +371,7 @@ def _build_message_blocks(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK),
         }
     ]
     blocks.append({"type": "actions", "elements": action_elements})
@@ -714,6 +716,7 @@ def _deliver_route_notification(
                 integration_id=route.integration.id,
                 channel=str(posted_channel or channel_id),
                 thread_ts=str(thread_ts),
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
             )
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
@@ -733,7 +736,7 @@ def _deliver_to_routes(
     signals: list[dict] | None = None,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
-    repository = _report_repository(report)
+    repository = report.selected_repository()
     sent = 0
     for route in routes:
         if _deliver_route_notification(

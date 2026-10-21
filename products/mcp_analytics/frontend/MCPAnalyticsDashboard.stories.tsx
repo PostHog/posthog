@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -9,6 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
+import { modelLab } from './aiLabs'
+import { labMark } from './brandMarks'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
@@ -87,6 +92,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000001',
             tool_calls: 42,
+            error_calls: 1,
             session_start: '2026-06-07T10:00:00Z',
             session_end: '2026-06-07T10:10:10Z',
             distinct_id_count: 1,
@@ -100,6 +106,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000002',
             tool_calls: 6,
+            error_calls: 0,
             session_start: '2026-06-07T09:30:00Z',
             session_end: '2026-06-07T09:31:35Z',
             distinct_id_count: 1,
@@ -113,6 +120,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000003',
             tool_calls: 31,
+            error_calls: 4,
             session_start: '2026-06-07T08:15:00Z',
             session_end: '2026-06-07T08:19:00Z',
             distinct_id_count: 1,
@@ -162,6 +170,18 @@ const TOOL_CALL_LIST = {
 // Tool quality tab — one row per tool: tool, total_calls, errors, error_rate_pct,
 // p50, p95, p99, users, sessions, first_seen, last_seen.
 type ToolQualityStoryRow = [string, number, number, number, number, number, number, number, number, string, string]
+
+// Previous-period calls for the Trend column: a surge, a new tool, and a decline; the rest stay near flat.
+const PREVIOUS_CALLS: Record<string, number> = {
+    'read-data-schema': 120,
+    'query-trends': 600,
+    'cohort-create': 0,
+}
+const TOTAL_SESSIONS = 720
+const PREVIOUS_TOTAL_SESSIONS = 680
+// Previous-period values that trigger the regression markers: an error-rate jump and a p95 slowdown.
+const PREVIOUS_ERRORS: Record<string, number> = { 'execute-sql': 40 }
+const PREVIOUS_P95_MS: Record<string, number> = { 'insight-create': 400 }
 
 const TOOL_QUALITY_ROWS: ToolQualityStoryRow[] = [
     ['execute-sql', 1480, 144, 9.7, 820, 3525, 9800, 210, 540, '2026-05-08T09:00:00Z', '2026-06-07T10:04:00Z'],
@@ -636,10 +656,24 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 return durationMs
             }
             if (column.endsWith('-- Client')) {
-                return clientName
+                if (!column.startsWith('withIcon(')) {
+                    return clientName
+                }
+                const mark =
+                    {
+                        'claude-code': 'Claude',
+                        'claude-ai': 'Claude',
+                        cursor: 'Cursor',
+                        'posthog-cli': 'PostHog',
+                        windsurf: 'Windsurf',
+                    }[clientName] ?? 'Other harnesses'
+                return ['__hx_tag', 'BrandMarkLabel', 'label', clientName || 'Other', 'mark', mark]
             }
             if (column.endsWith('-- Model')) {
-                return model
+                if (!column.startsWith('withIcon(')) {
+                    return model
+                }
+                return ['__hx_tag', 'BrandMarkLabel', 'label', model, 'mark', labMark(modelLab(model))]
             }
             return null
         })
@@ -657,6 +691,66 @@ const INTENT_DIGEST = {
     digest: 'Agents are extensively analyzing and validating feature flags, especially participant and scope-related flags, across multiple projects to ensure correct configuration and deployment. They are investigating user behavior, event schemas, and telemetry to support product analytics, adoption, and revenue reporting, and to diagnose issues such as interface unresponsiveness, conversion tracking failures, and LLM-related errors. Additionally, they are auditing dashboards, saved insights, and survey data to verify data freshness and rebuild product usage metrics.',
     intent_count: 100,
 }
+
+// Leaderboard home tab. Counts are invented; the model names only need to map to the labs the tab groups by.
+const MODEL_SHARES: [string, number][] = [
+    ['claude-sonnet-4-5', 0.34],
+    ['gpt-5-codex', 0.2],
+    ['claude-opus-4-1', 0.12],
+    ['gemini-2.5-pro', 0.1],
+    ['gpt-5', 0.08],
+    ['composer-1', 0.05],
+    ['grok-4', 0.04],
+    ['qwen3-coder', 0.03],
+    ['Unknown', 0.04],
+]
+
+const PROTOCOL_SHARES: [string, number][] = [
+    ['2025-06-18', 0.5],
+    ['2025-11-25', 0.35],
+    ['2025-03-26', 0.1],
+    ['Unknown', 0.05],
+]
+
+// The tool facet groups by the effective tool name, which reads `$mcp_exec_tool_call_name` first.
+const facetProperty = (query: string): string => {
+    if (query.includes('$mcp_protocol_version')) {
+        return '$mcp_protocol_version'
+    }
+    if (query.includes('$mcp_exec_tool_call_name')) {
+        return '$mcp_tool_name'
+    }
+    return query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
+}
+
+const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
+    DAILY_TOTALS.flatMap(([day, calls]) =>
+        shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
+    )
+
+// [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
+const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
+    $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
+        String(r[0]),
+        Number(r[1]),
+        100,
+        Number(r[2]),
+    ]),
+    $mcp_error_type: [
+        ['timeout', 90, 40, 90],
+        ['validation', 60, 30, 60],
+        ['auth', 30, 15, 30],
+        ['rate_limit', 15, 9, 15],
+    ],
+}
+
+const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
+    day,
+    calls,
+    errors,
+    700 + index * 20,
+    3100 + index * 90,
+])
 
 const meta: Meta = {
     component: App,
@@ -712,19 +806,27 @@ const meta: Meta = {
                     }
                     // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
                     if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
-                        const rows = TOOL_QUALITY_ROWS.map((r) => ({
-                            tool: r[0],
-                            total_calls: r[1],
-                            errors: r[2],
-                            error_rate_pct: r[3],
-                            p50_duration_ms: r[4],
-                            p95_duration_ms: r[5],
-                            p99_duration_ms: r[6],
-                            users: r[7],
-                            sessions: r[8],
-                            first_seen: r[9],
-                            last_seen: r[10],
-                        }))
+                        const rows = TOOL_QUALITY_ROWS.map((r) => {
+                            const previousCalls = PREVIOUS_CALLS[r[0]] ?? Math.round(r[1] * 0.95)
+                            return {
+                                tool: r[0],
+                                total_calls: r[1],
+                                previous_calls: previousCalls,
+                                trend_score: (r[1] - previousCalls) / (previousCalls + 10),
+                                previous_errors: PREVIOUS_ERRORS[r[0]] ?? Math.round((r[2] * previousCalls) / r[1]),
+                                previous_p95_duration_ms: previousCalls ? (PREVIOUS_P95_MS[r[0]] ?? r[5]) : null,
+                                previous_sessions: Math.round(r[8] * 0.9),
+                                errors: r[2],
+                                error_rate_pct: r[3],
+                                p50_duration_ms: r[4],
+                                p95_duration_ms: r[5],
+                                p99_duration_ms: r[6],
+                                users: r[7],
+                                sessions: r[8],
+                                first_seen: r[9],
+                                last_seen: r[10],
+                            }
+                        })
                         const search = String(body.query.search ?? '')
                             .trim()
                             .toLowerCase()
@@ -750,6 +852,8 @@ const meta: Meta = {
                             {
                                 results: page,
                                 totalCount: filteredRows.length,
+                                totalSessions: TOTAL_SESSIONS,
+                                previousTotalSessions: PREVIOUS_TOTAL_SESSIONS,
                             },
                         ]
                     }
@@ -804,6 +908,41 @@ const meta: Meta = {
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
+                    // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
+                    if (query.includes('AS lab,')) {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    ['Anthropic', 190],
+                                    ['OpenAI', 150],
+                                    ['Google', 80],
+                                    ['Open weights', 20],
+                                    ['Unknown', 40],
+                                ],
+                            },
+                        ]
+                    }
+                    if (query.includes("!= 'Unknown'")) {
+                        return [200, { results: [[260]] }]
+                    }
+                    if (query.includes('AS label')) {
+                        const property = facetProperty(query)
+                        if (query.includes('AS bucket')) {
+                            return [
+                                200,
+                                {
+                                    results: bucketedShareResults(
+                                        property === '$mcp_protocol_version' ? PROTOCOL_SHARES : MODEL_SHARES
+                                    ),
+                                },
+                            ]
+                        }
+                        return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
+                    }
+                    if (query.includes('AS p50')) {
+                        return [200, { results: RELIABILITY_RESULTS }]
+                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -852,6 +991,13 @@ export const DashboardNarrow: Story = {
     ),
 }
 
+export const DashboardLeaderboardHome: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
+        testOptions: { viewportWidths: ['medium', 'wide'] },
+    },
+}
+
 export const DashboardWithMenuBar: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
@@ -861,8 +1007,14 @@ export const DashboardWithMenuBar: Story = {
 // The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
 // viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
+    tags: ['manual-icons'],
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
+        await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
     },
 }
 
@@ -886,5 +1038,18 @@ export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+    },
+}
+
+// The journey chart is the last section of a pane sized to the viewport, so the default 720px
+// snapshot ends above it. A taller viewport brings it into the snapshot.
+export const IntentClusteringJourney: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        testOptions: {
+            viewport: { width: 1280, height: 1800 },
+            waitForSelector: '[data-attr=mcp-cluster-journey-sankey] [data-attr=hog-chart-sankey-node-label]',
+        },
     },
 }

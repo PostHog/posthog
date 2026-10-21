@@ -85,7 +85,9 @@ export function DecisionPlaygroundScene(): JSX.Element {
         return receivedFeatureFlags || featureFlagsTimedOut ? (
             <NotFound object="page" />
         ) : (
-            <Spinner className="text-3xl mx-auto my-8" />
+            <div className="flex justify-center my-8">
+                <Spinner className="text-3xl" />
+            </div>
         )
     }
 
@@ -199,7 +201,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
                         <p className="text-secondary text-xs mt-2">
                             Answered by {decision.model} from {decision.input_tokens} input tokens
                             {decision.latency_ms !== null && decision.latency_ms !== undefined
-                                ? ` in ${decision.latency_ms} ms`
+                                ? ` in ${Math.round(decision.latency_ms)} ms`
                                 : ''}
                             .
                         </p>

@@ -2,7 +2,7 @@ import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/
 import { isValidRE2 } from 'lib/utils/regexp'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     DataNode,
@@ -273,6 +273,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsDonut]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsProportionBar]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
 
     // separate: different breakdown limit (250)
@@ -393,6 +394,7 @@ const AGGREGATED_RESULT_DISPLAYS = new Set<ChartDisplayType>([
     ChartDisplayType.BoldNumber,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,

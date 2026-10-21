@@ -116,6 +116,7 @@ def start_test_worker(
     task_queue: str,
     workflows: Sequence[type],
     activities: Sequence[Callable],
+    graceful_shutdown_timeout: dt.timedelta = dt.timedelta(seconds=5),
 ):
     with ThreadedWorker(
         client=temporal,
@@ -123,6 +124,6 @@ def start_test_worker(
         workflows=workflows,
         activities=activities,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        graceful_shutdown_timeout=dt.timedelta(seconds=5),
+        graceful_shutdown_timeout=graceful_shutdown_timeout,
     ).run_in_thread():
         yield

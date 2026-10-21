@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { planStableChunks, stableFileName, writeStableChunks } from './stableChunkNames.mjs'
+import { loggedOutSpecifiers, planStableChunks, stableFileName, writeStableChunks } from './stableChunkNames.mjs'
 
 // Two chunks: an entry that imports a shared chunk, the way esbuild writes them with publicPath /static.
 const OUTPUTS = {
@@ -109,17 +109,38 @@ describe('planStableChunks', () => {
     })
 
     // The copied source map is shifted down exactly one line, so the prelude must be a line of its own.
-    it('puts a prelude on its own first line and names the chunk by it', () => {
+    it('puts a prelude on its own first line, keyed by the chunk specifier, and names the chunk by it', () => {
         const sources = entry('export const a=1')
         const withPrelude = planStableChunks(
             OUTPUTS,
             (outputPath: string) => sources[outputPath],
             'dist/',
-            new Map([['dist/Scene-AAAA1111.js', 'await window.ESBUILD_LOAD_CSS([]);']])
+            new Map([['dist/Scene-AAAA1111.js', (specifier: string) => `register(${JSON.stringify(specifier)});`]])
         ).plan.get('dist/Scene-AAAA1111.js')!
 
-        expect(withPrelude.source.split('\n')[0]).toBe('await window.ESBUILD_LOAD_CSS([]);')
+        expect(withPrelude.source.split('\n')[0]).toMatch(/^register\("@c\/e[0-9A-F]{10}"\);$/)
         expect(withPrelude.stableFile).not.toBe(plan(sources).get('dist/Scene-AAAA1111.js')!.stableFile)
+    })
+
+    it('imports a chunk with a prelude dynamically through the stylesheet-aware loader, and statically as is', () => {
+        const outputs = {
+            ...OUTPUTS,
+            'dist/Lazy-DDDD4444.js': { entryPoint: 'src/scenes/Lazy.tsx', inputs: { 'src/scenes/Lazy.tsx': {} } },
+        }
+        const importer =
+            'import("/static/Lazy-DDDD4444.js");import("/static/chunk-BBBB2222.js");import"/static/Lazy-DDDD4444.js"'
+        const { plan: lazyPlan } = planStableChunks(
+            outputs,
+            (outputPath: string) => (outputPath === 'dist/Scene-AAAA1111.js' ? importer : ''),
+            'dist/',
+            new Map([['dist/Lazy-DDDD4444.js', () => 'register();']])
+        )
+        const { source, mapValid } = lazyPlan.get('dist/Scene-AAAA1111.js')!
+
+        expect(source).toMatch(
+            /^ESBUILD_IMPORT\("@c\/e[0-9A-F]{10}" *\);import\("@c\/c[0-9A-F]{10}" *\);import"@c\/e[0-9A-F]{10}" *$/
+        )
+        expect(mapValid).toBe(true)
     })
 
     describe('writeStableChunks', () => {
@@ -144,7 +165,7 @@ describe('planStableChunks', () => {
                     chunks: {},
                     entrypoints: [],
                     preloadManifest: undefined,
-                    preludes: prelude ? new Map([['dist/entry-AAAA1111.js', prelude]]) : new Map(),
+                    preludes: prelude ? new Map([['dist/entry-AAAA1111.js', () => prelude]]) : new Map(),
                 })
 
                 const stableMapFile = readdirSync(distDir).find(
@@ -158,10 +179,70 @@ describe('planStableChunks', () => {
 
         // Pins the map shift so a regression here doesn't only show up as misattributed stack traces.
         it.each([
-            ['a prelude chunk', 'await window.ESBUILD_LOAD_CSS([]);', ';AAAA'],
+            ['a prelude chunk', 'register();', ';AAAA'],
             ['a chunk with no prelude', null, 'AAAA'],
         ])('shifts the written source map by one line for %s', (_name, prelude, expectedMappings) => {
             expect(writeAndReadMap(prelude)).toBe(expectedMappings)
+        })
+    })
+
+    describe('loggedOutSpecifiers', () => {
+        // The entry imports App, which lazy-loads a logged-out scene, a signed-in scene and a helper.
+        const WALK_OUTPUTS = {
+            'dist/index-AAAA1111.js': {
+                entryPoint: 'src/index.tsx',
+                imports: [{ path: 'dist/App-BBBB2222.js', kind: 'dynamic-import' }],
+            },
+            'dist/App-BBBB2222.js': {
+                entryPoint: 'src/scenes/App.tsx',
+                imports: [
+                    { path: 'dist/Login-CCCC3333.js', kind: 'dynamic-import' },
+                    { path: 'dist/Insight-DDDD4444.js', kind: 'dynamic-import' },
+                    { path: 'dist/helper-EEEE5555.js', kind: 'dynamic-import' },
+                ],
+            },
+            'dist/Login-CCCC3333.js': {
+                entryPoint: 'src/scenes/Login.tsx',
+                imports: [{ path: 'dist/chunk-FFFF6666.js', kind: 'import-statement' }],
+            },
+            'dist/Insight-DDDD4444.js': {
+                entryPoint: '../products/insights/Insight.tsx',
+                imports: [{ path: 'dist/chunk-GGGG7777.js', kind: 'import-statement' }],
+            },
+            'dist/helper-EEEE5555.js': { entryPoint: 'src/lib/helper.ts', imports: [] },
+            'dist/chunk-FFFF6666.js': { inputs: { 'src/lib/form.ts': {} }, imports: [] },
+            'dist/chunk-GGGG7777.js': { inputs: { 'src/lib/chart.ts': {} }, imports: [] },
+        }
+        const walkPlan = planStableChunks(WALK_OUTPUTS, () => 'export {}', 'dist/').plan
+        const specifierOf = (outputPath: string): string => `@c/${walkPlan.get(outputPath)!.identity}`
+        const walk = (loggedOutModules: string[]): string[] =>
+            loggedOutSpecifiers(WALK_OUTPUTS, walkPlan, {
+                entry: 'src/index.tsx',
+                loggedOutModules: new Set(loggedOutModules),
+                signedInModules: new Set(['../products/insights/Insight']),
+                cssSpecifiersByOutput: new Map([
+                    ['dist/Login-CCCC3333.js', ['@css/login']],
+                    ['dist/Insight-DDDD4444.js', ['@css/insight']],
+                ]),
+            })
+
+        it('keeps what a logged-out page can load and drops the chunks of signed-in scenes', () => {
+            expect(walk(['src/scenes/Login'])).toEqual(
+                [
+                    ...[
+                        'dist/index-AAAA1111.js',
+                        'dist/App-BBBB2222.js',
+                        'dist/Login-CCCC3333.js',
+                        'dist/helper-EEEE5555.js',
+                        'dist/chunk-FFFF6666.js',
+                    ].map(specifierOf),
+                    '@css/login',
+                ].sort()
+            )
+        })
+
+        it('fails when a logged-out scene is not reachable from the entry', () => {
+            expect(() => walk(['src/scenes/Login', 'src/scenes/Renamed'])).toThrow('src/scenes/Renamed')
         })
     })
 })

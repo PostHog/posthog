@@ -28,6 +28,7 @@ from posthog.egress.github.transport import (
     raise_if_github_rate_limited,
 )
 from posthog.egress.limiter.policies import Priority
+from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -62,6 +63,10 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 # for clock skew between the two before trusting it to skip a parent.
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
+_STARTUP_FAILURE_FIRST_SYNC_LOOKBACK = timedelta(days=1)
+_STARTUP_FAILURE_MIN_WINDOW = timedelta(minutes=1)
+_GITHUB_FILTERED_RESULT_CAP = 1000
+
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
 # sync, credential validation, webhook management — passes the source's resolved pin; this constant
 # is only the fallback for callers outside a source instance. Response shapes are not compatible
@@ -79,6 +84,8 @@ _WEBHOOK_PERMISSION_HINT = (
     '"Repository webhooks: read and write" permission (fine-grained token), '
     "or repository webhook access on the GitHub app installation"
 )
+
+LOGGER = get_logger(__name__)
 
 
 class GithubRetryableError(Exception):
@@ -772,9 +779,19 @@ def _github_error_message(response: requests.Response) -> str:
 
 # GitHub answers 403 both for a real permission denial and for a repository feature the owner has
 # switched off — Dependabot alerts disabled, code scanning without Advanced Security, an archived
-# repository. A switched-off feature has nothing to sync now or on any later run, so it is a
-# zero-row skip rather than something to fail the schema over. Matched against GitHub's own message.
-_FEATURE_UNAVAILABLE_MARKERS = ("is disabled", "are disabled", "must be enabled", "not enabled", "is archived")
+# repository. It also answers 403 for a feature its plan gates, such as rulesets on a private
+# repository under a free plan ("Upgrade to GitHub Pro or make this repository public to enable this
+# feature."). A switched-off or plan-gated feature has nothing to sync until the owner changes the
+# repository, so it is a zero-row skip rather than something to fail the schema over. Matched
+# against GitHub's own message.
+_FEATURE_UNAVAILABLE_MARKERS = (
+    "is disabled",
+    "are disabled",
+    "must be enabled",
+    "not enabled",
+    "is archived",
+    "to enable this feature",
+)
 
 
 def _is_feature_unavailable_denial(message: str) -> bool:
@@ -1376,18 +1393,26 @@ def _has_only_graphql_access_errors(errors: Any) -> bool:
     )
 
 
+# GitHub's GraphQL API has been observed using both spellings for this condition: the documented
+# "RATE_LIMITED" and, for the primary rate limit specifically, "RATE_LIMIT" (with code
+# "graphql_rate_limit"). Match both so neither shape falls through to the generic retryable path,
+# whose plain backoff is capped at 30 seconds and cannot outlast the hourly window this resets on.
+_GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+
+
 def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
     """Map GraphQL's own primary rate limit onto the error the REST path raises.
 
-    GraphQL reports that limit as a 200 whose `errors` carry type RATE_LIMITED. `raise_if_github_rate_limited`
-    cannot see that shape, because it only inspects 429 and 403 responses. Without this mapping the retry
-    falls back to the plain backoff, which is capped at 30 seconds and so cannot outlast the hourly window
-    the GraphQL limit resets on.
+    GraphQL reports that limit as a 200 whose `errors` carry a rate-limit type (see
+    `_GRAPHQL_RATE_LIMIT_ERROR_TYPES`). `raise_if_github_rate_limited` cannot see that shape, because
+    it only inspects 429 and 403 responses. Without this mapping the retry falls back to the plain
+    backoff, which is capped at 30 seconds and so cannot outlast the hourly window the GraphQL limit
+    resets on.
     """
     errors = body.get("errors")
     if not isinstance(errors, list):
         return
-    if not any(isinstance(error, dict) and error.get("type") == "RATE_LIMITED" for error in errors):
+    if not any(_graphql_error_type(error) in _GRAPHQL_RATE_LIMIT_ERROR_TYPES for error in errors):
         return
 
     try:
@@ -1724,6 +1749,10 @@ def _normalize_primary_key(primary_key: str | list[str]) -> list[str]:
     return [primary_key] if isinstance(primary_key, str) else list(primary_key)
 
 
+# Lifecycle order of the status field on workflow runs, workflow jobs and check runs.
+_STATUS_STAGE = {"requested": 1, "waiting": 1, "pending": 1, "queued": 1, "in_progress": 2, "completed": 3}
+
+
 def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
     """Collapse a webhook batch to one row per ``primary_key`` — the one ranking newest by
     ``version_keys`` (newest first, NULLs last). GitHub emits a single run/job as separate
@@ -1738,23 +1767,29 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
 
         ids = table.column(primary_key).to_pylist()
         version_columns = [table.column(key).to_pylist() for key in present_version_keys]
+        statuses = table.column("status").to_pylist() if "status" in table.column_names else None
 
         def rank(row_index: int) -> tuple[tuple[int, Any], ...]:
             # A present value beats NULL (NULLS LAST); among present values a larger one is newer
             # (ISO-8601 timestamps compare correctly as strings). The leading flag keeps NULLs from
             # ever being order-compared against a real value.
-            return tuple(
+            version = tuple(
                 (1, column[row_index]) if column[row_index] is not None else (0, "") for column in version_columns
             )
+            if statuses is None:
+                return version
+            # GitHub timestamps are second-coarse, so a run that GitHub skips at once sends its
+            # in_progress and completed events with the same updated_at. GitHub does not deliver
+            # webhooks in order, so the stale in_progress event can arrive last. On a timestamp tie,
+            # the further lifecycle stage wins. Otherwise the row stays in_progress forever.
+            return (*version, (_STATUS_STAGE.get(statuses[row_index] or "", 0), ""))
 
         best_index_by_id: dict[Any, int] = {}
         for index, object_id in enumerate(ids):
             if object_id is None:
                 continue
             best = best_index_by_id.get(object_id)
-            # On a tie (>=, not >) the later-arriving row wins. GitHub timestamps are second-coarse,
-            # so a fast in_progress -> completed transition can share an updated_at; rows arrive in
-            # chronological order (files read oldest-first), so the later index is the newer event.
+            # On a full tie (>=, not >) the later-arriving row wins, because files are read oldest-first.
             if best is None or rank(index) >= rank(best):
                 best_index_by_id[object_id] = index
 
@@ -1785,6 +1820,85 @@ async def _chain_webhook_items_with_reconciliation(
         if table is done:
             return
         yield table
+
+
+def _format_github_time(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _iter_startup_failure_runs(
+    url_for_window: Callable[[datetime, datetime], str],
+    fetch_pages: Callable[[str], Iterator[tuple[list[dict[str, Any]], str]]],
+    logger: FilteringBoundLogger,
+    window_start: datetime,
+    window_end: datetime,
+) -> Iterator[dict[str, Any]]:
+    """Yield the startup_failure runs created in the window. A window that returns GitHub's 1,000-run
+    cap is split in half and polled again, so a dense range is not truncated and a quiet range costs
+    one call. Runs at a split boundary or from the capped query come back more than once, so the
+    caller dedupes by run id."""
+    window_count = 0
+    for runs, _page_url in fetch_pages(url_for_window(window_start, window_end)):
+        for run in runs:
+            window_count += 1
+            yield run
+    if window_count < _GITHUB_FILTERED_RESULT_CAP:
+        return
+    if window_end - window_start <= _STARTUP_FAILURE_MIN_WINDOW:
+        logger.warning(
+            "Github: startup_failure poll hit the 1,000-run cap in its smallest window, so some runs stay queued: "
+            f"window_start={window_start}, window_end={window_end}"
+        )
+        return
+    midpoint = window_start + (window_end - window_start) / 2
+    yield from _iter_startup_failure_runs(url_for_window, fetch_pages, logger, window_start, midpoint)
+    yield from _iter_startup_failure_runs(url_for_window, fetch_pages, logger, midpoint, window_end)
+
+
+def _get_startup_failure_runs(
+    personal_access_token: str,
+    repository: str,
+    logger: FilteringBoundLogger,
+    created_since: datetime,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> Iterator[pa.Table]:
+    """Poll the runs that ended in startup_failure since ``created_since``. GitHub sends only the
+    `requested` workflow_run webhook (status queued) for such a run and never a `completed` one, so
+    without this poll the webhook-fed table keeps the run queued forever."""
+    headers = _get_headers(personal_access_token, "workflow_runs", api_version)
+
+    def url_for_window(window_start: datetime, window_end: datetime) -> str:
+        params = {
+            "status": "startup_failure",
+            "created": f"{_format_github_time(window_start)}..{_format_github_time(window_end)}",
+            "per_page": GITHUB_ENDPOINTS["workflow_runs"].page_size,
+        }
+        return f"{GITHUB_BASE_URL}/repos/{repository}/actions/runs?{urlencode(params)}"
+
+    def fetch_pages(url: str) -> Iterator[tuple[list[dict[str, Any]], str]]:
+        return _iter_pages(
+            url,
+            headers,
+            "workflow_runs",
+            logger,
+            egress_identity=egress_identity,
+            repository=repository,
+            required_permission=ENDPOINT_REQUIRED_PERMISSION.get("workflow_runs"),
+        )
+
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    # The delta merge doesn't dedupe within a source batch, so a run polled twice must be dropped here.
+    seen_run_ids: set[int] = set()
+    for run in _iter_startup_failure_runs(url_for_window, fetch_pages, logger, created_since, _now_utc()):
+        if run["id"] in seen_run_ids:
+            continue
+        seen_run_ids.add(run["id"])
+        batcher.batch(run)
+        if batcher.should_yield():
+            yield batcher.get_table()
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
 
 
 def github_source(
@@ -1871,6 +1985,25 @@ def github_source(
                 else None
             )
             webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            if endpoint == "workflow_runs":
+                # The poll runs after the drain, so its completed row lands after the queued
+                # webhook row of the same run and wins the merge.
+                created_since = (
+                    reconcile_since - _RECONCILE_SKEW_ALLOWANCE
+                    if reconcile_since
+                    else _now_utc() - _STARTUP_FAILURE_FIRST_SYNC_LOOKBACK
+                )
+                return _chain_webhook_items_with_reconciliation(
+                    webhook_items,
+                    lambda: _get_startup_failure_runs(
+                        personal_access_token=personal_access_token,
+                        repository=repository,
+                        logger=logger,
+                        created_since=created_since,
+                        egress_identity=egress_identity,
+                        api_version=api_version,
+                    ),
+                )
             reconcile_days = endpoint_config.webhook_reconcile_lookback_days
             if reconcile_days is None:
                 return webhook_items
@@ -1940,6 +2073,18 @@ def _is_repo_hook_permission_error(response: requests.Response) -> bool:
     return response.status_code in (403, 404)
 
 
+def _webhook_failure_message(action: Literal["create", "update"], response: requests.Response | None = None) -> str:
+    """User-facing message for a repo webhook call that failed, without GitHub's status or raw body."""
+    # GitHub rejects a hook past its per-repo limit with a 422 whose errors[] message reads
+    # 'The "push" event cannot have more than 20 hooks'.
+    if response is not None and "cannot have more than" in response.text.lower():
+        return (
+            "This repository has reached GitHub's webhook limit. Delete an unused webhook in the "
+            "repository settings and retry, or set it up manually following the steps below."
+        )
+    return f"GitHub couldn't {action} the webhook. Retry, or set it up manually following the steps below."
+
+
 def create_repo_webhook(
     token: str,
     repo: str,
@@ -1985,7 +2130,8 @@ def create_repo_webhook(
             error="GitHub rate limit reached while creating the repository webhook; please retry shortly.",
         )
     except requests.exceptions.RequestException as e:
-        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {e}")
+        LOGGER.warning("Failed to reach GitHub to create a repository webhook", error=str(e))
+        return WebhookCreationResult(success=False, error=_webhook_failure_message("create"))
 
     if response.status_code in (200, 201):
         # GitHub never echoes the secret back, so we return the one we generated as
@@ -2002,9 +2148,10 @@ def create_repo_webhook(
             ),
         )
 
-    return WebhookCreationResult(
-        success=False, error=f"Failed to create webhook automatically: {response.status_code} {response.text}"
+    LOGGER.warning(
+        "GitHub rejected a repository webhook create", status_code=response.status_code, body=response.text[:500]
     )
+    return WebhookCreationResult(success=False, error=_webhook_failure_message("create", response))
 
 
 def ensure_repo_webhook(
@@ -2032,7 +2179,8 @@ def ensure_repo_webhook(
             ),
         )
     if error is not None:
-        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error}")
+        LOGGER.warning("Failed to list repository webhooks before creating one", error=error)
+        return WebhookCreationResult(success=False, error=_webhook_failure_message("create"))
 
     hook = _match_hook_by_url(hooks or [], webhook_url)
     if hook is None:
@@ -2064,7 +2212,8 @@ def ensure_repo_webhook(
             error="GitHub rate limit reached while updating the repository webhook; please retry shortly.",
         )
     except requests.exceptions.RequestException as e:
-        return WebhookCreationResult(success=False, error=f"Failed to update webhook automatically: {e}")
+        LOGGER.warning("Failed to reach GitHub to update a repository webhook", error=str(e))
+        return WebhookCreationResult(success=False, error=_webhook_failure_message("update"))
 
     if response.ok:
         return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
@@ -2076,9 +2225,10 @@ def ensure_repo_webhook(
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
-    return WebhookCreationResult(
-        success=False, error=f"Failed to update webhook automatically: {response.status_code} {response.text}"
+    LOGGER.warning(
+        "GitHub rejected a repository webhook update", status_code=response.status_code, body=response.text[:500]
     )
+    return WebhookCreationResult(success=False, error=_webhook_failure_message("update", response))
 
 
 def _list_repo_hooks(

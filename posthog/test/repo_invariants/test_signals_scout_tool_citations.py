@@ -29,14 +29,17 @@ Regenerate the baseline (after confirming a rename, or when a body cites a new t
 """
 
 import re
-import json
+from datetime import date
 from pathlib import Path
 
 import pytest
 
+from posthog.mcp_tool_definitions import get_mcp_tool_definitions
+from posthog.test.repo_invariants.ratchet import enforce_baseline
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "signals_scout_tool_citations_baseline.txt"
-CATALOG_PATH = REPO_ROOT / "services" / "mcp" / "schema" / "tool-definitions-all.json"
+BLOCKING_FROM = date.fromisoformat("2026-09-19")
 
 TOOL_NAME_VERBS = frozenset(
     {
@@ -70,7 +73,7 @@ def has_tool_shape(name: str) -> bool:
 
 
 def catalog_names() -> set[str]:
-    return set(json.loads(CATALOG_PATH.read_text(encoding="utf-8")))
+    return set(get_mcp_tool_definitions())
 
 
 def _canonical_sources() -> list[tuple[str, str]]:
@@ -135,7 +138,7 @@ def test_invocation_pattern_reads_a_tool_named_on_its_own_line(text: str, expect
 
 def test_tool_shaped_citations_resolve_against_the_catalog() -> None:
     catalog = catalog_names()
-    assert catalog, f"empty MCP tool catalog at {CATALOG_PATH}"
+    assert catalog, "empty MCP tool catalog"
     backticked, invoked = cited_names()
     unresolvable: dict[str, set[str]] = {
         name: sources for name, sources in backticked.items() if has_tool_shape(name) and name not in catalog
@@ -161,10 +164,15 @@ def test_baseline_tool_citations_still_resolve() -> None:
         "Repoint each citation at the live tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
         + "\n".join(f"  {name}" for name in missing)
     )
-    assert not added, (
-        "Canonical scouts cite tools the baseline does not pin. Confirm each name is a real "
-        "tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
-        + "\n".join(f"  {name}" for name in added)
+    enforce_baseline(
+        added=added,
+        removed=[],
+        blocking_from=BLOCKING_FROM,
+        message=(
+            "Canonical scouts cite tools the baseline does not pin. Confirm each name is a real "
+            "tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
+            + "\n".join(f"  {name}" for name in added)
+        ),
     )
 
 

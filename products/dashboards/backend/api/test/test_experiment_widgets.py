@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,7 +24,12 @@ from products.dashboards.backend.widgets.experiment_results import (
     run_experiment_results_widget,
 )
 from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget
-from products.experiments.backend.models.experiment import EXPOSURE_FROZEN_GROUP_KEY, Experiment
+from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
+    Experiment,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -52,7 +58,7 @@ def _experiment_metric(uuid: str, name: str) -> dict[str, Any]:
     }
 
 
-class TestExperimentWidgetConfigs(APIBaseTest):
+class TestExperimentWidgetConfigs(SimpleTestCase):
     def test_experiments_list_config_defaults(self) -> None:
         validated = validate_widget_config(EXPERIMENTS_LIST_WIDGET_TYPE, {})
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
@@ -384,6 +390,25 @@ class TestExperimentResultsWidget(APIBaseTest):
         # The cap is per-section, so a fully-loaded widget runs at most 2x the constant.
         assert mock_runner_cls.return_value.run.call_count == 2 * MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
 
+    @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
+    def test_computes_a_shared_metric_with_its_link_overrides(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.run.return_value = MagicMock(model_dump=lambda mode="json": {})
+        experiment = self._create_experiment(start_date=timezone.now())
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Shared metric", query=_experiment_metric("shared-1", "")
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=saved_metric,
+            metadata={"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]},
+        )
+
+        result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
+
+        assert [entry["name"] for entry in result["metrics"]] == ["Shared metric"]
+        calculated_metric = mock_runner_cls.call_args.kwargs["query"].metric
+        assert [breakdown.property for breakdown in calculated_metric.breakdownFilter.breakdowns] == ["$browser"]
+
     def test_legacy_metric_reports_unsupported_error(self) -> None:
         experiment = self._create_experiment(
             start_date=timezone.now(),
@@ -450,21 +475,9 @@ class TestExperimentWidgetsViaRunWidgetsEndpoint(APIBaseTest):
             _InlineExecutor,
         )
         self.executor_patcher.start()
-        self.widgets_flag_patcher = patch(
-            "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widget_create_flag_patcher = patch(
-            "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widgets_flag_patcher.start()
-        self.widget_create_flag_patcher.start()
 
     def tearDown(self) -> None:
         self.executor_patcher.stop()
-        self.widget_create_flag_patcher.stop()
-        self.widgets_flag_patcher.stop()
         super().tearDown()
 
     def _run(self, dashboard_id: int, tile_ids: list[int]) -> dict[str, Any]:

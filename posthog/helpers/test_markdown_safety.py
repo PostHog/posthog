@@ -1,12 +1,13 @@
 import pytest
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 
 
-class TestStripExternalLinks(BaseTest):
+class TestStripExternalLinks(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_title", "[x](https://evil.example.com)"),

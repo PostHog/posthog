@@ -1,30 +1,30 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import type React from 'react'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
-import { MetricCard, type MetricChange } from '@posthog/quill-charts'
+import { Link } from '@posthog/lemon-ui'
+import { type MetricChange } from '@posthog/quill-charts'
 
+import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils/arrays'
+import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
 
-export interface OverviewMetricCardItem extends Omit<OverviewItem, 'value' | 'previous'> {
-    value: number | undefined
-    previous?: number
-}
+export type OverviewMetricCardItem = OverviewItem
 
 interface OverviewMetricCardGridProps {
     items: OverviewMetricCardItem[]
     layout?: 'grid' | 'contents'
     loading: boolean
     numSkeletons: number
+    emptyMessage?: React.ReactNode
+    className?: string
     samplingRate?: SamplingRate
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
@@ -36,6 +36,8 @@ export function OverviewMetricCardGrid({
     layout = 'grid',
     loading,
     numSkeletons,
+    emptyMessage,
+    className,
     samplingRate,
     preComputeStrategy,
     onDisablePrecompute,
@@ -44,16 +46,18 @@ export function OverviewMetricCardGrid({
     return (
         <>
             <div
-                className={
-                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'
-                }
+                className={cn(
+                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]',
+                    className
+                )}
             >
                 {loading
-                    ? range(numSkeletons).map((i) => <MetricCardSkeleton key={i} />)
+                    ? range(numSkeletons).map((i) => <AnalyticsMetricCard key={i} title={null} loading />)
                     : items.map((item) => (
                           <MetricCardCell
                               key={item.key}
                               item={item}
+                              emptyMessage={emptyMessage}
                               stretch={layout === 'contents'}
                               preComputeStrategy={preComputeStrategy}
                               onDisablePrecompute={onDisablePrecompute}
@@ -68,12 +72,14 @@ export function OverviewMetricCardGrid({
 
 function MetricCardCell({
     item,
+    emptyMessage,
     stretch,
     preComputeStrategy,
     onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
+    emptyMessage?: React.ReactNode
     stretch?: boolean
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
@@ -81,53 +87,33 @@ function MetricCardCell({
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
 
-    const format = (n: number): string => formatItem(n, item.kind, { currency: baseCurrency })
+    const format = (n: number | string): string => formatItem(n, item.kind, { currency: baseCurrency })
     const subtitle = item.previous != null ? `vs. ${format(item.previous)} prior` : item.caption
-
-    const clickable = !!item.onClick
-    const handleClick = clickable
-        ? (event: React.MouseEvent) => {
-              event.stopPropagation()
-              item.onClick?.()
-          }
-        : undefined
-    const handleKeyDown = clickable
-        ? (event: React.KeyboardEvent) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  item.onClick?.()
-              }
-          }
-        : undefined
+    // MetricCard needs a numeric value to render text metrics through its formatter.
+    const numericValue = typeof item.value === 'number' ? item.value : typeof item.value === 'string' ? 0 : undefined
 
     return (
-        <div
-            className={clsx(
-                'relative flex flex-col rounded border bg-surface-primary p-3 transition-colors',
-                item.selected && 'border-accent ring-1 ring-accent',
-                clickable && 'cursor-pointer hover:border-accent'
-            )}
-            onClick={handleClick}
-            onKeyDown={handleKeyDown}
-            role={clickable ? 'button' : undefined}
-            tabIndex={clickable ? 0 : undefined}
-            aria-pressed={clickable ? !!item.selected : undefined}
-        >
-            {preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
-            ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
-                <PreAggregatedBadge variant="preagg" position="bottom-right" />
-            ) : null}
-            <MetricCard
-                className={stretch ? 'h-full [&>div:first-child]:flex-1' : undefined}
-                title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
-                value={item.value}
-                change={metricChange(item)}
-                goodDirection={item.isIncreaseBad ? 'down' : 'up'}
-                formatValue={format}
-                subtitle={subtitle}
-            />
-        </div>
+        <AnalyticsMetricCard
+            className={stretch ? 'h-full' : undefined}
+            title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
+            onClick={item.onClick}
+            selected={item.selected}
+            value={numericValue}
+            emptyMessage={emptyMessage}
+            change={metricChange(item)}
+            goodDirection={item.isIncreaseBad ? 'down' : 'up'}
+            formatValue={(value) =>
+                formatItem(typeof item.value === 'number' ? value : item.value, item.kind, { currency: baseCurrency })
+            }
+            subtitle={subtitle}
+            adornment={
+                preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
+                    <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
+                ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
+                    <PreAggregatedBadge variant="preagg" position="bottom-right" />
+                ) : undefined
+            }
+        />
     )
 }
 
@@ -169,14 +155,4 @@ function metricChange(item: OverviewMetricCardItem): MetricChange | null {
         return null
     }
     return { value: item.changeFromPreviousPct }
-}
-
-function MetricCardSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 rounded border bg-surface-primary p-3">
-            <LemonSkeleton className="h-3 w-16" />
-            <LemonSkeleton className="h-9 w-24" />
-            <LemonSkeleton className="h-3 w-20" />
-        </div>
-    )
 }

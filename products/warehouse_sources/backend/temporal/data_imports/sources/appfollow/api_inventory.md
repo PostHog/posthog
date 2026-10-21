@@ -1,6 +1,7 @@
 # AppFollow API inventory
 
-Reference for the endpoints this source syncs. AppFollow API v2, base URL `https://api.appfollow.io/api/v2`,
+Reference for the endpoints this source syncs. The source supports API `v2` and `v3` (the default for new
+sources). See [API v3](#api-v3) for the tables that change under a v3 pin. AppFollow API v2, base URL `https://api.appfollow.io/api/v2`,
 auth via the `X-AppFollow-API-Token` header. Docs: <https://docs.api.appfollow.io/reference/overview>.
 
 > **Verification status:** every path and query parameter below was checked against the published v2
@@ -77,3 +78,37 @@ enumerate a workspace's apps is:
 resolves it per app: the app's own `country`, then the nested `app.country`, then the collection's
 `default_country`, then the first entry of the collection's `countries`, then `us`. An app tracked in
 two collections with different countries is fetched once per country, because versions vary by country.
+
+## API v3
+
+API v3 (<https://docs.api.appfollow.io/v3.0/reference/overview>) is a new set of endpoints under
+`https://api.appfollow.io/api/v3`. They are not backward compatible with v2, but the same token and
+`X-AppFollow-API-Token` header work. v3 publishes response schemas, so the v3 columns below come from the
+reference rather than from reconstruction.
+
+v3 replaces only the collection, app, and review endpoints. Under a v3 pin those three tables move to the
+v3 wire. Every other table keeps its v2 request path, which AppFollow still serves, including the v2
+collection and app walk that discovers the `ext_id`s those fan-outs need. The table set does not change.
+
+| Schema            | v3 path                            | Shape                                 | Rows under              | Primary key              | Incremental       |
+| ----------------- | ---------------------------------- | ------------------------------------- | ----------------------- | ------------------------ | ----------------- |
+| `app_collections` | `GET /workspaces`                  | single request                        | values of `collections` | `[collectionId]`         | — (full refresh)  |
+| `app_lists`       | `GET /workspaces/apps?appsId=<id>` | fan-out over workspaces               | `apps`                  | `[collectionId, itemId]` | — (full refresh)  |
+| `reviews`         | `POST /reviews/feed` (JSON body)   | fan-out over workspaces, `nextCursor` | `reviews`               | `[itemId, id]`           | `date` via `from` |
+
+- `/workspaces` returns a map from `collectionCode` to workspace. We emit the values in the
+  `sortedCollections` order so the reviews resume bookmark stays stable.
+- `/workspaces/apps` rows carry no workspace id, so we stamp `collectionId` for the primary key.
+  `itemId` identifies an app within one workspace.
+- `/reviews/feed` takes `appsId` (required), `from`/`to` (required dates), `limit` (max 100), `sort`,
+  and `cursor`. We send `sort=oldest`. There is no last-modified filter, so `from`=watermark is the
+  incremental cursor, and an edit to a review older than the watermark is not re-synced.
+- Review rows nest store, rating, country, version, and dates under `metaInformation`. We lift those
+  fields to the top level and also write `date` (from `created`) and `app_version` (from `version`),
+  the v2 column names that readers of the `reviews` table key on.
+- v3 has no `users`, rankings, keywords, store release history, or per-day review-statistics endpoint,
+  so those tables stay on v2.
+- `ratings_history` also stays on v2. The v3 `POST /ratings/chart` requires a `store` from its own
+  store-code enum, but the v3 app list documents a different store value (`itunes`), so the docs do not
+  show how to feed one into the other. It also returns a different row shape (`value`, `starsTotal`,
+  `stars` per period).

@@ -14,6 +14,11 @@ def get_team_business_knowledge_config(team: Team) -> TeamBusinessKnowledgeConfi
     return get_or_create_team_extension(canonical_team_for_config(team), TeamBusinessKnowledgeConfig)
 
 
+def get_environment_business_knowledge_config(team: Team) -> TeamBusinessKnowledgeConfig:
+    """This environment's row. GitHub settings stay here; learning stays on the parent project."""
+    return get_or_create_team_extension(team, TeamBusinessKnowledgeConfig)
+
+
 def set_learn_from_support_enabled(team: Team, enabled: bool) -> TeamBusinessKnowledgeConfig:
     config = get_team_business_knowledge_config(team)
     config.learn_from_support_enabled = enabled

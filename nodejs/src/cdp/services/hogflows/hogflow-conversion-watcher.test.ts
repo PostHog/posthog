@@ -7,7 +7,6 @@ import { CyclotronJobInvocationHogFlow } from '../../types'
 import {
     DEFAULT_CONVERSION_WINDOW_MINUTES,
     MAX_CONVERSION_WINDOW_MINUTES,
-    MAX_LEGACY_WINDOW_MINUTES,
     buildConversionWatcher,
 } from './conversion-watcher'
 
@@ -18,15 +17,13 @@ describe('buildConversionWatcher', () => {
     const propertyGoal = {
         filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
         bytecode: propertyBytecode,
-        window_minutes: null,
     }
     const eventGoal = {
         filters: [],
         bytecode: [],
-        window_minutes: null,
         events: [{ filters: { events: [{ id: 'signed_up' }], bytecode: eventBytecode } }],
     }
-    const noGoal = { filters: [], bytecode: [], window_minutes: null }
+    const noGoal = { filters: [], bytecode: [] }
 
     const invocationFor = (conversion: any, flowOverrides: Partial<HogFlow> = {}): CyclotronJobInvocationHogFlow => {
         const hogFlow = { id: 'flow-1', team_id: 1, version: 3, conversion, ...flowOverrides } as unknown as HogFlow
@@ -69,36 +66,40 @@ describe('buildConversionWatcher', () => {
         const emptyTarget = {
             filters: [],
             bytecode: [],
-            window_minutes: null,
             events: [{ filters: { bytecode: [1] } }],
         }
 
         expect(buildConversionWatcher(invocationFor(emptyTarget))).toBeNull()
     })
 
-    it.each([
-        ['no configured window', null, DEFAULT_CONVERSION_WINDOW_MINUTES],
-        ['a legacy window longer than its cap', 604800, MAX_LEGACY_WINDOW_MINUTES],
-        ['a legacy window inside its cap', 60, 60],
-    ])('expires after %s', (_name, windowMinutes, expectedMinutes) => {
-        // Treating null as "forever" would leave rows the expiry sweep can never reach.
+    it('expires after the default when no window is configured', () => {
+        // Treating an absent window as "forever" would leave rows the expiry sweep can never reach.
         const before = Date.now()
-        const watcher = buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: windowMinutes }))
+        const watcher = buildConversionWatcher(invocationFor(propertyGoal))
 
         // Measured from `before`, so the window is at least the expected value and at most a
         // fraction of a minute more.
         const minutes = (watcher!.expires_at.getTime() - before) / 60_000
-        expect(minutes).toBeGreaterThanOrEqual(expectedMinutes)
-        expect(minutes).toBeLessThan(expectedMinutes + 1)
+        expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
+        expect(minutes).toBeLessThan(DEFAULT_CONVERSION_WINDOW_MINUTES + 1)
+    })
+
+    it('ignores a row still carrying the removed legacy field', () => {
+        // Rows keep window_minutes until the backfill strips it. It must read as no window at all,
+        // not as a window of its own, or those flows would measure something different again.
+        const before = Date.now()
+        const watcher = buildConversionWatcher(
+            invocationFor({ ...propertyGoal, window_minutes: 60 } as unknown as typeof propertyGoal)
+        )
+
+        const minutes = (watcher!.expires_at.getTime() - before) / 60_000
+        expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
     })
 
     it.each([
         ['a duration string', { window: '7d' }, 7 * 24 * 60],
         ['hours', { window: '12h' }, 12 * 60],
         ['a duration string past the cap', { window: '400d' }, MAX_CONVERSION_WINDOW_MINUTES],
-        // The duration string is the trustworthy form, so it wins over a bare number that may hold
-        // any unit at all.
-        ['both forms set', { window: '7d', window_minutes: 604800 }, 7 * 24 * 60],
     ])('expires after %s', (_name, conversionWindow, expectedMinutes) => {
         const before = Date.now()
         const watcher = buildConversionWatcher(invocationFor({ ...propertyGoal, ...conversionWindow }))
@@ -116,10 +117,10 @@ describe('buildConversionWatcher', () => {
 
         const before = await clamped()
 
-        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_LEGACY_WINDOW_MINUTES + 1 }))
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window: '400d' }))
         expect(await clamped()).toBe(before + 1)
 
-        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_LEGACY_WINDOW_MINUTES }))
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window: '365d' }))
         expect(await clamped()).toBe(before + 1)
     })
 

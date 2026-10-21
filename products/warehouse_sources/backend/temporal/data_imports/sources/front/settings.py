@@ -1,11 +1,18 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat, SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Page size the fan-out helper reads for an endpoint that declares no ``limit`` of its own.
+# Front's documented maximum.
+DEFAULT_PAGE_SIZE = 100
 
-@dataclass
+
+@dataclass(frozen=True)
 class FrontEndpointConfig:
     name: str
     path: str
@@ -25,6 +32,46 @@ class FrontEndpointConfig:
     incremental_query_property: Optional[str] = None
     # Bound the first incremental sync to the last N days (None = full history).
     default_lookback_days: Optional[int] = None
+    # Order rows actually arrive in, which is not always the order we ask for: some endpoints
+    # take no sort param and Front fixes the order itself.
+    sort_mode: SortMode = "asc"
+    # Set when the endpoint hangs off a parent resource and has to be fanned out from it.
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def page_size(self) -> int:
+        return self.limit if self.limit is not None else DEFAULT_PAGE_SIZE
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
+
+
+# Every sub-resource under /conversations resolves the same way: one request per conversation,
+# with the parent's id carried onto each child row.
+_CONVERSATION_FANOUT = DependentEndpointConfig(
+    parent_name="conversations",
+    resolve_param="conversation_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "conversation_id"},
+)
+
+_TEAMMATE_GROUP_FANOUT = DependentEndpointConfig(
+    parent_name="teammate_groups",
+    resolve_param="teammate_group_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "teammate_group_id"},
+)
+
+_CONTACT_LIST_FANOUT = DependentEndpointConfig(
+    parent_name="contact_lists",
+    resolve_param="contact_list_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "contact_list_id"},
+)
 
 
 def _datetime_incremental_field(field_name: str) -> IncrementalField:
@@ -91,10 +138,79 @@ FRONT_ENDPOINTS: dict[str, FrontEndpointConfig] = {
     ),
     # The remaining endpoints take no query params and have no stable creation timestamp in the
     # response, so they're plain full-refresh listings.
+    # Front returns messages newest-first by default; `created_at` is the only sort it accepts,
+    # so ask for ascending and page through with the same cursor the top-level endpoints use.
+    "conversation_messages": FrontEndpointConfig(
+        name="conversation_messages",
+        path="/conversations/{conversation_id}/messages",
+        partition_key="created_at",
+        limit=100,
+        sort_by="created_at",
+        sort_order="asc",
+        fanout=_CONVERSATION_FANOUT,
+    ),
+    # Comments take no query params at all — no paging, no sorting — and arrive newest-first.
+    "conversation_comments": FrontEndpointConfig(
+        name="conversation_comments",
+        path="/conversations/{conversation_id}/comments",
+        partition_key="posted_at",
+        sort_mode="desc",
+        fanout=_CONVERSATION_FANOUT,
+    ),
+    # Rows are teammates, so a teammate following many conversations repeats its id: key on the pair.
+    "conversation_followers": FrontEndpointConfig(
+        name="conversation_followers",
+        path="/conversations/{conversation_id}/followers",
+        primary_keys=["conversation_id", "id"],
+        fanout=_CONVERSATION_FANOUT,
+    ),
+    # Resolves the ticket status id carried on each synced conversation.
+    "ticket_statuses": FrontEndpointConfig(
+        name="ticket_statuses", path="/company/statuses", partition_key="created_at"
+    ),
+    # Custom field definitions are listed per resource type, so each is its own lookup table.
+    # `/custom_fields` is deprecated in favor of `/contacts/custom_fields` and is not synced.
+    "account_custom_fields": FrontEndpointConfig(name="account_custom_fields", path="/accounts/custom_fields"),
+    "contact_custom_fields": FrontEndpointConfig(name="contact_custom_fields", path="/contacts/custom_fields"),
+    "conversation_custom_fields": FrontEndpointConfig(
+        name="conversation_custom_fields", path="/conversations/custom_fields"
+    ),
+    "inbox_custom_fields": FrontEndpointConfig(name="inbox_custom_fields", path="/inboxes/custom_fields"),
+    "link_custom_fields": FrontEndpointConfig(name="link_custom_fields", path="/links/custom_fields"),
+    "teammate_custom_fields": FrontEndpointConfig(name="teammate_custom_fields", path="/teammates/custom_fields"),
     "teammates": FrontEndpointConfig(name="teammates", path="/teammates"),
     "inboxes": FrontEndpointConfig(name="inboxes", path="/inboxes"),
     "channels": FrontEndpointConfig(name="channels", path="/channels"),
     "teams": FrontEndpointConfig(name="teams", path="/teams"),
+    "teammate_groups": FrontEndpointConfig(name="teammate_groups", path="/teammate_groups"),
+    # Membership joins: the same teammate, team or inbox can sit in many groups.
+    "teammate_group_teammates": FrontEndpointConfig(
+        name="teammate_group_teammates",
+        path="/teammate_groups/{teammate_group_id}/teammates",
+        primary_keys=["teammate_group_id", "id"],
+        fanout=_TEAMMATE_GROUP_FANOUT,
+    ),
+    "teammate_group_teams": FrontEndpointConfig(
+        name="teammate_group_teams",
+        path="/teammate_groups/{teammate_group_id}/teams",
+        primary_keys=["teammate_group_id", "id"],
+        fanout=_TEAMMATE_GROUP_FANOUT,
+    ),
+    "teammate_group_inboxes": FrontEndpointConfig(
+        name="teammate_group_inboxes",
+        path="/teammate_groups/{teammate_group_id}/inboxes",
+        primary_keys=["teammate_group_id", "id"],
+        fanout=_TEAMMATE_GROUP_FANOUT,
+    ),
+    # Contact lists replace the deprecated contact groups, which are not synced.
+    "contact_lists": FrontEndpointConfig(name="contact_lists", path="/contact_lists"),
+    "contact_list_contacts": FrontEndpointConfig(
+        name="contact_list_contacts",
+        path="/contact_lists/{contact_list_id}/contacts",
+        primary_keys=["contact_list_id", "id"],
+        limit=100,
+        fanout=_CONTACT_LIST_FANOUT,
+    ),
 }
 
 ENDPOINTS = tuple(FRONT_ENDPOINTS.keys())

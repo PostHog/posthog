@@ -2,13 +2,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -43,6 +44,7 @@ export function GroupsScene(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -51,7 +53,7 @@ export function GroupsScene(): JSX.Element {
     if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
-                <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+                <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
                 <SceneTitleSection
                     name="Groups"
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
@@ -73,7 +75,7 @@ export function GroupsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+            <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
@@ -84,16 +86,25 @@ export function GroupsScene(): JSX.Element {
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-groups-list-feedback-button" />
-                        {hasCustomerAnalyticsEnabled && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                data-attr={`new-group-${groupTypeIndex}`}
-                                onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                            >
-                                New {aggregationLabel(groupTypeIndex).singular}
-                            </LemonButton>
-                        )}
+                        {hasCustomerAnalyticsEnabled &&
+                            (todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    data-attr={`new-group-${groupTypeIndex}`}
+                                    onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                                >
+                                    New {aggregationLabel(groupTypeIndex).singular}
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    data-attr={`new-group-${groupTypeIndex}`}
+                                    onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                                >
+                                    New {aggregationLabel(groupTypeIndex).singular}
+                                </LemonButton>
+                            ))}
                     </>
                 }
             />

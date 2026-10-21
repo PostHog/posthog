@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluence
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
     ConfluenceSourceConfig,
@@ -35,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeConfig]):
+    codebase_detection = detect(env=("^CONFLUENCE_",), npm=("confluence.js",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2",)
@@ -57,7 +61,7 @@ class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeC
             name=ExternalDataSourceType.CONFLUENCE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Confluence",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Atlassian Confluence Cloud credentials to pull your Confluence content into the PostHog Data warehouse.
 
 Create an API token from your [Atlassian account settings](https://id.atlassian.com/manage-profile/security/api-tokens), then connect using the email address tied to that account.
@@ -114,7 +118,7 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
     ) -> list[SourceSchema]:
         # v2 list endpoints have no server-side timestamp filter, so every endpoint is
         # full refresh only (no incremental fields -> supports_incremental/append False).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

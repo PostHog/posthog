@@ -80,6 +80,10 @@
       "types": "./dist/bundled-resources.d.ts",
       "import": "./dist/bundled-resources.js"
     },
+    "./screen-capture": {
+      "types": "./dist/screen-capture.d.ts",
+      "import": "./dist/screen-capture.js"
+    },
     "./image-processor": {
       "types": "./dist/image-processor.d.ts",
       "import": "./dist/image-processor.js"

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
+    codebase_detection = detect(env=("^ZENLOOP_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.zenloop.com/reference"
@@ -52,7 +55,7 @@ class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
             name=ExternalDataSourceType.ZENLOOP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Zenloop",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Zenloop API token to pull your Zenloop data into the PostHog Data warehouse.
 
 You can generate an API token under **Settings → API** in the [Zenloop app](https://app.zenloop.com/settings/api). The token inherits the generating user's account permissions and grants read access to surveys, survey groups, and properties.

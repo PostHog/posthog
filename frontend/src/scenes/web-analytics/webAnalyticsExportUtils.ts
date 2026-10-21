@@ -4,9 +4,17 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 
-import { ExportAdapter, csvFromTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import {
+    ExportAdapter,
+    TrendsAdapter,
+    csvFromTableData,
+    getInsightExportAdapter,
+} from '~/queries/nodes/InsightViz/exportAdapters'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { GRADE_PER_BAND, WebVitalsRow } from '~/queries/nodes/WebVitals/definitions'
 import {
     DataTableNode,
     NodeKind,
@@ -15,9 +23,27 @@ import {
     WebGoalsQuery,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
+    WebVitalsMetric,
+    WebVitalsMetricBand,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPathBreakdownQueryResponse,
+    WebVitalsQuery,
+    WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '~/queries/utils'
-import { TabsTileTab, TILE_LABELS, WebAnalyticsTile, getDisplayColumnName } from '~/scenes/web-analytics/common'
+import {
+    isWebExternalClicksQuery,
+    isWebGoalsQuery,
+    isWebStatsTableQuery,
+    isWebVitalsPathBreakdownQuery,
+    isWebVitalsQuery,
+} from '~/queries/utils'
+import {
+    QueryTile,
+    TabsTileTab,
+    TILE_LABELS,
+    WebAnalyticsTile,
+    getDisplayColumnName,
+} from '~/scenes/web-analytics/common'
 import { InsightLogicProps } from '~/types'
 
 export interface TileExportSection {
@@ -75,6 +101,12 @@ export function getExportAdapter(insightDataRaw: unknown, query: QuerySchema | u
     if (!insightDataRaw || !query) {
         return null
     }
+    if (isWebVitalsQuery(query)) {
+        return webVitalsTrendsAdapter(insightDataRaw as WebVitalsQueryResponse, query)
+    }
+    if (isWebVitalsPathBreakdownQuery(query)) {
+        return new WebVitalsPathBreakdownAdapter(insightDataRaw as WebVitalsPathBreakdownQueryResponse, query)
+    }
     const webAdapter = new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query)
     if (webAdapter.canHandle()) {
         return webAdapter
@@ -82,15 +114,18 @@ export function getExportAdapter(insightDataRaw: unknown, query: QuerySchema | u
     return getInsightExportAdapter(insightDataRaw, query)
 }
 
+function findMountedTileDataNode(insightProps: InsightLogicProps): ReturnType<typeof dataNodeLogic.findMounted> {
+    return dataNodeLogic.findMounted({ key: insightVizDataNodeKey(insightProps) } as DataNodeLogicProps)
+}
+
 function tileToTableData(query: QuerySchema, insightProps: InsightLogicProps): string[][] | null {
-    const insightDataRaw = insightDataLogic.findMounted(insightProps)?.values.insightDataRaw
-    const adapter = getExportAdapter(insightDataRaw, query)
+    const adapter = getExportAdapter(findMountedTileDataNode(insightProps)?.values.response, query)
     const tableData = adapter?.toTableData() ?? []
     return tableData.length > 0 ? tableData : null
 }
 
 function isTileStillLoading(insightProps: InsightLogicProps): boolean {
-    return insightDataLogic.findMounted(insightProps)?.values.insightDataLoading === true
+    return findMountedTileDataNode(insightProps)?.values.dataLoading === true
 }
 
 export function anyTileStillLoading(tiles: WebAnalyticsTile[]): boolean {
@@ -135,13 +170,18 @@ export function exportAllTilesAsCsvZip(tiles: WebAnalyticsTile[], filename = 'we
     return true
 }
 
+function queryTileTitle(tile: QueryTile): string {
+    const base = tile.title ?? TILE_LABELS[tile.tileId] ?? tile.tileId
+    return isWebVitalsPathBreakdownQuery(tile.query) ? `${base}: ${tile.query.metric}` : base
+}
+
 export function collectAllTilesTableData(tiles: WebAnalyticsTile[]): TileExportSection[] {
     const sections: TileExportSection[] = []
     for (const tile of tiles) {
         if (tile.kind === 'query') {
             const tableData = tileToTableData(tile.query, tile.insightProps)
             if (tableData) {
-                sections.push({ title: tile.title ?? TILE_LABELS[tile.tileId] ?? tile.tileId, tableData })
+                sections.push({ title: queryTileTitle(tile), tableData })
             }
         } else if (tile.kind === 'tabs') {
             const activeTab = tile.tabs.find((tab) => tab.id === tile.activeTabId)
@@ -239,5 +279,45 @@ export class WebAnalyticsTableAdapter implements ExportAdapter {
         const columns = (this.response.columns as string[]) || []
 
         return hasData && columns.length > 0
+    }
+}
+
+function webVitalsColumnName(metric: WebVitalsMetric, percentile: string): string {
+    return metric === 'CLS' ? `${metric} ${percentile}` : `${metric} ${percentile} (ms)`
+}
+
+function webVitalsTrendsAdapter(response: WebVitalsQueryResponse, query: WebVitalsQuery): TrendsAdapter {
+    return new TrendsAdapter({
+        ...response,
+        results: ((response.results ?? []) as WebVitalsRow[]).map((item) => {
+            const node = getResultSeries(query.source, { order: item.order }).node
+            return node?.custom_name && node.math
+                ? { ...item, label: webVitalsColumnName(node.custom_name as WebVitalsMetric, node.math) }
+                : item
+        }),
+    })
+}
+
+const WEB_VITALS_BANDS: WebVitalsMetricBand[] = ['good', 'needs_improvements', 'poor']
+
+class WebVitalsPathBreakdownAdapter implements ExportAdapter {
+    constructor(
+        private response: WebVitalsPathBreakdownQueryResponse,
+        private query: WebVitalsPathBreakdownQuery
+    ) {}
+
+    toTableData(): string[][] {
+        const breakdown = this.response.results?.[0]
+        const rows = WEB_VITALS_BANDS.flatMap((band) =>
+            (breakdown?.[band] ?? []).map(({ path, value }) => [GRADE_PER_BAND[band], path, String(value)])
+        )
+        if (rows.length === 0) {
+            return []
+        }
+        return [['Band', 'Path', webVitalsColumnName(this.query.metric, this.query.percentile)], ...rows]
+    }
+
+    canHandle(): boolean {
+        return true
     }
 }

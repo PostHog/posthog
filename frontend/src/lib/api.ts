@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -27,7 +27,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -68,7 +68,6 @@ import {
     RefreshType,
     SpanTreeNode,
     TileFilters,
-    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -148,7 +147,6 @@ import {
     IntegrationType,
     JiraProjectType,
     LinearTeamType,
-    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -204,7 +202,6 @@ import {
     TeamType,
     TwilioPhoneNumberType,
     UserBasicType,
-    UserInterviewType,
     UserType,
     WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
@@ -218,7 +215,6 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
@@ -247,7 +243,6 @@ import type {
     ExternalDataSourceTypeEnumApi,
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -688,11 +683,6 @@ export class ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
     }
 
-    // # User product list
-    public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
-    }
-
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -732,15 +722,6 @@ export class ApiRequest {
 
     public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
-    }
-
-    // # Links
-    public links(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('links')
-    }
-
-    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.links(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -977,13 +958,6 @@ export class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(
-        dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
-    ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
-    }
-
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
@@ -1014,14 +988,6 @@ export class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
-    }
-
-    public dashboardCollaboratorsDetail(
-        dashboardId: DashboardType['id'],
-        userUuid: UserType['uuid'],
-        projectId?: ProjectType['id']
-    ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -1203,15 +1169,6 @@ export class ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
-    // # User interviews
-    public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
-    }
-
-    public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.userInterviews(teamId).addPathComponent(id)
-    }
-
     // # Users
     public users(email?: string): ApiRequest {
         if (email) {
@@ -1390,14 +1347,6 @@ export class ApiRequest {
 
     public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
-    }
-
-    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('recommendations')
-    }
-
-    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -1752,11 +1701,6 @@ export class ApiRequest {
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
-    }
-
-    // Max hands-free mode (ElevenLabs Scribe token proxy)
-    public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
     }
 
     // Conversations (Support product)
@@ -2386,6 +2330,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            includeTags,
             signal,
         }: {
             parent?: string
@@ -2402,6 +2347,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            includeTags?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2421,6 +2367,7 @@ const api = {
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
+                    include_tags: includeTags,
                 })
                 .get({ signal })
         },
@@ -2508,17 +2455,6 @@ const api = {
         },
         async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
             return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
-        },
-    },
-
-    userProductList: {
-        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().get()
-        },
-        async bulkUpdate(
-            items: { product_path: string; enabled: boolean }[]
-        ): Promise<{ results: UserProductListItem[] }> {
-            return await new ApiRequest().userProductList().withAction('bulk_update').update({ data: { items } })
         },
     },
 
@@ -2831,6 +2767,8 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // true (default) only selects traces with a root span.
+                rootSpans?: boolean
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
@@ -2858,14 +2796,8 @@ const api = {
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
-                .create({
-                    signal,
-                    data: {
-                        ...query,
-                        dateRange: query?.dateRange ?? { date_from: '-24h' },
-                    },
-                })
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
+                .create({ signal, data: { ...query } })
         },
         async sparkline(
             query: {
@@ -3455,7 +3387,7 @@ const api = {
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
-            onError: (error: any) => void
+            onError: (error: any, willRetry?: boolean) => void
         ): Promise<() => void> {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
@@ -3471,12 +3403,12 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            const handleConnectionError = (error: any): void => {
-                if (isAbortError(error)) {
+            const handleConnectionError = (error: any, willRetry = false): void => {
+                if (abortController.signal.aborted || isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                onError(error)
+                onError(error, willRetry)
             }
 
             fetchEventSource(url, {
@@ -3501,16 +3433,18 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
+                            abortController.abort()
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
                         }
                     } catch (error) {
+                        abortController.abort()
                         onError(error)
                     }
                 },
                 onerror: (error) => {
-                    handleConnectionError(error)
+                    handleConnectionError(error, true)
                 },
             }).then(() => {
                 if (!abortController.signal.aborted && !streamFinished) {
@@ -4025,32 +3959,6 @@ const api = {
         },
     },
 
-    links: {
-        async list(
-            args: {
-                limit?: number
-                offset?: number
-                search?: string
-            } = {
-                limit: LINK_PAGE_SIZE,
-            }
-        ): Promise<CountedPaginatedResponse<LinkType>> {
-            return await new ApiRequest().links().withQueryString(args).get()
-        },
-        async get(id: LinkType['id']): Promise<LinkType> {
-            return await new ApiRequest().link(id).get()
-        },
-        async create(data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().links().create({ data })
-        },
-        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().link(id).update({ data })
-        },
-        async delete(id: LinkType['id']): Promise<void> {
-            await new ApiRequest().link(id).delete()
-        },
-    },
-
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -4223,31 +4131,6 @@ const api = {
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
-        },
-
-        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
-            results: ErrorTrackingRecommendation[]
-        }> {
-            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
-        },
-
-        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
-        },
-
-        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
-        },
-
-        async refreshRecommendation(
-            id: string,
-            { force = true }: { force?: boolean } = {}
-        ): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendation(id)
-                .withAction('refresh')
-                .withQueryString({ force })
-                .create()
         },
 
         async createRule(
@@ -4786,6 +4669,7 @@ const api = {
                 stdout?: string
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
+                result_text?: string
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
@@ -4982,21 +4866,6 @@ const api = {
         },
     },
 
-    userInterviews: {
-        async list(): Promise<PaginatedResponse<UserInterviewType>> {
-            return await new ApiRequest().userInterviews().get()
-        },
-        async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).get()
-        },
-        async update(
-            id: UserInterviewType['id'],
-            data: Pick<UserInterviewType, 'summary'>
-        ): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).update({ data })
-        },
-    },
-
     users: {
         async list(email?: string): Promise<PaginatedResponse<UserType>> {
             return await new ApiRequest().users(email).get()
@@ -5010,6 +4879,8 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Inbox sort preset, for example `recommended`. The server ignores it when `ordering` is set. */
+            sort?: string
             /** Comma-separated source products. */
             source_product?: string
             /** Comma-separated P0–P4. */
@@ -5026,6 +4897,10 @@ const api = {
             scout_prefix?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
+            /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
+            include_source_metadata?: 'true' | 'false'
+            /** ISO 8601 datetime. Keeps reports created at or after it. */
+            created_after?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5037,6 +4912,9 @@ const api = {
             params: { limit?: number } = {}
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
+        },
+        async activateMeasurement(id: SignalReport['id'], artefactId: string): Promise<void> {
+            await new ApiRequest().signalReport(id).withAction(`artefacts/${artefactId}/activate`).create()
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
@@ -6465,16 +6343,6 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
-        async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email',
-            sendsEmail?: boolean
-        ): Promise<BlastRadiusApi> {
-            return await new ApiRequest()
-                .hogFlows()
-                .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
-        },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
             data: {
@@ -6654,23 +6522,6 @@ const api = {
     schema: {
         async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
             return await new ApiRequest().queryUpgrade().create({ data })
-        },
-    },
-
-    maxHandsFree: {
-        async token(options?: ApiMethodOptions): Promise<{ token: string }> {
-            return await api.create(
-                new ApiRequest().maxHandsFree().withAction('token').assembleFullUrl(),
-                undefined,
-                options
-            )
-        },
-        async synthesize(text: string, options?: ApiMethodOptions): Promise<Response> {
-            return await api.createResponse(
-                new ApiRequest().maxHandsFree().withAction('synthesize').assembleFullUrl(),
-                { text },
-                options
-            )
         },
     },
 
@@ -7323,7 +7174,8 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    startedByUserAction = isUserActionInProgress()
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7335,7 +7187,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, startedByUserAction)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
@@ -7374,13 +7226,13 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 
     if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
         if (await awaitReauthentication()) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 

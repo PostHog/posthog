@@ -11,7 +11,6 @@ import { HogFlowDuration, MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT } from './HogF
 // type and the generated HogFlowConversionApi type.
 export interface ConversionGoalValue {
     window?: string | null
-    window_minutes?: number | null
     filters?: any
     events?: { filters?: any; name?: string }[]
     bytecode?: unknown
@@ -25,27 +24,10 @@ export interface ConversionGoalEditorProps {
 }
 
 const DEFAULT_CONVERSION_WINDOW = '90d'
-// The worker measures a legacy window_minutes at most this long, so a longer stored value is shown
-// as what it actually measures rather than as a number the API would now reject.
-const LEGACY_CONVERSION_WINDOW_CEILING_MINUTES = 90 * 24 * 60
-
-function conversionWindowFromMinutes(minutes: number): string {
-    const capped = Math.min(minutes, LEGACY_CONVERSION_WINDOW_CEILING_MINUTES)
-    if (capped % (24 * 60) === 0) {
-        return `${capped / (24 * 60)}d`
-    }
-    if (capped % 60 === 0) {
-        return `${capped / 60}h`
-    }
-    return `${capped}m`
-}
 
 export function ConversionGoalEditor({ conversion, onChange, pageKey }: ConversionGoalEditorProps): JSX.Element {
     const conversionEventFilters = conversion?.events?.[0]?.filters ?? {}
-    const legacyWindowMinutes = conversion?.window_minutes
-    const conversionWindow =
-        conversion?.window ??
-        (legacyWindowMinutes ? conversionWindowFromMinutes(legacyWindowMinutes) : DEFAULT_CONVERSION_WINDOW)
+    const conversionWindow = conversion?.window ?? DEFAULT_CONVERSION_WINDOW
 
     return (
         <div className="flex flex-col gap-4">
@@ -94,10 +76,9 @@ export function ConversionGoalEditor({ conversion, onChange, pageKey }: Conversi
                 <HogFlowDuration
                     value={conversionWindow}
                     onChange={(next) => {
-                        // Dropping window_minutes keeps the two forms from arriving together, which
-                        // the API rejects. A cleared amount arrives as a bare unit such as "d", so
-                        // omitting window restores the default instead of failing the save.
-                        const { window_minutes, window, ...rest } = conversion ?? {}
+                        // A cleared amount arrives as a bare unit such as "d", so omitting window
+                        // restores the default instead of failing the save.
+                        const { window, ...rest } = conversion ?? {}
                         onChange(/\d/.test(next) ? { ...rest, window: next } : rest)
                     }}
                     maxValueForUnit={MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT}

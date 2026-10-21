@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import orjson
 import pyarrow as pa
@@ -21,9 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -33,21 +37,48 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     API_VERSION_HEADERS,
     MAILERLITE_ENDPOINTS,
     MAILERLITE_V1,
+    PAGE_SIZE,
     WEBHOOK_SCHEMA_NAMES,
+    MailerLiteEndpointConfig,
 )
 
 MAILERLITE_BASE_URL = "https://connect.mailerlite.com/api"
 
-# MailerLite caps list endpoints at 100 rows per page; default is 25.
-PAGE_SIZE = 100
-
 WEBHOOK_NAME = "PostHog Data warehouse"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailerLiteResumeConfig:
     # Absolute next-page URL returned by the API (carries the cursor / page number and limit).
-    next_url: str
+    next_url: str | None = None
+    # Fan-out endpoints resume per parent — see
+    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: list[str] | None = None
+    current: str | None = None
+    child_state: dict[str, Any] | None = None
+
+
+# The automation activity endpoint requires `filter[status]` on every page (see api_inventory.md),
+# but MailerLite's own `links.next` for page 2+ omits it — following that link verbatim 422s with
+# "Unprocessable Entity". Carry it forward from the page that was just fetched.
+_CARRIED_QUERY_PARAMS = ("filter[status]",)
+
+
+def _carry_required_query_params(next_url: str, previous_url: Optional[str]) -> str:
+    if not previous_url:
+        return next_url
+
+    previous_query = dict(parse_qsl(urlsplit(previous_url).query))
+    next_split = urlsplit(next_url)
+    next_query = parse_qsl(next_split.query)
+    next_keys = {key for key, _ in next_query}
+    missing = [
+        (key, previous_query[key]) for key in _CARRIED_QUERY_PARAMS if key in previous_query and key not in next_keys
+    ]
+    if not missing:
+        return next_url
+
+    return next_split._replace(query=urlencode(next_query + missing)).geturl()
 
 
 class MailerLiteNextUrlPaginator(JSONResponsePaginator):
@@ -64,11 +95,94 @@ class MailerLiteNextUrlPaginator(JSONResponsePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
+        if self._has_next_page and self._next_url is not None:
+            self._next_url = _carry_required_query_params(self._next_url, response.url)
         if self._has_next_page and (
             not isinstance(self._next_url, str) or not self._next_url.startswith(MAILERLITE_BASE_URL)
         ):
             self._has_next_page = False
             self._next_url = None
+
+
+def _client_config(api_key: str, api_version: str) -> ClientConfig:
+    # `v1` predates version pinning and sends no header (the exact behaviour existing syncs run
+    # under); newer versions pin MailerLite's `X-Version` header so responses stay on a fixed shape.
+    headers = {"Accept": "application/json"}
+    version_header = API_VERSION_HEADERS.get(api_version)
+    if version_header is not None:
+        headers["X-Version"] = version_header
+
+    return {
+        "base_url": MAILERLITE_BASE_URL,
+        # Auth (Bearer) goes through the framework auth config so its value is redacted from
+        # logs and raised errors; only the non-secret headers are set here.
+        "headers": headers,
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": MailerLiteNextUrlPaginator(),
+        # Pin every request — including a seeded resume URL — to the MailerLite host so a
+        # tampered pagination/resume link can't exfiltrate the Authorization header (SSRF).
+        "allowed_hosts": [],
+    }
+
+
+def _fanout_source(
+    endpoint_config: MailerLiteEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[MailerLiteResumeConfig],
+) -> SourceResponse:
+    fanout = endpoint_config.fanout
+    assert fanout is not None
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                MailerLiteResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    # Paginators hold per-walk state, so each hop gets its own. The child is set explicitly
+    # because a path ending in a placeholder would otherwise default to a single-page fetch.
+    resource = build_dependent_resource(
+        endpoint_configs=MAILERLITE_ENDPOINTS,
+        child_endpoint=endpoint_config.name,
+        fanout=fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"paginator": MailerLiteNextUrlPaginator(), "data_selector": "data"},
+        child_endpoint_extra={"paginator": MailerLiteNextUrlPaginator(), "data_selector": "data"},
+        parent_data_map=endpoint_config.parent_data_map,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+
+    return SourceResponse(
+        name=endpoint_config.name,
+        items=lambda: resource,
+        primary_keys=endpoint_config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+    )
 
 
 def mailerlite_source(
@@ -82,32 +196,19 @@ def mailerlite_source(
     api_version: str = MAILERLITE_V1,
 ) -> SourceResponse:
     endpoint_config = MAILERLITE_ENDPOINTS[endpoint]
+    client_config = _client_config(api_key, api_version)
 
-    # `v1` predates version pinning and sends no header (the exact behaviour existing syncs run
-    # under); newer versions pin MailerLite's `X-Version` header so responses stay on a fixed shape.
-    headers = {"Accept": "application/json"}
-    version_header = API_VERSION_HEADERS.get(api_version)
-    if version_header is not None:
-        headers["X-Version"] = version_header
+    if endpoint_config.fanout is not None:
+        return _fanout_source(endpoint_config, client_config, team_id, job_id, resumable_source_manager)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": MAILERLITE_BASE_URL,
-            # Auth (Bearer) goes through the framework auth config so its value is redacted from
-            # logs and raised errors; only the non-secret headers are set here.
-            "headers": headers,
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": MailerLiteNextUrlPaginator(),
-            # Pin every request — including a seeded resume URL — to the MailerLite host so a
-            # tampered pagination/resume link can't exfiltrate the Authorization header (SSRF).
-            "allowed_hosts": [],
-        },
+        "client": client_config,
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": endpoint_config.path,
-                    "params": {"limit": PAGE_SIZE},
+                    "params": {"limit": endpoint_config.page_size},
                     # Every list response wraps its rows in {"data": [...], "links": {...}, "meta": {...}};
                     # a missing/empty "data" is a legit zero-row page, not an error.
                     "data_selector": "data",
@@ -119,7 +220,7 @@ def mailerlite_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -159,14 +260,39 @@ def mailerlite_source(
     )
 
 
-def validate_credentials(api_key: str, path: str = "/subscribers") -> bool:
-    """Confirm the API key is genuine with one cheap probe against a list endpoint."""
-    ok, _status = validate_via_probe(
+INVALID_KEY_ERROR = (
+    "Your MailerLite API key is invalid or has been revoked. Create a new key in your "
+    "MailerLite account settings, then try again."
+)
+MISSING_PERMISSION_ERROR = (
+    "Your MailerLite API key is missing the read permissions needed for this data. "
+    "Grant them in your MailerLite account settings, then try again."
+)
+UNVERIFIED_KEY_ERROR = (
+    "Couldn't check your MailerLite API key because MailerLite didn't respond. Try again in a few minutes."
+)
+
+
+def validate_credentials(api_key: str, path: str = "/subscribers") -> tuple[bool, str | None]:
+    """Probe the API key with one cheap GET against a list endpoint, as ``(is_valid, error)``.
+
+    Only a deterministic 4xx proves the key itself is bad. A 403 means the key is genuine but
+    unscoped, and a 429, a 5xx or a transport failure never verified it at all — blaming the key
+    there sends the user off to replace one that works.
+    """
+    _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{MAILERLITE_BASE_URL}{path}?limit=1",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )
-    return ok
+
+    if status == 200:
+        return True, None
+    if status == 403:
+        return False, MISSING_PERMISSION_ERROR
+    if status is not None and 400 <= status < 500 and status != 429:
+        return False, INVALID_KEY_ERROR
+    return False, UNVERIFIED_KEY_ERROR
 
 
 # Envelope keys a webhook delivery adds around the subscriber object. `event` (flat payloads) and

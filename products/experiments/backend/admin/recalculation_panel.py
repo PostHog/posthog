@@ -7,7 +7,7 @@ order stays in one place, matching the frontend resolver in experimentMetricsLog
 """
 
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib import messages
@@ -18,6 +18,7 @@ from django.utils.html import format_html
 from posthog.models.user import User
 
 from products.experiments.backend.metric_events import _default_metric_title
+from products.experiments.backend.metric_resolution import build_metric, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -26,10 +27,10 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.recalculation import (
     _derive_counters,
     get_run_results,
+    metrics_recalculation_workflow_id,
     request_recalculation,
     start_metrics_recalculation_workflow,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 
 
 def format_duration(started_at: datetime | None, completed_at: datetime | None) -> str | None:
@@ -52,10 +53,10 @@ def format_duration(started_at: datetime | None, completed_at: datetime | None) 
     return " ".join(parts)
 
 
-def _metric_name(experiment: Experiment, metric_uuid: str) -> str:
+def _metric_name(definitions: dict[str, dict[str, Any]], metric_uuid: str) -> str:
     """Resolve a metric_uuid to the title a user sees, falling back to the uuid for a metric that no
     longer resolves on the experiment (removed after the run)."""
-    metric_dict = find_metric_dict(experiment, metric_uuid)
+    metric_dict = definitions.get(metric_uuid)
     if metric_dict is None:
         return metric_uuid
     if metric_dict.get("name"):
@@ -80,6 +81,7 @@ def _resolve_failures(recalc: ExperimentMetricsRecalculation, results: list[dict
 
     # Union of every uuid that failed either way, so a discovery-step failure with no result row still shows.
     failed_uuids = set(metric_errors.keys()) | set(failed_row_message.keys())
+    definitions = scheduled_metric_definitions(recalc.experiment) if failed_uuids else {}
     failures = []
     for metric_uuid in failed_uuids:
         error = None
@@ -92,7 +94,7 @@ def _resolve_failures(recalc: ExperimentMetricsRecalculation, results: list[dict
         failures.append(
             {
                 "metric_uuid": metric_uuid,
-                "metric_name": _metric_name(recalc.experiment, metric_uuid),
+                "metric_name": _metric_name(definitions, metric_uuid),
                 "error": error,
             }
         )
@@ -105,7 +107,7 @@ def temporal_workflow_url(recalculation_id: str) -> str:
     so it resolves per region without hardcoding a slug."""
     return (
         f"https://cloud.temporal.io/namespaces/{settings.TEMPORAL_NAMESPACE}"
-        f"/workflows/experiment-metrics-recalculation-{recalculation_id}"
+        f"/workflows/{metrics_recalculation_workflow_id(recalculation_id)}"
     )
 
 
@@ -161,17 +163,12 @@ def start_recalculation_for_experiment(
 
     recalculation_id = str(result["id"])
     try:
-        start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
+        start_metrics_recalculation_workflow(
+            recalculation_id,
+            team_id=experiment.team_id,
+            organization_id=str(experiment.team.organization_id),
+        )
     except Exception as e:
-        # start_workflow can raise after the server accepted the start, so only roll back a row that is
-        # still PENDING with no query_to; a run past mark_started proceeds untouched, and one caught in
-        # the discovery window is terminated cleanly by the mark_started/mark_completed guards
-        # (mirrors the API rollback).
-        ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(
-            id=recalculation_id,
-            status=ExperimentMetricsRecalculation.Status.PENDING,
-            query_to__isnull=True,
-        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
         messages.error(request, f"Created the row but failed to start the workflow (marked failed): {e}")
         return HttpResponseRedirect(fallback_url)
 

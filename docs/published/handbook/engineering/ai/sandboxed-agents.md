@@ -171,6 +171,7 @@ Task links in shared AI history open `/ai?task=<task-id>` and render the task ru
 The task stays selected on reload and when navigating back or forward.
 Existing `/tasks/<task-id>` links still open the standalone runner.
 Task headers keep horizontal padding around the title and run metadata.
+With `today-rail-nav` enabled, task loading placeholders preserve the header height, conversation column, and composer area while task metadata and run history load.
 In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
@@ -186,6 +187,17 @@ Use the `posthog_mcp_scopes` parameter to control access:
 | ------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `"read_only"`      | Read access to actions, cohorts, dashboards, experiments, feature flags, insights, queries, surveys, etc. | Agent only needs to read data for analysis or reporting                                            |
 | `"full"` (default) | Read + write access to all MCP-exposed resources                                                          | Agent needs to create or modify PostHog resources (e.g., create feature flags, update experiments) |
+
+The internal `signals_research` preset also reads the project-member roster through `scout-members-list`.
+It can write to the scratchpad, but it cannot emit signals, edit reports, or start tasks.
+Report research returns reviewer decisions as structured output; the pipeline validates project access before it stores them.
+The `signals-research-reviewer-selection` flag controls this selection path.
+Research picks route the report. Autostart permits a research-selected task user only when the ownership or commit resolver independently confirms the same member.
+The check uses current project access and the member’s linked GitHub account. Personal priority settings and skill-owner exclusions still apply.
+This requires additional GitHub lookups. Failed or unmatched lookups retain the existing team fallback and no-runner behavior.
+Non-owner scout picks keep their existing task-user rules; they do not use this additional confirmation.
+A missing decision or a decision with no valid members uses the ownership and commit resolver.
+An explicit empty decision clears automatic suggestions and records its reason in the report log. Human reviewer edits take precedence.
 
 ### Custom scopes
 
@@ -207,10 +219,31 @@ Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 
 Internal scopes (`task:write`, `llm_gateway:read`) are always added automatically.
 
+An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
+Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
+
 See `posthog/temporal/oauth.py` for the full list.
 
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
 > This limits blast radius if the agent misbehaves.
+
+### Scout tool selections
+
+Scout configs can store an exact `allowed_mcp_tools` list beside their scope grants.
+`null` preserves unrestricted tool selection within the scout's scopes; `[]` selects no additional tools.
+The `read_only` and `support_notes` tool presets expand into a snapshot when saved, so later preset changes do not change existing grants.
+A preset containing a non-holdable tool is rejected, as is an explicit selection containing unknown, superseded, non-holdable, or built-in run-context tools.
+
+For an explicit list, the API derives `write_scopes` from selected write tools and refuses direct scope edits.
+Adding a write tool requires the scout's acting user or a project admin, and a credential carrying its required scopes, even if the scout already holds those scopes.
+Removing tools or narrowing an unrestricted selection without adding scopes needs ordinary scout configuration access.
+Clearing the list restores unrestricted tool selection and requires grant authorization; it preserves the last derived scopes, which can then be edited separately.
+Sandbox-bound tokens cannot change either tool-selection field.
+Both fields and their initial values are activity-logged.
+
+The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
+Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
+The tool picker and runtime enforcement are separate changes.
 
 ### Activity attribution
 
@@ -221,6 +254,10 @@ A Signals scout run writes the tag `scout:<skill_name>`, which the activity log 
 The tag is derived from the task binding on the run's own token, not from the `x-posthog-client` request header.
 The `scout:` prefix is reserved for that path, and a header value claiming it is dropped, so an agent cannot claim to be a scout it is not.
 Every other client keeps the self-reported header value.
+
+A row written with a token bound to a sandbox task still records the request IP address.
+The token can leave the sandbox, so the address is what tells a sandbox write apart from a write made elsewhere with the same token.
+The audit log tags these rows "via scout <skill_name>" or "via sandbox", and shows the IP in a tooltip on the IP address column.
 
 ## PostHog MCP server
 
@@ -291,7 +328,57 @@ summary = await session.send_followup(
 await session.end()
 ```
 
+Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
+
 ### Reference implementation
+
+The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` proposes editable criteria in a background session.
+It defaults to GPT-6 Sol at high effort through the Codex runtime.
+The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
+The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
+Owners can add an optional paragraph of priorities for one generation. It is saved with that request, and the next generation starts without it.
+The generator treats these priorities as extra context, not evidence or a replacement for the scout's responsibilities, shared checks or saved choices.
+Rubric generation requests no project-read MCP scopes because its source context is supplied up front.
+The existing sandbox still has internal credentials and tool access; this remains an accepted limitation of the staff-only v0.
+That request includes effective defaults and disabled criteria, including edits, but withholds enabled custom criteria until a second comparison step.
+Reference text comes from the exact skill version in the same project, ordered by path and limited to four files and 60,000 characters combined.
+The context marks clipped instructions, references, summaries and report identifier lists explicitly.
+It includes the scout's report capabilities and matching disposition rules from the normal scout prompt; scouts without report tools receive no report-disposition instructions.
+Historical transcripts and full report contents are not supplied or inspected.
+When no runs exist, the generator uses the description and available instructions without inventing history.
+The prompt asks for a few distinct judgments about required outcomes and decisions, preserving saved coverage, edits and disabled choices.
+Each passing condition explains the required result in plain language. For complex policies, a short description of the governing source rules follows that explanation to preserve conditions and exceptions.
+Writing instructions and a short example follow the source and schema. They ask for readable titles, descriptions, passing conditions, applicability and summaries without narrowing the source rules or losing permitted outcomes.
+Later evaluation must receive those reference instructions alongside the rubric; a tested variant's changed instructions must not silently replace them.
+The generator saves its exact governing source before starting the session, including the skill version, description, instructions, report-disposition rules, reference texts and completeness markers. A resumed attempt reuses this immutable context. Historical examples remain separate.
+Each suggestion must work independently with the saved criteria and source, and missing evaluation evidence must remain distinct from a known unmet requirement.
+Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
+The agent first drafts a complete set of source-specific criteria, then receives the full saved rubric and selects which draft items add useful judgments.
+Selection returns indices rather than rewritten criteria; the backend preserves each selected item exactly and keeps draft order.
+Its summary explains the suggested checks and important evidence limits in plain language.
+An empty selection is valid when the saved rubric already supplies the draft's judgments.
+The agent can update its own task's progress before the final result.
+The summary describes supplied evidence and material limitations without grading historical runs.
+The two steps share one conditional JSON or schema correction in the same session and the original runtime limit.
+A second invalid reply fails the generation. Duplicate or out-of-range selection indices are invalid.
+The follow-up is bounded to 240,000 serialized bytes; an oversized request fails generation without truncating criteria.
+Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
+Late failure callbacks preserve results from generations that already completed or failed.
+The worker ends the session after success or failure.
+The generation panel explains that suggestions take a few minutes and shows elapsed time while the agent works.
+The browser can close during generation and retrieve the result later without restoring a sandbox.
+Suggestions remain separate from the saved rubric until a person selects and saves them.
+Saving with `adopt_generation_id` explicitly binds the whole rubric to that completed generation's captured source. Both the rubric revision and generation identifier must match. Ordinary criterion edits retain the saved source; skill edits and later generations do not replace it.
+Older rubrics without captured source context remain readable, but their reference context is not reconstructed from current instructions or task logs.
+Save includes checked suggestions and shows the number of new criteria it will add.
+Suggestions appear above the criteria and start unselected. Owners can select them individually or select all.
+Suggested and saved criteria show their title and description first. Expanding a row reveals the passing rules and when they apply.
+Editing a suggestion selects it and keeps its edits in the suggestions list until Save rubrics.
+Editing a criterion shows all its fields. Done editing closes the form without saving; Save rubrics saves the full draft.
+Save rubric edits before generating suggestions; generation uses the saved criteria.
+Every save must retain the shared default criteria, which owners can edit or disable.
+Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.
+Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
 It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
@@ -631,6 +718,62 @@ the run's saved `pending_user_message` when logs do not yet contain it. This is 
 display fallback: it strips context wrappers, gives way to the selected run's log
 or stream echo, and never submits the message again.
 
+## Context selection experiment
+
+The `phai-context-selection` feature flag enables hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
+The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
+An explicit disabled response stops further preparation requests for that sandbox session, including after conversation history is cleared.
+Flag changes can enable selection in a new session. Preparation errors do not disable later attempts.
+
+Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
+Follow-ups delivered through the user-message command, including automated CI and peer messages, can trigger selection.
+Internal retry continuations, steering, and slash commands do not trigger selection.
+Shadow and treatment require the organization's existing AI data processing consent before retrieval or model calls.
+Sandbox OAuth requests share project rate limits of 30 preparations per minute and 300 per hour.
+
+System One first checks whether organizational context could help, using the request and bounded conversation history.
+When the gate passes, the selector calls the existing skill search, catalog list/search, and Business Knowledge search APIs with the sandbox bearer credential.
+There is no separate projection or refresh job. Candidate counts are bounded per source.
+Each source endpoint enforces its existing OAuth scopes, project restrictions, and actor permissions.
+The selector does not maintain a separate source or conversation-audience permission policy.
+System One reranks up to 32 returned candidates in one request. Candidate content, the user request, and history stay in model state; questions refer to candidate keys.
+Source APIs receive bounded natural-language query text and apply their existing query handling. The selector does not maintain a stop-word list.
+Search queries retain the end of the current request and reserve space for recent history within the source APIs' 200-character limit.
+References link to the retrieved sources; skill references fetch the latest published version by name.
+At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
+Retrieved content is data to verify through existing tools, rather than instructions or approval.
+Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
+Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
+A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
+This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
+The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
+It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+
+Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
+Selection has a three-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.
+Saturation, timeout, and selection failures leave the ordinary prompt flow available.
+Source requests run concurrently and use at most half the remaining budget, leaving time to score ready results.
+A denied, failed, or slow source does not suppress results from other sources.
+A failed or incomplete reranking response skips enrichment for the turn; individual scores are not recovered from a failed batch.
+Source lookup uses the current project endpoint; the selector does not expand the credential to a parent project.
+The agent truncates requests and history and validates the context budget in Unicode code points, matching the backend renderer.
+Each active session owns its bounded selection history. Session creation and restoration seed that history explicitly from the prior conversation.
+The shared prompt dispatch path prepares human requests, checks cancellation, and records completed turns. Human request text stays separate from resume wrappers and retry continuations.
+Native and summary resumes preserve bounded prior conversation history for later turns; a successful `/clear` resets selection history.
+Actor refreshes update the selection credential. Flag eligibility is checked on each human turn.
+Preparation failure reports distinguish HTTP status, timeouts, response validation, and transport failures without recording exception messages or source content.
+Startup preparation shares the message-delivery queue with follow-ups, preserving prompt order.
+Cancellation during preparation prevents the prepared prompt from reaching the model.
+The selector uses one implementation for source retrieval, scoring, and bounded rendering. Only source retrieval uses the bounded worker pool.
+
+The existing System One call telemetry receives the selection ID, task/run/message IDs, flag mode, configuration version, and runtime version.
+The selector does not emit an additional `$ai_span` or separately persist the final shadow bundle. Source and selection failures use ordinary logs.
+The selection ID in a treatment's hidden marker correlates preparation with downstream model input.
+Offline evals can check downstream inputs, outputs, and tool calls where the existing LLM traces retain them.
+Existing trace retention and truncation apply, so absent output or context does not prove the agent ignored it.
+No dedicated evidence tables, prompt archive, or dispatch receipts are required.
+
 ## Local development
 
 To set up sandboxed agents for local development:
@@ -667,9 +810,11 @@ sandbox shutdown. It does not test Django API authentication or LLM task executi
 
 These tests consume the published sandbox image, not the agent source in the checkout.
 The image pins the agent version in `Dockerfile.sandbox-base`.
-An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
+An agent release opens a pull request that bumps that pin.
+Every master push, a half-hourly schedule, and a manual dispatch compare the pin and the image inputs on master with the labels on the published images, and rebuild when they differ.
 That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
 Before the pull request is approved, the bump workflow runs one Claude turn and one Codex turn from that image through the production Go ai-gateway, on the agent's default models and efforts.
+After the pull request merges, the bump workflow waits until `posthog-sandbox-base:master` reports the new version, dispatches a rebuild when it does not, and posts the outcome in the release thread.
 Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?

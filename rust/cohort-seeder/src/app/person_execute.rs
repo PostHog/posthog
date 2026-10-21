@@ -304,3 +304,31 @@ enum PersonChunkError {
     #[error(transparent)]
     Produce(ProduceError),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clickhouse::ResourceError;
+
+    /// `Scan` is transparent, so its source chain skips `PersonScanError` and must still reach the
+    /// ClickHouse error, or the person breaker never sees a resource error.
+    #[test]
+    fn person_scan_resource_errors_reach_the_breaker() {
+        let memory = || {
+            clickhouse::error::Error::BadResponse(
+                "Code: 241. DB::Exception: Memory limit (for query) exceeded. (MEMORY_LIMIT_EXCEEDED)"
+                    .to_owned(),
+            )
+        };
+        for error in [
+            PersonChunkError::Scan(PersonScanError::Cursor(memory())),
+            PersonChunkError::Cursor(memory()),
+        ] {
+            assert_eq!(
+                ResourceError::classify(&error),
+                Some(ResourceError::MemoryLimitExceeded),
+                "{error:?}"
+            );
+        }
+    }
+}

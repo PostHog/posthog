@@ -166,6 +166,12 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .describe(
             "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`."
         ),
+    has_errors: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.'
+        ),
     limit: zod
         .number()
         .min(1)

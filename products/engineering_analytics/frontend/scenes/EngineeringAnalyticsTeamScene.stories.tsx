@@ -12,6 +12,7 @@ import type {
     TeamCIHealthListApi,
     TrunkQuarantineDebtApi,
 } from '../generated/api.schemas'
+import { FRICTION_STORY_FIXTURE } from '../lib/frictionFixtures'
 
 const HOUR = 3600
 const TEAM = 'team-replay'
@@ -154,7 +155,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-07-03T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
-        pageUrl: urls.engineeringAnalyticsTeam(TEAM),
+        pageUrl: urls.engineeringAnalyticsTeam(TEAM, 'PostHog/posthog'),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-team-tests-table"]',
         },
@@ -166,6 +167,7 @@ const meta: Meta = {
                 'api/projects/:team_id/engineering_analytics/team_ci_health/': TEAM_CI_HEALTH,
                 'api/projects/:team_id/engineering_analytics/team_ci_activity/': TEAM_CI_ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/team_merge_trend/': TEAM_MERGE_TREND,
+                'api/projects/:team_id/engineering_analytics/author_friction/': FRICTION_STORY_FIXTURE,
                 'api/projects/:team_id/engineering_analytics/sources/': [
                     { id: 'src-1', repo: 'PostHog/posthog', prefix: '' },
                 ],

@@ -18,6 +18,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -60,6 +62,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     ) -> list[str]: ...
 
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None: ...
+
+    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+        """Whether the change-stream resource still exists on the source database. Callers use it to
+        confirm a best-effort drop actually removed it before acting as if it were gone."""
+        ...
 
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None: ...
 
@@ -143,8 +150,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         ...
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort include a table in the change-capture set (PG: ALTER PUBLICATION ADD TABLE).
-        No-op when PostHog doesn't own the capture definition (e.g. self-managed)."""
+        """Include a table in the change-capture set (PG: ALTER PUBLICATION ADD TABLE).
+        No-op when PostHog doesn't own the capture definition (e.g. self-managed).
+
+        Raises when the table can't be added. A CDC table outside the capture set never receives
+        a change, so every sync of it repeats the full snapshot. Callers refuse the switch instead."""
         ...
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
@@ -207,3 +217,23 @@ def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -
     except ValueError:
         return False
     return resolved in _cdc_adapters()
+
+
+def add_table_failure_message(
+    adapter: CDCSourceAdapter[CDCConfig],
+    exc: BaseException,
+    source: ExternalDataSource,
+    schema: str,
+    table: str,
+) -> str:
+    """User-facing message for an ``add_table`` failure. Captures only the failures that
+    point at a PostHog bug, because the customer fixes ownership, grants and reachability."""
+    if fixable := adapter.customer_fixable_error_message(exc):
+        return fixable
+    if adapter.is_connection_error(exc):
+        return f"Couldn't connect to your database to add {schema}.{table} to change data capture: {exc}"
+    capture_exception(exc, {"source_id": str(source.id), "team_id": source.team_id})
+    return (
+        f"Couldn't add {schema}.{table} to change data capture: {exc} "
+        "Try again, or switch this table to Incremental sync instead."
+    )

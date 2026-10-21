@@ -281,4 +281,60 @@ describe('css loader script', () => {
             await expect(secondRequest).resolves.toBe(true)
         })
     })
+
+    describe('stable chunk import', () => {
+        const MODULE = { scene: 'the scene' }
+
+        // A classic-script Function body cannot run import(), so the test supplies the module.
+        function stableImporter(): ReturnType<typeof runLoader> & {
+            importChunk: (specifier: string) => Promise<unknown>
+        } {
+            const loader = runLoader({
+                script: stableCssLoaderScript(['eager-1.css'], CSS_FILE, CSS_FALLBACK).replace(
+                    'import(specifier)',
+                    'window.importModule(specifier)'
+                ),
+            })
+            loader.win.importModule = () => Promise.resolve(MODULE)
+            return { ...loader, importChunk: (specifier) => loader.win.ESBUILD_IMPORT(specifier) }
+        }
+
+        it('resolves a chunk that registered no stylesheets without loading any', async () => {
+            const { links, importChunk } = stableImporter()
+
+            await expect(importChunk('@c/eNOCSS')).resolves.toBe(MODULE)
+            expect(links).toHaveLength(1)
+        })
+
+        it.each([
+            ['resolves to the module once its stylesheets apply', true],
+            ['rejects with a ChunkLoadError when its stylesheets do not apply', false],
+        ])('%s', async (_name, applies) => {
+            const { links, win, importChunk } = stableImporter()
+            const imported = importChunk('@c/eSCENE')
+            // The chunk registers its stylesheets as it evaluates, before the import settles.
+            win.ESBUILD_CHUNK_CSS['@c/eSCENE'] = [[`${STATIC}scene.css`, 5]]
+            let settled = false
+            void imported.then(
+                () => (settled = true),
+                () => (settled = true)
+            )
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(settled).toBe(false)
+            const sceneLink = links.find((link) => link.href === `${STATIC}scene.css`)!
+            if (applies) {
+                applyStylesheet(sceneLink)
+                await expect(imported).resolves.toBe(MODULE)
+            } else {
+                sceneLink.dispatch('error')
+                for (let attempt = 2; attempt < 6; attempt++) {
+                    await Promise.resolve()
+                    links[attempt]?.dispatch('error')
+                }
+                await expect(imported).rejects.toMatchObject({ name: 'ChunkLoadError' })
+            }
+        })
+    })
 })

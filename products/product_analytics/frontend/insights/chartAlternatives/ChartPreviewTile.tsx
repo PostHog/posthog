@@ -14,17 +14,20 @@ export function ChartPreviewTile({
     disabledReason,
     onSelect,
     preview,
+    showChart,
 }: {
     disabledReason?: string
     onSelect: () => void
     preview: ChartPreview
+    showChart: boolean
 }): JSX.Element {
     const { option, query, response, sample, uniqueKey } = preview
     const reason = disabledReason ?? option.disabledReason
     const disabled = !!reason
+    const chartShown = !!response && showChart
 
     let body: JSX.Element
-    if (response) {
+    if (response && chartShown) {
         body = <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
     } else {
         body = (
@@ -32,7 +35,7 @@ export function ChartPreviewTile({
                 <span className="text-4xl opacity-40">
                     <ChartDisplayIcon icon={option.icon} />
                 </span>
-                {reason ? <span className="text-xs">{reason}</span> : null}
+                {reason && !response ? <span className="text-xs">{reason}</span> : null}
             </div>
         )
     }
@@ -60,12 +63,16 @@ export function ChartPreviewTile({
                 <span
                     className={clsx(
                         'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',
-                        option.display === ChartDisplayType.CalendarHeatmap &&
+                        chartShown && option.display === ChartDisplayType.BoldNumber && '[&_.BoldNumber]:p-4',
+                        chartShown &&
+                            option.display === ChartDisplayType.CalendarHeatmap &&
                             '[zoom:0.3] [&_.CalendarHeatMapContainer+div]:hidden',
                         // MetricCard hardcodes its headline at text-4xl, which truncates at tile width.
-                        option.display === ChartDisplayType.Metric &&
+                        chartShown &&
+                            option.display === ChartDisplayType.Metric &&
                             '[&_.text-4xl]:text-lg [&_.text-4xl]:leading-tight',
-                        option.display === ChartDisplayType.ActionsTable &&
+                        chartShown &&
+                            option.display === ChartDisplayType.ActionsTable &&
                             '[zoom:0.6] [&_.ScrollableShadows::before]:shadow-none! [&_.ScrollableShadows::after]:shadow-none! [&_.LemonTable__cell--sticky::before]:shadow-none! [&_.LemonTable__header--sticky::before]:shadow-none!'
                     )}
                 >

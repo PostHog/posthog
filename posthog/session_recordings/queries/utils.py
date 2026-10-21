@@ -50,6 +50,22 @@ def is_anonymous_cohort_fix_enabled(team: Team) -> bool:
         return False
 
 
+REPLAY_PERSON_PROPERTY_CHECK_FLAG = "replay-list-person-property-check"
+
+
+def is_person_property_check_enabled(team: Team) -> bool:
+    """Gate for the post-selection person-property check on the recordings list.
+
+    When on, sessions whose person matches the positive form of a negative person-property
+    filter are dropped from the fetched page. This closes the PoE-mode gap where a session
+    with no events can never enter the events-based negative blocklist.
+    """
+    try:
+        return bool(posthoganalytics.feature_enabled(REPLAY_PERSON_PROPERTY_CHECK_FLAG, str(team.pk)))
+    except Exception:
+        return False
+
+
 NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT_SET,
     PropertyOperator.IS_NOT,
@@ -57,6 +73,7 @@ NEGATIVE_OPERATORS = [
     PropertyOperator.NOT_ICONTAINS,
     PropertyOperator.NOT_STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
     # PropertyOperator.NOT_BETWEEN, # in the schema but not used anywhere
     # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
@@ -70,13 +87,19 @@ INVERSE_OPERATOR_FOR = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
 }
 
 
 def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    # Element filters read `elements_chain_*` columns, which exist only on the events table.
+    return (
+        p_type == "event"
+        or p_type == "element"
+        or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    )
 
 
 def is_person_property(p: AnyPropertyFilter) -> bool:
@@ -93,6 +116,18 @@ def is_group_property(p: AnyPropertyFilter) -> bool:
 def is_cohort_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return bool(p_type and "cohort" in p_type)
+
+
+def is_negative_prop(prop: AnyPropertyFilter) -> bool:
+    if not hasattr(prop, "operator"):
+        return False
+    if prop.operator in NEGATIVE_OPERATORS:
+        return True
+    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
+    # (it has different semantics there), but for cohort filters it IS the negative form.
+    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
+        return True
+    return False
 
 
 def is_session_property(p: AnyPropertyFilter) -> bool:

@@ -434,7 +434,7 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str, reason: str = "pay
             run.environment = snapshot.environment
             run.completed_at = datetime.fromisoformat(snapshot.completed_at) if snapshot.completed_at else None
             run.queued_at = datetime.fromisoformat(snapshot.queued_at) if snapshot.queued_at else None
-            run.state = snapshot.state
+            run.restore_cloud_resume_state(snapshot.state)
             run.error_message = "Failed to start cloud workflow"
         else:
             from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run  # noqa: PLC0415
@@ -513,9 +513,7 @@ def enqueue_or_start_workflow(
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
         else:
             with transaction.atomic():
-                locked_run = (
-                    TaskRun.objects.select_for_update().select_related("task", "task__team").get(id=task_run.id)
-                )
+                locked_run = TaskRun.objects.select_for_update().get(id=task_run.id)
                 create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )

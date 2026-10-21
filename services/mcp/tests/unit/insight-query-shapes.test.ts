@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
@@ -20,6 +21,28 @@ const acceptedQueries = [
         shape: 'wrapped DataVisualizationNode',
         query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
     },
+    {
+        shape: 'BI worksheet',
+        query: {
+            kind: 'BIVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'SELECT 1 AS total' },
+            display: 'ActionsTable',
+            tableSettings: { columns: [{ column: 'total', settings: { display: { label: 'Total' } } }] },
+            config: {
+                chartType: 'ActionsTable',
+                source: null,
+                rows: [],
+                columns: [],
+                values: [],
+                filters: [],
+                limit: 1000,
+                sort: null,
+                querySnapshot: { kind: 'HogQLQuery', query: 'SELECT 1 AS total' },
+                catalogMetric: 'example_total',
+                rowFilterGroup: { operator: 'AND', filters: [], groups: [{ operator: 'OR', filters: [], groups: [] }] },
+            },
+        },
+    },
     { shape: 'bare TrendsQuery', query: BARE_TRENDS_QUERY },
     { shape: 'bare HogQLQuery', query: { kind: 'HogQLQuery', query: 'select 1' } },
     {
@@ -39,7 +62,9 @@ describe('insight query shapes', () => {
     it.each(cases)('$tool accepts a $shape', ({ tool, base, query }) => {
         const { schema } = GENERATED_TOOLS[tool]!()
 
-        expect(schema.safeParse({ ...base, query }).success).toBe(true)
+        const result = schema.safeParse({ ...base, query })
+        expect(result.success).toBe(true)
+        expect(result.data?.query).toMatchObject(query)
     })
 
     it.each(tools)('$tool sends a bare query on to the endpoint whole', ({ tool, base }) => {
@@ -53,6 +78,20 @@ describe('insight query shapes', () => {
         expect((result.data as { query: unknown }).query).toEqual(BARE_TRENDS_QUERY)
     })
 
+    it.each(tools)('$tool keeps the pie chart options of a wrapped query', ({ tool, base }) => {
+        const { schema } = GENERATED_TOOLS[tool]!()
+        const query = {
+            kind: 'InsightVizNode',
+            source: { ...BARE_TRENDS_QUERY, trendsFilter: { display: 'ActionsPie' } },
+            vizSpecificOptions: { ActionsPie: { hideAggregation: true } },
+        }
+
+        const result = schema.safeParse({ ...base, query })
+
+        expect(result.success).toBe(true)
+        expect((result.data as { query: unknown }).query).toEqual(query)
+    })
+
     it.each(tools)('$tool rejects a query kind the endpoint refuses to save', ({ tool, base }) => {
         const { schema } = GENERATED_TOOLS[tool]!()
 
@@ -60,4 +99,31 @@ describe('insight query shapes', () => {
 
         expect(schema.safeParse({ ...base, query }).success).toBe(false)
     })
+
+    it.each(tools)('$tool names every SQL display type in the display guidance', ({ tool }) => {
+        const schema = z.toJSONSchema(GENERATED_TOOLS[tool]!().schema, { io: 'input', reused: 'inline' })
+        const display = findSqlDisplay(schema)!
+
+        for (const value of display.enum) {
+            expect(display.description).toContain(`\`${value}\``)
+        }
+    })
 })
+
+function findSqlDisplay(node: unknown): { enum: string[]; description: string } | undefined {
+    if (!node || typeof node !== 'object') {
+        return undefined
+    }
+    const display = (node as { properties?: { display?: { enum?: string[]; description: string } } }).properties
+        ?.display
+    if (display?.enum?.includes('ActionsTable')) {
+        return display as { enum: string[]; description: string }
+    }
+    for (const child of Object.values(node)) {
+        const found = findSqlDisplay(child)
+        if (found) {
+            return found
+        }
+    }
+    return undefined
+}

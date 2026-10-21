@@ -1,0 +1,33 @@
+# Replay Vision
+
+Replay Vision runs LLM scanners over session recordings.
+A scanner watches a slice of recordings and records one observation per session it scans.
+Observations land as `$recording_observed` events, so query findings from `events`, and query scanner configuration from the table below.
+
+## ReplayScanner (`system.replay_scanners`)
+
+One row per saved scanner.
+One-off inline scans are not listed.
+
+### Columns
+
+{{ schema_columns('system.replay_scanners') }}
+
+### Key Relationships
+
+- `$recording_observed` events carry the scanner as `properties.scanner_id` and the recording as `properties.session_id`
+
+To join scanners to their observations, cast the UUID `id`, since `properties.scanner_id` is a string:
+
+```sql
+SELECT s.name, count() AS observations
+FROM events e
+JOIN system.replay_scanners s ON toString(s.id) = e.properties.scanner_id
+WHERE e.event = '$recording_observed' AND e.timestamp > now() - INTERVAL 7 DAY
+GROUP BY s.name
+ORDER BY observations DESC
+```
+
+### Important Notes
+
+- Alerts and backfills are not system tables, because their API checks permissions a system table cannot. Read them with `vision-alerts-list` and `vision-scanners-backfills-list`.

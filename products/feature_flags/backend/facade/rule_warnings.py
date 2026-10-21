@@ -184,7 +184,7 @@ def _overlap(a: ValidatedRule, b: ValidatedRule) -> frozenset[Predicate] | None:
 
 @frozen
 class _Outcome:
-    value: bool | None  # the value served: the rule's, or the config default on a terminal miss
+    value: str | None  # canonical JSON of the value served: the rule's, or the config default on a terminal miss
     served: bool  # True when the rule's own value was served, False for a terminal miss
     rule_index: int
 

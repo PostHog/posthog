@@ -123,7 +123,8 @@ def regex_extract(string: Any, pattern: Any) -> str:
 
 def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
     _validate_regex_pattern(pattern)
-    pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
+    # re2.escape backslash-escapes % (and not _), so undo that before the wildcards turn into regex.
+    pattern = re2.escape(pattern).replace("\\%", "%").replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None
 

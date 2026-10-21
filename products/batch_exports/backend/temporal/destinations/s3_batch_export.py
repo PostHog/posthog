@@ -43,8 +43,9 @@ from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
+    BatchExportModelInput,
     S3BatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -109,6 +110,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "IntegrationError",
+    # This environment has no external role configured to assume a customer's role with
+    "ExternalRoleArnNotConfiguredError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -282,6 +285,18 @@ class InvalidCredentialsError(Exception):
         super().__init__(message)
 
 
+class ExternalRoleArnNotConfiguredError(Exception):
+    """Raised when this environment has no role of ours to assume a customer's role with.
+
+    Role-based AWS access always goes through our own external role first. Without it every
+    attempt fails identically, regardless of how the customer's own role ARN is set up, so
+    retrying never helps.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.")
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -302,11 +317,11 @@ def s3_default_fields() -> list[BatchExportField]:
 class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
 
-    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
-    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
-    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
-    serializes them to JSON, and on deserialization fields not present on the narrower
-    input class fall through to their `S3BatchExportInputs` defaults.
+    This Workflow is shared by the `AwsS3` and `S3Compatible` destinations. The API surface
+    validates per-destination input dataclasses (`AwsS3BatchExportInputs`,
+    `S3CompatibleBatchExportInputs`); Temporal's data converter serializes them to JSON, and on
+    deserialization fields not present on the narrower input class fall through to their
+    `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
@@ -374,8 +389,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_model=inputs.batch_export_model,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             legacy_parquet_extension=inputs.legacy_parquet_extension,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=s3_default_fields(),
         )
@@ -430,6 +443,9 @@ async def get_credentials_using_user_aws_role(
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
     """
+    if not settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN:
+        raise ExternalRoleArnNotConfiguredError()
+
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:
@@ -837,7 +853,7 @@ class ConcurrentS3Consumer(Consumer):
         prefix: str,
         data_interval_start: str | None,
         data_interval_end: str | None,
-        batch_export_model: BatchExportModel | None,
+        batch_export_model: BatchExportModelInput | None,
         file_format: str,
         checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
@@ -850,7 +866,8 @@ class ConcurrentS3Consumer(Consumer):
         max_concurrent_uploads: int = 5,
         file_name_prefix: str | None = None,
     ):
-        super().__init__(model=batch_export_model.name if batch_export_model else "events")
+        model = migrate_batch_export_model(batch_export_model)
+        super().__init__(model=model.name)
 
         self.bucket = bucket
         self.region_name = region_name
@@ -859,7 +876,7 @@ class ConcurrentS3Consumer(Consumer):
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.file_name_prefix = file_name_prefix
-        self.batch_export_model = batch_export_model
+        self.batch_export_model = model
 
         self.checksum_algorithm = checksum_algorithm
 

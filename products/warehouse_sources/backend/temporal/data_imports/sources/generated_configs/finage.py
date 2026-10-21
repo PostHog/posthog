@@ -8,4 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class FinageSourceConfig(config.Config):
     api_key: str
     symbols: str
+    forex_symbols: str | None = None
+    crypto_symbols: str | None = None
     start_date: str | None = None

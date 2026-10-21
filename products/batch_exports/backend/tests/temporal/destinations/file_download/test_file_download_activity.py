@@ -6,8 +6,6 @@ from django.test import override_settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
 from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
@@ -28,6 +26,7 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     assert_clickhouse_records_in_s3,
     has_valid_credentials,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 
 pytestmark = [
     pytest.mark.requires_vendor_credentials(check=has_valid_credentials),
@@ -60,12 +59,11 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     S3InsertInputs, and delegates to insert_into_s3_from_stage. We verify
     the data ends up in the expected S3 location and matches what ClickHouse produces.
     """
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     batch_export_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
@@ -85,7 +83,6 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
             run_id=run_id,
             backfill_details=None,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             destination_default_fields=s3_default_fields(),
         ),
     )
@@ -97,7 +94,6 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
             stage_folder=stage_result.stage_folder,
             records_total=stage_result.records_total,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             batch_export_id=batch_export_id,
             exclude_events=exclude_events,
             include_events=None,

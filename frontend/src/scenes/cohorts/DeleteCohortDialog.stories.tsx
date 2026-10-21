@@ -28,6 +28,7 @@ const usedIn: CohortUsedInResponseApi = {
         total: 1,
         has_more: false,
     },
+    workflows: { ...emptyBlock, hidden: 0 },
 }
 
 const meta: Meta<typeof DeleteCohortDialog> = {

@@ -19,19 +19,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 REQUEST_TIMEOUT = 60
-MAX_OFFSET_PAGES = 10_000
+MAX_PAGES = 10_000
 
 
 class OpenRouterRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class OpenRouterPageCapError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=False)
 class OpenRouterResumeConfig:
     # Offset already fetched for offset-paginated endpoints (api_keys/organization_members/workspaces).
     offset: int | None = None
     # Last fully-synced UTC day (YYYY-MM-DD) for the /activity day-by-day pull.
     date: str | None = None
+    # `after` cursor of the next page for cursor-paginated endpoints (batches).
+    after: str | None = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -52,6 +58,8 @@ def _build_url(path: str, params: Optional[dict[str, Any]] = None) -> str:
             requests.ReadTimeout,
             requests.ConnectionError,
             requests.exceptions.ChunkedEncodingError,
+            # A 200 whose body was cut off mid-transfer fails to parse; a fresh request usually succeeds.
+            requests.exceptions.JSONDecodeError,
         )
     ),
     stop=stop_after_attempt(5),
@@ -173,8 +181,8 @@ def _get_offset_rows(
     offset = resume.offset if resume is not None and resume.offset else 0
 
     # Hard cap as a runaway guard in case an endpoint ignores `offset` and re-serves the same page.
-    for _ in range(MAX_OFFSET_PAGES):
-        params: dict[str, Any] = {"offset": offset}
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = {**config.params, "offset": offset}
         if config.pagination == "offset_limit":
             params["limit"] = config.page_size
 
@@ -195,7 +203,39 @@ def _get_offset_rows(
         # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary key).
         resumable_source_manager.save_state(OpenRouterResumeConfig(offset=offset))
     else:
-        logger.warning(f"OpenRouter: hit the {MAX_OFFSET_PAGES}-page cap for {config.name}; stopping pagination")
+        logger.warning(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name}; stopping pagination")
+
+
+def _get_cursor_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[OpenRouterResumeConfig],
+    config: OpenRouterEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    after = resume.after if resume is not None else None
+
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = {**config.params, "limit": config.page_size}
+        if after:
+            params["after"] = after
+
+        data = _fetch(session, _build_url(config.path, params), headers, logger)
+        rows = data.get("data") or []
+        next_after = data.get("last_id") if data.get("has_more") else None
+
+        if rows and next_after:
+            resumable_source_manager.save_state(OpenRouterResumeConfig(after=next_after))
+        if rows:
+            yield rows
+
+        if not rows or not next_after:
+            break
+        after = next_after
+    else:
+        # A full refresh that stops here would replace the table without the older rows.
+        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} with pages left")
 
 
 def _get_single_rows(
@@ -238,6 +278,8 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.pagination == "cursor":
+        yield from _get_cursor_rows(session, headers, logger, resumable_source_manager, config)
     elif config.pagination is not None:
         yield from _get_offset_rows(session, headers, logger, resumable_source_manager, config)
     else:
@@ -266,8 +308,8 @@ def openrouter_source(
         ),
         primary_keys=config.primary_keys,
         # /activity yields days oldest-first and offset pages advance forward, so the watermark
-        # checkpoints safely after each batch.
-        sort_mode="asc",
+        # checkpoints safely after each batch. /batches is newest-first.
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

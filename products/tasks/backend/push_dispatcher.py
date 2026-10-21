@@ -4,14 +4,11 @@ Schedules the underlying Expo HTTP call as a Celery task via
 ``transaction.on_commit`` so nothing here can block a request/response cycle
 or a Temporal activity's event loop.
 
-Three guards before we enqueue:
+Two guards before we enqueue:
 
-1. **Feature flag.** ``posthog-code-mobile-push`` must be enabled for the
-   user. Off by default — flip on once the mobile build is ready and
-   tokens start arriving.
-2. **Cooldown.** A per-source Redis lock collapses duplicate triggers in a
+1. **Cooldown.** A per-source Redis lock collapses duplicate triggers in a
    short window.
-3. **Access.** Recipients must still be able to view the task.
+2. **Access.** Recipients must still be able to view the task.
 """
 
 from __future__ import annotations
@@ -25,17 +22,12 @@ from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
-from products.tasks.backend.metrics import (
-    PUSH_DISPATCHER_FAILURES_TOTAL,
-    PUSH_DISPATCHER_OUTCOMES_TOTAL,
-    TURN_COMPLETED_SUPPRESSED_TOTAL,
-)
+from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
@@ -47,8 +39,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "PostHog Desktop"
-FEATURE_FLAG_KEY = "posthog-code-mobile-push"
+PUSH_TITLE = "posthog"
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because
 # they should only fire once per run lifetime — anything more is a retry.
@@ -91,16 +82,6 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
-
-
-def dispatch_task_run_turn_completed(task_run: TaskRun, *, turn_completed: bool = True) -> bool:
-    if task_run.mode != "interactive":
-        return False
-    if not turn_completed:
-        TURN_COMPLETED_SUPPRESSED_TOTAL.labels(reason="idle_resume").inc()
-        return False
-    notify_task_run_turn_completed(task_run)
-    return True
 
 
 def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:
@@ -192,7 +173,7 @@ def _project_awaiting_input_activity(task_run: TaskRun) -> None:
     """Surface the wait in the in-app Activity feed.
 
     Runs ahead of, and independently of, the push guards above: the feed should update even
-    for users without the mobile push flag, and it has no cooldown to observe. Best-effort
+    for users with no push device, and it has no cooldown to observe. Best-effort
     for the same reason ``_enqueue`` is — this sits on the agent's turn-end path and must
     never fail it.
     """
@@ -226,7 +207,7 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     """Best-effort: this function MUST NOT raise.
 
     Wrap the whole body in a bare ``except Exception`` so a DB outage,
-    Redis hiccup, flag-service failure, or any other surprise can't bubble
+    Redis hiccup, or any other surprise can't bubble
     out of ``mark_completed`` / ``mark_failed`` / the API cancel handler
     and fail the surrounding task-lifecycle activity.
     """
@@ -285,21 +266,7 @@ def _enqueue_user(
     body: str,
     data: dict[str, str],
 ) -> None:
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    try:
-        flag_enabled = posthoganalytics.feature_enabled(
-            FEATURE_FLAG_KEY,
-            distinct_id,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        # Failing closed on flag-evaluation errors keeps an outage from
-        # silently flipping pushes on for the whole user base.
-        logger.warning("push_dispatcher.flag_check_failed", user_id=user.id, exc_info=True)
-        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="flag_check_failed").inc()
-        return
-    if not flag_enabled:
-        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="flag_disabled").inc()
+    if task.is_scout_experiment:
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"

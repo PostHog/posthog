@@ -28,7 +28,13 @@ from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     validate_hogql_query_for_batch_export,
 )
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportHogQLModel,
+    BatchExportModel,
+    BatchExportSchema,
+    migrate_batch_export_model,
+)
 from products.batch_exports.backend.temporal.batch_exports import iter_records
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.record_batch_model import (
@@ -43,9 +49,78 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 if TYPE_CHECKING:
     from posthog.models import Organization, Team
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio]
 
 
+@pytest.mark.parametrize("migrated", [False, True])
+@pytest.mark.parametrize(
+    "legacy",
+    [
+        None,
+        BatchExportModel(name="events", schema=None),
+        BatchExportModel(name="events", schema=None, filters=[{"key": "event", "value": "example"}]),
+        BatchExportModel(
+            name="events",
+            schema={"fields": [{"expression": "event", "alias": "name"}], "values": {"value": 1.5}},
+            filters=[{"key": "event", "value": "example"}],
+        ),
+        BatchExportModel(name="persons", schema=None),
+        BatchExportModel(name="sessions", schema=None),
+        BatchExportModel(
+            name="hogql",
+            schema=None,
+            hogql_query="SELECT event FROM events WHERE timestamp < {data_interval_end}",
+            user_id=42,
+            hogql_modifiers={"convertToProjectTimezone": False},
+        ),
+    ],
+)
+async def test_resolved_model_preserves_query_inputs(legacy: BatchExportModel | None, migrated: bool) -> None:
+    model, record_model, name, fields, filters, values = resolve_batch_exports_model(
+        team_id=1,
+        batch_export_model=migrate_batch_export_model(legacy) if migrated else legacy,
+        batch_export_id="export",
+        is_backfill=True,
+    )
+
+    assert name == (legacy.name if legacy is not None else "events")
+    assert model.name == name
+    schema = legacy.schema if legacy is not None else None
+    assert fields == (schema["fields"] if schema is not None else None)
+    assert values == (schema["values"] if schema is not None else None)
+    assert (filters or []) == ((legacy.filters or []) if legacy is not None else [])
+    if name == "sessions":
+        assert isinstance(record_model, SessionsRecordBatchModel)
+        assert record_model.is_backfill is True
+        assert record_model.team_id == 1
+        assert record_model.batch_export_id == "export"
+    elif name == "hogql":
+        assert isinstance(record_model, HogQLQueryRecordBatchModel)
+        assert legacy is not None
+        assert record_model.hogql_query == legacy.hogql_query
+        assert record_model.hogql_modifiers is not None
+        assert record_model.hogql_modifiers.convertToProjectTimezone is False
+        assert record_model.user_id == 42
+        assert record_model.wait_for_data_interval_end is True
+    else:
+        assert record_model is None
+
+
+@pytest.mark.parametrize(
+    "query,user_id,error",
+    [(None, 1, "requires a query"), ("SELECT event FROM events", None, "requires user_id")],
+)
+async def test_resolve_batch_exports_model_rejects_incomplete_hogql_inputs(
+    query: str | None, user_id: int | None, error: str
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        resolve_batch_exports_model(
+            team_id=1,
+            batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=user_id),
+        )
+
+
+@pytest.mark.django_db
 class TestSessionsRecordBatchModel:
     async def test_get_hogql_query(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(
@@ -236,6 +311,7 @@ class TestSessionsRecordBatchModel:
         assert "PARTITION BY rand() %% 5" in printed_query
 
 
+@pytest.mark.django_db
 class TestSessionsRecordBatchModelSelection:
     """Run the sessions model query against ClickHouse to verify which intervals select a session."""
 
@@ -349,6 +425,7 @@ class TestSessionsRecordBatchModelSelection:
         assert selected == [session_id]
 
 
+@pytest.mark.django_db
 class TestHogQLQueryRecordBatchModel:
     async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
         model = HogQLQueryRecordBatchModel(
@@ -473,6 +550,16 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team", auser: User) -> None:
+        # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk, hogql_query="SELECT properties AS properties FROM events", user_id=auser.pk
+        )
+        await model.as_query_with_parameters(None, None)
+
+        assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
+
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
         [
@@ -519,13 +606,13 @@ class TestHogQLQueryRecordBatchModel:
             HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
     async def test_resolve_batch_exports_model_returns_hogql_model(self):
-        batch_export_model = BatchExportModel(
-            name="hogql",
-            schema=None,
-            hogql_query=(
+        batch_export_model = BatchExportHogQLModel(
+            query=(
                 "SELECT event AS event, timestamp AS timestamp FROM events "
                 "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
             ),
+            user_id=1,
+            modifiers={},
         )
 
         _, record_batch_model, model_name, _, _, _ = resolve_batch_exports_model(
@@ -534,29 +621,49 @@ class TestHogQLQueryRecordBatchModel:
 
         assert isinstance(record_batch_model, HogQLQueryRecordBatchModel)
         assert model_name == "hogql"
-        assert record_batch_model.hogql_query == batch_export_model.hogql_query
+        assert record_batch_model.hogql_query == batch_export_model.query
         assert record_batch_model.wait_for_data_interval_end is True
 
-    async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
-        """Without this, a missing query would fall through to the events template path and export the wrong data."""
-        with pytest.raises(UnsupportedHogQLQueryError):
-            resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
+    @pytest.mark.parametrize(
+        "team_modifiers,hogql_modifiers,converts_timezone",
+        [
+            (None, None, False),
+            ({"convertToProjectTimezone": True}, None, True),
+            (None, {"convertToProjectTimezone": True}, True),
+            ({"convertToProjectTimezone": True}, {"convertToProjectTimezone": False}, False),
+        ],
+        ids=["utc-by-default", "team-modifier", "export-modifier", "export-overrides-team"],
+    )
+    async def test_resolved_model_prints_query_with_stored_modifiers(
+        self, ateam, auser, data_interval_start, data_interval_end, team_modifiers, hogql_modifiers, converts_timezone
+    ):
+        ateam.modifiers = team_modifiers
+        await ateam.asave()
+        batch_export_model = BatchExportHogQLModel(
+            query="SELECT event AS event, timestamp AS timestamp FROM events",
+            user_id=auser.pk,
+            modifiers=hogql_modifiers or {},
+        )
 
-    @pytest.mark.parametrize("actor_state", ["missing", "deleted", "inactive", "nonmember", "project-denied"])
+        _, record_batch_model, _, _, _, _ = resolve_batch_exports_model(
+            team_id=ateam.pk, batch_export_model=batch_export_model
+        )
+        assert record_batch_model is not None
+        printed_query, _ = await record_batch_model.as_query_with_parameters(data_interval_start, data_interval_end)
+
+        assert ("toTimeZone(events.timestamp" in printed_query) is converts_timezone
+
+    @pytest.mark.parametrize("actor_state", ["deleted", "inactive", "nonmember", "project-denied"])
     async def test_rechecks_actor_access_at_runtime(
         self, ateam: "Team", aorganization: "Organization", auser: User, actor_state: str
     ) -> None:
         query = "SELECT event AS event FROM events"
         await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
-        payload = BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+        payload = BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
         _, model, _, _, _, _ = resolve_batch_exports_model(ateam.pk, payload)
         await model.as_query_with_parameters(None, None)
 
-        if actor_state == "missing":
-            _, model, _, _, _, _ = resolve_batch_exports_model(
-                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query)
-            )
-        elif actor_state == "deleted":
+        if actor_state == "deleted":
             await User.objects.filter(pk=auser.pk).adelete()
         elif actor_state == "inactive":
             await User.objects.filter(pk=auser.pk).aupdate(is_active=False)
@@ -598,7 +705,7 @@ class TestHogQLQueryRecordBatchModel:
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
-                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+                ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
             before, _ = await model.as_query_with_parameters(None, None)
             assert "NULL AS secret" not in before
@@ -633,7 +740,7 @@ class TestHogQLQueryRecordBatchModel:
         with patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
-                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+                ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
             await model.as_query_with_parameters(None, None)
             membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
@@ -649,6 +756,7 @@ class TestHogQLQueryRecordBatchModel:
                 await model.as_query_with_parameters(None, None)
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize("use_new_events_schema", [False, True])
 async def test_custom_export_recompilation_preserves_column_names(ateam, use_new_events_schema):
     schema: BatchExportSchema = {
@@ -661,7 +769,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
     }
     with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
         _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-            team_id=ateam.pk, batch_export_schema=schema
+            team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
         )
 
     assert fields is not None
@@ -678,6 +786,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
 
 @pytest.mark.parametrize("interval_start_is_none", [False, True])
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@pytest.mark.django_db
 async def test_custom_export_backfill_runs_without_legacy_events_tables(
     ateam, clickhouse_client, interval_start_is_none
 ):
@@ -711,7 +820,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                     "$browser": "Firefox",
                     "amount": 2.5,
                     "person": {"properties": "event value"},
-                    "$feature_flags": {"named-false": "$false", "some-feature": "true"},
+                    "$feature_flags": {"named-false": "$false", "named-true": "$true", "some-feature": "true"},
                 },
                 "person_properties": {"email": "buyer@example.com"},
                 "temporary_properties": {"$set": {"email": "buyer@example.com"}},
@@ -721,15 +830,15 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 + "\n".join(json.dumps(value) for value in [row, row, {**row, "team_id": ateam.pk + 1}])
             )
             schema: BatchExportSchema = {
-                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag, e.properties.`$feature/named-false` AS named_false FROM events AS e",
+                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag, e.properties.`$feature/named-false` AS named_false, e.properties.`$feature/named-true` AS named_true FROM events AS e",
                 "fields": [
                     {"expression": "events.mat_removed_column", "alias": alias}
-                    for alias in ("browser", "amount", "email", "nested", "flag", "named_false")
+                    for alias in ("browser", "amount", "email", "nested", "flag", "named_false", "named_true")
                 ],
                 "values": {"unused_old_parameter": "stale"},
             }
             _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-                team_id=ateam.pk, batch_export_schema=schema
+                team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
             )
             assert fields is not None
             assert "unused_old_parameter" not in values
@@ -737,7 +846,6 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 [{"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]}],
                 team_id=ateam.pk,
                 values=values,
-                native_events_source=True,
             )
             batches: list[pa.RecordBatch] = await database_sync_to_async(
                 lambda: list(
@@ -764,7 +872,15 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["nested"] == "event value"
             assert rows[0]["flag"] == "true"
             assert rows[0]["named_false"] == "false"
-            assert json.loads(rows[0]["properties"])["$browser"] == "Firefox"
+            assert rows[0]["named_true"] == "true"
+            exported_properties = json.loads(rows[0]["properties"])
+            assert exported_properties["$browser"] == "Firefox"
+            assert exported_properties["$set"] == {"email": "buyer@example.com"}
+            assert "$feature_flags" not in exported_properties
+            assert exported_properties["$feature/some-feature"] is True
+            assert exported_properties["$feature/named-false"] == "false"
+            assert exported_properties["$feature/named-true"] == "true"
+            assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
             assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
             assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)

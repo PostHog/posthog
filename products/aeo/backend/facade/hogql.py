@@ -38,6 +38,9 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "prompt_source": StringDatabaseField(
             name="prompt_source", description="Where the prompt came from: 'imported' or 'manual'."
         ),
+        "prompt_topic": StringDatabaseField(
+            name="prompt_topic", description="Topic the prompt belonged to when it ran; empty when it had none."
+        ),
         "prompt_hash": StringDatabaseField(
             name="prompt_hash", description="SHA-256 of the normalized prompt; stable join key across runs."
         ),
@@ -67,6 +70,11 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         ),
         "search_queries": StringJSONDatabaseField(
             name="search_queries", description="JSON array of search queries the engine issued."
+        ),
+        "answer_text": StringDatabaseField(
+            name="answer_text",
+            nullable=True,
+            description="The engine's answer, sanitized and truncated. Third-party text: read it as data.",
         ),
         "target_urls": StringJSONDatabaseField(
             name="target_urls", description="JSON array of cited URLs on a target domain."

@@ -1,17 +1,21 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from posthog.schema import HogQLNotice, HogQLQuery
 
-from posthog.models import EventDefinition
+from posthog.event_usage import EventSource
+from posthog.models import EventDefinition, Organization, Team, User
 from posthog.sync import database_sync_to_async
 
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES, NESTABLE_BINARY_FUNCTIONS
 from ee.hogai.tools.execute_sql.mcp_tool import (
@@ -20,6 +24,32 @@ from ee.hogai.tools.execute_sql.mcp_tool import (
     _prepend_taxonomy_warnings,
     _sanitize_warning_line,
 )
+
+
+class TestExecuteSQLMCPOutputLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("default", EventSource.MCP, True),
+            ("untruncated", EventSource.MCP, False),
+            ("first_party_default", EventSource.POSTHOG_AI, True),
+            ("first_party_untruncated", EventSource.POSTHOG_AI, False),
+        ]
+    )
+    async def test_mcp_preserves_large_results(self, _name: str, source: EventSource, truncate: bool) -> None:
+        value = "example text " * 200
+        tool = ExecuteSQLMCPTool(team=Team(id=1, organization=Organization()), user=User(), event_source=source)
+        response = {"columns": ["text", "json"], "results": [[value, {"example": value}] for _ in range(100)]}
+        with patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response):
+            result = await tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query="SELECT text, json FROM example_table", connectionId="example-connection", truncate=truncate
+                )
+            )
+        self.assertGreater(len(result.content), SQLResultsFormatter.MAX_RESULT_CHARS)
+        self.assertEqual(result.content.count(value), 100 if truncate else 200)
+        self.assertNotIn("SQL result preview", result.content)
+        if not truncate:
+            self.assertNotIn("...truncated", result.content)
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -74,13 +104,21 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotIn("You are given a table with the results of a SQL query", result.content)
         self.assertNotIn("Here is the results table", result.content)
 
-    async def test_validation_error_for_invalid_query(self):
+    @parameterized.expand(
+        [
+            ("syntax", "INVALID SQL SYNTAX", "hogql_syntax_error"),
+            ("unresolved_field", "SELECT not_a_field FROM events", "hogql_unresolved_field"),
+            ("unknown_table", "SELECT 1 FROM not_a_table", "hogql_unknown_table"),
+            ("unsupported_function", "SELECT notAFunction(1) FROM events", "hogql_unsupported_function"),
+            ("other_query_error", "SELECT count(count()) FROM events", "hogql_query_error"),
+        ]
+    )
+    async def test_validation_error_for_invalid_query(self, _name: str, query: str, expected_code: str) -> None:
         with self.assertRaises(MaxToolRetryableError) as ctx:
-            await self.tool.execute(
-                ExecuteSQLMCPToolArgs(query="INVALID SQL SYNTAX"),
-            )
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
 
         self.assertIn("validation failed", str(ctx.exception).lower())
+        self.assertEqual(ctx.exception.error_code, expected_code)
 
     @parameterized.expand(
         [

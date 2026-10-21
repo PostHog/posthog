@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from posthoganalytics import Posthog
 
@@ -10,6 +11,10 @@ from .cli import SkillDelivery
 from .demo_data import SandboxedDemoData
 from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
+
+if TYPE_CHECKING:
+    from .offline_delivery import OfflineEvalDelivery
+from .retries import DEFAULT_INFRA_RETRIES
 
 
 @dataclass(frozen=False)
@@ -55,9 +60,6 @@ class EvalContext:
     posthog_client: Posthog | None
     """Analytics client for eval traces, with the default capture guards."""
 
-    posthog_evaluation_client: Posthog | None
-    """Shared result client for suites that enable experiment uploads."""
-
     sandbox_slots: asyncio.Semaphore | None
     """The one global limiter on concurrently live sandboxes, shared by every
     suite. ``None`` when no selected suite is sandboxed."""
@@ -81,3 +83,17 @@ class EvalContext:
     trials: int
     """Times each case runs. Agents are stochastic, so N runs per case measure
     the variance a single run can't reveal."""
+
+    git_sha: str | None
+    """Commit under test; ``None`` when unknown."""
+
+    git_dirty: bool | None
+    """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
+
+    offline_delivery: OfflineEvalDelivery | None = None
+    """Run-owned delivery worker, drained after infrastructure teardown."""
+
+    posthog_trace_host: str | None = None
+    posthog_trace_project_id: int | None = None
+
+    infrastructure_retries: int = DEFAULT_INFRA_RETRIES

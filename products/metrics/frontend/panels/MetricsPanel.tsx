@@ -4,6 +4,7 @@ import type { MetricsExemplar } from '../components/MetricsExemplarMarkers'
 import type { MetricsChartSeries } from '../components/metricsSeries'
 import { BarGaugePanel } from './BarGaugePanel'
 import { GaugePanel } from './GaugePanel'
+import type { MetricsPartialBucketQuery } from './metricsPartialBucket'
 import { seriesUnit } from './metricsReduce'
 import { resolvePanelType } from './registry'
 import { StatPanel } from './StatPanel'
@@ -11,7 +12,7 @@ import { TablePanel } from './TablePanel'
 import { TimeSeriesPanel } from './TimeSeriesPanel'
 
 /** A series with its own unit resolved: the display override wins, then the series'
- * ingested unit — but only when no other series carries a different unit, since a tile
+ * ingested unit — but only when every series carries that same unit, since a tile
  * mixes the values on one chart. A mixed-unit result renders bare numbers rather than
  * mislabeling one series with another's unit. */
 function withResolvedUnits(series: MetricsChartSeries[], displayUnit: string | undefined): MetricsChartSeries[] {
@@ -30,11 +31,14 @@ export function MetricsPanel({
     display,
     fallbackName,
     exemplars,
+    query,
 }: {
     series: MetricsChartSeries[]
     display?: MetricsDisplaySettings
     fallbackName: string
     exemplars?: MetricsExemplar[]
+    /** Lets the time-series panel tell counter series apart, to extrapolate a partial last bucket. */
+    query?: MetricsPartialBucketQuery
 }): JSX.Element {
     const type = resolvePanelType(display)
     const resolvedSeries = withResolvedUnits(series, display?.unit)
@@ -58,6 +62,7 @@ export function MetricsPanel({
                     display={display ?? {}}
                     fallbackName={fallbackName}
                     exemplars={exemplars}
+                    query={query}
                 />
             )
     }

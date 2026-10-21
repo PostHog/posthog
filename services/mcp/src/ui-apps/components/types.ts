@@ -1,13 +1,6 @@
+import type { ReactNode } from 'react'
+
 import type { YAxisFormat } from '@posthog/quill-charts'
-
-import type { AnalyticsMetadata } from '../types'
-
-// Base payload that all tool results share
-interface BasePayload {
-    _posthogUrl?: string
-    /** Analytics metadata injected by MCP server for user tracking */
-    _analytics?: AnalyticsMetadata
-}
 
 // ============================================================================
 // Query-based visualizations
@@ -23,6 +16,8 @@ export type ChartDisplayType =
     | 'ActionsAreaGraph'
     | 'BoldNumber'
     | 'ActionsPie'
+    | 'ActionsDonut'
+    | 'ActionsProportionBar'
     | 'ActionsTable'
     | 'WorldMap'
     | 'SlopeGraph'
@@ -107,6 +102,7 @@ export interface TrendsResultItem {
     days?: string[]
     count?: number
     aggregated_value?: number
+    compare_label?: string
     /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
      * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
     incomplete_end?: boolean
@@ -157,12 +153,20 @@ export interface HogQLResult {
     results?: unknown[][]
 }
 
+export interface WebOverviewItem {
+    key: string
+    kind: 'unit' | 'duration_s' | 'percentage' | 'currency'
+    value?: number | null
+    changeFromPreviousPct?: number | null
+}
+
 export type RetentionAggregationType = 'count' | 'sum' | 'avg'
 export type RetentionReference = 'total' | 'previous'
 export type RetentionPeriod = 'Hour' | 'Day' | 'Week' | 'Month'
 
 export interface RetentionFilter {
     aggregationType?: RetentionAggregationType | null
+    display?: ChartDisplayType | null
     period?: RetentionPeriod | null
     retentionReference?: RetentionReference | null
     showTrendLines?: boolean | null
@@ -212,42 +216,18 @@ export interface PathsResultItem {
 export type PathsResult = PathsResultItem[]
 
 // ============================================================================
-// Tool result payloads
-// The visualization type is inferred from the data structure, not a discriminator
-// ============================================================================
-
-export interface TrendsPayload extends BasePayload {
-    query: TrendsQuery
-    results: TrendsResult
-}
-
-export interface FunnelPayload extends BasePayload {
-    query: FunnelsQuery
-    results: FunnelResult
-}
-
-export interface LifecyclePayload extends BasePayload {
-    query: LifecycleQuery
-    results: LifecycleResult
-}
-
-export interface TablePayload extends BasePayload {
-    query?: HogQLQuery
-    results: HogQLResult
-}
-
-export interface RetentionPayload extends BasePayload {
-    query: RetentionQuery
-    results: RetentionResult
-}
-
-// ============================================================================
 // Component props
 // ============================================================================
 
 export interface TrendsVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
+    title?: string
+    /** Drawn as a child of a line or bar chart, so it can read the chart's scales. */
+    overlay?: ReactNode
+    showControls?: boolean
+    chartClassName?: string
+    showTitle?: boolean | 'axis'
 }
 
 export interface FunnelVisualizerProps {

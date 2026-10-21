@@ -9,6 +9,11 @@ from products.warehouse_sources.backend.types import IncrementalField
 # Several Deel endpoints cap `limit` below 100, so stay safely under every cap.
 PAGE_SIZE = 50
 
+# `v2` is the `/rest/v2` path that sends no version header. `2026-01-01` is Deel's dated baseline,
+# selected per request with the `X-Version` header.
+DEEL_API_VERSION_V2 = "v2"
+DEEL_API_VERSION_2026_01_01 = "2026-01-01"
+
 
 # Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
 # `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's fields
@@ -36,6 +41,12 @@ class DeelEndpointConfig:
     # Extra query params sent on every request to this endpoint.
     params: dict[str, Any] = field(default_factory=dict)
     fanout: Optional[DependentEndpointConfig] = None
+    # `X-Version` sent under a dated pin. Deel versions each endpoint on its own date, and an endpoint
+    # published after the 2026-01-01 baseline rejects any date it was not published under.
+    x_version: str = DEEL_API_VERSION_2026_01_01
+    # Endpoints published after Deel moved to dated versions are documented only under `/rest`, so
+    # the legacy `v2` pin does not list them.
+    on_legacy_v2: bool = True
     # Deel exposes no updated-since filter on the endpoints synced here, so both stay empty —
     # `FanoutEndpointLike` requires them.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -143,6 +154,169 @@ DEEL_ENDPOINTS: dict[str, DeelEndpointConfig] = {
         primary_keys=["hris_profile_id", "id"],
         page_size_param=None,
     ),
+    "departments": DeelEndpointConfig(
+        name="departments",
+        path="/departments",
+        pagination="none",
+        page_size_param=None,
+    ),
+    "teams": DeelEndpointConfig(
+        name="teams",
+        path="/teams",
+        pagination="none",
+        page_size_param=None,
+    ),
+    "groups": DeelEndpointConfig(
+        name="groups",
+        path="/groups",
+        pagination="cursor",
+        cursor_param="cursor",
+        params={"sort_order": "ASC"},
+        partition_key="created_at",
+    ),
+    "onboarding_tracker": DeelEndpointConfig(
+        name="onboarding_tracker",
+        path="/onboarding/tracker",
+        pagination="cursor",
+        cursor_param="cursor",
+        # One row per worker being onboarded; the tracker carries no id of its own.
+        primary_keys=["unique_id"],
+        params={"sort_order": "ASC"},
+    ),
+    "offboarding_tracker": DeelEndpointConfig(
+        name="offboarding_tracker",
+        path="/offboarding/tracker",
+        pagination="cursor",
+        cursor_param="cursor",
+        primary_keys=["unique_id"],
+        # Without `ignore_date_range` Deel returns only the last 45 days of terminations.
+        params={"sort_order": "ASC", "ignore_date_range": "true"},
+    ),
+    "payroll_cycles": DeelEndpointConfig(
+        name="payroll_cycles",
+        path="/legal-entities/{legal_entity_id}/payroll-events",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # Deel does not document the cycle id as unique outside its legal entity.
+        primary_keys=["legal_entity_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="legal_entities",
+            resolve_param="legal_entity_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "legal_entity_id"},
+            parent_params={"limit": PAGE_SIZE, "sort_order": "ASC"},
+            child_params={"limit": PAGE_SIZE},
+        ),
+    ),
+    "payroll_reports": DeelEndpointConfig(
+        name="payroll_reports",
+        path="/gp/legal-entities/{legal_entity_id}/reports",
+        pagination="none",
+        # Global payroll events sit in their own id space; scope them to their legal entity.
+        primary_keys=["legal_entity_id", "id"],
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="legal_entities",
+            resolve_param="legal_entity_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "legal_entity_id"},
+            parent_params={"limit": PAGE_SIZE, "sort_order": "ASC"},
+        ),
+    ),
+    "payroll_gross_to_net": DeelEndpointConfig(
+        name="payroll_gross_to_net",
+        path="/reports/payroll/cycles/{cycle_id}/gross-to-net",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # One row per contract in a payroll cycle. The cycle is only unique within its legal
+        # entity, so the entity leads the key here the same way it does on payroll_cycles.
+        primary_keys=["legal_entity_id", "cycle_id", "contract_oid"],
+    ),
+    "countries": DeelEndpointConfig(
+        name="countries",
+        path="/lookups/countries",
+        pagination="none",
+        primary_keys=["code"],
+        page_size_param=None,
+    ),
+    "currencies": DeelEndpointConfig(
+        name="currencies",
+        path="/lookups/currencies",
+        pagination="none",
+        primary_keys=["code"],
+        page_size_param=None,
+    ),
+    "job_titles": DeelEndpointConfig(
+        name="job_titles",
+        path="/lookups/job-titles",
+        pagination="cursor",
+        # Job titles echo a cursor even past the last page, so the walk ends on the empty page
+        # that cursor returns rather than on a missing cursor.
+        cursor_param="after_cursor",
+        # /lookups/job-titles accepts no page-size param.
+        page_size_param=None,
+    ),
+    "seniorities": DeelEndpointConfig(
+        name="seniorities",
+        path="/lookups/seniorities",
+        pagination="none",
+        page_size_param=None,
+    ),
+    "it_seats": DeelEndpointConfig(
+        name="it_seats",
+        path="/it/seats",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # Deel documents a default of 20 and no maximum.
+        page_size=20,
+        partition_key="created_at",
+        x_version="2026-09-25",
+        on_legacy_v2=False,
+    ),
+    "it_clearance_requests": DeelEndpointConfig(
+        name="it_clearance_requests",
+        path="/it/clearance-requests",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # Deel documents a default of 20 and no maximum.
+        page_size=20,
+        partition_key="created_at",
+        x_version="2026-09-16",
+        on_legacy_v2=False,
+    ),
+    "time_off_policies": DeelEndpointConfig(
+        name="time_off_policies",
+        path="/time-offs/policy",
+        pagination="cursor",
+        cursor_path=("next",),
+        cursor_param="next",
+        has_more_path=("has_next_page",),
+        page_size_param="page_size",
+        partition_key="created_at",
+        x_version="2026-09-09",
+        on_legacy_v2=False,
+    ),
+    "equity_awards": DeelEndpointConfig(
+        name="equity_awards",
+        path="/equity-awards",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        partition_key="created_at",
+        x_version="2026-09-09",
+        on_legacy_v2=False,
+    ),
 }
 
 # `/time_offs/time-off-events` takes its worker profile as a query param, which the shared fan-out
@@ -150,4 +324,18 @@ DEEL_ENDPOINTS: dict[str, DeelEndpointConfig] = {
 TIME_OFF_EVENTS_ENDPOINT = "time_off_events"
 TIME_OFF_EVENTS_PARENT = "people"
 
+# Gross-to-net is keyed by payroll cycle, and cycles are only listed per legal entity, so this
+# endpoint is two hops from a top-level listing — one more than the shared fan-out helper binds.
+GROSS_TO_NET_ENDPOINT = "payroll_gross_to_net"
+GROSS_TO_NET_PARENT = "payroll_cycles"
+GROSS_TO_NET_ROOT = "legal_entities"
+
 ENDPOINTS = tuple(DEEL_ENDPOINTS.keys())
+
+
+def endpoints_for_version(api_version: str) -> tuple[str, ...]:
+    if api_version == DEEL_API_VERSION_V2:
+        return tuple(name for name, config in DEEL_ENDPOINTS.items() if config.on_legacy_v2)
+    if api_version == DEEL_API_VERSION_2026_01_01:
+        return ENDPOINTS
+    raise ValueError(f"Unsupported Deel API version: {api_version}")

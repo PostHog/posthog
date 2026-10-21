@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 export interface MCPRecurringReport {
     key: string
     headline: string
@@ -53,7 +55,10 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
         title: 'MCP tool health',
         prompt: [
             'Report on our MCP server’s health for the last week using $mcp_tool_call events.',
-            'Cover total calls, calls per tool (use $mcp_exec_tool_call_name when set, else $mcp_tool_name),',
+            'Cover total calls and calls per tool. Use $mcp_exec_tool_call_name when non-empty.',
+            'Otherwise, for $mcp_tool_name = exec and $mcp_exec_verb = call, use $mcp_exec_target_tool',
+            'when it is non-empty and not unrecognized. Fall back to $mcp_tool_name in all other cases.',
+            'Include discovery requests under exec, not the tool they describe. Cover',
             'the error rate from $mcp_is_error, the most common $mcp_error_type values with example',
             '$mcp_error_message text, and p95 of $mcp_duration_ms per tool.',
             'Highlight tools whose error rate or latency is clearly worse than the weeks before,',
@@ -72,12 +77,15 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
  * Opens the AI-subscription form with the report already written, so setting one up is choosing a
  * destination and a cadence rather than composing a prompt.
  */
-export function urlForRecurringReport(report: MCPRecurringReport): string {
+export function urlForRecurringReport(
+    report: MCPRecurringReport,
+    targetType: SubscriptionTargetEnumApi | null
+): string {
     return combineUrl(urls.subscriptionNew(), {
         resource_type: 'ai_prompt',
         prompt: report.prompt,
         title: report.title,
         frequency: report.frequency,
-        target_type: 'slack',
+        target_type: targetType ?? undefined,
     }).url
 }

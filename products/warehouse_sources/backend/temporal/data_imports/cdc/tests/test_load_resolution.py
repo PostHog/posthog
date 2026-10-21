@@ -131,17 +131,21 @@ class TestVerifyDeleteEnrichment:
         assert report.delete_rows_checked == 1
         assert report.columns == ()
 
-    def test_unenriched_delete_is_reported(self):
-        table = _batch([1], [None], ["D"])
+    @parameterized.expand([("alone", [1], [None], ["D"]), ("before_a_reinsert", [1, 1], [None, "carol"], ["D", "I"])])
+    def test_unenriched_delete_is_reported(self, _name, ids, names, ops):
+        table = _batch(ids, names, ops)
         report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
 
         assert not report.ok
         assert report.rows_with_nulled_columns == 1
         assert report.columns == ("name",)
 
-    def test_ignores_non_delete_rows(self):
+    @parameterized.expand(
+        [("update", [1], [None], ["U"]), ("delete_after_that_update", [1, 1], [None, None], ["U", "D"])]
+    )
+    def test_ignores_a_null_the_source_set(self, _name, ids, names, ops):
         # A NULL on an UPDATE is the source's own value, not lost data.
-        table = _batch([1], [None], ["U"])
+        table = _batch(ids, names, ops)
         report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
 
         assert report.ok

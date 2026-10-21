@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import connection, models
 from django.db.models.expressions import F
 from django.db.models.functions import Lower
 from django.utils import timezone
@@ -35,3 +35,14 @@ class FileSystemShortcut(models.Model):
 
     def __str__(self):
         return self.path
+
+
+def lock_user_shortcuts(team_id: int, user_id: int) -> None:
+    """Serialize writes to one user's shortcut list, even when the list has no rows to lock yet.
+
+    Call inside `transaction.atomic()`: the lock lasts until the transaction ends.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"file-system-shortcuts:{team_id}:{user_id}"]
+        )

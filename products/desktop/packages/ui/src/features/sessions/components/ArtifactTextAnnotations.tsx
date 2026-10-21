@@ -1,5 +1,6 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  type CommentAnchor,
   createTextCommentAnchor,
   resolveTextCommentAnchor,
   type TextCommentAnchor,
@@ -138,6 +139,11 @@ interface ArtifactTextAnnotationsProps {
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }
 
@@ -151,6 +157,7 @@ export function ArtifactTextAnnotations({
   members,
   onActivateThread,
   onCreate,
+  onSendToAgent,
   onResolutionsChange,
 }: ArtifactTextAnnotationsProps) {
   const [selection, setSelection] = useState<EditorSelection | null>(null);
@@ -401,6 +408,12 @@ export function ArtifactTextAnnotations({
         onSubmit={async (_start, _end, content, mentions) => {
           if (pendingAnchor) await onCreate(pendingAnchor, content, mentions);
         }}
+        onSendToAgent={
+          onSendToAgent && pendingAnchor
+            ? (content, screenshot) =>
+                onSendToAgent(pendingAnchor, content, screenshot)
+            : undefined
+        }
       />
     </>
   );

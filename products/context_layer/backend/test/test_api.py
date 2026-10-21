@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -20,7 +20,9 @@ from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle
 from posthog.storage.object_storage import UnavailableStorage
+from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import safe_cache_set
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -152,6 +154,60 @@ class TestContextLayerAPI(APIBaseTest):
         assert "&#91;&#91;../secrets&#93;&#93;" in page["content"]
         assert "&#91;&#91;unfinished notes." in page["content"]
         assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
+
+    @parameterized.expand(
+        [
+            ("lint clean", "summary: Tracks weekly activation.", "    name: Activation", True),
+            ("invalid goal", "summary: Tracks weekly activation.", "    period: yearly", False),
+            ("escaping wikilink", "summary: See [[../secrets]]", "    name: Activation", False),
+            ("unclosed wikilink", "summary: See [[unfinished", "    name: Activation", False),
+            ("spaced summary key", "summary : Tracks weekly activation.", "    name: Activation", False),
+        ]
+    )
+    def test_enable_lifts_legacy_context_frontmatter_only_when_lint_clean(
+        self, _flag: MagicMock, _name: str, summary_line: str, goal_line: str, lifted: bool
+    ) -> None:
+        imported = (
+            f"---\n{summary_line}\nstatus: active\nteam_id: 999\n"
+            "channel_id: 00000000-0000-0000-0000-000000000000\nsources: space-setup\nautonomy: propose\n"
+            f"goals:\n  - id: primary\n{goal_line}\n---\n# Goal: Activation\n\nBody text."
+        )
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="goal-space", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content=imported, base_version=0
+            )
+
+        self._enable()
+
+        page = self.client.get(
+            f"{self.base_url}/pages/", {"path": f"projects/{self.team.id}/spaces/goal-space.md"}
+        ).json()
+        frontmatter, body = page["content"].removeprefix("---\n").split("\n---\n", 1)
+        identity = [f"team_id: {self.team.id}", f"channel_id: {channel.id}"]
+        if lifted:
+            assert frontmatter.splitlines() == [
+                *identity,
+                "summary: Tracks weekly activation.",
+                "status: active",
+                "sources: space-setup",
+                "autonomy: propose",
+                "goals:",
+                "  - id: primary",
+                goal_line,
+            ]
+            assert "\n---\n" not in body
+            assert "# Goal: Activation\n\nBody text." in body
+        else:
+            assert frontmatter.splitlines() == [
+                *identity,
+                "summary: Context imported from goal-space.",
+                "status: active",
+                "sources: channel-instructions-import",
+            ]
+            assert "sources: space-setup\nautonomy: propose" in body
+            assert "# Goal: Activation\n\nBody text." in body
 
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -384,28 +440,15 @@ class TestContextLayerAPI(APIBaseTest):
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/from-agent.md"}).json()
         assert page["content"] == _page("From an agent")
 
-    def _loop_run_token(self, channel_id) -> str:  # noqa: ANN001
-        """A token shaped like the one a context-maintaining loop run carries."""
+    def _channel_task_token(self, channel_id) -> str:  # noqa: ANN001
         task = apps.get_model("tasks", "Task").objects.create(
             team=self.team,
             created_by=self.user,
             title="Keep the space context current",
-            origin_product="loop",
-        )
-        apps.get_model("tasks", "TaskRun").objects.create(
-            task=task,
-            team=self.team,
-            state={
-                "config_snapshot": {
-                    "context_target": {
-                        "channel_id": str(channel_id),
-                        "outputs": {"update_context": True},
-                    }
-                }
-            },
+            channel_id=channel_id,
         )
         return self._bearer(
-            "task:read task:write loop_context_internal:write",
+            "task:read task:write internal_run:read context_layer_internal:write",
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id,
         )
@@ -444,7 +487,7 @@ class TestContextLayerAPI(APIBaseTest):
         # Reads stay open across the wiki: it is organization-wide reference
         # material every agent is meant to draw on.
         self._enable()
-        token = self._bearer("task:read task:write loop_context_internal:write", scoped_teams=[self.team.id])
+        token = self._bearer("task:read internal_run:read", scoped_teams=[self.team.id])
         self.client.logout()
         page = self.client.get(
             f"{self.agent_url}/pages/",
@@ -452,41 +495,6 @@ class TestContextLayerAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         assert page.status_code == 200, page.content
-
-    def test_loop_token_writes_only_the_page_configured_for_its_run(self, _flag) -> None:
-        with team_scope(self.team.id):
-            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
-            assert channel is not None
-            tasks_facade.publish_channel_instructions(
-                channel.id, self.team.id, self.user.id, content="Focus on activation.", base_version=0
-            )
-        head = self._enable()
-        token = self._loop_run_token(channel.id)
-        self.client.logout()
-
-        in_scope = self.client.put(
-            f"{self.agent_url}/pages/",
-            {
-                "path": f"projects/{self.team.id}/spaces/growth.md",
-                # A real loop reads the page and edits in place, so the frontmatter
-                # that identifies the channel survives the write.
-                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n\nRefreshed by the loop.\n",
-                "base_head": head,
-            },
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert in_scope.status_code == 200, in_scope.content
-
-        # AGENTS.md is what every agent bootstraps from, so a loop reaching it
-        # would rewrite the whole organization's starting instructions.
-        out_of_scope = self.client.put(
-            f"{self.agent_url}/pages/",
-            {"path": "AGENTS.md", "content": "# Owned\n", "base_head": in_scope.json()["head_sha"]},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert out_of_scope.status_code == 403, out_of_scope.content
 
     def test_agent_channel_page_proposes_a_create_path_when_channel_has_no_page(self, _flag) -> None:
         self._enable()
@@ -497,7 +505,7 @@ class TestContextLayerAPI(APIBaseTest):
         # The org route keeps its 404 — the desktop hook relies on it.
         assert self.client.get(f"{self.base_url}/channel-pages/{channel.id}/").status_code == 404
 
-        token = self._loop_run_token(channel.id)
+        token = self._channel_task_token(channel.id)
         self.client.logout()
         proposed = self.client.get(
             f"{self.agent_url}/channel-pages/{channel.id}/",
@@ -628,14 +636,12 @@ class TestContextLayerAPI(APIBaseTest):
         apply_url = f"{self.base_url}/proposals/{proposal['id']}/apply/"
         for scope in (
             "organization:write internal_run:read context_layer_internal:write",
-            "organization:write loop_context_internal:write",
             "organization:read",
         ):
             denied = self.client.post(apply_url, HTTP_AUTHORIZATION=f"Bearer {self._bearer(scope)}")
             assert denied.status_code == 403, denied.content
 
         for restricted_token in (
-            self._loop_run_token(channel.id),
             self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id),
         ):
             denied = self.client.post(
@@ -693,7 +699,6 @@ class TestContextLayerAPI(APIBaseTest):
         assert stale.json()["current_head"] == applied.json()["head_sha"]
 
         for restricted_token, restricted_content in (
-            (self._loop_run_token(channel.id), content),
             (
                 self._bearer(
                     "task:read task:write internal_run:read",
@@ -770,45 +775,20 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert updated.status_code == 403, updated.content
 
-    def test_loop_token_creates_its_channels_missing_page_at_the_proposed_path(self, _flag) -> None:
-        self._enable()
-        with team_scope(self.team.id):
-            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
-            assert channel is not None
-        token = self._loop_run_token(channel.id)
-        self.client.logout()
-
-        created = self.client.put(
-            f"{self.agent_url}/pages/",
-            {
-                "path": f"projects/{self.team.id}/spaces/growth.md",
-                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n\nWritten by the loop.\n",
-            },
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert created.status_code == 200, created.content
-
-        resolved = self.client.get(
-            f"{self.agent_url}/channel-pages/{channel.id}/",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert resolved.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": True}
-
     @parameterized.expand(
         [
             ("mismatched_frontmatter_channel", "projects/{team_id}/spaces/growth.md", False),
             ("non_proposed_path", "projects/{team_id}/spaces/somewhere-else.md", True),
         ]
     )
-    def test_loop_token_cannot_create_a_channel_page_off_its_proposal(
+    def test_task_token_cannot_create_a_channel_page_off_its_proposal(
         self, _flag, _name, path, own_frontmatter
     ) -> None:
         self._enable()
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
             assert channel is not None
-        token = self._loop_run_token(channel.id)
+        token = self._channel_task_token(channel.id)
         self.client.logout()
 
         frontmatter_channel_id = channel.id if own_frontmatter else uuid4()
@@ -885,23 +865,6 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 403, response.content
         assert store.get_config(self.organization.id).head_sha == head
-
-    def test_loop_token_cannot_land_commit_bundles(self, _flag) -> None:
-        # Bundles bypass the loop's page binding, so the bundle route must refuse them.
-        self._enable()
-        with team_scope(self.team.id):
-            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
-            assert channel is not None
-        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
-        token = self._loop_run_token(channel.id)
-        self.client.logout()
-        response = self.client.post(
-            f"{self.agent_url}/commits/",
-            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
-            format="multipart",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert response.status_code == 403, response.content
 
     def test_run_page_writes_share_the_daily_landing_cap(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -1290,3 +1253,71 @@ class TestContextLayerAPI(APIBaseTest):
                     check=True,
                 )
                 return Path(bundle_file.name).read_bytes()
+
+
+class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("burst", ContextSelectionBurstThrottle, "1/minute"),
+            ("sustained", ContextSelectionSustainedThrottle, "1/hour"),
+        ]
+    )
+    def test_selection_rate_limit_covers_sandbox_oauth(
+        self,
+        name: str,
+        throttle: type[ContextSelectionBurstThrottle | ContextSelectionSustainedThrottle],
+        rate: str,
+    ) -> None:
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Question", origin_product="posthog_ai"
+        )
+        run = apps.get_model("tasks", "TaskRun").objects.create(
+            team=self.team, task=task, environment="cloud", status="in_progress"
+        )
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        application, _ = OAuthApplication.objects.get_or_create(
+            client_id=POSTHOG_AI_APP_CLIENT_ID_DEV,
+            defaults={
+                "name": "Selection test sandbox",
+                "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "algorithm": "RS256",
+                "redirect_uris": "https://example.com/callback",
+                "organization": self.organization,
+                "user": self.user,
+            },
+        )
+        tokens = [
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=f"pha_{uuid4().hex}",
+                scope="task:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+                sandbox_task_id=task.id,
+            ).token
+            for _ in range(2)
+        ]
+        self.client.logout()
+        url = f"/api/projects/{self.team.id}/context_layer/selection/prepare/"
+        payload = {"run_id": str(run.id), "message_id": "m", "prompt": "activation"}
+        with (
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+            patch.object(throttle, "rate", rate),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment"),
+            patch("products.context_layer.backend.selection.httpx.Client") as source,
+            patch("products.context_layer.backend.selection.build_system_one_client") as model,
+        ):
+            model.return_value.decide.side_effect = RuntimeError("test provider unavailable")
+            allowed = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {tokens[0]}")
+            assert allowed.status_code == 200, allowed.content
+            assert model.call_count == 1
+            limited = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {tokens[1]}")
+            assert limited.status_code == 429, limited.content
+            assert model.call_count == 1
+            source.assert_not_called()

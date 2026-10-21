@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SimSourceConfig(config.Config):
-    pass
+    api_key: str
+    workspace_id: str

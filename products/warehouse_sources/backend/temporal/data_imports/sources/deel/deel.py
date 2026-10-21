@@ -2,7 +2,7 @@ from collections.abc import Iterable, Iterator
 from functools import partial
 from typing import Any, Optional, cast
 
-from requests import Request, Response
+from requests import Request, Response, Session
 
 from posthog.dataclasses import frozen
 
@@ -27,19 +27,40 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import (
+    DEEL_API_VERSION_2026_01_01,
+    DEEL_API_VERSION_V2,
     DEEL_ENDPOINTS,
+    GROSS_TO_NET_ENDPOINT,
+    GROSS_TO_NET_PARENT,
+    GROSS_TO_NET_ROOT,
     TIME_OFF_EVENTS_ENDPOINT,
     TIME_OFF_EVENTS_PARENT,
     DeelEndpointConfig,
 )
 
-DEEL_BASE_URL = "https://api.letsdeel.com/rest/v2"
+DEEL_BASE_URLS = {
+    DEEL_API_VERSION_V2: "https://api.letsdeel.com/rest/v2",
+    DEEL_API_VERSION_2026_01_01: "https://api.letsdeel.com/rest",
+}
 REQUEST_TIMEOUT_SECONDS = 30
 
-# Time-off rows carry absence reasons and family/medical event details, and timesheets carry a
-# free-text work description plus a reviewer's remarks — none of it name-tagged in a way the
-# name-based sample scrubbers can spot.
-_UNCAPTURED_ENDPOINTS = frozenset({"time_offs", TIME_OFF_EVENTS_ENDPOINT, "timesheets"})
+# Time-off rows carry absence reasons and family/medical event details, timesheets carry a
+# free-text work description plus a reviewer's remarks, the trackers carry worker names and work
+# emails, IT seats carry the holder's address and identity documents, and gross-to-net and equity
+# awards carry per-worker pay — none of it name-tagged in a way the name-based sample scrubbers can
+# spot.
+_UNCAPTURED_ENDPOINTS = frozenset(
+    {
+        "time_offs",
+        TIME_OFF_EVENTS_ENDPOINT,
+        "it_seats",
+        "equity_awards",
+        "timesheets",
+        "onboarding_tracker",
+        "offboarding_tracker",
+        GROSS_TO_NET_ENDPOINT,
+    }
+)
 
 
 @frozen
@@ -49,7 +70,8 @@ class DeelResumeConfig:
     offset: Optional[int] = None
     cursor: Optional[str] = None
     # Fan-out endpoints resume per parent — see
-    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    # `common.rest_source.__init__._make_paginate_dependent_resource`. Gross-to-net reuses
+    # `completed` for the payroll cycles it has already emitted.
     completed: Optional[list[str]] = None
     current: Optional[str] = None
     child_state: Optional[dict[str, Any]] = None
@@ -141,12 +163,29 @@ def _make_paginator(config: DeelEndpointConfig) -> BasePaginator:
     return SinglePagePaginator()
 
 
-def _client_config(api_token: str, config: DeelEndpointConfig) -> ClientConfig:
+def _base_url(api_version: str) -> str:
+    base_url = DEEL_BASE_URLS.get(api_version)
+    if base_url is None:
+        raise ValueError(f"Unsupported Deel API version: {api_version}")
+    return base_url
+
+
+def _version_headers(api_version: str, config: DeelEndpointConfig) -> dict[str, str]:
+    # The legacy pin keeps sending no selector, so its requests stay exactly as they were.
+    if api_version == DEEL_API_VERSION_V2:
+        return {}
+    return {"X-Version": config.x_version}
+
+
+def _client_config(api_token: str, config: DeelEndpointConfig, api_version: str) -> ClientConfig:
     client_config: ClientConfig = {
-        "base_url": DEEL_BASE_URL,
+        "base_url": _base_url(api_version),
         # Bearer auth via the framework so the token is redacted from logs.
         "auth": {"type": "bearer", "token": api_token},
     }
+    version_headers = _version_headers(api_version, config)
+    if version_headers:
+        client_config["headers"] = version_headers
     if config.name in _UNCAPTURED_ENDPOINTS:
         client_config["capture"] = False
     return client_config
@@ -160,7 +199,7 @@ def _base_params(config: DeelEndpointConfig) -> dict[str, Any]:
     return params
 
 
-def validate_credentials(api_token: str) -> tuple[bool, str | None]:
+def validate_credentials(api_token: str, api_version: str) -> tuple[bool, str | None]:
     """Confirm the API token is valid with a cheap one-person listing probe.
 
     Scoped tokens may lack individual resource scopes (403); only 401 means the
@@ -168,8 +207,8 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     "could not reach Deel" error so it isn't mistaken for a bad token."""
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
-        f"{DEEL_BASE_URL}/people?limit=1",
-        headers={"Authorization": f"Bearer {api_token}"},
+        f"{_base_url(api_version)}/people?limit=1",
+        headers={"Authorization": f"Bearer {api_token}", **_version_headers(api_version, DEEL_ENDPOINTS["people"])},
     )
 
     if status is None:
@@ -186,6 +225,7 @@ def _top_level_items(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[DeelResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    api_version: str,
 ) -> Iterable[Any]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -206,7 +246,7 @@ def _top_level_items(
         elif config.pagination == "offset" and state.get("offset") is not None:
             resumable_source_manager.save_state(DeelResumeConfig(offset=int(state["offset"])))
 
-    client_config = _client_config(api_token, config)
+    client_config = _client_config(api_token, config, api_version)
     client_config["paginator"] = _make_paginator(config)
 
     rest_config: RESTAPIConfig = {
@@ -242,6 +282,7 @@ def _fanout_items(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[DeelResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    api_version: str,
 ) -> Iterable[Any]:
     fanout = config.fanout
     assert fanout is not None
@@ -281,7 +322,7 @@ def _fanout_items(
             endpoint_configs=DEEL_ENDPOINTS,
             child_endpoint=config.name,
             fanout=fanout,
-            client_config=_client_config(api_token, config),
+            client_config=_client_config(api_token, config, api_version),
             path_format_values={},
             team_id=team_id,
             job_id=job_id,
@@ -302,6 +343,7 @@ def _time_off_event_items(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[DeelResumeConfig],
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield one batch of time-off event rows per page of people.
 
@@ -318,7 +360,7 @@ def _time_off_event_items(
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(DeelResumeConfig(offset=int(state["offset"])))
 
-    parent_client_config = _client_config(api_token, parent_config)
+    parent_client_config = _client_config(api_token, parent_config, api_version)
     parent_client_config["paginator"] = _make_paginator(parent_config)
 
     parent_rest_config: RESTAPIConfig = {
@@ -345,7 +387,12 @@ def _time_off_event_items(
     )
 
     session = make_tracked_session(redact_values=(api_token,), capture=False)
-    headers = {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Accept": "application/json",
+        **_version_headers(api_version, config),
+    }
+    base_url = _base_url(api_version)
 
     for page in people:
         rows: list[dict[str, Any]] = []
@@ -354,7 +401,7 @@ def _time_off_event_items(
             if hris_profile_id is None:
                 continue
             response = session.get(
-                f"{DEEL_BASE_URL}{config.path}",
+                f"{base_url}{config.path}",
                 params={"hris_profile_id": str(hris_profile_id)},
                 headers=headers,
                 timeout=REQUEST_TIMEOUT_SECONDS,
@@ -372,12 +419,110 @@ def _time_off_event_items(
             yield rows
 
 
+def _iter_cursor_pages(
+    session: Session,
+    url: str,
+    config: DeelEndpointConfig,
+    headers: dict[str, str],
+    ignore_statuses: tuple[int, ...] = (),
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a Deel keyset endpoint by hand, with the same termination rules as DeelCursorPaginator.
+
+    Used where the endpoint sits too deep for the shared fan-out helper to bind its path params.
+    """
+    params = _base_params(config)
+    cursor: Optional[str] = None
+
+    while True:
+        if cursor is not None:
+            params[config.cursor_param] = cursor
+        response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        if response.status_code in ignore_statuses:
+            return
+        response.raise_for_status()
+        body = response.json()
+
+        rows = _find(body, tuple(config.data_selector.split(".")))
+        if not rows:
+            return
+        yield rows
+
+        if config.has_more_path is not None and not _find(body, config.has_more_path):
+            return
+        next_cursor = _find(body, config.cursor_path)
+        if not next_cursor or str(next_cursor) == cursor:
+            return
+        cursor = str(next_cursor)
+
+
+def _gross_to_net_items(
+    config: DeelEndpointConfig,
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[DeelResumeConfig],
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield gross-to-net rows per payroll cycle.
+
+    Hand-rolled because the cycle ids are two hops from a top-level listing: legal entities
+    carry payroll cycles, and the shared fan-out helper binds a single level of path params.
+    Resume is per cycle rather than per page, so an interrupted sync re-walks the cheap
+    listings and skips straight to the reports it had not reached.
+    """
+    root_config = DEEL_ENDPOINTS[GROSS_TO_NET_ROOT]
+    cycle_config = DEEL_ENDPOINTS[GROSS_TO_NET_PARENT]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Keyed by legal entity and cycle together, because a cycle id is only unique within its
+    # entity — the same reason payroll_cycles takes a composite primary key.
+    completed: list[str] = list(resume.completed) if resume is not None and resume.completed else []
+    done = set(completed)
+
+    session = make_tracked_session(redact_values=(api_token,), capture=False)
+    base_url = _base_url(api_version)
+
+    def headers(config: DeelEndpointConfig) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {api_token}",
+            "Accept": "application/json",
+            **_version_headers(api_version, config),
+        }
+
+    for entity_page in _iter_cursor_pages(session, f"{base_url}{root_config.path}", root_config, headers(root_config)):
+        for entity in entity_page:
+            legal_entity_id = entity.get("id")
+            if legal_entity_id is None:
+                continue
+            cycles_url = f"{base_url}{cycle_config.path.replace('{legal_entity_id}', str(legal_entity_id))}"
+            for cycle_page in _iter_cursor_pages(
+                session, cycles_url, cycle_config, headers(cycle_config), ignore_statuses=(404,)
+            ):
+                for cycle in cycle_page:
+                    cycle_id = cycle.get("id")
+                    if cycle_id is None:
+                        continue
+                    cycle_key = f"{legal_entity_id}:{cycle_id}"
+                    # Deel only publishes a report for a cycle it flags; the rest 404.
+                    if not cycle.get("has_g2n_report") or cycle_key in done:
+                        continue
+                    report_url = f"{base_url}{config.path.replace('{cycle_id}', str(cycle_id))}"
+                    for rows in _iter_cursor_pages(
+                        session, report_url, config, headers(config), ignore_statuses=(404,)
+                    ):
+                        yield [
+                            {**row, "cycle_id": str(cycle_id), "legal_entity_id": str(legal_entity_id)} for row in rows
+                        ]
+                    completed.append(cycle_key)
+                    done.add(cycle_key)
+                    resumable_source_manager.save_state(DeelResumeConfig(completed=list(completed)))
+
+
 def deel_source(
     api_token: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[DeelResumeConfig],
+    api_version: str,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = DEEL_ENDPOINTS[endpoint]
@@ -392,7 +537,10 @@ def deel_source(
             team_id,
             job_id,
             resumable_source_manager,
+            api_version,
         )
+    elif endpoint == GROSS_TO_NET_ENDPOINT:
+        items = partial(_gross_to_net_items, config, api_token, resumable_source_manager, api_version)
     else:
         builder = _fanout_items if config.fanout is not None else _top_level_items
         resource = builder(
@@ -402,6 +550,7 @@ def deel_source(
             job_id,
             resumable_source_manager,
             db_incremental_field_last_value,
+            api_version,
         )
         items = lambda: resource  # noqa: E731
         column_hints = getattr(resource, "column_hints", None)

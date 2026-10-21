@@ -1,37 +1,34 @@
+from typing import Optional
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    PostgresSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _NEON_POOLED_HOST_CDC_ERROR = (
     "This is Neon's pooled endpoint, which doesn't support logical replication. For CDC, use the "
     "direct host instead — remove the '-pooler' suffix (e.g. "
     "ep-cool-darkness-123456.us-east-2.aws.neon.tech) — and make sure logical replication is "
     "enabled in your Neon project settings."
+)
+
+# Each Neon branch has its own databases, and the default one is neondb, not postgres.
+_NEON_DATABASE_NOT_FOUND_ERROR = (
+    "That database doesn't exist on this Neon branch. Copy the database name from the Connect dialog "
+    "in your Neon Console, then try again."
 )
 
 
@@ -52,6 +49,12 @@ _NEON_HOST_CAPTION = (
 
 @SourceRegistry.register
 class NeonSource(PostgresSource):
+    codebase_detection = detect(
+        env=("^NEON_",),
+        npm=("@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"),
+        pypi=("neon-api",),
+    )
+
     def __init__(self):
         super().__init__(source_name="Neon")
 
@@ -60,7 +63,7 @@ class NeonSource(PostgresSource):
         return ExternalDataSourceType.NEON
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig):
             if field.name == "connection_string":
                 return field.model_copy(
@@ -93,7 +96,7 @@ class NeonSource(PostgresSource):
             caption="Enter your Neon credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/docs/cdp/sources/neon",
             fields=fields,
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def check_cdc_prerequisites(
@@ -119,3 +122,18 @@ class NeonSource(PostgresSource):
             require_ssl=require_ssl,
             team_id=team_id,
         )
+
+    def validate_credentials(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
+    ) -> tuple[bool, str | None]:
+        success, error = super().validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
+        if not success and error == _DATABASE_NOT_FOUND_VALIDATION_ERROR:
+            return False, _NEON_DATABASE_NOT_FOUND_ERROR
+        return success, error

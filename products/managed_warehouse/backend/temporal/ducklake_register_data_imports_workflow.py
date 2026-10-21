@@ -47,7 +47,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
-from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_ACCESS_FLAGS
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
 from products.managed_warehouse.backend.temporal.metrics import (
@@ -62,6 +62,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     record_ducklake_register_data_imports_stage_duration,
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
+from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
@@ -113,7 +114,7 @@ def _register_source_job_update(
         team_id=inputs.team_id,
         schema_ids=[inputs.schema_id],
         source_job_id=inputs.job_id,
-        attempt_id=f"{inputs.job_id}:{_generation_token(inputs.prepared_queryable_folder)}",
+        attempt_id=f"{inputs.job_id}:{_generation_token(inputs.prepared_queryable_folder, inputs.job_id)}",
         workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
         status=status,
         started_at=started_at,
@@ -253,19 +254,26 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         return False
 
     organization_id = str(team.organization_id)
-    try:
-        flag_enabled = feature_enabled_or_false(
-            DATA_WAREHOUSE_SCENE_FLAG,
-            organization_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception as error:
-        await logger.awarning("Failed to evaluate DuckLake data imports registration feature flag", error=str(error))
-        capture_exception(error)
-        return False
+    flag_enabled = False
+    # Each flag is evaluated on its own, so an error on one flag cannot hide access the other grants.
+    for flag in MANAGED_WAREHOUSE_ACCESS_FLAGS:
+        try:
+            flag_enabled = feature_enabled_or_false(
+                flag,
+                organization_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        except Exception as error:
+            await logger.awarning(
+                "Failed to evaluate DuckLake data imports registration feature flag", flag=flag, error=str(error)
+            )
+            capture_exception(error)
+            continue
+        if flag_enabled:
+            break
 
     if not flag_enabled:
         return False
@@ -410,13 +418,18 @@ def _is_valid_queryable_folder(queryable_folder: str) -> bool:
 _GENERATION_SUFFIX_PATTERN = re.compile(r"__query_(\d+(?:_[0-9a-f]{8})?)$")
 
 
-def _generation_token(prepared_queryable_folder: str) -> str:
+def _timestamped_generation(prepared_queryable_folder: str) -> str | None:
     match = _GENERATION_SUFFIX_PATTERN.search(prepared_queryable_folder)
-    if match:
-        return match.group(1)
-    # Folders predating the timestamped naming carry no generation, so derive a stable
-    # token from the whole name to keep the workflow id unique per generation.
-    return hashlib.sha256(prepared_queryable_folder.encode()).hexdigest()[:12]
+    return match.group(1) if match else None
+
+
+def _generation_token(prepared_queryable_folder: str, job_id: str) -> str:
+    timestamped = _timestamped_generation(prepared_queryable_folder)
+    if timestamped is not None:
+        return timestamped
+    # A fixed folder name (a rotation slot, or the legacy `__query` folder) is reused by later syncs,
+    # so the name alone does not identify a generation; the job that published it does.
+    return hashlib.sha256(f"{prepared_queryable_folder}:{job_id}".encode()).hexdigest()[:12]
 
 
 def build_register_data_imports_workflow_id(*, team_id: int, schema_id: str) -> str:
@@ -467,7 +480,7 @@ def _generation_scoped_landing_uri(
 ) -> str:
     normalized_uri = landing_uri.rstrip("/")
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
-    generation_token = _generation_token(prepared_queryable_folder)
+    generation_token = _generation_token(prepared_queryable_folder, job_id)
     generation_suffix = f"/{safe_job_id}/{generation_token}"
     if normalized_uri.endswith(generation_suffix):
         return normalized_uri
@@ -530,12 +543,27 @@ def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityI
     return _current_prepared_queryable_folder(inputs) == inputs.metadata.prepared_queryable_folder
 
 
+def _publishing_job_id(*, team_id: int, schema_uuid: uuid.UUID, prepared_queryable_folder: str) -> str | None:
+    return query_folder_publishing_job_id(
+        team_id=team_id, schema_id=schema_uuid, queryable_folder=prepared_queryable_folder
+    )
+
+
 def _register_completed_for_generation(*, team_id: int, schema_id: str, prepared_queryable_folder: str) -> bool:
     try:
         schema_uuid = uuid.UUID(schema_id)
     except ValueError:
         return False
-    token = _generation_token(prepared_queryable_folder)
+    token = _timestamped_generation(prepared_queryable_folder)
+    if token is None:
+        # A fixed folder name needs the job that published the current generation. Without that
+        # record nothing can prove the newer generation landed, so this one is published.
+        publishing_job_id = _publishing_job_id(
+            team_id=team_id, schema_uuid=schema_uuid, prepared_queryable_folder=prepared_queryable_folder
+        )
+        if publishing_job_id is None:
+            return False
+        token = _generation_token(prepared_queryable_folder, publishing_job_id)
     return (
         ManagedWarehouseSourceJob.objects.for_team(team_id)
         .filter(

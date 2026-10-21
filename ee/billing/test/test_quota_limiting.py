@@ -4,11 +4,11 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.apps import apps
 from django.db import DatabaseError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -16,9 +16,11 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.api.test.test_team import create_team
+from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -34,6 +36,7 @@ from ee.billing.quota_limiting import (
     list_limited_team_attributes,
     org_quota_limited_until,
     refresh_org_self_driving_quota,
+    remove_limited_team_tokens,
     replace_limited_team_tokens,
     set_org_usage_summary,
     update_all_orgs_billing_quotas,
@@ -108,7 +111,30 @@ class TestQuotaLimiting(BaseTest):
         org_id = str(self.organization.id)
         flush_persons_and_events()
 
-        result = update_all_orgs_billing_quotas()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES="events:both"),
+            patch(
+                "posthog.tasks.usage_report.get_usage_records_in_period",
+                return_value=UsageRecordTotals(
+                    totals=[
+                        UsageRecordTotal(team_id=self.team.id, organization_id=org_id, usage_key="events", quantity=3)
+                    ]
+                ),
+            ),
+            patch("posthog.usage_counters.logger.info") as counter_log,
+        ):
+            result = update_all_orgs_billing_quotas()
+        counter_log.assert_any_call(
+            "usage_counter_comparison",
+            caller="quota_limiting",
+            date="2021-01-25",
+            counter="event_count_in_period",
+            source="both",
+            legacy=ANY,
+            realtime=3,
+            differing_teams=ANY,
+            absolute_difference=ANY,
+        )
         # feature_enabled will be called for AI billing check and then for data retention flag
         patch_feature_enabled.assert_any_call(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -299,6 +325,42 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
+
+    @patch("posthoganalytics.capture")
+    def test_todays_usage_reads_every_legacy_row_shape(self, _capture) -> None:
+        def flag_requests(_begin, _end, request_type):
+            return [(str(self.team.id), 7 if request_type == FlagRequestType.DECIDE else 2)]
+
+        with (
+            self.settings(USE_TZ=False),
+            time_machine.travel("2021-01-25T00:00:00Z", tick=False),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_feature_flag_requests_count_in_period",
+                side_effect=flag_requests,
+            ),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_rows_synced_in_period",
+                return_value=[{"team_id": self.team.id, "total": 5}],
+            ),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_rows_exported_in_period",
+                return_value=[{"team_id": self.team.id, "total": 3}],
+            ),
+        ):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "feature_flag_requests": {"usage": 0, "limit": None, "todays_usage": 0},
+                "rows_synced": {"usage": 0, "limit": None, "todays_usage": 0},
+                "rows_exported": {"usage": 0, "limit": None, "todays_usage": 0},
+            }
+            self.organization.save()
+            update_all_orgs_billing_quotas()
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10
+        assert self.organization.usage["rows_synced"]["todays_usage"] == 5
+        assert self.organization.usage["rows_exported"]["todays_usage"] == 3
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
@@ -2382,7 +2444,7 @@ _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
-class TestIdentifyRefreshCandidates(BaseTest):
+class TestIdentifyRefreshCandidates(SimpleTestCase):
     """Isolated unit coverage for `_identify_refresh_candidates`. The cron-loop
     integration tests above also exercise this function but conflate it with the rest
     of the run; these cases cover each candidate-selection branch in isolation."""
@@ -3183,7 +3245,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         )
         with (
             patch(
-                "ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period",
+                "posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period",
                 return_value=[(self.team.id, 100)],
             ),
             patch(
@@ -3233,7 +3295,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
 
         with (
             patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
-            patch("ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period", return_value=[]),
+            patch("posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period", return_value=[]),
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
         ):
             update_all_orgs_billing_quotas()
@@ -3255,3 +3317,220 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org") as live_mock:
             refresh_org_self_driving_quota(str(self.organization.id))
         live_mock.assert_not_called()
+
+
+@override_settings(CLOUD_DEPLOYMENT="US", AI_GATEWAY_REDIS_URL="redis://localhost:6379/15")
+class TestLLMGatewayQuotaProjectionHooks(BaseTest):
+    _GATEWAY_REDIS_URL = "redis://localhost:6379/15"
+
+    def setUp(self):
+        super().setUp()
+        from posthog.storage.team_llm_gateway_quota_cache import team_llm_gateway_quota_hypercache
+
+        team_llm_gateway_quota_hypercache.cache_client.clear()
+        for resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+            remove_limited_team_tokens(resource, [self.team.api_token], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+    def tearDown(self):
+        for resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+            remove_limited_team_tokens(resource, [self.team.api_token], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        super().tearDown()
+
+    @patch("posthog.tasks.team_llm_gateway_quota.settings")
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_update_org_billing_quotas_projects_then_lifts_the_gateway_quota_blob(
+        self, mock_settings, task_settings
+    ) -> None:
+        from posthog.storage.team_llm_gateway_quota_cache import get_team_quota_blob
+
+        mock_settings.AI_GATEWAY_REDIS_URL = self._GATEWAY_REDIS_URL
+        task_settings.AI_GATEWAY_REDIS_URL = self._GATEWAY_REDIS_URL
+        other_team = create_team(organization=self.organization)
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "ai_credits": {"usage": 1_000, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            update_org_billing_quotas(self.organization)
+
+            for team in (self.team, other_team):
+                blob = get_team_quota_blob(team)
+                assert blob is not None, team.id
+                assert blob["team_id"] == team.id
+                assert blob["buckets"]["ai_credits"]["limited"] is True
+                assert "posthog_code_credits" not in blob["buckets"]
+                assert blob["org_deactivated"] is False
+
+            self.organization.usage["ai_credits"]["limit"] = 10_000
+            self.organization.save()
+            update_org_billing_quotas(self.organization)
+
+            for team in (self.team, other_team):
+                assert get_team_quota_blob(team) is None, team.id
+
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_update_org_billing_quotas_projection_failure_does_not_fail_billing(self, mock_settings) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = self._GATEWAY_REDIS_URL
+        self.organization.usage = {
+            "events": {"usage": 1, "limit": 100, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        with (
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay",
+                side_effect=RuntimeError("broker down"),
+            ) as delay,
+            patch("ee.billing.quota_limiting.capture_exception") as capture,
+        ):
+            update_org_billing_quotas(self.organization)
+        delay.assert_called_once_with(str(self.organization.id))
+        capture.assert_called_once()
+
+    @parameterized.expand([("live_run_projects", False, True), ("dry_run_projects_nothing", True, False)])
+    @patch("ee.billing.quota_limiting._project_llm_gateway_quota_for_tokens")
+    @patch("posthoganalytics.capture")
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_update_all_orgs_billing_quotas_projects_the_ai_zset_diff(
+        self, _name, dry_run, expect_projection, _capture, project
+    ) -> None:
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "posthog_code_credits": {"usage": 5_000, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            update_all_orgs_billing_quotas(dry_run=dry_run)
+
+        if not expect_projection:
+            project.assert_not_called()
+            return
+        project.assert_called_once()
+        (tokens,) = project.call_args.args
+        assert self.team.api_token in tokens
+
+    @patch("ee.billing.quota_limiting._project_llm_gateway_quota_for_tokens")
+    @patch("posthoganalytics.capture")
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_update_all_orgs_billing_quotas_reprojects_a_lifted_team(self, _capture, project) -> None:
+        add_limited_team_tokens(
+            QuotaResource.POSTHOG_CODE_CREDITS,
+            {self.team.api_token: 1611900000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "posthog_code_credits": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            update_all_orgs_billing_quotas()
+
+        project.assert_called_once()
+        (tokens,) = project.call_args.args
+        assert self.team.api_token in tokens
+
+    def test_the_all_orgs_projection_is_enqueued_in_batches_not_run_inline(self) -> None:
+        from ee.billing.quota_limiting import _project_llm_gateway_quota_for_tokens
+
+        tokens = [f"phc_{i:04d}" for i in range(1_001)] + ["", "phc_0000"]
+        with (
+            patch("posthog.tasks.team_llm_gateway_quota.project_teams_llm_gateway_quota_task.delay") as delay,
+            patch("posthog.storage.team_llm_gateway_quota_cache.project_teams_quota_by_token") as inline,
+        ):
+            _project_llm_gateway_quota_for_tokens(tokens)
+        inline.assert_not_called()
+        batches = [call.args[0] for call in delay.call_args_list]
+        assert [len(batch) for batch in batches] == [500, 500, 1]
+        assert sorted(token for batch in batches for token in batch) == sorted(set(tokens) - {""})
+
+    def test_nothing_is_enqueued_without_gateway_redis_url(self) -> None:
+        from ee.billing.quota_limiting import _project_llm_gateway_quota_for_org, _project_llm_gateway_quota_for_tokens
+
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL=None),
+            patch("posthog.tasks.team_llm_gateway_quota.project_teams_llm_gateway_quota_task.delay") as teams_delay,
+            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay") as org_delay,
+        ):
+            _project_llm_gateway_quota_for_tokens([self.team.api_token])
+            _project_llm_gateway_quota_for_org(self.organization)
+        teams_delay.assert_not_called()
+        org_delay.assert_not_called()
+
+    def test_an_enqueue_failure_is_captured_not_raised(self) -> None:
+        from ee.billing.quota_limiting import _project_llm_gateway_quota_for_tokens
+
+        with (
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_teams_llm_gateway_quota_task.delay",
+                side_effect=RuntimeError("broker down"),
+            ),
+            patch("ee.billing.quota_limiting.capture_exception") as capture,
+        ):
+            _project_llm_gateway_quota_for_tokens([self.team.api_token])
+        capture.assert_called_once()
+
+    def test_one_failed_enqueue_does_not_skip_the_later_batches(self) -> None:
+        from ee.billing.quota_limiting import _project_llm_gateway_quota_for_tokens
+
+        with (
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_teams_llm_gateway_quota_task.delay",
+                side_effect=[RuntimeError("broker blip"), None, None],
+            ) as delay,
+            patch("ee.billing.quota_limiting.capture_exception") as capture,
+        ):
+            _project_llm_gateway_quota_for_tokens([f"phc_{i:04d}" for i in range(1_001)])
+        assert delay.call_count == 3
+        capture.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("ai_credits", QuotaResource.AI_CREDITS, True),
+            ("posthog_code_credits", QuotaResource.POSTHOG_CODE_CREDITS, True),
+            ("events", QuotaResource.EVENTS, False),
+        ]
+    )
+    def test_staff_limit_and_unlimit_reproject_only_ai_buckets(self, _name, resource, expect_projection) -> None:
+        self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2099-01-31T23:59:59Z"]}
+        self.organization.save()
+        with patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay") as delay:
+            self.organization.limit_product_until_end_of_billing_cycle(resource)
+            self.organization.unlimit_product(resource)
+        assert delay.call_count == (2 if expect_projection else 0)
+
+    @patch("ee.billing.quota_limiting._project_llm_gateway_quota_for_tokens")
+    @patch("posthoganalytics.capture")
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_update_all_orgs_billing_quotas_reprojects_a_team_that_stays_limited(self, _capture, project) -> None:
+        add_limited_team_tokens(
+            QuotaResource.POSTHOG_CODE_CREDITS,
+            {self.team.api_token: 1611900000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "posthog_code_credits": {"usage": 5_000, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            update_all_orgs_billing_quotas()
+
+        project.assert_called_once()
+        (tokens,) = project.call_args.args
+        assert self.team.api_token in tokens
+        members = {m.decode("utf-8") for m in get_client().zrange("@posthog/quota-limits/posthog_code_credits", 0, -1)}
+        assert self.team.api_token in members

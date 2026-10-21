@@ -7,6 +7,8 @@ export const CyclotronInputSchema = z.object({
     templating: z.enum(['hog', 'liquid']).optional(),
     secret: z.boolean().optional(),
     bytecode: z.any().optional(),
+    /** The runtime contract the bytecode was compiled against. Absent on templates saved before stamping. */
+    bytecode_contract: z.string().optional(),
     order: z.number().optional(),
 })
 
@@ -33,6 +35,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'replay_vision_scan',
         'task_skills',
     ]),
     key: z.string(),
@@ -139,6 +142,8 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
+    secret_headers_input: z.string().optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
@@ -162,7 +167,8 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     bcc: z.string().optional(),
     subject: z.string(),
     preheader: z.string().optional(),
-    text: z.string(),
+    // Emails authored through the API or MCP often carry html only.
+    text: z.string().optional(),
     html: z.string(),
 })
 

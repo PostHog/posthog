@@ -11,7 +11,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pytest_asyncio
@@ -86,11 +88,14 @@ from products.signals.backend.scout_harness.tools.runs import (
     MAX_FAILURE_REASON_LENGTH,
     MAX_RUN_SEARCH_LIMIT,
     MAX_SCOUTS_PER_RUNS_QUERY,
+    RunDetail,
+    RunSummary,
     recent_runs_per_scout,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
+    search_scratchpad_naming,
 )
 from products.signals.backend.scout_report.judge import (
     _chart_signal,
@@ -198,14 +203,18 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_run_metadata(self) -> None:
-        # `metadata` carries the routed model triple stamped at run creation; a pre-column row
-        # (NULL) and a default-model run ({}) must both project as an empty dict, not None/crash.
+        # New runs also carry accounting metadata; legacy NULL rows must still project as {}.
         routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
         legacy = _create_run(self.team, metadata=None)
+        SignalScoutRun.objects.for_team(self.team.id).filter(pk=legacy.pk).update(metadata=None)
 
         by_run_id = {hit.run_id: hit for hit in search_recent_runs(team_id=self.team.id)}
 
-        assert by_run_id[str(routed.id)].metadata == {"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"}
+        assert by_run_id[str(routed.id)].metadata == {
+            "model": "@cf/zai-org/glm-5.2",
+            "runtime_adapter": "claude",
+            "spend_accounting_failed_stages": ["scout"],
+        }
         assert by_run_id[str(legacy.id)].metadata == {}
 
     def test_summary_surfaces_status_from_linked_task_run(self) -> None:
@@ -388,13 +397,18 @@ class TestRecentRunsPerScout(BaseTest):
         assert len(per_skill["signals-scout-hourly"]) == 5
         assert per_skill["signals-scout-daily"] == [str(run.id) for run in daily]
 
-    def test_keeps_each_scouts_newest_runs_and_orders_the_fleet_newest_first(self) -> None:
+    @parameterized.expand([False, True])
+    def test_keeps_each_scouts_newest_runs_and_orders_the_fleet_newest_first(self, null_metadata: bool) -> None:
         self._configure("signals-scout-errors")
         self._configure("signals-scout-surveys")
         newest = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
         older = self._run_at(skill_name="signals-scout-errors", hours_ago=2)
         dropped = self._run_at(skill_name="signals-scout-errors", hours_ago=3)
         other_scout = self._run_at(skill_name="signals-scout-surveys", hours_ago=1.5)
+        if null_metadata:
+            SignalScoutRun.objects.filter(id=newest.id).update(metadata=None)
+        trial = self._run_at(skill_name="signals-scout-errors", hours_ago=0.5)
+        SignalScoutRun.objects.filter(id=trial.id).update(metadata={"scout_trial": {"version": 1}})
 
         hits = recent_runs_per_scout(team_id=self.team.id, per_scout_limit=2)
 
@@ -505,6 +519,33 @@ class TestGetRun(BaseTest):
         detail = get_run(team_id=self.team.id, run_id=str(run.id))
 
         assert detail is None  # team scoping enforced even when caller knows the UUID
+
+
+class TestRunReadsSkipTaskRunPayload(BaseTest):
+    @parameterized.expand(["search_recent_runs", "recent_runs_per_scout", "get_run"])
+    def test_reads_task_run_columns_in_one_query_without_json_payload(self, reader: str) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        runs = [_create_run(self.team), _create_run(self.team, task_run_status=TaskRun.Status.FAILED)]
+        TaskRun.objects.filter(id=runs[1].task_run_id).update(error_message="boom")
+
+        hits: list[RunSummary] | list[RunDetail]
+        with CaptureQueriesContext(connection) as captured:
+            if reader == "search_recent_runs":
+                hits = search_recent_runs(team_id=self.team.id)
+            elif reader == "recent_runs_per_scout":
+                hits = recent_runs_per_scout(team_id=self.team.id)
+            else:
+                detail = get_run(team_id=self.team.id, run_id=str(runs[1].id))
+                hits = [detail] if detail is not None else []
+
+        task_run_queries = [q["sql"] for q in captured.captured_queries if '"posthog_task_run"' in q["sql"]]
+        assert len(task_run_queries) == 1
+        assert '"total_spend"' in task_run_queries[0]
+        for column in ("output", "artifacts", "state"):
+            assert f'"posthog_task_run"."{column}"' not in task_run_queries[0]
+        failed = next(hit for hit in hits if hit.run_id == str(runs[1].id))
+        assert (failed.status, failed.error, failed.task_run_id) == ("failed", "boom", str(runs[1].task_run_id))
 
 
 class TestRemember(BaseTest):
@@ -668,6 +709,31 @@ class TestForget(BaseTest):
 
 
 class TestSearchScratchpad(BaseTest):
+    @parameterized.expand(
+        [
+            ("search", lambda team_id: search_scratchpad(team_id=team_id, text="shared")),
+            (
+                "naming",
+                lambda team_id: search_scratchpad_naming(team_id=team_id, key_prefix="person:", terms=["shared"]),
+            ),
+        ]
+    )
+    def test_resolves_attribution_in_one_query_without_heavy_joined_columns(self, _name: str, search) -> None:
+        for i in range(2):
+            remember(
+                team_id=self.team.id, key=f"person:{i}", content="shared login", run_id=str(_create_run(self.team).id)
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            entries = search(self.team.id)
+
+        assert len(entries) == 2
+        assert all(e.created_by_skill == "signals-scout-errors" and e.created_by_run_url for e in entries)
+        assert len(queries.captured_queries) == 1
+        sql = queries.captured_queries[0]["sql"]
+        for column in ("summary", "metadata", "state", "output", "artifacts", "imported_mcp_servers"):
+            assert f'."{column}"' not in sql
+
     def test_returns_all_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="a", content="alpha")
         SignalScratchpad.objects.create(team=self.team, key="b", content="beta")
@@ -687,6 +753,30 @@ class TestSearchScratchpad(BaseTest):
         keys = {e.key for e in results}
         # Matches on both content ('CHECKOUT' in k1) and key ('checkout-key').
         assert keys == {"k1", "checkout-key"}
+
+    @parameterized.expand(
+        [
+            ("scout_run", "signals-scout-errors", ["errors"]),
+            ("pipeline_identity", PIPELINE_AUDIENCE_REPORT_RESEARCH, ["research"]),
+        ]
+    )
+    def test_skill_name_filter_applies_before_the_limit(self, _name: str, skill_name: str, expected: list[str]) -> None:
+        remember(team_id=self.team.id, key="errors", content="v", run_id=str(_create_run(self.team).id))
+        remember(
+            team_id=self.team.id,
+            key="flags",
+            content="v",
+            run_id=str(_create_run(self.team, skill_name="signals-scout-flags").id),
+        )
+        remember(team_id=self.team.id, key="research", content="v", identity=PIPELINE_AUDIENCE_REPORT_RESEARCH)
+        remember(team_id=self.team.id, key="unattributed", content="v")
+        SignalScratchpad.objects.filter(team=self.team, key="errors").update(
+            updated_at=timezone.now() - timedelta(days=1)
+        )
+
+        results = search_scratchpad(team_id=self.team.id, skill_name=skill_name, limit=1)
+
+        assert [e.key for e in results] == expected
 
     def test_does_not_leak_memories_from_other_teams(self) -> None:
         from posthog.models import Team

@@ -1,4 +1,12 @@
-import { InactivityPeriod } from './types'
+import { METADATA_FOOTER_HEIGHT_PX, NavigationSample } from '@posthog/replay-headless/protocol'
+
+import {
+    InactivityPeriod,
+    NavigationChange,
+    RasterizeRecordingInput,
+    RasterizeRecordingOutput,
+    RecordingResult,
+} from './types'
 
 /**
  * Place each period on the video clock from the timeline measured during capture.
@@ -106,4 +114,64 @@ export function computeVideoTimestamps(periods: InactivityPeriod[]): InactivityP
     }
 
     return results
+}
+
+export function navigationFromFrames(
+    samples: NavigationSample[],
+    frameSessionMs: number[],
+    videoDurationS: number,
+    fps: number,
+    preRollFrames: number
+): NavigationChange[] {
+    if (fps <= 0) {
+        return []
+    }
+    // A change revealed by a skip is recorded on the skip frame, which the citation clock gives to the time before
+    // the skip. Place it on the first frame whose sample has reached the time the change shows.
+    const firstFrameShowing = (entry: NavigationSample): number => {
+        let frame = entry.sample
+        while (frame < frameSessionMs.length - 1 && frameSessionMs[frame] < entry.session_ms - 1) {
+            frame++
+        }
+        return frame
+    }
+    return (
+        samples
+            .map((entry) => ({
+                video_s: (preRollFrames + firstFrameShowing(entry)) / fps,
+                session_s: entry.session_ms / 1000,
+                window_id: entry.window_id,
+                window_number: entry.window_number,
+                url: entry.url,
+            }))
+            // A trimmed capture keeps sampling briefly after the encoder stops writing.
+            .filter((change) => change.video_s < videoDurationS)
+    )
+}
+
+/** The render's output metadata, shared by the Temporal activity and the file CLI so the two cannot drift. */
+export function renderOutputFields(
+    result: RecordingResult,
+    input: RasterizeRecordingInput
+): Omit<RasterizeRecordingOutput, 's3_uri' | 'file_size_bytes' | 'timings'> {
+    return {
+        video_duration_s: result.capture_duration_s,
+        playback_speed: result.playback_speed,
+        show_metadata_footer: !!input.show_metadata_footer,
+        footer_height_px: input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0,
+        truncated: result.truncated,
+        inactivity_periods: videoTimestampsFromFrames(
+            result.inactivity_periods,
+            result.frame_session_ms,
+            result.output_fps,
+            result.pre_roll_frames
+        ),
+        navigation: navigationFromFrames(
+            result.navigation_samples,
+            result.frame_session_ms,
+            result.capture_duration_s,
+            result.output_fps,
+            result.pre_roll_frames
+        ),
+    }
 }

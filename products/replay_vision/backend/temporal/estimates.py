@@ -7,6 +7,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
@@ -93,5 +94,6 @@ async def create_replay_vision_estimates_schedule(client: "Client") -> None:
         workflow_id=ESTIMATES_WORKFLOW_ID,
         inputs=RefreshScannerEstimatesInputs(),
         interval=ESTIMATES_REFRESH_INTERVAL,
+        offset=deterministic_offset(ESTIMATES_SCHEDULE_ID, ESTIMATES_REFRESH_INTERVAL),
         execution_timeout=ESTIMATES_EXECUTION_TIMEOUT,
     )

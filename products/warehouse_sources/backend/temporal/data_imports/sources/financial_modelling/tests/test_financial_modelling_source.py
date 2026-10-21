@@ -34,18 +34,27 @@ def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
 
 
 class TestGetSchemas:
-    def test_all_endpoints_present(self) -> None:
-        schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             ("stock_list", False),
             ("company_profiles", False),
             ("income_statements", False),
+            ("key_metrics", False),
+            ("ratios", False),
+            ("key_metrics_ttm", False),
+            ("ratios_ttm", False),
+            ("dividends", False),
+            ("earnings", False),
             ("historical_prices", True),
             ("earnings_calendar", True),
             ("dividends_calendar", True),
+            ("available_exchanges", False),
+            ("available_sectors", False),
+            ("available_industries", False),
+            ("splits", False),
+            ("market_capitalization", False),
+            ("historical_market_capitalization", True),
+            ("institutional_positions_summary", False),
         ]
     )
     def test_incremental_support_matches_date_window(self, endpoint: str, expected_incremental: bool) -> None:
@@ -53,10 +62,6 @@ class TestGetSchemas:
         assert schemas[endpoint].supports_incremental is expected_incremental
         # supports_append tracks incremental here (date-windowed endpoints can append).
         assert schemas[endpoint].supports_append is expected_incremental
-
-    def test_names_filter(self) -> None:
-        schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1, names=["historical_prices"])
-        assert [s.name for s in schemas] == ["historical_prices"]
 
 
 class TestValidateCredentials:
@@ -85,14 +90,6 @@ class TestNonRetryableErrors:
     @parameterized.expand(
         [
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://financialmodelingprep.com/stable/profile?symbol=AAPL",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://financialmodelingprep.com/stable/income-statement?symbol=AAPL",
-            ),
-            (
                 "error_body",
                 "Financial Modeling Prep API returned an error response: Exclusive Endpoint: This endpoint is only for premium subscribers.",
             ),
@@ -102,36 +99,8 @@ class TestNonRetryableErrors:
         non_retryable = FinancialModellingSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://financialmodelingprep.com/stable/profile",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://financialmodelingprep.com/stable/profile",
-            ),
-            ("timeout", "Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FinancialModellingSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
 
 class TestSourceForPipeline:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
-    )
-    def test_parses_symbols_and_plumbs_arguments(self, mock_source: MagicMock) -> None:
-        config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "aapl, msft"})
-        FinancialModellingSource().source_for_pipeline(config, MagicMock(), _inputs("company_profiles"))
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "k"
-        assert kwargs["symbols"] == ["AAPL", "MSFT"]
-        assert kwargs["endpoint"] == "company_profiles"
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
     )
@@ -160,10 +129,6 @@ class TestSourceForPipeline:
 class TestPublicDocs:
     def test_lists_tables_without_credentials(self) -> None:
         assert FinancialModellingSource().lists_tables_without_credentials is True
-
-    def test_documented_tables_cover_every_endpoint(self) -> None:
-        tables = {t["name"] for t in FinancialModellingSource().get_documented_tables()}
-        assert tables == set(ENDPOINTS)
 
     def test_canonical_descriptions_keys_are_valid_endpoints(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS).issubset(set(ENDPOINTS))

@@ -1,16 +1,19 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
 
+import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookJupyterCellOutput } from './components/NotebookJupyterCellOutput'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -39,6 +42,9 @@ const PYTHON_EDITOR_MIN_HEIGHT = 160
 // and an editor that grows with the code pushes the output and the next cell off the screen.
 // Past the cap the editor scrolls, and the drag handle expands it.
 const PYTHON_EDITOR_MAX_HEIGHT = 360
+// A Jupyter cell starts one line tall and grows with its code, so the whole cell stays in view.
+const JUPYTER_EDITOR_MIN_HEIGHT = 34
+const JUPYTER_EDITOR_MAX_HEIGHT = 100000
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -76,6 +82,8 @@ const Component = ({
         result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
+    const isJupyterMode = !!useNotebookJupyterCommands()
+    const { executionCounts } = useValues(notebookJupyterLogic({ shortId: notebookLogic.props.shortId }))
 
     const result = runResult ?? attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -108,7 +116,7 @@ const Component = ({
         const runId = attributes.runId ?? null
         // A read-only notebook lays the node out from its content, so there is no fixed height to
         // outgrow — and no editor to persist one into.
-        if (!result || !isEditable || runId === sizedRunIdRef.current) {
+        if (!result || !isEditable || isJupyterMode || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -125,6 +133,42 @@ const Component = ({
 
     if (!expanded) {
         return null
+    }
+
+    if (isJupyterMode) {
+        return (
+            <NotebookJupyterCellOutput
+                result={result}
+                dataframeResult={dataframeResult}
+                dataframeProps={{
+                    page,
+                    pageSize,
+                    hasMore: hasMorePages,
+                    loading: isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length),
+                    paginationDisabledReason: pageLoading
+                        ? 'Fetching page…'
+                        : isRunning
+                          ? 'Cell is running'
+                          : (operationBlockReason ?? undefined),
+                    onNextPage: () => setPage(page + 1),
+                    onPreviousPage: () => setPage(page - 1),
+                }}
+                runError={runError}
+                status={
+                    isRunning && pendingKernelStart
+                        ? 'Starting compute sandbox…'
+                        : resultRestoreUnavailable
+                          ? 'Run the cell again to see its full output.'
+                          : isRestoringResult
+                            ? 'Loading saved output…'
+                            : null
+                }
+                executionCount={executionCounts[nodeId] ?? null}
+                returnVariable={attributes.returnVariable ?? ''}
+                onReturnVariableChange={(returnVariable) => updateAttributes({ returnVariable })}
+                isEditable={isEditable}
+            />
+        )
     }
 
     return (
@@ -218,10 +262,26 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, isEditable } = useValues(nodeLogic)
 
     const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const { runNode } = useActions(dataLogic)
+    const isJupyterMode = !!useNotebookJupyterCommands()
+    const showLineNumbers = useNotebookJupyterStoreValue((state) => state.lineNumbers)
+    const jupyterEditorOptions = useMemo(
+        () => ({
+            lineNumbers: showLineNumbers ? ('on' as const) : ('off' as const),
+            lineDecorationsWidth: showLineNumbers ? 10 : 4,
+            folding: false,
+            renderLineHighlight: 'none' as const,
+            overviewRulerLanes: 0,
+            overviewRulerBorder: false,
+            hideCursorInOverviewRuler: true,
+            readOnly: !isEditable,
+            scrollbar: { vertical: 'hidden' as const, handleMouseWheel: false },
+        }),
+        [showLineNumbers, isEditable]
+    )
 
     // Read the run state imperatively: Monaco binds Cmd+Enter once at editor mount, so a captured
     // value would be the one from that first render. The guard keeps the keybinding from firing a
@@ -245,8 +305,10 @@ const Settings = ({
                 value={typeof attributes.code === 'string' ? attributes.code : ''}
                 onChange={(value) => updateAttributes({ code: value ?? '' })}
                 onPressCmdEnter={runOnCmdEnter}
-                minHeight={PYTHON_EDITOR_MIN_HEIGHT}
-                maxHeight={PYTHON_EDITOR_MAX_HEIGHT}
+                minHeight={isJupyterMode ? JUPYTER_EDITOR_MIN_HEIGHT : PYTHON_EDITOR_MIN_HEIGHT}
+                maxHeight={isJupyterMode ? JUPYTER_EDITOR_MAX_HEIGHT : PYTHON_EDITOR_MAX_HEIGHT}
+                allowManualResize={!isJupyterMode}
+                options={isJupyterMode ? jupyterEditorOptions : undefined}
                 embedded
             />
         </div>

@@ -13,6 +13,7 @@ import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    InvocationBuildFailure,
     LogEntry,
     LogEntryLevel,
     MessageAssetRow,
@@ -183,10 +184,12 @@ export class HogFlowExecutorService {
         invocations: CyclotronJobInvocationHogFlow[]
         metrics: MinimalAppMetric[]
         logs: LogEntry[]
+        buildFailures: InvocationBuildFailure[]
     }> {
         const metrics: MinimalAppMetric[] = []
         const logs: LogEntry[] = []
         const invocations: CyclotronJobInvocationHogFlow[] = []
+        const buildFailures: InvocationBuildFailure[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -196,6 +199,15 @@ export class HogFlowExecutorService {
         // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
             const trigger = hogFlow.trigger
+
+            if (trigger.type === 'cohort') {
+                // A cohort trigger has no filters to evaluate: eligibility already matched the membership change.
+                const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+                // A membership change carries no distinct_id, so the worker loads the person by id.
+                invocation.state.personId = triggerGlobals.person?.id
+                invocations.push(invocation)
+                continue
+            }
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
             // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
@@ -222,6 +234,17 @@ export class HogFlowExecutorService {
             )
             logs.push(...filterResults.logs)
 
+            // Checked against undefined, not for truthiness: a thrown error whose message is empty is
+            // still a failure, and treating it as success drops the event with no record of it.
+            if (filterResults.error !== undefined) {
+                buildFailures.push({
+                    sourceId: hogFlow.id,
+                    sourceKind: 'hog_flow',
+                    step: 'filter',
+                    error: String(filterResults.error),
+                })
+            }
+
             if (!filterResults.match) {
                 continue
             }
@@ -234,6 +257,7 @@ export class HogFlowExecutorService {
             invocations,
             metrics,
             logs,
+            buildFailures,
         }
     }
 
@@ -426,6 +450,17 @@ export class HogFlowExecutorService {
                     message: `Workflow is aborting because ${
                         lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
                     } could not work out the date to wait for`,
+                })
+            } else if (result.invocation.state.currentAction?.cohortLookupFailed) {
+                // The default continue edge of a conditional branch is the path for people outside the
+                // cohort, so carrying on would route this person on a lookup that never answered.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not look up cohort membership`,
                 })
             }
         }
@@ -794,10 +829,15 @@ export class HogFlowExecutorService {
         try {
             const { invocation } = result
             // A delay that could not work out when to continue must never fall through, whatever on_error
-            // says: the next step would run immediately, which is what the wait exists to prevent. Bailing
-            // here also keeps the flag readable by shouldEndHogFlowExecution, since goToNextAction would
-            // replace currentAction with a fresh entry and drop it.
-            if (invocation.state.currentAction?.delayUntilUnresolved) {
+            // says: the next step would run immediately, which is what the wait exists to prevent. A cohort
+            // lookup that failed on every attempt must not fall through either, because the continue edge
+            // treats the person as outside the cohort. Bailing here also keeps the flag readable by
+            // shouldEndHogFlowExecution, since goToNextAction would replace currentAction with a fresh
+            // entry and drop it.
+            if (
+                invocation.state.currentAction?.delayUntilUnresolved ||
+                invocation.state.currentAction?.cohortLookupFailed
+            ) {
                 return
             }
             // Unless the current action's on_error is set to 'abort', we move to the next action instead of
@@ -1033,7 +1073,8 @@ export class HogFlowExecutorService {
 
     private logExecutionErrorInfo(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
-        error: Error
+        // executeCurrentAction stores the message string, not the Error, on result.error.
+        error: unknown
     ): string {
         const invocation = result.invocation
         const currentActionId = invocation.state.currentAction?.id
@@ -1044,6 +1085,7 @@ export class HogFlowExecutorService {
             ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
 
-        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
+        const message = error instanceof Error ? error.message : String(error)
+        return `Workflow encountered an error: ${message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

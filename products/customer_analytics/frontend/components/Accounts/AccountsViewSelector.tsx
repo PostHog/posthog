@@ -20,8 +20,19 @@ import type { ColumnConfigurationApi } from 'products/product_analytics/frontend
 import { accountsViewsLogic } from './accountsViewsLogic'
 
 export function AccountsViewSelector(): JSX.Element {
-    const { views, currentView, isDirty, viewsLoading } = useValues(accountsViewsLogic)
-    const { selectView, updateView, setViewToDelete, setViewToEdit, setIsCreating } = useActions(accountsViewsLogic)
+    const {
+        views,
+        currentView,
+        currentViewId,
+        currentViewName,
+        isDirty,
+        viewsLoading,
+        viewsLoaded,
+        viewsLoadError,
+        awaitingSavedView,
+    } = useValues(accountsViewsLogic)
+    const { selectView, updateView, setViewToDelete, setViewToEdit, setIsCreating, loadViews } =
+        useActions(accountsViewsLogic)
 
     const menuItems: LemonMenuItems = [
         {
@@ -57,23 +68,47 @@ export function AccountsViewSelector(): JSX.Element {
             ),
         },
         {
-            items: [{ label: 'Save as new view...', icon: <IconPlus />, onClick: () => setIsCreating(true) }],
+            items: [
+                {
+                    label: 'Save as new view...',
+                    icon: <IconPlus />,
+                    onClick: () => setIsCreating(true),
+                    disabledReason: awaitingSavedView ? 'Wait for saved views to load' : undefined,
+                },
+            ],
         },
     ]
 
     return (
         <div className="flex items-center gap-2">
-            {views.length > 0 ? (
+            {viewsLoadError && (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    status="danger"
+                    onClick={loadViews}
+                    loading={viewsLoading}
+                    data-attr="accounts-retry-views"
+                >
+                    Couldn't load views. Retry
+                </LemonButton>
+            )}
+            {views.length > 0 || currentViewId || !viewsLoaded || viewsLoadError ? (
                 <LemonMenu items={menuItems} closeOnClickInside>
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {currentView ? (
-                            <>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        sideIcon={<IconChevronDown />}
+                        icon={
+                            currentView ? (
                                 <ViewVisibilityIcon view={currentView} />
-                                <span className="ml-2">{currentView.name}</span>
-                            </>
-                        ) : (
-                            'Select view'
-                        )}
+                            ) : currentViewId ? (
+                                <span className="h-4 w-4" aria-hidden />
+                            ) : undefined
+                        }
+                        data-attr="accounts-select-view"
+                    >
+                        {currentView?.name ?? currentViewName ?? 'Select view'}
                     </LemonButton>
                 </LemonMenu>
             ) : (
@@ -82,6 +117,8 @@ export function AccountsViewSelector(): JSX.Element {
                     size="small"
                     type="secondary"
                     onClick={() => setIsCreating(true)}
+                    loading={viewsLoading && awaitingSavedView}
+                    disabledReason={awaitingSavedView ? 'Wait for saved views to load' : undefined}
                     data-attr="accounts-save-view"
                 >
                     Save current view

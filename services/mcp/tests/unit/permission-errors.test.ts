@@ -84,6 +84,20 @@ describe('formatPermissionErrorMessage', () => {
         expect(text).toContain('PostHog API permission denied')
         expect(text).toContain('HTTP 403')
     })
+
+    it('tells a project-scoped token to use organization access on an organization endpoint', () => {
+        const error = new PostHogPermissionError({
+            detail: 'API keys with scoped projects are only supported on project-based endpoints.',
+            url: 'https://us.posthog.com/api/organizations/abc/billing/subscription/',
+            method: 'GET',
+        })
+
+        const text = formatPermissionErrorMessage(error)
+
+        expect(text).toContain('organization endpoint')
+        expect(text).toContain('"All access"')
+        expect(text).not.toContain('have access to this project')
+    })
 })
 
 describe('buildInsufficientScopeChallenge', () => {
@@ -463,12 +477,17 @@ describe('handleToolError with API errors', () => {
         expect(result.isError).toBe(true)
     })
 
-    it('still captures unexpected non-HTTP errors', () => {
+    it.each([true, false])('passes capture suppression=%s for unexpected errors', (suppressAnalytics) => {
         const error = new Error('boom — something unexpected went wrong')
 
-        const result = handleToolError(error, 'some-tool')
+        const result = handleToolError(error, 'some-tool', 'user-123', undefined, suppressAnalytics)
 
         expect(captureException).toHaveBeenCalledTimes(1)
+        expect(captureException).toHaveBeenCalledWith(
+            expect.any(Error),
+            'user-123',
+            expect.objectContaining({ suppress_analytics: suppressAnalytics })
+        )
         expect(result.isError).toBe(true)
     })
 })

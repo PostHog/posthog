@@ -1,6 +1,8 @@
 """Tests for the offline review entrypoint's context handling."""
 
 import sys
+import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,10 +15,12 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
-import reviewer  # noqa: E402
+import gates  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
+import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
+from policy import DenyException  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
 
@@ -115,8 +119,9 @@ def test_ownership_summary_reflects_author_team_membership(
     # which reads the key with a default of True. An unset key tells the reviewer that every author
     # owns the code that they touched, and the note then never appears on a hosted review.
     pipeline = _ownership_pipeline(ownership)
+    pipeline.author_team_slugs = author_team_slugs
 
-    review_local._apply_ownership_summary(pipeline, author_team_slugs)
+    pipeline._summarize_ownership()
 
     assert pipeline.classification["ownership_summary"] == expected_summary
     assert pipeline.classification.get("author_on_owning_team") is expected_on_team
@@ -156,6 +161,52 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
 
     assert result["final_verdict"] == "WAIT"
     assert "Migration risk" in result["reviewer"]["reasoning"]
+
+
+def _evidence(state: str, head_sha: str, reviewer: str = "PostHog Review") -> dict:
+    return {
+        "state": state,
+        "reviewer": reviewer,
+        "review_kind": "Standard",
+        "findings_count": 0,
+        "published": False,
+        "head_sha": head_sha,
+    }
+
+
+@pytest.mark.parametrize(
+    "review_evidence, expected",
+    [
+        pytest.param([_evidence("pending", "h" * 40)], "WAIT", id="pending-on-the-head-waits"),
+        pytest.param([_evidence("pending", "o" * 40)], "APPROVED", id="pending-on-an-older-head-is-ignored"),
+        pytest.param([_evidence("failed", "h" * 40)], "APPROVED", id="failed-reviews-as-without-it"),
+        pytest.param(
+            [_evidence("completed", "h" * 40), _evidence("pending", "h" * 40, reviewer="Other Reviewer")],
+            "WAIT",
+            id="one-pending-among-completed-waits",
+        ),
+    ],
+)
+def test_pending_external_review_waits_instead_of_approving(
+    monkeypatch, review_evidence: list[dict], expected: str
+) -> None:
+    # The server stops waiting when its poll budget runs out. An approval over a review that is still
+    # running would stand before that review's findings reach the PR.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        self.final_verdict = "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+    context = {**_run_context([_api_file("src/app.py")]), "review_evidence": review_evidence}
+
+    result = review_local.run(context)
+
+    assert result["final_verdict"] == expected
+    if expected == "WAIT":
+        assert "still reviewing this commit" in result["reviewer"]["reasoning"]
 
 
 _GIT_PROVENANCE = CommitProvenance(commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",))
@@ -558,7 +609,7 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
         seen["stacked"] = pr.stacked
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", fake_review)
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", fake_review)
 
     result = review_local.run(_stacked_context("feat/parent", "master"))
 
@@ -568,10 +619,20 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
 
 
 def _pregate_context(
-    files: list[dict], *, draft: bool = False, user_type: str = "User", check_runs: list[dict] | None = None
+    files: list[dict],
+    *,
+    draft: bool = False,
+    user_type: str = "User",
+    check_runs: list[dict] | None = None,
+    folder_policies_known: bool = False,
+    author_team_slugs: list[str] | None = None,
 ) -> dict:
     context = _run_context(files, check_runs)
     context["pr"] = {**context["pr"], "draft": draft, "user": {"login": "alice", "type": user_type}}
+    if folder_policies_known:
+        context["folder_policies_known"] = True
+    if author_team_slugs is not None:
+        context["author_team_slugs"] = author_team_slugs
     return context
 
 
@@ -579,53 +640,206 @@ def _lines(filename: str, additions: int) -> dict:
     return {"filename": filename, "additions": additions, "deletions": 0, "status": "modified", "patch": "@@"}
 
 
+_PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", "conclusion": None}]
+
+
 @pytest.mark.parametrize(
-    "context, expect_final, expect_summary",
+    "context, expect_verdict, expect_summary",
     [
-        pytest.param(_pregate_context([_api_file("terraform/main.tf")]), True, True, id="deny-list-and-t2"),
-        pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), True, True, id="draft-prerequisite"),
-        pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), True, False, id="bot-author"),
+        pytest.param(_pregate_context([_api_file("terraform/main.tf")]), "REFUSED", True, id="deny-list-and-t2"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), "REFUSED", True, id="draft-prerequisite"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), "REFUSED", False, id="bot-author"),
         pytest.param(
-            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]), True, True, id="past-the-file-contract"
+            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]),
+            "REFUSED",
+            True,
+            id="past-the-file-contract",
         ),
         # Between the global ceiling and the delegation contract, a folder AGENT_APPROVALS.md on the PR
         # head can lift the size gate, and the pre-check cannot read one.
-        pytest.param(_pregate_context([_lines("src/big.py", 900)]), False, False, id="size-a-folder-could-lift"),
+        pytest.param(_pregate_context([_lines("src/big.py", 900)]), None, False, id="size-a-folder-could-lift"),
+        pytest.param(
+            _pregate_context([_lines("src/big.py", 900)], folder_policies_known=True),
+            "REFUSED",
+            True,
+            id="size-with-folder-files-known",
+        ),
         # The manifest scripts scan reads git, which the pre-check does not have; running it anyway fails
         # closed and would refuse every manifest edit.
-        pytest.param(_pregate_context([_api_file("frontend/package.json")]), False, False, id="manifest-scan-skipped"),
+        pytest.param(_pregate_context([_api_file("frontend/package.json")]), None, False, id="manifest-scan-skipped"),
         pytest.param(
-            _pregate_context([_api_file("posthog/migrations/0999_add_col.py")]),
+            _pregate_context([_api_file("posthog/migrations/0999_add_col.py")], check_runs=_PENDING_MIGRATION_CHECK),
+            None,
             False,
-            False,
-            id="pending-migration-check-can-wait",
+            id="pending-migration-check-without-folder-files",
         ),
-        pytest.param(_pregate_context([_api_file("src/app.py")]), False, False, id="clean-t1"),
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            "WAIT",
+            False,
+            id="pending-migration-check-waits",
+        ),
+        # A manifest's scripts scan could add a second deny in the sandbox and turn the WAIT into a refusal.
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py"), _api_file("frontend/package.json")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            None,
+            False,
+            id="pending-migration-check-with-a-manifest",
+        ),
+        pytest.param(_pregate_context([_api_file("src/app.py")]), None, False, id="clean-t1"),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")], author_team_slugs=["team-replay"]),
+            "REFUSED",
+            True,
+            id="owner-only-path-from-another-team",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")]),
+            "REFUSED",
+            True,
+            id="owner-only-path-without-team-lookup",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")], author_team_slugs=["team-workflows"]),
+            None,
+            False,
+            id="owner-only-path-from-the-owning-team",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.test.ts")]),
+            None,
+            False,
+            id="owner-only-path-test-file",
+        ),
+        pytest.param(
+            _pregate_context(
+                [
+                    {
+                        **_api_file("products/workflows/backend/hog_flow.py", status="renamed"),
+                        "previous_filename": "products/workflows/backend/models/hog_flow.py",
+                    }
+                ]
+            ),
+            "REFUSED",
+            True,
+            id="owner-only-path-renamed-out",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/worker\n.ts")]),
+            "REFUSED",
+            True,
+            id="owner-only-path-with-a-newline",
+        ),
     ],
 )
-def test_pregate_fast_denies_only_what_the_full_review_refuses(
-    monkeypatch, context: dict, expect_final: bool, expect_summary: bool
+def test_pregate_is_final_only_where_the_full_review_agrees(
+    monkeypatch, context: dict, expect_verdict: str | None, expect_summary: bool
 ) -> None:
-    # The server posts a final pre-check deny as the verdict and never makes a sandbox, so a final
-    # deny the full review would not also refuse is a wrong refusal nobody gets to overturn.
+    # The server posts a final pre-check result as the verdict and never makes a sandbox, so a final
+    # result the full review would not also reach is a wrong verdict nobody gets to overturn.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
 
     outcome = review_local.pregate(context)
 
-    assert outcome["final_deny"] is expect_final
+    assert outcome["final"] is (expect_verdict is not None)
     assert outcome["needs_summary"] is expect_summary
-    if not expect_final:
+    if expect_verdict is None:
         assert outcome["result"] is None
+        assert outcome["not_final_reason"]
         return
-    assert outcome["result"]["final_verdict"] == "REFUSED"
+    assert outcome["result"]["final_verdict"] == expect_verdict
     assert outcome["result"]["review_body"]
 
     def approve(self, pr, classification, gate_context, diff_path=None):
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
-    assert review_local.run(context)["final_verdict"] == "REFUSED"
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
+    assert review_local.run(context)["final_verdict"] == expect_verdict
+
+
+@pytest.mark.parametrize(
+    "files, safe_migrations, expected_tier, expected_verdict",
+    [
+        pytest.param(["apps/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-config-not-t0"),
+        pytest.param(["apps/tests/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-test-not-t0"),
+        pytest.param([".github/workflows/codeql.yml"], [], "T1-agent", "REFUSED", id="ci-category-not-t0"),
+        pytest.param([".github/helm/test_chart.py"], [], "T1-agent", "REFUSED", id="ci-test-not-t0"),
+        pytest.param(["docs/change.md"], [], "T0-deterministic", "ESCALATE", id="unaffected-allow-list-stays-t0"),
+        pytest.param(["src/test_app.py"], [], "T0-deterministic", "ESCALATE", id="unaffected-tests-stay-t0"),
+        pytest.param(
+            ["apps/billing/values.yaml", "posthog/migrations/0999_add_col.py"],
+            ["posthog/migrations/0999_add_col.py"],
+            "T1-agent",
+            "REFUSED",
+            id="safe-migration-ignored-in-both-scans",
+        ),
+    ],
+)
+def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
+    monkeypatch, tmp_path, files: list[str], safe_migrations: list[str], expected_tier: str, expected_verdict: str
+) -> None:
+    policy = replace(
+        review_pr.POLICY,
+        deny_exceptions={
+            "billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml", ".yml")),),
+            "infra_cicd": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),
+            "ci_workflows": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),
+        },
+    )
+    monkeypatch.setattr(review_pr, "POLICY", policy)
+    monkeypatch.setattr(
+        gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(policy.deny_pattern_defs(), policy.deny_exceptions)
+    )
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_local, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    diff_path = tmp_path / "change.diff"
+    diff_path.write_text("+change\n")
+    monkeypatch.setattr(review_pr, "write_pr_diff", lambda *a, **k: diff_path)
+
+    def refuse(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "REFUSE", "reasoning": "Needs a safer change.", "risk": "high", "issues": []}
+
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", refuse)
+    checks = (
+        [
+            {
+                "name": "Migration risk",
+                "status": "completed",
+                "conclusion": "success",
+                "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},
+            }
+        ]
+        if safe_migrations
+        else []
+    )
+    context = _pregate_context(
+        [_api_file(path, status="modified") for path in files],
+        check_runs=checks,
+        folder_policies_known=True,
+        author_team_slugs=[],
+    )
+    context["pr"]["title"] = "fix: billing helm configuration"
+    context["commit_messages"] = []
+    outcome = review_local.pregate(context)
+    result = review_local.run(context)
+
+    assert outcome["final"] is False
+    assert outcome["result"] is None
+    assert result["classification"]["tier"] == expected_tier
+    assert result["classification"]["deny_categories"] == []
+    assert result["classification"]["title_scrutiny_flags"] == ["billing", "infra_cicd"]
+    assert result["final_verdict"] == expected_verdict
 
 
 def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) -> None:
@@ -638,3 +852,26 @@ def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) 
     assert "deny-list: matches: infra_cicd" in fallback["reviewer"]["reasoning"]
     assert summarized["reviewer"]["reasoning"] == "Terraform needs a human."
     assert summarized["review_body"].startswith("Terraform needs a human.")
+
+
+def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch, tmp_path, capsys) -> None:
+    # The server parses only the last stdout line, and reads the phase timings from it to split the
+    # sandbox's reviewer step into uv launch, LLM and exit time.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
+    context_path = tmp_path / "context.json"
+    context_path.write_text(json.dumps(_run_context([_api_file("src/app.py")])))
+    monkeypatch.setenv(review_local.LAUNCHED_AT_ENV, str(review_local._now_ms() - 1500))
+    monkeypatch.setattr(sys, "argv", ["review_local.py", "--context", str(context_path)])
+
+    review_local.main()
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["final_verdict"] == "APPROVED"
+    assert result["timings_ms"]["launch"] >= 1500
+    assert {"gates", "llm", "flush", "total"} <= set(result["timings_ms"])

@@ -8,8 +8,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.facade.timeseries import metric_calculation_keys
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -18,8 +19,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import get_run_results
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.timeseries_sync import sync_timeseries_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -72,16 +71,9 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         return exp
 
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
-        assert exp.start_date is not None
-        metric_dict = find_metric_dict(exp, metric_uuid)
-        assert metric_dict is not None
-        return compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+        calculation_config = get_metric_calculation_config(exp, metric_uuid)
+        assert calculation_config is not None
+        return calculation_config.calculation_key()
 
     def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict) -> None:
         assert exp.start_date is not None
@@ -129,8 +121,8 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         assert results == {"m1": {"m": 1}, "m2": {"m": 2}}
         copies = ExperimentMetricResult.objects.filter(experiment=exp, query_to=recalc.query_to)
         assert {row.fingerprint for row in copies} == {
-            compute_recalc_fingerprint(self._config_fp(exp, "m1")),
-            compute_recalc_fingerprint(self._config_fp(exp, "m2")),
+            _recalc_fingerprint(self._config_fp(exp, "m1")),
+            _recalc_fingerprint(self._config_fp(exp, "m2")),
         }
         # The timeseries rows keep their config fingerprint.
         assert ExperimentMetricResult.objects.filter(experiment=exp, fingerprint=self._config_fp(exp, "m1")).exists()
@@ -147,15 +139,8 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         self._link_saved_metric(exp, "sm1")
         assert exp.start_date is not None
 
-        saved_query = ExperimentSavedMetric.objects.get(team=self.team, name="sm1").query
-        daily_fp = compute_metric_fingerprint(
-            saved_query,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-            excluded_variants=exp.excluded_variants,
-        )
+        link = ExperimentToSavedMetric.objects.get(experiment=exp)
+        daily_fp = metric_calculation_keys(exp.id, team_id=self.team.id).saved[link.id]
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="sm1",
@@ -173,17 +158,20 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         assert recalc.metric_uuids == ["sm1"]
         assert [r["metric_uuid"] for r in get_run_results(recalc)] == ["sm1"]
 
-    def test_leaves_metric_types_the_daily_run_cannot_compute_out_of_the_row(self):
+    def test_publishes_retention_metrics_like_any_other_type(self):
+        """Retention was once outside the daily pipeline, so its absence from the published run made the
+        page recompute every metric on first open each morning. It now counts and publishes."""
         exp = self._experiment("sync-retention", [_mean_metric("m1"), _retention_metric("r1")])
         self._timeseries_point(exp, "m1", IN_RUN, {"m": 1})
+        self._timeseries_point(exp, "r1", LATER_IN_RUN, {"r": 1})
 
         recalculation_id = self._sync(exp)
 
         assert recalculation_id is not None
         recalc = ExperimentMetricsRecalculation.objects.get(id=recalculation_id)
-        assert recalc.total_metrics == 1
-        assert recalc.metric_uuids == ["m1"]
-        assert {r["metric_uuid"] for r in get_run_results(recalc)} == {"m1"}
+        assert recalc.total_metrics == 2
+        assert recalc.metric_uuids == ["m1", "r1"]
+        assert {r["metric_uuid"] for r in get_run_results(recalc)} == {"m1", "r1"}
 
     def test_counts_a_supported_metric_without_a_point_as_a_gap(self):
         exp = self._experiment("sync-gap", [_mean_metric("m1"), _mean_metric("m2")])

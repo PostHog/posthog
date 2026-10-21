@@ -1,8 +1,24 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import IntegerDatabaseField
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    DecimalDatabaseField,
+    FloatArrayDatabaseField,
+    FloatDatabaseField,
+    IntegerDatabaseField,
+    MapStringDatabaseField,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    UUIDDatabaseField,
+)
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import (
     ProvidedView,
@@ -11,9 +27,10 @@ from products.data_modeling.backend.facade.managed_viewset_hooks import (
 )
 from products.data_modeling.backend.facade.models import (
     DAG,
-    REVENUE_ANALYTICS_DAG_NAME,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
+    Node,
+    NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -78,9 +95,13 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
         # A non-materialized view is computed at query time — it must never be scheduled for
-        # materialization, nor get a managed (revenue-analytics) DAG.
+        # materialization.
         mock_schedule.assert_not_called()
-        self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
+        self.assertEqual(DAG.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=view).values_list("dag", "type")),
+            [(DAG.get_or_create_default(self.team).id, NodeType.VIEW)],
+        )
 
     @patch(SCHEDULE_MATERIALIZATION)
     @patch(SYNC_SAVED_QUERY_TO_DAG)
@@ -99,6 +120,43 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertEqual(mock_sync_saved_query_to_dag.call_count, len(views))
         dag_databases = [call.kwargs["database"] for call in mock_sync_saved_query_to_dag.call_args_list]
         self.assertTrue(all(database is dag_databases[0] for database in dag_databases))
+
+    @parameterized.expand(
+        [
+            (field_class.__name__, field_class)
+            for field_class in (
+                BooleanDatabaseField,
+                DateDatabaseField,
+                DateTimeDatabaseField,
+                DecimalDatabaseField,
+                FloatArrayDatabaseField,
+                FloatDatabaseField,
+                IntegerDatabaseField,
+                MapStringDatabaseField,
+                StringArrayDatabaseField,
+                StringDatabaseField,
+                StringJSONDatabaseField,
+                UUIDDatabaseField,
+            )
+        ]
+    )
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_synced_view_field_types_read_back(
+        self, _name: str, field_class: type[DatabaseField], _mock_schedule: Mock
+    ) -> None:
+        fake_view = ProvidedView(
+            name="fake_provider_view",
+            query="SELECT 1 AS id, 1 AS value",
+            fields={"id": IntegerDatabaseField(name="id"), "value": field_class(name="value")},
+            materialized=False,
+        )
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertIsInstance(view.hogql_definition().fields["value"], field_class)
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_is_idempotent(self, _):
@@ -122,7 +180,6 @@ class TestManagedViewSetProviders(BaseTest):
         with (
             patch.dict(_expected_views_providers, clear=True),
             patch(GET_V2_DAG_IDS, return_value=set()),
-            patch(f"{RECONCILE}.sync_connect"),
             patch(f"{RECONCILE}.async_connect", new=AsyncMock(return_value=_no_schedules())),
             patch(f"{RECONCILE}.a_create_schedule", new=AsyncMock()) as create,
             patch(f"{NODE_MAT}.sync_connect"),

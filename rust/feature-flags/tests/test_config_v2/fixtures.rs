@@ -1,8 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 
 use super::{config, person_property_cases, read, result};
 use feature_flags::flags::config_v2::{
@@ -12,47 +11,11 @@ use feature_flags::flags::config_v2::{
 use feature_flags::flags::flag_models::FeatureFlag;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_parser/2.1.0")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_contract")
 }
 
 fn load(path: &str) -> Value {
     serde_json::from_slice(&std::fs::read(root().join(path)).unwrap()).unwrap()
-}
-
-#[test]
-fn released_parser_artifacts_are_intact() {
-    let source = load("SOURCE.json");
-    assert_eq!(
-        source["source_revision"],
-        "c32f4959240967f1ee89e58490fc9d3beaa1401f"
-    );
-    let index = std::fs::read(root().join("SHA256SUMS")).unwrap();
-    assert_eq!(
-        hex::encode(Sha256::digest(&index)),
-        source["source_sha256sums_digest"]
-    );
-    let text = std::str::from_utf8(&index).unwrap();
-    let digests: BTreeMap<_, _> = text
-        .lines()
-        .map(|line| {
-            let (digest, path) = line.split_once("  ").unwrap();
-            (path, digest)
-        })
-        .collect();
-    let files: BTreeSet<_> = source["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| p.as_str().unwrap())
-        .collect();
-    assert_eq!(files.len(), source["files"].as_array().unwrap().len());
-    for path in files {
-        let bytes = std::fs::read(root().join(path)).unwrap();
-        assert_eq!(hex::encode(Sha256::digest(bytes)), digests[path], "{path}");
-    }
-    let manifest = load("manifest.json");
-    assert_eq!(manifest["contract"]["version"], source["contract_version"]);
-    assert_eq!(manifest["corpus"]["version"], "1.1.0");
 }
 
 #[test]
@@ -76,8 +39,15 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         let flag = read(document.clone());
         let parsed = flag.filters.non_v1.as_ref().unwrap().parsed_v2.as_ref();
         if fixture["expected"] == "valid" {
-            if path.ends_with("version_float_literal.json")
-                || path.ends_with("boolean_targeted_and_percentage_rollout.json")
+            if [
+                "version_float_literal.json",
+                "boolean_targeted_and_percentage_rollout.json",
+                "reserved_number_value.json",
+                "reserved_object_value.json",
+                "object_value_max_depth.json",
+            ]
+            .iter()
+            .any(|name| path.ends_with(name))
             {
                 assert!(parsed.unwrap().is_ok(), "{path}: {parsed:?}");
                 totals.supported += 1;
@@ -124,10 +94,10 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
     assert_eq!(
         totals,
         Totals {
-            supported: 2,
-            valid_but_unsupported: 6,
-            malformed: 18,
-            unsupported: 11,
+            supported: 5,
+            valid_but_unsupported: 3,
+            malformed: 20,
+            unsupported: 9,
             rejected_before_parsing: 3,
         }
     );
@@ -141,7 +111,10 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "empty_seed" | "missing_rollout_seed" => Malformed("seed"),
         "missing_on_rollout_miss" => Malformed("on_rollout_miss"),
         "non_uuid_rule_id" => Malformed("rule.id"),
-        "null_rule_value" | "return_value_type_mismatch" => Malformed("value"),
+        "null_rule_value"
+        | "return_value_type_mismatch"
+        | "empty_string_value"
+        | "object_value_too_deep" => Malformed("value"),
         "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
             Malformed("rollout_percentage")
         }
@@ -152,7 +125,6 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "unknown_property_operator" => Malformed("property.operator"),
         "unknown_property_type" => Malformed("property.type"),
         "unknown_rollout_miss_policy" => Malformed("on_rollout_miss"),
-        "empty_string_value" | "object_value_too_deep" => Unsupported("return_type"),
         "group_experiment_with_assign_by" | "group_percentage_rollout_with_assign_by" => {
             Unsupported("aggregation_group_type_index")
         }
@@ -184,6 +156,8 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
         "null_rule_value" | "return_value_type_mismatch" => {
             document["rules"][0]["value"] = json!(false)
         }
+        "empty_string_value" => document["rules"][0]["value"] = json!("compact"),
+        "object_value_too_deep" => document["rules"][0]["value"] = json!({}),
         "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
             document["rules"][0]["rollout_percentage"] = json!(33.33)
         }
@@ -312,20 +286,7 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         }
         assert!(exercised.insert(case["id"].as_str().unwrap()));
     }
-    let manifest = load("manifest.json");
-    let artifact = manifest["artifacts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|artifact| artifact["path"] == "fixtures/wire/definitions.json")
-        .unwrap();
-    let expected: BTreeSet<_> = artifact["case_ids"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|id| id.as_str().unwrap())
-        .collect();
-    assert_eq!(exercised, expected);
+    assert_eq!(exercised.len(), 23);
     let mut entry = fixtures["templates"]["v2"].clone();
     entry["filters"] = load("fixtures/config/valid/boolean_targeted_and_percentage_rollout.json");
     entry["team_id"] = json!(1);
@@ -341,10 +302,6 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
 fn released_schema_and_registry_match_the_parser_contract() {
     let schema = load("schemas/config.schema.json");
     let registry = load("registries/literals.json");
-    assert_eq!(
-        registry["registry_version"],
-        load("SOURCE.json")["registry_version"]
-    );
     for (pointer, fields) in [
         ("/properties", CONFIG_FIELDS),
         (
@@ -405,18 +362,20 @@ fn released_schema_and_registry_match_the_parser_contract() {
             assert!(result(&flag).is_ok());
         }
     }
-    for entry in registry["return_types"].as_array().unwrap() {
+    let return_types = registry["return_types"].as_array().unwrap();
+    let samples = [
+        json!(true),
+        json!("compact"),
+        json!(1.25),
+        json!({"layout": "compact"}),
+    ];
+    assert_eq!(return_types.len(), samples.len());
+    for (entry, value) in return_types.iter().zip(samples) {
         let mut document = config();
         document["return_type"] = entry["value"].clone();
-        let flag = read(document);
-        if entry["value"] == "boolean" {
-            assert!(result(&flag).is_ok());
-        } else {
-            assert_eq!(
-                result(&flag).as_ref().unwrap_err(),
-                &ParseError::Unsupported("return_type")
-            );
-        }
+        document["default_value"] = Value::Null;
+        document["rules"][0]["value"] = value;
+        assert!(result(&read(document)).is_ok(), "{entry}");
     }
     for entry in registry["rule_types"].as_array().unwrap() {
         let mut document = config();

@@ -4,18 +4,23 @@ import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 
 export function NavTabSection({
     label,
-    collapsedLabel = label,
     children,
     dataAttr,
     actions,
+    open: controlledOpen,
+    onOpenChange,
 }: {
     label: string
-    collapsedLabel?: string
     children: ReactNode
     dataAttr: string
     actions?: ReactNode
+    /** Controls the section from outside, for example to persist its state. It starts open otherwise. */
+    open?: boolean
+    onOpenChange?: (open: boolean) => void
 }): JSX.Element {
-    const [open, setOpen] = useState(true)
+    const [localOpen, setLocalOpen] = useState(true)
+    const open = controlledOpen ?? localOpen
+    const setOpen = onOpenChange ?? setLocalOpen
 
     return (
         <Collapsible open={open} onOpenChange={setOpen} className="border-t first:border-t-0">
@@ -25,7 +30,7 @@ export function NavTabSection({
                     labelClassName="flex-1 text-xs font-semibold text-secondary normal-case"
                     data-attr={dataAttr}
                 >
-                    <span>{open ? label : collapsedLabel}</span>
+                    <span>{label}</span>
                 </Collapsible.Trigger>
                 {actions}
             </div>

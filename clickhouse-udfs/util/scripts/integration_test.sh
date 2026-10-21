@@ -15,6 +15,7 @@ UDFS=(
     json_clean_posthog_event_properties
     json_clean_posthog_person_properties
     json_clean_posthog_temporary_properties
+    json_clean_posthog_event
     json_strip_empty_strings_and_nulls
 )
 
@@ -52,6 +53,9 @@ query_for() {
             ;;
         json_clean_posthog_temporary_properties)
             echo "SELECT JSONCleanPostHogTemporaryProperties(x) FROM $input FORMAT TabSeparated"
+            ;;
+        json_clean_posthog_event)
+            echo "SELECT JSONCleanPostHogEvent(properties, person_properties) FROM file('$1/stateless/$2', 'TabSeparated', 'properties String, person_properties String') SETTINGS max_block_size = 2, max_threads = 1 FORMAT TabSeparated"
             ;;
         json_strip_empty_strings_and_nulls)
             echo "SELECT JSONStripEmptyStringsAndNulls(x) FROM $input FORMAT TabSeparated"
@@ -143,3 +147,44 @@ if [[ "$output" != $'1\t1\t1' ]]; then
     exit 1
 fi
 echo "Passed nested-array quarantine JSON casts."
+
+# ClickHouse started each pooled UDF process above while a client connection was open. A UDF process that keeps a
+# copy of a client socket holds the connection open after the server closes it, so the client's next request on
+# that connection never gets a response. Run as the clickhouse user, which owns the UDF processes.
+docker compose -f "$COMPOSE_FILE" exec -T -u clickhouse clickhouse bash -s <<'BASH'
+set -euo pipefail
+checked=0
+leaks=0
+for proc in /proc/[0-9]*; do
+    args=()
+    mapfile -d '' args 2>/dev/null < "$proc/cmdline" || continue
+    # A wrapper runs as `<shell> /var/lib/clickhouse/user_scripts/<script>`, and it starts its binary from /tmp.
+    if [[ "${args[1]:-}" != /var/lib/clickhouse/user_scripts/* && "${args[0]:-}" != /tmp/* ]]; then
+        continue
+    fi
+    checked=$((checked + 1))
+    inspected=0
+    for fd in "$proc"/fd/*; do
+        target=$(readlink "$fd" 2>/dev/null) || continue
+        inspected=$((inspected + 1))
+        if [[ "$target" == socket:* ]]; then
+            echo "UDF process '${args[*]}' holds descriptor ${fd##*/} ($target)." >&2
+            leaks=$((leaks + 1))
+        fi
+    done
+    # A UDF process always has stdin open, so a live process with no readable descriptor means this check cannot
+    # see its descriptors, for example because it runs as another user. That must fail, not pass as clean.
+    if ((inspected == 0)) && [[ -e "$proc" ]]; then
+        echo "Cannot read the descriptors of UDF process '${args[*]}'." >&2
+        exit 1
+    fi
+done
+if ((checked == 0)); then
+    echo "Expected running pooled UDF processes, found none." >&2
+    exit 1
+fi
+if ((leaks > 0)); then
+    exit 1
+fi
+BASH
+echo "Passed pooled UDF processes hold no sockets."

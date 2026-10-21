@@ -11,7 +11,6 @@ from langgraph.prebuilt import create_react_agent
 from openai import APIStatusError
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -43,6 +42,8 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
 )
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
 from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client, build_langchain_callbacks
+
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 logger = structlog.get_logger(__name__)
 
@@ -130,9 +131,11 @@ def _fallback_content(
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
             f"Check that the evaluation is enabled and that {ingestion_hint}."
         )
-    elif metrics.output_type == "numeric" and metrics.pass_rate is None:
-        summary = f"No numeric scores were produced across {metrics.total_runs} runs. All results were not applicable."
-    elif metrics.output_type in ("boolean", "numeric"):
+    elif metrics.output_type in ("numeric", "categorical") and metrics.pass_rate is None:
+        summary = (
+            f"No applicable results were produced across {metrics.total_runs} runs. All results were not applicable."
+        )
+    elif metrics.output_type in ("boolean", "numeric", "categorical"):
         trend = ""
         if metrics.pass_rate is not None and metrics.previous_pass_rate is not None:
             diff = metrics.pass_rate - metrics.previous_pass_rate
@@ -273,7 +276,7 @@ def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
     detector_evaluation_ids: Sequence[str] = (),
-    numeric_output_configs: dict[str, dict[str, Any]] | None = None,
+    evaluation_output_configs: dict[str, dict[str, Any]] | None = None,
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -374,7 +377,7 @@ def run_eval_report_agent(
         "true_is_failure": inputs.true_is_failure,
         "output_config": inputs.output_config,
         "detector_evaluation_ids": list(detector_evaluation_ids),
-        "numeric_output_configs": {**(numeric_output_configs or {}), inputs.evaluation_id: inputs.output_config},
+        "evaluation_output_configs": {**(evaluation_output_configs or {}), inputs.evaluation_id: inputs.output_config},
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,

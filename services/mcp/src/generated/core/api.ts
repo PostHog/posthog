@@ -3,10 +3,291 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const DomainsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const DomainsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const IdentityProviderConfigsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const IdentityProviderConfigsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const IdentityProviderConfigsCreateParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const identityProviderConfigsCreateBodyNameMax = 255
+
+export const identityProviderConfigsCreateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsCreateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsCreateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsCreateBodyOidcClientSecretMax = 4096
+
+export const identityProviderConfigsCreateBodySamlEntityIdMax = 512
+
+export const identityProviderConfigsCreateBodySamlAcsUrlMax = 512
+
+export const identityProviderConfigsCreateBodyIdJagIssuerUrlMax = 512
+
+export const identityProviderConfigsCreateBodyIdJagJwksUrlMax = 512
+
+export const identityProviderConfigsCreateBodyIdJagAllowedClientsItemMax = 256
+
+export const IdentityProviderConfigsCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyNameMax)
+        .optional()
+        .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsCreateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsCreateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
+    saml_entity_id: zod
+        .string()
+        .max(identityProviderConfigsCreateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(identityProviderConfigsCreateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.'
+        ),
+    id_jag_issuer_url: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(identityProviderConfigsCreateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+})
+
+export const IdentityProviderConfigsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this identity provider config.'),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const IdentityProviderConfigsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this identity provider config.'),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const identityProviderConfigsPartialUpdateBodyNameMax = 255
+
+export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsPartialUpdateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyOidcClientSecretMax = 4096
+
+export const identityProviderConfigsPartialUpdateBodySamlEntityIdMax = 512
+
+export const identityProviderConfigsPartialUpdateBodySamlAcsUrlMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyIdJagIssuerUrlMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyIdJagJwksUrlMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyIdJagAllowedClientsItemMax = 256
+
+export const IdentityProviderConfigsPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyNameMax)
+        .optional()
+        .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsPartialUpdateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
+    saml_entity_id: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.'
+        ),
+    id_jag_issuer_url: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(identityProviderConfigsPartialUpdateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+})
+
+export const IdentityProviderConfigsDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this identity provider config.'),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Regenerate the SCIM bearer token for this IdP config.
+ */
+export const IdentityProviderConfigsScimTokenCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this identity provider config.'),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
 
 /**
  * Projects for the current organization.
@@ -71,6 +352,14 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionW
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin = 0
+
+export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
 
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
@@ -246,7 +535,10 @@ export const OrganizationsProjectsCreateBody = () => zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations \/ live chat product for this project.'),
-        conversations_settings: zod.unknown().optional(),
+        conversations_settings: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe('Settings for Conversations. Must be a JSON object or null.'),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         revenue_analytics_config: zod
@@ -750,6 +1042,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -820,6 +1113,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -892,6 +1186,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -947,6 +1242,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1035,6 +1331,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1382,6 +1679,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1452,6 +1750,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1524,6 +1823,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1579,6 +1879,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1667,6 +1968,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2017,6 +2319,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -2087,6 +2390,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2159,6 +2463,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -2214,6 +2519,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2302,6 +2608,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2428,6 +2735,24 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
                     ),
+                default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            kind: zod
+                                .enum(['custom_property', 'relationship'])
+                                .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                                .describe(
+                                    'Definition type for this default pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                                ),
+                            id: zod
+                                .string()
+                                .describe('Project-scoped custom property or relationship definition UUID.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -2458,6 +2783,42 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .nullish()
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
+                    ),
+                replay_vision_scan_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                replay_vision_scan_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.'
+                    ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
                     ),
             })
             .optional(),
@@ -2756,6 +3117,14 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRa
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -2768,6 +3137,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .optional()
             .describe(
                 'Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.'
+            ),
+        logo_media_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
             ),
         product_description: zod
             .string()
@@ -2899,6 +3274,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .number()
             .nullish()
             .describe("ID of the dashboard shown as the project's default landing dashboard."),
+        home_tab_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.'
+            ),
         live_events_columns: zod.array(zod.string()).nullish(),
         recording_domains: zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
@@ -2932,7 +3313,10 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations \/ live chat product for this project.'),
-        conversations_settings: zod.unknown().optional(),
+        conversations_settings: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe('Settings for Conversations. Must be a JSON object or null.'),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
         revenue_analytics_config: zod
@@ -3436,6 +3820,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3506,6 +3891,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3578,6 +3964,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3633,6 +4020,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3721,6 +4109,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4068,6 +4457,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4138,6 +4528,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4210,6 +4601,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4265,6 +4657,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4353,6 +4746,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4703,6 +5097,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4773,6 +5168,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4845,6 +5241,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4900,6 +5297,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4988,6 +5386,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5114,6 +5513,24 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
                     ),
+                default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            kind: zod
+                                .enum(['custom_property', 'relationship'])
+                                .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                                .describe(
+                                    'Definition type for this default pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                                ),
+                            id: zod
+                                .string()
+                                .describe('Project-scoped custom property or relationship definition UUID.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -5144,6 +5561,42 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .nullish()
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
+                    ),
+                replay_vision_scan_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                replay_vision_scan_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.'
+                    ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
                     ),
             })
             .optional(),
@@ -5387,6 +5840,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
+    search: zod.string().optional().describe('Only list images whose name contains this text, ignoring case.'),
 })
 
 /**
@@ -5524,6 +5978,6 @@ export const UsersPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })

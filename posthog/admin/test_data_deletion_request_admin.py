@@ -64,6 +64,18 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
             return self.admin.approve_view(http_request, str(request.pk))
 
+    @parameterized.expand([("clickhouse_team", True), ("outside_clickhouse_team", False)])
+    def test_create_form_offers_property_removal_only_to_clickhouse_team(self, _name, in_clickhouse_team):
+        if not in_clickhouse_team:
+            self.user.groups.clear()
+        http_request = self.factory.get("/admin/posthog/datadeletionrequest/add/")
+        http_request.user = self.user
+
+        form = self.admin.get_form(http_request)()
+
+        offered = TestDataDeletionRequestFormHidesUnsupportedTypes._type_values(form)
+        self.assertEqual(RequestType.PROPERTY_REMOVAL in offered, in_clickhouse_team)
+
     def test_approve_view_get_renders_picker_for_event_removal(self):
         request = self._pending_request()
         response = self._call_approve("GET", request)
@@ -802,6 +814,23 @@ class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("naive", "2025-01-08 08:12:00", ("2025-01-08", "08:12:00")),
+            ("iso_utc", "2025-01-08T08:12:00Z", ("2025-01-08", "08:12:00")),
+            ("other_offset", "2025-01-08T10:12:00+02:00", ("2025-01-08", "08:12:00")),
+            ("unparseable", "next tuesday", ("", "")),
+            ("invalid_date", "2025-13-45 08:12:00", ("", "")),
+        ]
+    )
+    def test_add_view_prefills_datetimes_from_query_string(self, _name, value, expected):
+        response = self.client.get("/admin/posthog/datadeletionrequest/add/", {"start_time": value})
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        rendered = tuple(soup.select_one(f"input[name=start_time_{i}]").get("value", "") for i in (0, 1))
+        self.assertEqual(rendered, expected)
+
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
@@ -1089,11 +1118,20 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
         choices = cast("list[tuple[str, str]]", request_type.choices)
         return [value for value, _ in choices]
 
-    def test_only_event_removal_is_offered_on_a_new_request(self):
+    @parameterized.expand(
+        [
+            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL]),
+            ("clickhouse_team", True, [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL]),
+        ]
+    )
+    def test_types_offered_on_a_new_request(self, _name, offer_clickhouse_team_types, expected_types):
         from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
 
-        form = DataDeletionRequestForm()
-        self.assertEqual(self._type_values(form), [RequestType.EVENT_REMOVAL])
+        form_class = type(
+            "Form", (DataDeletionRequestForm,), {"offer_clickhouse_team_types": offer_clickhouse_team_types}
+        )
+        form = form_class()
+        self.assertEqual(self._type_values(form), expected_types)
         for field in PERSON_REMOVAL_FIELDS:
             self.assertNotIn(field, form.fields)
 

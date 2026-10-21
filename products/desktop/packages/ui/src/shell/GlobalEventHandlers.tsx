@@ -6,16 +6,16 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService, useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
-import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import {
+  GLOBAL_HOTKEY_OPTIONS,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -29,6 +29,7 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToCommandCenter,
   navigateToFolderSettings,
   navigateToInbox,
 } from "@posthog/ui/router/navigationBridge";
@@ -49,12 +50,6 @@ interface GlobalEventHandlersProps {
   onToggleShortcutsSheet: () => void;
   visualTaskOrder: TaskData[];
 }
-
-const GLOBAL_HOTKEY_OPTIONS = {
-  enableOnFormTags: true,
-  enableOnContentEditable: true,
-  preventDefault: true,
-} as const;
 
 function useGlobalEventHandlers({
   allTasks,
@@ -94,13 +89,7 @@ function useGlobalEventHandlers({
   // starred channels in the new layout (ChannelHotkeys, mounted from __root so
   // the keys always have an owner), so task-switching only owns those keys in
   // the Code nav.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const inboxAvailable = useInboxAvailable();
+  const channelsEnabled = useSidebarStore((s) => s.channelsEnabled);
   const channelsLayout = useChannelsLayout();
   const spacesTabs = useSpacesTabs();
   const browserTabStripMounted = channelsLayout ? spacesTabs : true;
@@ -244,10 +233,12 @@ function useGlobalEventHandlers({
     onToggleShortcutsSheet,
     GLOBAL_HOTKEY_OPTIONS,
   );
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
-    ...GLOBAL_HOTKEY_OPTIONS,
-    enabled: inboxAvailable,
-  });
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(
+    SHORTCUTS.COMMAND_CENTER,
+    navigateToCommandCenter,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, GLOBAL_HOTKEY_OPTIONS, [
     handlePrevTask,
   ]);

@@ -6,11 +6,11 @@ import {
   type ChannelItemModel,
   channelItemSortEvent,
   channelItemSources,
-  DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
   PINNED_SECTION_KEY,
+  sameSources,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
 import {
@@ -160,18 +160,25 @@ export function ChannelItemsPane({
 
   const sources = useMemo(() => channelItemSources(items), [items]);
   const filters = useMemo<ChannelItemFilters>(() => {
-    const sourceMissing =
-      rawFilters.source !== ANY_SOURCE &&
-      rawFilters.source !== DESKTOP_SOURCE &&
-      !sources.includes(rawFilters.source);
+    const selectedDefaultSources = sameSources(
+      rawFilters.sources,
+      DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS.sources,
+    );
     const scoped: ChannelItemFilters = {
       ...rawFilters,
       ...(hasMultipleAuthors ? {} : { createdBy: "anyone" as const }),
-      ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+      sources: selectedDefaultSources
+        ? rawFilters.sources
+        : rawFilters.sources.filter((source) => sources.includes(source)),
     };
     return hasRuns
       ? scoped
-      : { ...scoped, attention: "any", environment: "any", source: ANY_SOURCE };
+      : {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          sources: ANY_SOURCE,
+        };
   }, [rawFilters, hasMultipleAuthors, hasRuns, sources]);
   const filtersActive = hasActiveChannelItemFilters(
     filters,

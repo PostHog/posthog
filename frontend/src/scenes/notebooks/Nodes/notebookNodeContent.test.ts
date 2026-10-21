@@ -7,6 +7,7 @@ import { NotebookNodeType } from '../types'
 import {
     buildNotebookDependencyGraph,
     collectNotebookFrameNodes,
+    collectRunnableCellNodeIds,
     extractPythonIdentifiers,
 } from './notebookNodeContent'
 
@@ -243,5 +244,29 @@ describe('buildNotebookDependencyGraph', () => {
         expect(Object.keys(graphA.nodesById)).toEqual(['a'])
         expect(Object.keys(graphB.nodesById)).toEqual(['b'])
         expect(graphB.nodesById['b'].exports).toEqual(['df_b'])
+    })
+})
+
+describe('collectRunnableCellNodeIds', () => {
+    // Run all used to key off the SQL summaries, so a notebook of Python cells alone never
+    // got the button — though the backend plan runs exactly these two kinds.
+    it.each([
+        ['python only', [{ tag: 'PythonV2', nodeId: 'p1', code: 'print(1)' }], ['p1']],
+        ['sql only', [{ tag: 'SQLV2', nodeId: 's1', code: 'select 1' }], ['s1']],
+        [
+            'both, in document order',
+            [
+                { tag: 'SQLV2', nodeId: 's1', code: 'select 1' },
+                { tag: 'PythonV2', nodeId: 'p1', code: 'print(1)' },
+            ],
+            ['s1', 'p1'],
+        ],
+        ['an empty cell is not runnable', [{ tag: 'PythonV2', nodeId: 'p1', code: '   ' }], []],
+    ])('%s', (_name, cells, expected) => {
+        const markdown = cells
+            .map(({ tag, nodeId, code }) => serializeMarkdownNotebookComponent(tag, { nodeId, code }))
+            .join('\n\n')
+
+        expect(collectRunnableCellNodeIds(buildMarkdownNotebookContent(markdown))).toEqual(expected)
     })
 })

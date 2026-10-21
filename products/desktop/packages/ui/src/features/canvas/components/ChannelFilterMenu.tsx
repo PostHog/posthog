@@ -10,12 +10,17 @@ import {
   DESKTOP_SOURCE,
   type EnvironmentFilter,
   type KindFilter,
+  MOBILE_SOURCE,
   type PinnedFilter,
+  type SourceFilter,
+  sameSources,
+  WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import {
   Button,
   cn,
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
@@ -91,9 +96,10 @@ const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
 
 const SOURCE_LABELS: Record<string, string> = {
   [DESKTOP_SOURCE]: "Desktop",
+  [MOBILE_SOURCE]: "Mobile",
+  [WEB_SOURCE]: "Web",
   hogdesk: "HogDesk",
   mcp_analytics: "MCP analytics",
-  posthog_ai: "PostHog AI",
   posthog_code: "PostHog Desktop",
   review_hog: "ReviewHog",
 };
@@ -128,6 +134,27 @@ function OptionDot({ tone }: { tone: DotTone }) {
   );
 }
 
+function SubmenuTrigger({
+  label,
+  value,
+  narrowed,
+}: {
+  label: string;
+  value: string;
+  narrowed: boolean;
+}) {
+  return (
+    <DropdownMenuSubTrigger className="pr-1">
+      <span>{label}</span>
+      <span
+        className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
+      >
+        {value}
+      </span>
+    </DropdownMenuSubTrigger>
+  );
+}
+
 /**
  * One filter as a submenu: its name, the choice currently in force, and the
  * radio group behind it. A group per submenu keeps the top level a list of
@@ -153,14 +180,11 @@ function FilterSubmenu<T extends string>({
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1">
-        <span>{label}</span>
-        <span
-          className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
-        >
-          {labelOf(options, value)}
-        </span>
-      </DropdownMenuSubTrigger>
+      <SubmenuTrigger
+        label={label}
+        value={labelOf(options, value)}
+        narrowed={narrowed}
+      />
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
@@ -175,6 +199,66 @@ function FilterSubmenu<T extends string>({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function sourcesLabel(
+  options: readonly Option<string>[],
+  value: SourceFilter,
+): string {
+  if (value.length === 0) return "Any source";
+  if (value.length > 2) return `${value.length} sources`;
+  return options
+    .filter((option) => value.includes(option.value))
+    .map((option) => option.label)
+    .join(", ");
+}
+
+function SourceSubmenu({
+  options,
+  value,
+  defaultValue,
+  onChange,
+}: {
+  options: readonly Option<string>[];
+  value: SourceFilter;
+  defaultValue: SourceFilter;
+  onChange: (value: SourceFilter) => void;
+}) {
+  return (
+    <DropdownMenuSub>
+      <SubmenuTrigger
+        label="Source"
+        value={sourcesLabel(options, value)}
+        narrowed={!sameSources(value, defaultValue)}
+      />
+      <DropdownMenuSubContent>
+        <DropdownMenuCheckboxItem
+          checked={value.length === 0}
+          closeOnClick={false}
+          onCheckedChange={() => onChange(ANY_SOURCE)}
+        >
+          Any source
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={value.includes(option.value)}
+            closeOnClick={false}
+            onCheckedChange={(checked) =>
+              onChange(
+                checked
+                  ? [...value, option.value]
+                  : value.filter((source) => source !== option.value),
+              )
+            }
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
@@ -242,13 +326,12 @@ export function ChannelFilterMenu({
     groupings ?? (showRunFilters ? DEFAULT_GROUPINGS : [])
   ).map((value) => ({ value, label: GROUPING_LABELS[value] }));
 
-  const sourceOptions: Option<string>[] = [
-    { value: ANY_SOURCE, label: "Any source" },
-    ...Array.from(new Set([DESKTOP_SOURCE, ...sources])).map((source) => ({
-      value: source,
-      label: sourceLabel(source),
-    })),
-  ];
+  const sourceOptions: Option<string>[] = Array.from(
+    new Set([DESKTOP_SOURCE, ...sources]),
+  ).map((source) => ({
+    value: source,
+    label: sourceLabel(source),
+  }));
 
   return (
     <DropdownMenu>
@@ -338,12 +421,11 @@ export function ChannelFilterMenu({
               defaultValue={defaultFilters.environment}
               onChange={(value) => onFilterChange("environment", value)}
             />
-            <FilterSubmenu
-              label="Source"
+            <SourceSubmenu
               options={sourceOptions}
-              value={filters.source}
-              defaultValue={defaultFilters.source}
-              onChange={(value) => onFilterChange("source", value)}
+              value={filters.sources}
+              defaultValue={defaultFilters.sources}
+              onChange={(value) => onFilterChange("sources", value)}
             />
           </>
         )}

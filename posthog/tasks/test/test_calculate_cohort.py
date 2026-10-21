@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Optional
 
 import time_machine
@@ -32,6 +33,7 @@ from posthog.tasks.calculate_cohort import (
     STATIC_POPULATION_MAX_RETRIES,
     calculate_cohort_ch,
     calculate_cohort_from_list,
+    collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
@@ -54,6 +56,12 @@ from products.cohorts.backend.models.util import (
     insert_static_cohort,
     list_cohort_member_ids,
 )
+
+# The catalog drops a leaf with no bytecode, and `_calculate_realtime_support` grants
+# `cohort_type=REALTIME` only when every leaf compiled to bytecode. A fixture without it is a
+# cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 MISSING_COHORT_ID = 12345
 
@@ -78,10 +86,22 @@ def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
     return error
 
 
+PERSONS_HOGQL_QUERY = {"kind": "HogQLQuery", "query": "SELECT id FROM persons"}
 QUERY_CH_INSERT_PATH = "products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch"
 FILTERS_CH_INSERT_PATH = "products.cohorts.backend.models.util.insert_cohort_filter_actors_into_ch"
 PG_SYNC_PATH = "products.cohorts.backend.models.util.insert_cohort_people_into_pg"
 COHORT_READ_PATH = "posthog.tasks.calculate_cohort.Cohort.objects.get"
+PERSON_EMAIL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [{"key": "email", "type": "person", "value": "match@example.com"}],
+            }
+        ],
+    }
+}
 
 
 def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
@@ -584,73 +604,6 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             # Verify insert_cohort_from_query was NOT called
             mock_insert_cohort_from_query.delay.assert_not_called()
 
-        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
-        @patch("posthog.tasks.calculate_cohort.logger")
-        def test_reset_stuck_static_cohorts_retriggers_filters(
-            self, mock_logger: MagicMock, mock_insert_cohort_from_filters: MagicMock
-        ) -> None:
-            now = timezone.now()
-
-            stuck_static_cohort = Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stuck_static_with_filters",
-                last_calculation=None,
-                deleted=False,
-                is_calculating=True,
-                errors_calculating=0,
-                is_static=True,
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "type": "AND",
-                                "values": [{"key": "email", "type": "person", "value": "match@example.com"}],
-                            }
-                        ],
-                    }
-                },
-            )
-            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
-
-            reset_stuck_cohorts()
-
-            stuck_static_cohort.refresh_from_db()
-            self.assertFalse(stuck_static_cohort.is_calculating)
-            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
-            mock_insert_cohort_from_filters.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
-
-        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
-        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
-        @patch("posthog.tasks.calculate_cohort.logger")
-        def test_reset_stuck_static_cohorts_without_retriggerable_source(
-            self,
-            mock_logger: MagicMock,
-            mock_insert_cohort_from_filters: MagicMock,
-            mock_insert_cohort_from_query: MagicMock,
-        ) -> None:
-            now = timezone.now()
-
-            stuck_static_cohort = Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stuck_static_without_source",
-                last_calculation=None,
-                deleted=False,
-                is_calculating=True,
-                errors_calculating=0,
-                is_static=True,
-                filters={"properties": {}},
-            )
-            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
-
-            reset_stuck_cohorts()
-
-            stuck_static_cohort.refresh_from_db()
-            self.assertFalse(stuck_static_cohort.is_calculating)
-            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
-            mock_insert_cohort_from_filters.delay.assert_not_called()
-            mock_insert_cohort_from_query.delay.assert_not_called()
-
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
         def test_enqueue_cohorts_logs_correctly(self, mock_logger: MagicMock, mock_increment: MagicMock) -> None:
@@ -1124,6 +1077,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                             "conditionHash": "behavior00000001",
                             "time_value": 7,
                             "time_interval": "day",
+                            "bytecode": _BYTECODE,
                         },
                         {
                             "type": "person",
@@ -1131,6 +1085,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                             "value": ["person@example.com"],
                             "operator": "exact",
                             "conditionHash": "person0000000001",
+                            "bytecode": _BYTECODE,
                         },
                     ],
                 }
@@ -1509,7 +1464,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             team=self.team,
             name="static cohort",
             is_static=True,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+            query=PERSONS_HOGQL_QUERY,
         )
         insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
         mock_insert_members.side_effect = ValueError("personhog unavailable")
@@ -1760,16 +1715,27 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("errored_within_the_hour", relativedelta(minutes=10), False),
-            ("errored_over_an_hour_ago", relativedelta(hours=2), True),
+            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), False),
+            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True),
+            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True),
         ]
     )
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
     def test_reset_stuck_static_cohorts_honors_a_recent_error(
-        self, _name: str, error_age: relativedelta, expect_reset: bool, mock_insert_cohort_from_query: MagicMock
+        self,
+        _name: str,
+        source_fields: dict,
+        error_age: relativedelta,
+        expect_reset: bool,
+        mock_insert_cohort_from_query: MagicMock,
+        mock_insert_cohort_from_filters: MagicMock,
     ) -> None:
         # A population task stamps last_error_at when it schedules a retry, so within the hour the
         # cohort sits in a backoff window, not stuck. Resetting it would dispatch a duplicate.
+        mock_population_task = (
+            mock_insert_cohort_from_query if "query" in source_fields else mock_insert_cohort_from_filters
+        )
         now = timezone.now()
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1777,7 +1743,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             is_calculating=True,
             is_static=True,
             last_error_at=now - error_age,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+            **source_fields,
         )
         Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=2))
 
@@ -1786,7 +1752,121 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.is_calculating, not expect_reset)
         self.assertEqual(cohort.errors_calculating, 1 if expect_reset else 0)
-        self.assertEqual(mock_insert_cohort_from_query.delay.called, expect_reset)
+        self.assertEqual(mock_population_task.delay.called, expect_reset)
+
+    @parameterized.expand(
+        [
+            ("flag_run_killed", None, relativedelta(hours=6), [], None, 0, True),
+            ("flag_run_within_soft_limit", None, relativedelta(hours=4), [], None, 0, False),
+            (
+                "filters_without_values_killed",
+                {"properties": {"type": "AND"}},
+                relativedelta(hours=6),
+                [],
+                None,
+                0,
+                True,
+            ),
+            (
+                "csv_reupload_killed",
+                {"properties": {}},
+                relativedelta(days=3),
+                [(relativedelta(hours=6), False)],
+                None,
+                0,
+                True,
+            ),
+            (
+                "csv_reupload_running",
+                {"properties": {}},
+                relativedelta(days=3),
+                [(relativedelta(minutes=10), False)],
+                None,
+                0,
+                False,
+            ),
+            (
+                "csv_reupload_queued_after_a_finished_attempt",
+                {"properties": {}},
+                relativedelta(days=3),
+                [(relativedelta(days=2), True)],
+                None,
+                0,
+                False,
+            ),
+            (
+                "csv_reupload_running_after_a_killed_attempt",
+                {"properties": {}},
+                relativedelta(days=3),
+                [(relativedelta(hours=6), False), (relativedelta(minutes=10), False)],
+                None,
+                0,
+                False,
+            ),
+            (
+                "csv_reupload_queued_to_a_populated_cohort",
+                {"properties": {}},
+                relativedelta(days=3),
+                [],
+                relativedelta(days=2),
+                0,
+                False,
+            ),
+            ("csv_reupload_queued_to_a_failed_cohort", {"properties": {}}, relativedelta(days=3), [], None, 1, False),
+        ]
+    )
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    def test_reset_stuck_sourceless_static_cohorts(
+        self,
+        _name: str,
+        filters: dict | None,
+        created_age: relativedelta,
+        attempts: list[tuple[relativedelta, bool]],
+        last_calculation_age: relativedelta | None,
+        errors_calculating: int,
+        expect_reset: bool,
+        mock_insert_cohort_from_query: MagicMock,
+        mock_insert_cohort_from_filters: MagicMock,
+    ) -> None:
+        now = timezone.now()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static without a population source",
+            is_calculating=True,
+            is_static=True,
+            filters=filters,
+            last_calculation=now - last_calculation_age if last_calculation_age else None,
+            errors_calculating=errors_calculating,
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(created_at=now - created_age)
+        for attempt_age, attempt_finished in attempts:
+            CohortCalculationHistory.objects.create(
+                team=self.team,
+                cohort=cohort,
+                filters={},
+                started_at=now - attempt_age,
+                finished_at=now - attempt_age if attempt_finished else None,
+            )
+
+        reset_stuck_cohorts()
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.is_calculating, not expect_reset)
+        self.assertEqual(cohort.errors_calculating, errors_calculating + (1 if expect_reset else 0))
+        mock_insert_cohort_from_query.delay.assert_not_called()
+        mock_insert_cohort_from_filters.delay.assert_not_called()
+        history = [
+            (row.error_code, row.error, row.finished_at is not None)
+            for row in CohortCalculationHistory.objects.filter(cohort=cohort).order_by("started_at")
+        ]
+        expected_history: list[tuple[CohortErrorCode | None, str | None, bool]]
+        if expect_reset:
+            interrupted = get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False)
+            expected_history = [(CohortErrorCode.INTERRUPTED, interrupted, True)]
+        else:
+            expected_history = [(None, None, attempt_finished) for _, attempt_finished in attempts]
+        self.assertEqual(history, expected_history)
 
     @parameterized.expand(
         [
@@ -1840,17 +1920,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             name="test_filters_cohort",
             is_static=True,
             count=0,
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "email", "type": "person", "value": "match@example.com"}],
-                        }
-                    ],
-                }
-            },
+            filters=PERSON_EMAIL_FILTERS,
         )
 
         with (
@@ -2180,3 +2250,32 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+
+
+class TestCollectCohortQueryStats(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("retries_remain", 0, Retry),
+            ("retries_exhausted", 3, None),
+        ]
+    )
+    def test_missing_stats_are_not_logged_as_a_failure(
+        self, _name: str, retries: int, expected_exception: type[Exception] | None
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="cohort")
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
+        )
+        task = collect_cohort_query_stats
+        task.push_request(retries=retries, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch("posthog.tasks.calculate_cohort.get_clickhouse_query_stats", return_value=None),
+                patch("posthog.tasks.calculate_cohort.logger") as mock_logger,
+                self.assertRaises(expected_exception) if expected_exception else nullcontext(),
+            ):
+                task.run("cohort_calc:abc", cohort.pk, timezone.now().isoformat(), str(history.id), "SELECT 1")
+        finally:
+            task.pop_request()
+
+        mock_logger.exception.assert_not_called()

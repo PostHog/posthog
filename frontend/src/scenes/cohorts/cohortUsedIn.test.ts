@@ -18,6 +18,7 @@ const usedIn: CohortUsedInResponseApi = {
         total: 1,
         has_more: false,
     },
+    workflows: { results: [], total: 0, hidden: 0, has_more: false },
 }
 
 describe('cohortUsedInSections', () => {
@@ -50,6 +51,7 @@ describe('cohortUsedInSections', () => {
                 insights: empty,
                 cohorts: empty,
                 test_account_filters: empty,
+                workflows: { ...empty, hidden: 0 },
             })
         ).toEqual([])
     })

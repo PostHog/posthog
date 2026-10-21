@@ -41,6 +41,10 @@ MISSING_V3_CREDENTIALS_ERROR = (
     "**Harvest V3 (OAuth)** credential, and enter its client ID and client secret."
 )
 MISSING_V1_CREDENTIALS_ERROR = "Greenhouse Harvest v1 requires an API key."
+V3_ONLY_ENDPOINT_ERROR = (
+    "This Greenhouse table needs Harvest v3, but this source uses Harvest v1. "
+    "Create a new Greenhouse source with a Harvest V3 (OAuth) credential to sync it."
+)
 
 
 def _base_url(api_version: str) -> str:
@@ -190,6 +194,8 @@ def greenhouse_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = GREENHOUSE_ENDPOINTS[endpoint]
+    if config.v3_only and api_version != GREENHOUSE_V3:
+        raise ValueError(V3_ONLY_ENDPOINT_ERROR)
 
     params = _build_initial_params(
         config, api_version, should_use_incremental_field, db_incremental_field_last_value, incremental_field

@@ -16,6 +16,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 
 
 @pytest.mark.parametrize("mv_sql", [SESSION_REPLAY_EVENTS_TABLE_MV_SQL, SESSION_REPLAY_EVENTS_WS_MV_SQL])
+@pytest.mark.usefixtures("clickhouse_database")
 def test_replay_metadata_reads_old_parts_and_classified_blocks(mv_sql: Callable[..., str]) -> None:
     suffix = uuid4().hex
     source = f"replay_mode_source_{suffix}"

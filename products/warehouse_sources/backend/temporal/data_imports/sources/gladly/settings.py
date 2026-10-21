@@ -35,6 +35,29 @@ _REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
+# Events carry the time Gladly recorded them, and the events endpoint filters
+# on that same field, so it is the incremental cursor.
+_EVENT_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "timestamp",
+        "type": IncrementalFieldType.DateTime,
+        "field": "timestamp",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+# The work session report windows a row on its contact's end time, or on the
+# creation time while the contact is open. Ending only moves a row to a later
+# window, so the creation time is a safe incremental cursor.
+_WORK_SESSION_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "contact_session_created_at",
+        "type": IncrementalFieldType.DateTime,
+        "field": "contact_session_created_at",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
 # Injected primary key for report streams whose rows have no natural unique id
 # (event-grain reports ship no event id column): a deterministic hash of the
 # whole normalized row. The transport injects it when an endpoint declares it
@@ -47,14 +70,35 @@ REPORT_ROW_ID_COLUMN = "_row_id"
 # refresh.
 REPORT_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 
+# After-contact and unknown time keep accumulating on a work session after its
+# contact ends, until the next contact begins or the conversation closes.
+WORK_SESSION_INCREMENTAL_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
 
-@dataclass
+
+@dataclass(frozen=True)
 class GladlyEndpointConfig:
     name: str
     # Filename inside each export job (e.g. customers.jsonl) for job-export streams.
     filename: str | None = None
+    # Path of a non-paginated JSON array endpoint for lookup streams.
+    list_path: str | None = None
+    # Entity types requested from GET /api/v1/events for the event stream.
+    event_entities: tuple[str, ...] = ()
+    # Reads the export file for its phone call and voicemail items, then fetches
+    # the voice transcript of each one instead of yielding the items.
+    voice_transcripts: bool = False
     # Metric set generated via POST /api/v1/reports for report streams.
     report_metric_set: str | None = None
+    # Some metric sets only accept a time range (startAtTime/endAtTime), not a
+    # date range (startAt/endAt).
+    report_uses_time_range: bool = False
+    # Columns that together identify a row when the report has no usable id. The
+    # injected `_row_id` then hashes only these, so a restated row merges onto its
+    # earlier version. Left empty, it hashes the whole row.
+    report_row_id_columns: tuple[str, ...] = ()
+    # Rows with this column blank are provisional and are skipped. They come back
+    # in a later window once the column is filled in.
+    report_final_row_column: str | None = None
     # Report streams request one date window at a time, oldest first. Event-grain
     # reports default to 1-day windows to stay clear of Gladly's 100k-row report
     # cap, which truncates silently.
@@ -68,9 +112,10 @@ class GladlyEndpointConfig:
     should_sync_default: bool = True
     primary_key: str = "id"
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_JOB_INCREMENTAL_FIELDS))
+    default_incremental_lookback_seconds: int | None = None
 
 
-# Gladly has no list-all REST surface — bulk data ships as JSONL files inside
+# Gladly has no paginated list-all REST surface — bulk data ships as JSONL files inside
 # vendor-scheduled export jobs (hourly/daily, 14-day retention). Every stream
 # maps to one file per job; jobs are processed oldest-first so the watermark
 # advances monotonically, and merge-on-id dedupes records that appear in
@@ -87,6 +132,16 @@ GLADLY_ENDPOINTS: dict[str, GladlyEndpointConfig] = {
     "agents": GladlyEndpointConfig(
         name="agents",
         filename="agents.jsonl",
+    ),
+    # Transcripts exist only per conversation item, so this stream walks the
+    # conversation items of each export job and makes one request per call or
+    # voicemail. That is costly for busy voice teams, so it starts opt-in.
+    "voice_transcripts": GladlyEndpointConfig(
+        name="voice_transcripts",
+        filename="conversation_items.jsonl",
+        voice_transcripts=True,
+        primary_key="conversation_item_id",
+        should_sync_default=False,
     ),
     "topics": GladlyEndpointConfig(
         name="topics",
@@ -105,6 +160,20 @@ GLADLY_ENDPOINTS: dict[str, GladlyEndpointConfig] = {
         report_window_days=7,
         report_backfill_days=730,
         incremental_fields=list(_REPORT_INCREMENTAL_FIELDS),
+        default_incremental_lookback_seconds=REPORT_INCREMENTAL_LOOKBACK_SECONDS,
+    ),
+    # The REST API only lists tasks per customer (capped at 2000, one request
+    # per customer), so task rows come from the Task Export report: one row per
+    # task, anchored on its creation date, with assignment and closure columns
+    # that restate as the task changes. Sized like the conversations report.
+    "tasks": GladlyEndpointConfig(
+        name="tasks",
+        report_metric_set="TaskExportReport",
+        primary_key="task_id",
+        report_window_days=7,
+        report_backfill_days=730,
+        incremental_fields=list(_REPORT_INCREMENTAL_FIELDS),
+        default_incremental_lookback_seconds=REPORT_INCREMENTAL_LOOKBACK_SECONDS,
     ),
     # Handle-time, first-response, and wait-time analytics need Gladly's
     # purpose-built timestamps reports — export jobs ship no equivalent files.
@@ -126,6 +195,63 @@ GLADLY_ENDPOINTS: dict[str, GladlyEndpointConfig] = {
         should_sync_default=False,
         incremental_fields=list(_TIMESTAMPS_REPORT_INCREMENTAL_FIELDS),
     ),
+    # One row per contact and agent who worked it, from the work session report
+    # (the WorkSessionEventsReportV4 metric set returns the same data as
+    # POST /api/v1/reports/work-session-events). The report's `id` column is
+    # blank until the contact ends and was not unique before late 2022, so the
+    # key is built from contact_session_id + agent_id, the pair Gladly documents
+    # as unique. agent_id is blank for a contact no agent has handled. It is also
+    # blank while a contact is open, so open contacts are skipped: their row key
+    # would never match the row the contact gets once it ends. An ended contact
+    # moves to the window of its end time, so a later sync picks it up.
+    "work_session_events": GladlyEndpointConfig(
+        name="work_session_events",
+        report_metric_set="WorkSessionEventsReportV4",
+        report_uses_time_range=True,
+        report_row_id_columns=("contact_session_id", "agent_id"),
+        report_final_row_column="contact_session_ended_at",
+        primary_key=REPORT_ROW_ID_COLUMN,
+        should_sync_default=False,
+        incremental_fields=list(_WORK_SESSION_INCREMENTAL_FIELDS),
+        default_incremental_lookback_seconds=WORK_SESSION_INCREMENTAL_LOOKBACK_SECONDS,
+    ),
+    # Small lookups that resolve the team and inbox ids on other tables. Both
+    # return the whole collection unpaginated with no change filter, so they
+    # only full-refresh.
+    "teams": GladlyEndpointConfig(
+        name="teams",
+        list_path="/teams",
+        incremental_fields=[],
+    ),
+    "inboxes": GladlyEndpointConfig(
+        name="inboxes",
+        list_path="/inboxes",
+        incremental_fields=[],
+    ),
+    # Every answer in the org in one unpaginated response, with no change filter.
+    "answers": GladlyEndpointConfig(
+        name="answers",
+        list_path="/answers",
+        incremental_fields=[],
+    ),
+    # Gladly serves events from the last 24 hours only, so history builds up
+    # through incremental syncs that run more often than once a day. Windows are
+    # re-read with an overlap, so the stream is merge-only.
+    "events": GladlyEndpointConfig(
+        name="events",
+        event_entities=(
+            "AGENT_AVAILABILITY",
+            "AGENT_STATUS",
+            "CONTACT",
+            "CONVERSATION",
+            "CUSTOMER",
+            "CUSTOMER_PROFILE",
+            "PAYMENT_REQUEST",
+            "TASK",
+        ),
+        should_sync_default=False,
+        incremental_fields=list(_EVENT_INCREMENTAL_FIELDS),
+    ),
 }
 
 ENDPOINTS = tuple(GLADLY_ENDPOINTS.keys())
@@ -135,8 +261,16 @@ ENDPOINTS = tuple(GLADLY_ENDPOINTS.keys())
 # would duplicate rows — these streams only support incremental merge.
 REPORT_ENDPOINTS = tuple(name for name, config in GLADLY_ENDPOINTS.items() if config.report_metric_set)
 
+EVENT_ENDPOINTS = tuple(name for name, config in GLADLY_ENDPOINTS.items() if config.event_entities)
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in GLADLY_ENDPOINTS.items() if config.incremental_fields
 }
 
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in GLADLY_ENDPOINTS.items()}
+
+INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
+    name: config.default_incremental_lookback_seconds
+    for name, config in GLADLY_ENDPOINTS.items()
+    if config.default_incremental_lookback_seconds is not None
+}

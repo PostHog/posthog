@@ -1,5 +1,6 @@
 import json
 from typing import cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.views.generic import View
@@ -23,11 +24,14 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.event_usage import get_event_source
+from posthog.exceptions_capture import exception_context
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
+from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow
 from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
@@ -41,6 +45,13 @@ class MCPToolRequest(pydantic.BaseModel):
 
 class MCPToolResponse(MCPToolResult):
     success: bool = pydantic.Field(description="Whether the tool completed successfully.")
+    error_type: MaxToolErrorType | None = pydantic.Field(
+        default=None, description="Failure category for MCP analytics."
+    )
+    error_code: str | None = pydantic.Field(
+        default=None,
+        description="Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name.",
+    )
 
 
 class DocsSearchRequestSerializer(serializers.Serializer):
@@ -107,7 +118,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
 
         try:
-            content = async_to_sync(_run_inkeep_docs_search)(client, query)
+            content = async_to_sync(_run_inkeep_docs_search)(client, query, self.team)
         except Exception as e:
             logger.exception("Error running docs_search", extra={"error": str(e)})
             capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
@@ -159,10 +170,15 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        error_id = str(uuid4())
         try:
 
             async def execute_tool() -> str | MCPToolResult:
-                with tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id):
+                # Lower layers may capture the exception before it reaches this handler.
+                with (
+                    exception_context(error_id=error_id),
+                    tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id),
+                ):
                     return await tool.execute(validated_args)
 
             result = async_to_sync(execute_tool)()
@@ -171,15 +187,22 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 {
                     "success": False,
                     "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                    "error_type": e.error_type,
+                    **({"error_code": e.error_code} if e.error_code else {}),
                 }
             )
         except Exception as e:
-            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
-            capture_exception(e, properties={"tag": "mcp", "args": args_data})
+            logger.exception(
+                "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
+            )
+            capture_exception(e, properties={"tag": "mcp", "args": args_data, "error_id": error_id})
             return Response(
                 {
                     "success": False,
-                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                    "content": (
+                        "The tool raised an internal error. Do not immediately retry the tool call. "
+                        f"Error id: {error_id}"
+                    ),
                 }
             )
 
@@ -188,11 +211,20 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return Response({"success": True, **result.model_dump(exclude_none=True)})
 
 
-async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:
+async def _fetch_inkeep_payload(client: AsyncOpenAI, query: str) -> dict | None:
     response = await client.chat.completions.create(
         model="inkeep-rag",
         messages=[{"role": "user", "content": query}],
     )
     raw = response.choices[0].message.content if response.choices else None
-    payload = json.loads(raw) if raw else None
+    return json.loads(raw) if raw else None
+
+
+async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str, team: Team) -> str:
+    payload = await fetch_inkeep_with_shadow(
+        team=team,
+        query=query,
+        fetch_inkeep=lambda: _fetch_inkeep_payload(client, query),
+        surface="mcp",
+    )
     return format_inkeep_docs_response(payload, include_system_reminder=False)

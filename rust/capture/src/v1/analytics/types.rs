@@ -23,10 +23,10 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
+use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::Destination;
+use crate::v1::types::{Destination, Publishable};
 
 fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
@@ -63,11 +63,34 @@ pub enum EventResult {
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
-    #[serde(default)]
+    /// An unreadable value means false instead of failing the batch.
+    #[serde(default, deserialize_with = "deserialize_lenient_flag_or_false")]
     pub historical_migration: bool,
-    #[serde(default)]
+    /// An unreadable value means unset instead of failing the batch.
+    #[serde(default, deserialize_with = "deserialize_lenient_flag")]
     pub capture_internal: Option<bool>,
     pub batch: Vec<Event>,
+}
+
+fn lenient_flag(value: &Value) -> Option<bool> {
+    match coerce_bool(value) {
+        Parsed::Set(flag) => Some(flag),
+        Parsed::Unset | Parsed::Invalid => None,
+    }
+}
+
+fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(lenient_flag(&Value::deserialize(deserializer)?))
+}
+
+fn deserialize_lenient_flag_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(lenient_flag(&Value::deserialize(deserializer)?).unwrap_or(false))
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -88,101 +111,192 @@ pub struct Options {
 #[serde(transparent)]
 pub struct RawOptions(pub Value);
 
-/// Error produced when `RawOptions::validate` cannot coerce one or more fields.
-/// Carries the offending field names for logging; the wire/metric tag is the
-/// static `DETAIL_INVALID_OPTIONS` constant applied at the drop site.
-#[derive(Debug)]
-pub struct OptionsError {
-    pub invalid_fields: Vec<&'static str>,
+/// An option key capture validates and forwards; it ignores all other keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedOption {
+    CookielessMode,
+    DisableSkewCorrection,
+    ProcessPersonProfile,
+    ProductTourId,
+}
+
+impl ExpectedOption {
+    /// Check and report order.
+    const ALL: [Self; 4] = [
+        Self::CookielessMode,
+        Self::DisableSkewCorrection,
+        Self::ProcessPersonProfile,
+        Self::ProductTourId,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CookielessMode => "cookieless_mode",
+            Self::DisableSkewCorrection => "disable_skew_correction",
+            Self::ProcessPersonProfile => "process_person_profile",
+            Self::ProductTourId => "product_tour_id",
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+/// Expected option keys, each at most once, in `ExpectedOption::ALL` order.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OptionKeys(u8);
+
+impl OptionKeys {
+    pub fn of(key: ExpectedOption) -> Self {
+        Self(key.bit())
+    }
+
+    fn insert(&mut self, key: ExpectedOption) {
+        self.0 |= key.bit();
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn names(self) -> impl Iterator<Item = &'static str> {
+        ExpectedOption::ALL
+            .into_iter()
+            .filter(move |key| self.0 & key.bit() != 0)
+            .map(ExpectedOption::as_str)
+    }
+}
+
+/// Expected keys with unreadable values; empty when `options` is not an object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptionsError(pub OptionKeys);
+
+impl OptionsError {
+    /// The per-event `details` tag and malformed-metric label.
+    pub fn detail(self) -> &'static str {
+        DETAIL_INVALID_OPTIONS
+    }
+
+    /// Keys to name in logs and the ingestion warning.
+    pub fn failed_keys(self) -> OptionKeys {
+        self.0
+    }
 }
 
 impl RawOptions {
-    /// Validate and coerce raw JSON into typed Options.
-    ///
-    /// - Null/absent -> Ok(default)
-    /// - Object -> coerce each known key, ignore unknown, collect invalid fields
-    /// - Non-object -> Err with no field names
+    /// Read the expected keys leniently and ignore the rest.
     pub fn validate(&self) -> Result<Options, OptionsError> {
-        match &self.0 {
-            Value::Null => Ok(Options::default()),
-            Value::Object(map) => {
-                let mut opts = Options::default();
-                let mut invalid_fields: Vec<&'static str> = Vec::new();
+        let map = match &self.0 {
+            Value::Null => return Ok(Options::default()),
+            Value::Object(map) => map,
+            _ => return Err(OptionsError(OptionKeys::default())),
+        };
 
-                if let Some(v) = map.get("cookieless_mode") {
-                    if !v.is_null() {
-                        match coerce_bool(v) {
-                            Some(b) => opts.cookieless_mode = Some(b),
-                            None => invalid_fields.push("cookieless_mode"),
-                        }
-                    }
-                }
-                if let Some(v) = map.get("disable_skew_correction") {
-                    if !v.is_null() {
-                        match coerce_bool(v) {
-                            Some(b) => opts.disable_skew_correction = Some(b),
-                            None => invalid_fields.push("disable_skew_correction"),
-                        }
-                    }
-                }
-                if let Some(v) = map.get("process_person_profile") {
-                    if !v.is_null() {
-                        match coerce_bool(v) {
-                            Some(b) => opts.process_person_profile = Some(b),
-                            None => invalid_fields.push("process_person_profile"),
-                        }
-                    }
-                }
-                if let Some(v) = map.get("product_tour_id") {
-                    if !v.is_null() {
-                        match coerce_string(v) {
-                            Some(s) => opts.product_tour_id = Some(s),
-                            None => invalid_fields.push("product_tour_id"),
-                        }
-                    }
-                }
+        let mut invalid = OptionKeys::default();
+        let options = Options {
+            cookieless_mode: read_option(
+                map,
+                ExpectedOption::CookielessMode,
+                coerce_bool,
+                &mut invalid,
+            ),
+            disable_skew_correction: read_option(
+                map,
+                ExpectedOption::DisableSkewCorrection,
+                coerce_bool,
+                &mut invalid,
+            ),
+            process_person_profile: read_option(
+                map,
+                ExpectedOption::ProcessPersonProfile,
+                coerce_bool,
+                &mut invalid,
+            ),
+            product_tour_id: read_option(
+                map,
+                ExpectedOption::ProductTourId,
+                coerce_product_tour_id,
+                &mut invalid,
+            ),
+        };
 
-                if invalid_fields.is_empty() {
-                    Ok(opts)
-                } else {
-                    Err(OptionsError { invalid_fields })
-                }
-            }
-            _ => Err(OptionsError {
-                invalid_fields: Vec::new(),
-            }),
+        if invalid.is_empty() {
+            Ok(options)
+        } else {
+            Err(OptionsError(invalid))
         }
     }
 }
 
-/// Coerce a JSON value to bool with conservative rules:
-/// - native bool passes through
-/// - strings "true"/"false"/"1"/"0" (trimmed, case-insensitive)
-/// - any nonzero number -> true, 0 -> false
-fn coerce_bool(v: &Value) -> Option<bool> {
-    match v {
-        Value::Bool(b) => Some(*b),
-        Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
-            "true" | "1" => Some(true),
-            "false" | "0" => Some(false),
-            _ => None,
-        },
-        Value::Number(n) => n.as_f64().map(|f| f != 0.0),
-        _ => None,
+/// The result of reading one expected option value.
+enum Parsed<T> {
+    Set(T),
+    Unset,
+    Invalid,
+}
+
+fn read_option<T>(
+    map: &serde_json::Map<String, Value>,
+    key: ExpectedOption,
+    parse: fn(&Value) -> Parsed<T>,
+    invalid: &mut OptionKeys,
+) -> Option<T> {
+    match map.get(key.as_str()).map_or(Parsed::Unset, parse) {
+        Parsed::Set(value) => Some(value),
+        Parsed::Unset => None,
+        Parsed::Invalid => {
+            invalid.insert(key);
+            None
+        }
     }
 }
 
-/// Coerce a JSON value to string:
-/// - native string passes through
-/// - integer number -> its decimal string representation
-fn coerce_string(v: &Value) -> Option<String> {
+/// Booleans, numbers (zero is off), on/off words or numeric strings; `null` or blank is unset.
+fn coerce_bool(v: &Value) -> Parsed<bool> {
     match v {
-        Value::String(s) => Some(s.clone()),
+        Value::Null => Parsed::Unset,
+        Value::Bool(b) => Parsed::Set(*b),
+        Value::Number(n) => n
+            .as_f64()
+            .map_or(Parsed::Invalid, |f| Parsed::Set(f != 0.0)),
+        Value::String(s) => parse_bool_str(s),
+        Value::Array(_) | Value::Object(_) => Parsed::Invalid,
+    }
+}
+
+fn parse_bool_str(raw: &str) -> Parsed<bool> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Parsed::Unset;
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "true" | "t" | "yes" | "y" | "on" => Parsed::Set(true),
+        "false" | "f" | "no" | "n" | "off" => Parsed::Set(false),
+        // `f64` parsing accepts "inf" and "nan", which are not flags.
+        other => match other.parse::<f64>() {
+            Ok(f) if f.is_finite() => Parsed::Set(f != 0.0),
+            _ => Parsed::Invalid,
+        },
+    }
+}
+
+/// A string as-is, or an integer as its decimal string; blank is unset.
+fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
+    match v {
+        Value::Null => Parsed::Unset,
+        Value::String(s) if s.trim().is_empty() => Parsed::Unset,
+        Value::String(s) => Parsed::Set(s.clone()),
         Value::Number(n) => n
             .as_i64()
             .map(|i| i.to_string())
-            .or_else(|| n.as_u64().map(|u| u.to_string())),
-        _ => None,
+            .or_else(|| n.as_u64().map(|u| u.to_string()))
+            .map_or(Parsed::Invalid, Parsed::Set),
+        Value::Bool(_) | Value::Array(_) | Value::Object(_) => Parsed::Invalid,
     }
 }
 
@@ -232,31 +346,68 @@ pub struct WrappedEvent {
     pub is_gateway_verified: bool,
 }
 
-impl SinkEvent for WrappedEvent {
-    // Pre-parsed UUID for result correlation. By the Sink stage,
-    // we know ALL well-formed incoming events have a valid UUID.
+impl WrappedEvent {
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+#[derive(Debug)]
+pub struct ValidatedEvent {
+    pub event: Event,
+    pub uuid: Uuid,
+    pub options: Options,
+    pub adjusted_timestamp: Option<DateTime<Utc>>,
+    pub result: EventResult,
+    pub details: Option<&'static str>,
+    pub force_disable_person_processing: bool,
+}
+
+impl ValidatedEvent {
+    pub fn into_wrapped(self, destination: Destination) -> WrappedEvent {
+        WrappedEvent {
+            event: self.event,
+            uuid: self.uuid,
+            options: self.options,
+            adjusted_timestamp: self.adjusted_timestamp,
+            result: self.result,
+            details: self.details,
+            destination,
+            force_disable_person_processing: self.force_disable_person_processing,
+            spread_partitions: false,
+            is_gateway_verified: false,
+        }
+    }
+
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKeys {
+    match details {
+        Some(DETAIL_INVALID_OPTIONS) => event
+            .options
+            .validate()
+            .err()
+            .map_or_else(OptionKeys::default, OptionsError::failed_keys),
+        _ => OptionKeys::default(),
+    }
+}
+
+impl Publishable for WrappedEvent {
     fn uuid(&self) -> Uuid {
         self.uuid
     }
 
-    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        (self.result == EventResult::Ok || self.result == EventResult::Warning)
-            && self.destination != Destination::Drop
+        self.result == EventResult::Ok || self.result == EventResult::Warning
     }
 
-    // Resolve the storage-agnostic Destination scope for this event.
-    // The config for each Sink implementation knows how to resolve
-    // these to topics (etc.) depending on the sink type
     fn destination(&self) -> &Destination {
         &self.destination
     }
 
-    // Returns the full typed header set for this event, combining per-request
-    // context fields (token, now, historical_migration) with event-owned
-    // fields. Sinks convert the returned CapturedEventHeaders to their
-    // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
-    // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // Downstream treats this header as absolute: `decideProcessPerson` in
         // nodejs/src/common/persons/person-utils.ts skips person processing
@@ -329,12 +480,6 @@ impl SinkEvent for WrappedEvent {
         buf
     }
 
-    /// Computed here rather than stamped during processing because it depends
-    /// on the final destination: `apply_restrictions` can disable person
-    /// processing while an event is still `AnalyticsMain`, and
-    /// `apply_historical_rerouting` may afterwards move it to
-    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
-    /// keeps the rule correct no matter how the stages are ordered.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
@@ -397,6 +542,7 @@ impl SinkEvent for WrappedEvent {
 }
 
 impl WrappedEvent {
+    /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
@@ -448,8 +594,8 @@ impl WrappedEvent {
         Ok(buf)
     }
 
-    /// Build spliced properties if injection is needed, or return None
-    /// to signal the caller should borrow `self.event.properties` directly.
+    /// Appends the injected pairs inside the client's raw properties object,
+    /// so capture never parses the properties. Returns None when nothing is injected.
     fn build_spliced_properties(
         &self,
         ctx: &RequestContext,
@@ -894,6 +1040,27 @@ mod tests {
 
     // --- RawOptions::validate coercion matrix ---
 
+    fn invalid(keys: &[ExpectedOption]) -> OptionsError {
+        OptionsError(keys.iter().fold(OptionKeys::default(), |acc, key| {
+            acc.union(OptionKeys::of(*key))
+        }))
+    }
+
+    fn options_with(key: ExpectedOption, value: serde_json::Value) -> RawOptions {
+        let mut map = serde_json::Map::new();
+        map.insert(key.as_str().to_string(), value);
+        RawOptions(serde_json::Value::Object(map))
+    }
+
+    fn bool_option(options: &Options, key: ExpectedOption) -> Option<bool> {
+        match key {
+            ExpectedOption::CookielessMode => options.cookieless_mode,
+            ExpectedOption::DisableSkewCorrection => options.disable_skew_correction,
+            ExpectedOption::ProcessPersonProfile => options.process_person_profile,
+            ExpectedOption::ProductTourId => unreachable!("product_tour_id is not a boolean"),
+        }
+    }
+
     #[test]
     fn raw_options_null_validates_to_defaults() {
         let raw = RawOptions::default();
@@ -912,56 +1079,101 @@ mod tests {
         assert_eq!(opts.disable_skew_correction, None);
     }
 
+    const READABLE_BOOLS: &[(&str, Option<bool>)] = &[
+        ("true", Some(true)),
+        ("false", Some(false)),
+        (r#""true""#, Some(true)),
+        (r#""false""#, Some(false)),
+        (r#""t""#, Some(true)),
+        (r#""f""#, Some(false)),
+        (r#""yes""#, Some(true)),
+        (r#""no""#, Some(false)),
+        (r#""y""#, Some(true)),
+        (r#""n""#, Some(false)),
+        (r#""on""#, Some(true)),
+        (r#""off""#, Some(false)),
+        (r#""1""#, Some(true)),
+        (r#""0""#, Some(false)),
+        (r#""FALSE""#, Some(false)),
+        (r#""Yes""#, Some(true)),
+        (r#""  true  ""#, Some(true)),
+        (r#""1.0""#, Some(true)),
+        (r#""0.0""#, Some(false)),
+        (r#""-0""#, Some(false)),
+        (r#""-1""#, Some(true)),
+        ("1", Some(true)),
+        ("0", Some(false)),
+        ("0.0", Some(false)),
+        ("-0.0", Some(false)),
+        ("1.5", Some(true)),
+        ("42", Some(true)),
+        ("-1", Some(true)),
+        ("null", None),
+        (r#""""#, None),
+        (r#""   ""#, None),
+    ];
+
+    const UNREADABLE_BOOLS: &[&str] = &[
+        "[1, 2, 3]",
+        r#"{"nested": true}"#,
+        r#""maybe""#,
+        r#""[Filtered]""#,
+        r#""nan""#,
+        r#""inf""#,
+    ];
+
+    fn json(source: &str) -> serde_json::Value {
+        serde_json::from_str(source).expect("test table holds valid JSON")
+    }
+
     #[rstest::rstest]
-    #[case::native_true(serde_json::json!(true), Some(true))]
-    #[case::native_false(serde_json::json!(false), Some(false))]
-    #[case::str_true(serde_json::json!("true"), Some(true))]
-    #[case::str_false(serde_json::json!("false"), Some(false))]
-    #[case::str_one(serde_json::json!("1"), Some(true))]
-    #[case::str_zero(serde_json::json!("0"), Some(false))]
-    #[case::str_uppercase(serde_json::json!("FALSE"), Some(false))]
-    #[case::str_padded(serde_json::json!("  true  "), Some(true))]
-    #[case::num_one(serde_json::json!(1), Some(true))]
-    #[case::num_zero(serde_json::json!(0), Some(false))]
-    #[case::num_large(serde_json::json!(42), Some(true))]
-    #[case::num_negative(serde_json::json!(-1), Some(true))]
     fn raw_options_bool_coercion_valid(
-        #[case] input: serde_json::Value,
-        #[case] expected: Option<bool>,
+        #[values(
+            ExpectedOption::CookielessMode,
+            ExpectedOption::DisableSkewCorrection,
+            ExpectedOption::ProcessPersonProfile
+        )]
+        key: ExpectedOption,
     ) {
-        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
-        assert_eq!(raw.validate().unwrap().cookieless_mode, expected);
+        for (source, expected) in READABLE_BOOLS {
+            let options = options_with(key, json(source)).validate().unwrap();
+            assert_eq!(
+                bool_option(&options, key),
+                *expected,
+                "{} = {source}",
+                key.as_str()
+            );
+        }
     }
 
     #[rstest::rstest]
-    #[case::array(serde_json::json!([1, 2, 3]))]
-    #[case::object(serde_json::json!({"nested": true}))]
-    #[case::yes(serde_json::json!("yes"))]
-    #[case::off(serde_json::json!("off"))]
-    #[case::empty_string(serde_json::json!(""))]
-    fn raw_options_bool_uncoercible(#[case] input: serde_json::Value) {
-        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
-        let err = raw.validate().unwrap_err();
-        assert_eq!(err.invalid_fields, vec!["cookieless_mode"]);
-    }
-
-    #[test]
-    fn raw_options_all_bool_fields_routed_to_correct_slot() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": "true",
-            "disable_skew_correction": 0,
-            "process_person_profile": false
-        }));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.cookieless_mode, Some(true));
-        assert_eq!(opts.disable_skew_correction, Some(false));
-        assert_eq!(opts.process_person_profile, Some(false));
+    fn raw_options_bool_uncoercible(
+        #[values(
+            ExpectedOption::CookielessMode,
+            ExpectedOption::DisableSkewCorrection,
+            ExpectedOption::ProcessPersonProfile
+        )]
+        key: ExpectedOption,
+    ) {
+        for source in UNREADABLE_BOOLS {
+            assert_eq!(
+                options_with(key, json(source)).validate().unwrap_err(),
+                invalid(&[key]),
+                "{} = {source}",
+                key.as_str()
+            );
+        }
     }
 
     #[rstest::rstest]
     #[case::string(serde_json::json!("tour-123"), Some("tour-123"))]
+    #[case::padded_kept_unchanged(serde_json::json!(" tour-123 "), Some(" tour-123 "))]
     #[case::integer(serde_json::json!(999), Some("999"))]
     #[case::negative_integer(serde_json::json!(-5), Some("-5"))]
+    #[case::integer_above_i64(serde_json::json!(u64::MAX), Some("18446744073709551615"))]
+    #[case::null_is_unset(serde_json::json!(null), None)]
+    #[case::empty_is_unset(serde_json::json!(""), None)]
+    #[case::blank_is_unset(serde_json::json!("  "), None)]
     fn raw_options_product_tour_id_coercion_valid(
         #[case] input: serde_json::Value,
         #[case] expected: Option<&str>,
@@ -971,35 +1183,63 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::object(serde_json::json!({"nested": true}))]
-    #[case::array(serde_json::json!(["a"]))]
-    #[case::bool(serde_json::json!(true))]
     #[case::float(serde_json::json!(1.5))]
+    #[case::integral_float(serde_json::json!(42.0))]
+    #[case::bool(serde_json::json!(true))]
+    #[case::array(serde_json::json!(["a"]))]
+    #[case::object(serde_json::json!({"nested": true}))]
     fn raw_options_product_tour_id_uncoercible(#[case] input: serde_json::Value) {
         let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
-        let err = raw.validate().unwrap_err();
-        assert_eq!(err.invalid_fields, vec!["product_tour_id"]);
+        assert_eq!(
+            raw.validate().unwrap_err(),
+            invalid(&[ExpectedOption::ProductTourId])
+        );
     }
 
     #[test]
-    fn raw_options_multiple_invalid_fields_collected() {
+    fn raw_options_invalid_keys_reported_once_in_check_order() {
         let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": {"bad": true},
+            "product_tour_id": 7.5,
             "disable_skew_correction": [false],
-            "product_tour_id": "valid-string",
+            "cookieless_mode": {"bad": true},
             "process_person_profile": null
         }));
         let err = raw.validate().unwrap_err();
-        assert!(err.invalid_fields.contains(&"cookieless_mode"));
-        assert!(err.invalid_fields.contains(&"disable_skew_correction"));
-        assert!(!err.invalid_fields.contains(&"product_tour_id"));
+        assert_eq!(err.detail(), "invalid_options");
+        assert_eq!(
+            err.failed_keys().names().collect::<Vec<_>>(),
+            vec![
+                "cookieless_mode",
+                "disable_skew_correction",
+                "product_tour_id"
+            ]
+        );
+    }
+
+    #[test]
+    fn option_keys_union_is_deduplicated_and_ordered() {
+        let first = OptionKeys::of(ExpectedOption::ProductTourId)
+            .union(OptionKeys::of(ExpectedOption::CookielessMode));
+        let second = OptionKeys::of(ExpectedOption::CookielessMode)
+            .union(OptionKeys::of(ExpectedOption::ProcessPersonProfile))
+            .union(OptionKeys::of(ExpectedOption::DisableSkewCorrection));
+        assert_eq!(
+            first.union(second).names().collect::<Vec<_>>(),
+            vec![
+                "cookieless_mode",
+                "disable_skew_correction",
+                "process_person_profile",
+                "product_tour_id"
+            ]
+        );
     }
 
     #[test]
     fn raw_options_non_object_value_returns_error() {
         let raw = RawOptions(serde_json::json!("just a string"));
         let err = raw.validate().unwrap_err();
-        assert!(err.invalid_fields.is_empty());
+        assert_eq!(err.detail(), "invalid_options");
+        assert!(err.failed_keys().is_empty());
     }
 
     #[test]
@@ -1010,17 +1250,6 @@ mod tests {
         }));
         let opts = raw.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
-    }
-
-    #[test]
-    fn raw_options_null_field_treated_as_absent() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": null,
-            "disable_skew_correction": true
-        }));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.cookieless_mode, None);
-        assert_eq!(opts.disable_skew_correction, Some(true));
     }
 
     #[test]
@@ -1037,17 +1266,34 @@ mod tests {
         }"#;
         let batch: Batch = serde_json::from_str(json).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        // 999 coerces to true (nonzero), "banana" does not coerce
         let err = batch.batch[0].options.validate().unwrap_err();
-        assert!(err.invalid_fields.contains(&"cookieless_mode"));
-        assert!(!err.invalid_fields.contains(&"disable_skew_correction"));
+        assert_eq!(err, invalid(&[ExpectedOption::CookielessMode]));
     }
 
-    // --- SinkEvent impl for WrappedEvent ---
+    #[test]
+    fn parse_batch_flags_are_lenient() {
+        let unreadable = UNREADABLE_BOOLS.iter().map(|source| (*source, None));
+        for (source, expected) in READABLE_BOOLS.iter().copied().chain(unreadable) {
+            let body = format!(
+                r#"{{"created_at": "2026-03-19T14:30:00.000Z", "capture_internal": {source}, "historical_migration": {source}, "batch": []}}"#
+            );
+            let batch: Batch = serde_json::from_str(&body).unwrap();
+            assert_eq!(
+                batch.capture_internal, expected,
+                "capture_internal = {source}"
+            );
+            assert_eq!(
+                batch.historical_migration,
+                expected.unwrap_or(false),
+                "historical_migration = {source}"
+            );
+        }
+    }
 
-    use crate::v1::sinks::event::Event as SinkEventTrait;
-    use crate::v1::sinks::Destination;
+    // --- Publishable impl for WrappedEvent ---
+
     use crate::v1::test_utils;
+    use crate::v1::types::{Destination, Publishable};
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
@@ -1092,31 +1338,34 @@ mod tests {
         Stamps { spread: true, ..Stamps::on(Destination::AnalyticsMain) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::overflow_untouched(Stamps::on(Destination::Overflow), OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_untouched(
+        Stamps::on(Destination::AnalyticsOverflow),
+        OrderingGuarantee::PerDistinctId
+    )]
     #[case::overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::overflow_spread_person_off(
-        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     // Lanes whose consumers need the key regardless: person processing being
     // off must not spread them, matching v0's route().
     #[case::ai_main_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiMain) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::historical_person_off(
@@ -1151,10 +1400,10 @@ mod tests {
     #[rstest::rstest]
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
-    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::ok_overflow(EventResult::Ok, Destination::AnalyticsOverflow)]
     #[case::warning_main(EventResult::Warning, Destination::AnalyticsMain)]
     #[case::warning_historical(EventResult::Warning, Destination::AnalyticsHistorical)]
-    #[case::warning_overflow(EventResult::Warning, Destination::Overflow)]
+    #[case::warning_overflow(EventResult::Warning, Destination::AnalyticsOverflow)]
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1165,10 +1414,6 @@ mod tests {
     #[rstest::rstest]
     #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
     #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
-    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
-    #[case::warning_dest_drop(EventResult::Warning, Destination::Drop)]
-    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
-    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1356,8 +1601,8 @@ mod tests {
     #[test]
     fn destination_returns_event_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Overflow;
-        assert_eq!(*ev.destination(), Destination::Overflow);
+        ev.destination = Destination::AnalyticsOverflow;
+        assert_eq!(*ev.destination(), Destination::AnalyticsOverflow);
     }
 
     #[test]
@@ -1894,6 +2139,25 @@ mod tests {
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties["$process_person_profile"], false);
+    }
+
+    // Ingestion honors only a JSON `false`, so capture must inject the parsed boolean.
+    #[rstest::rstest]
+    #[case::cookieless_yes(ExpectedOption::CookielessMode, serde_json::json!("YES"), "$cookieless_mode", true)]
+    #[case::skew_off(ExpectedOption::DisableSkewCorrection, serde_json::json!("off"), "$ignore_sent_at", false)]
+    #[case::skew_t(ExpectedOption::DisableSkewCorrection, serde_json::json!("t"), "$ignore_sent_at", true)]
+    #[case::person_profile_float_zero(ExpectedOption::ProcessPersonProfile, serde_json::json!(0.0), "$process_person_profile", false)]
+    #[case::person_profile_no(ExpectedOption::ProcessPersonProfile, serde_json::json!(" no "), "$process_person_profile", false)]
+    fn serialize_injects_lenient_options_as_booleans(
+        #[case] key: ExpectedOption,
+        #[case] raw: serde_json::Value,
+        #[case] property: &str,
+        #[case] expected: bool,
+    ) {
+        let mut wrapped = pageview_event();
+        wrapped.options = options_with(key, raw).validate().unwrap();
+        let (_, data) = serialize_and_parse(&wrapped, &serialize_ctx());
+        assert_eq!(data.properties[property], serde_json::Value::Bool(expected));
     }
 
     #[test]

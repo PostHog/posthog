@@ -11,7 +11,13 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureHealthFindingCode,
+    ExperimentExposureQuery,
+    MultipleVariantHandling,
+)
 
 from posthog.test.test_journeys import journeys_for
 
@@ -155,11 +161,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     @parameterized.expand(
         [
             # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
-            ("fully_before_cutoff", True, -14, -7, -14, {"control": 2, "test": 1}),
-            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 2, "test": 1}),
+            ("fully_before_cutoff", True, -14, -7, -14, {"control": 3, "test": 3}),
+            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 3, "test": 3}),
             ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
-            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 2, "test": 1}),
-            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
+            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 3, "test": 3}),
+            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 3, "test": 3}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
@@ -201,7 +207,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both events are seeded inside every experiment window, with disjoint user sets and
         # asymmetric counts, so total_exposures reveals which event the query counted:
         # $feature_flag_called yields control=2/test=1, $experiment_exposure yields
-        # control=1/test=2, and counting both would yield control=3/test=3.
+        # control=1/test=2, and counting both yields control=3/test=3. The users with only
+        # $experiment_exposure stand for exposures after ingestion stops writing
+        # $feature_flag_called, which an experiment on $feature_flag_called must still count.
         journeys_for(
             {
                 "user_legacy_control_1": [exposure("$feature_flag_called", "control", legacy_ts)],
@@ -1465,10 +1473,38 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # With 90/10 split on a 50/50 expected, p-value should be very low
         # (well below the 0.001 threshold for SRM detection)
         self.assertLess(response.sample_ratio_mismatch.p_value, 0.001)
+        self.assertEqual(
+            [finding.code for finding in response.health_findings or []], [ExperimentExposureHealthFindingCode.SRM]
+        )
 
         # Expected counts should be 50/50 of total (100)
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+
+    @parameterized.expand(
+        [
+            ("first_day", "2024-01-01T23:00:00Z", []),
+            ("after_a_day", "2024-01-02T01:00:00Z", [ExperimentExposureHealthFindingCode.ZERO_EXPOSURES]),
+        ]
+    )
+    def test_zero_exposures_finding_waits_a_day_after_launch(
+        self, _name: str, now: str, expected_codes: list[ExperimentExposureHealthFindingCode]
+    ) -> None:
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        with time_machine.travel(now, tick=False):
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(response.total_exposures, {"control": 0, "test": 0})
+        self.assertEqual([finding.code for finding in response.health_findings or []], expected_codes)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
@@ -1822,10 +1858,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # The running/stopped decision is read from the query, not the model — the experiment row is
         # left ended throughout. Query end_date set -> reads as stopped, warning skipped.
-        self.assertIsNone(_runner(experiment.end_date.isoformat())._evaluate_bias_risk(total_exposures))
+        self.assertIsNone(
+            _runner(experiment.end_date.isoformat())._evaluate_bias_risk(
+                total_exposures, MultipleVariantHandling.EXCLUDE
+            )
+        )
 
         # Query end_date cleared -> reads as running, warning evaluated.
-        risk = _runner(None)._evaluate_bias_risk(total_exposures)
+        risk = _runner(None)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
 

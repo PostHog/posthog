@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { convertPropertiesToPropertyGroup, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
@@ -149,25 +149,28 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         setFilters: () => actions.update(),
         setPropertyFilters: () => actions.update(),
         setInnerPropertyGroupType: ({ type, index }) => {
-            eventUsageLogic.actions.reportChangeInnerPropertyGroupFiltersType(
-                type,
-                values.filters.values[index].values.length
-            )
+            posthog.capture('inner match property group filters type changed', {
+                type: type,
+                filtersLength: values.filters.values[index].values.length,
+            })
             actions.update()
         },
         setOuterPropertyGroupsType: ({ type }) => {
-            eventUsageLogic.actions.reportChangeOuterPropertyGroupFiltersType(type, values.filters.values.length)
+            posthog.capture('outer match property groups type changed', {
+                type: type,
+                groupsLength: values.filters.values.length,
+            })
             actions.update()
         },
         removeFilterGroup: () => {
-            eventUsageLogic.actions.reportPropertyGroupFilterRemoved()
+            posthog.capture('property group filter removed')
             actions.update()
         },
         addFilterGroup: () => {
-            eventUsageLogic.actions.reportPropertyGroupFilterAdded()
+            posthog.capture('property group filter added')
         },
         duplicateFilterGroup: () => {
-            eventUsageLogic.actions.reportPropertyGroupFilterDuplicated()
+            posthog.capture('property group filter duplicated')
         },
         update: () => {
             // Don't persist empty PropertyGroupFilter structures — they cause ghost

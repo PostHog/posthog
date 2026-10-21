@@ -14,7 +14,7 @@ from posthog.date_util import start_of_month
 from posthog.models import Organization, Team
 
 from products.replay_vision.backend import quota
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -22,7 +22,6 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
 from products.replay_vision.backend.quota import (
     MONTHLY_CREDIT_QUOTA,
     BillingPeriod,
@@ -32,8 +31,12 @@ from products.replay_vision.backend.quota import (
     compute_quota_snapshot,
     compute_scanner_budget,
     compute_scanner_budgets,
+    spend_projection,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    seed_scanner_spend,
+    snapshot_for as _snapshot_for,
+)
 
 _ORG_ID = "01234567-89ab-cdef-0123-456789abcdef"
 
@@ -77,7 +80,7 @@ class _VisionQuotaTestCase(APIBaseTest):
     def _make_receipt(observation: ReplayObservation) -> None:
         # Mirror production: the receipt freezes the snapshot model and its credit price.
         model = observation.scanner_snapshot.get("model", "")
-        ReplayObservationUsage.objects.get_or_create(
+        receipt, _ = ReplayObservationUsage.objects.get_or_create(
             observation_id=observation.id,
             defaults={
                 "organization_id": observation.team.organization_id,
@@ -88,27 +91,9 @@ class _VisionQuotaTestCase(APIBaseTest):
                 "credits": observation_credits_for_model(model),
             },
         )
-
-    @staticmethod
-    def _make_running_evaluation(
-        *,
-        scanner: ReplayScanner,
-        total: int,
-        status: str = "running",
-        age: timedelta = timedelta(0),
-        settled: int = 0,
-    ) -> ReplayScannerPromptSuggestion:
-        return ReplayScannerPromptSuggestion.objects.create(
-            scanner=scanner,
-            team=scanner.team,
-            suggested_prompt="p",
-            evaluation={
-                "status": status,
-                "started_at": (timezone.now() - age).isoformat(),
-                "total": total,
-                "results": [{"session_id": f"s-{i}"} for i in range(settled)],
-            },
-        )
+        # The receipt is written when the observation completes.
+        if observation.completed_at is not None:
+            ReplayObservationUsage.objects.filter(pk=receipt.pk).update(created_at=observation.completed_at)
 
 
 class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
@@ -135,10 +120,25 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         )
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected_credits
 
-    def test_excludes_observations_created_in_a_previous_month(self) -> None:
+    @parameterized.expand(
+        [
+            ("settled_last_month", ObservationStatus.SUCCEEDED, True, 0),
+            # Billing buckets a receipt by write time, so one that settles after rollover is this month's spend.
+            ("started_last_month_settled_this_month", ObservationStatus.SUCCEEDED, False, 15),
+            ("started_last_month_still_running", ObservationStatus.RUNNING, False, 15),
+        ]
+    )
+    def test_counts_spend_in_the_period_its_receipt_lands_in(
+        self, _name: str, status: ObservationStatus, completed_last_month: bool, expected_credits: int
+    ) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(model=ScannerModel.GEMINI_3_8_FLASH)
+        self.scanner.refresh_from_db()
         last_month = (datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)) - timedelta(days=1)
-        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=last_month, created_at=last_month)
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 0
+        completed_at = (
+            None if status == ObservationStatus.RUNNING else (last_month if completed_last_month else timezone.now())
+        )
+        self._make_observation(status=status, completed_at=completed_at, created_at=last_month)
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected_credits
 
     def test_period_bounds_are_first_of_month_utc(self) -> None:
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
@@ -156,13 +156,10 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
 
     def test_observations_at_period_boundaries(self) -> None:
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        last_moment = snapshot.period_end - timedelta(microseconds=1)
+        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=last_moment, created_at=last_moment)
         self._make_observation(
-            status=ObservationStatus.SUCCEEDED,
-            completed_at=timezone.now(),
-            created_at=snapshot.period_end - timedelta(microseconds=1),
-        )
-        self._make_observation(
-            status=ObservationStatus.SUCCEEDED, completed_at=timezone.now(), created_at=snapshot.period_end
+            status=ObservationStatus.SUCCEEDED, completed_at=snapshot.period_end, created_at=snapshot.period_end
         )
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
 
@@ -186,25 +183,9 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             completed_at=timezone.now(),
         )
         self._make_receipt(other_obs)
-        self._make_running_evaluation(scanner=other_scanner, total=5)
 
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.credits_used == 0
-
-    @parameterized.expand(
-        [
-            ("running_counts_unsettled", "running", timedelta(0), 2, 3),
-            # A dead workflow can't charge anymore, so a stale "running" row holds no quota.
-            ("stale_running_ignored", "running", timedelta(hours=4), 0, 0),
-            ("finished_ignored", "succeeded", timedelta(0), 0, 0),
-        ]
-    )
-    def test_running_evaluations_count_unsettled_sessions(
-        self, _name: str, status: str, age: timedelta, settled: int, expected_unsettled: int
-    ) -> None:
-        self._make_running_evaluation(scanner=self.scanner, total=5, status=status, age=age, settled=settled)
-        expected = expected_unsettled * observation_credits_for_model(self.scanner.model)
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected
 
     def test_exhausted_when_usage_meets_quota(self) -> None:
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 30):
@@ -325,14 +306,6 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         self._make_observation(status=ObservationStatus.SUCCEEDED, created_at=last_month, completed_at=last_month)
         assert compute_scanner_budget(self.scanner).credits_used == 0
 
-    def test_a_running_evaluation_reserves_against_the_scanners_own_cap(self) -> None:
-        self._make_running_evaluation(scanner=self.scanner, total=4)
-        assert compute_scanner_budget(self.scanner).credits_used == 4 * 15
-
-    def test_another_scanners_running_evaluation_does_not_count(self) -> None:
-        self._make_running_evaluation(scanner=self._other_scanner(), total=4)
-        assert compute_scanner_budget(self.scanner).credits_used == 0
-
     def test_a_caller_supplied_period_is_billed_against(self) -> None:
         self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
         previous = start_of_month(datetime.now(UTC)) - timedelta(days=1)
@@ -378,91 +351,6 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
             budget = compute_scanner_budget(self.scanner)
 
         assert budget.credits_used >= 15
-
-
-class TestBackfillUsageScannerId(_VisionQuotaTestCase):
-    def test_backfills_null_scanner_ids_only_where_the_observation_still_exists(self) -> None:
-        import uuid
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django.db import connection
-
-        observation = self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        ReplayObservationUsage.objects.filter(observation_id=observation.id).update(scanner_id=None)
-        orphan = ReplayObservationUsage.objects.create(
-            organization_id=self.organization.id,
-            observation_id=uuid.uuid4(),
-            observation_created_at=timezone.now(),
-        )
-
-        migration = importlib.import_module("products.replay_vision.backend.migrations.0070_backfill_usage_scanner_id")
-        with connection.schema_editor(atomic=False) as schema_editor:
-            migration.backfill_scanner_id(django_apps, schema_editor)
-
-        assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
-        orphan.refresh_from_db()
-        assert orphan.scanner_id is None
-
-    def test_backfill_attributes_all_receipts_across_batches(self) -> None:
-        import uuid
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django.db import connection
-
-        observations = [
-            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()) for _ in range(3)
-        ]
-        ReplayObservationUsage.objects.filter(observation_id__in=[o.id for o in observations]).update(scanner_id=None)
-        orphan = ReplayObservationUsage.objects.create(
-            organization_id=self.organization.id,
-            observation_id=uuid.uuid4(),
-            observation_created_at=timezone.now(),
-        )
-
-        migration = importlib.import_module("products.replay_vision.backend.migrations.0070_backfill_usage_scanner_id")
-        # BATCH_SIZE=1 forces one keyset iteration per receipt, exercising the pagination loop.
-        with patch.object(migration, "BATCH_SIZE", 1):
-            with connection.schema_editor(atomic=False) as schema_editor:
-                migration.backfill_scanner_id(django_apps, schema_editor)
-
-        for observation in observations:
-            assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
-        orphan.refresh_from_db()
-        assert orphan.scanner_id is None
-
-
-class TestRebackfillUsageScannerId(_VisionQuotaTestCase):
-    def test_rebackfill_attributes_receipts_across_batches_and_leaves_orphans_null(self) -> None:
-        import uuid
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django.db import connection
-
-        observations = [
-            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()) for _ in range(3)
-        ]
-        ReplayObservationUsage.objects.filter(observation_id__in=[o.id for o in observations]).update(scanner_id=None)
-        orphan = ReplayObservationUsage.objects.create(
-            organization_id=self.organization.id,
-            observation_id=uuid.uuid4(),
-            observation_created_at=timezone.now(),
-        )
-
-        migration = importlib.import_module(
-            "products.replay_vision.backend.migrations.0073_rebackfill_usage_scanner_id"
-        )
-        # BATCH_SIZE=1 forces one keyset iteration per receipt, exercising the pagination loop.
-        with patch.object(migration, "BATCH_SIZE", 1):
-            with connection.schema_editor(atomic=False) as schema_editor:
-                migration.rebackfill_scanner_id(django_apps, schema_editor)
-
-        for observation in observations:
-            assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
-        orphan.refresh_from_db()
-        assert orphan.scanner_id is None
 
 
 class TestScannerBudgetBlocked(SimpleTestCase):
@@ -611,10 +499,103 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             scanner_snapshot=_snapshot_for(other_scanner),
             triggered_by=ObservationTrigger.ON_DEMAND,
         )
-        self._make_running_evaluation(scanner=other_scanner, total=4)
         result = compute_scanner_budgets(self.organization.id, [other_scanner.id])
         assert result[other_scanner.id].credits_used == 0
         assert result[other_scanner.id].credit_limit is None
+
+    @parameterized.expand(
+        [
+            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False, False),
+            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False, True),
+            # In-flight work fills the own cap, but only the free credits are full of posted spend.
+            (
+                "settled_free_credits_still_block_under_in_flight_own_cap",
+                "one_observation",
+                1_000_000,
+                "one_observation",
+                True,
+                True,
+                True,
+            ),
+        ]
+    )
+    def test_free_only_scanner_draws_on_the_orgs_free_credits(
+        self,
+        _name: str,
+        own_cap: int | str | None,
+        org_limit: int | None,
+        expected_limit: int | str,
+        expected_blocked: bool,
+        in_flight: bool,
+        expected_free_credits_copy: bool,
+    ) -> None:
+        cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
+        own_cap = cost if own_cap == "one_observation" else own_cap
+        expected_limit = cost if expected_limit == "one_observation" else expected_limit
+        # Another scanner's spend leaves less than one observation of free credits.
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 10)
+        free = ReplayScanner.objects.create(
+            team=self.team,
+            name="free-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credit_limit=own_cap,
+            free_only=True,
+        )
+        if in_flight:
+            ReplayObservation.objects.create(
+                scanner=free,
+                team=self.team,
+                session_id="free-in-flight",
+                status=ObservationStatus.RUNNING,
+                scanner_snapshot=_snapshot_for(free),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+            )
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", org_limit):
+            budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        assert (
+            budget.credit_limit,
+            budget.blocked,
+            budget.blocked_by_settled_spend,
+            budget.settled_block_from_free_credits,
+        ) == (expected_limit, expected_blocked, True, expected_free_credits_copy)
+
+    def test_free_only_scanner_keeps_the_tighter_headroom_when_its_own_cap_is_settled_full(self) -> None:
+        cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
+        free = ReplayScanner.objects.create(
+            team=self.team,
+            name="free-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credit_limit=2 * cost - 1,
+            free_only=True,
+        )
+        # The own cap has posted spend that leaves less than one observation, but some room.
+        seed_scanner_spend(free, cost)
+        # The free credits have room for one more posted observation, but in-flight work takes it.
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 2 * cost)
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="other-in-flight",
+            status=ObservationStatus.RUNNING,
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+        )
+        reserved = observation_credits_for_model(self.scanner.model)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        # The own cap is what posted spend fills, so the notification must not blame the free credits.
+        assert (budget.remaining, budget.blocked_by_settled_spend, budget.settled_block_from_free_credits) == (
+            max(0, cost - reserved),
+            True,
+            False,
+        )
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
@@ -720,7 +701,9 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         assert snapshot.period_end == end
         # Usage is counted against the billing window, not the calendar month.
         self._make_observation(
-            status=ObservationStatus.SUCCEEDED, completed_at=timezone.now(), created_at=start - timedelta(days=1)
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=start - timedelta(days=1),
+            created_at=start - timedelta(days=1),
         )
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 0
 
@@ -786,6 +769,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         estimate: int | None = None,
         model: ScannerModel = ScannerModel.GEMINI_3_8_FLASH,
         credit_limit: int | None = None,
+        free_only: bool = False,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=team,
@@ -795,6 +779,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
             model=model,
             enabled=enabled,
             credit_limit=credit_limit,
+            free_only=free_only,
         )
         if estimate is not None:
             ReplayScanner.objects.filter(pk=scanner.pk).update(
@@ -821,6 +806,33 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         # 15 of 30 days left: the 200 headroom pro-rated back to a 30-day rate is 400.
         assert snapshot.projected_monthly_credits == 400 + 150
+
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
+    def test_free_only_scanners_share_the_orgs_free_credits_left(self) -> None:
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 500)
+        self._make_scanner(team=self.team, name="free-a", estimate=100, free_only=True)  # 1500 uncapped
+        self._make_scanner(team=self.team, name="free-b", estimate=100, free_only=True)  # 1500 uncapped
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        # 15 of 30 days left: the 500 free credits left, pro-rated back to a 30-day rate, cover both scanners.
+        assert snapshot.projected_monthly_credits == 1000
+
+    @parameterized.expand(
+        [
+            ("room_left_after_the_other", 20, 1000 - 300),
+            ("other_uses_it_all", 100, 0),
+        ]
+    )
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
+    def test_free_headroom_is_what_other_free_only_scanners_leave(
+        self, _name: str, other_estimate: int, expected_left: int
+    ) -> None:
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 500)
+        self._make_scanner(team=self.team, name="free-other", estimate=other_estimate, free_only=True)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            projection = spend_projection(self.organization.id, include_free_headroom=True)
+        # The 500 free credits left over 15 days are a 1000-credit monthly rate, shared with the other scanner.
+        assert projection.free_only_monthly_credits_left == expected_left
 
     def test_other_orgs_scanners_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-projection-org")
@@ -875,7 +887,7 @@ class TestVisionSpendSeriesEndpoint(_VisionQuotaTestCase):
         return f"/api/environments/{self.team.id}/vision/quota/spend_series/"
 
     def _receipt(self, created_at: str, credits: int, organization_id: uuid.UUID | None = None) -> None:
-        ReplayObservationUsage.objects.create(
+        receipt = ReplayObservationUsage.objects.create(
             observation_id=uuid.uuid4(),
             organization_id=organization_id or self.organization.id,
             team_id=self.team.id,
@@ -883,6 +895,7 @@ class TestVisionSpendSeriesEndpoint(_VisionQuotaTestCase):
             model=ScannerModel.GEMINI_3_8_FLASH,
             credits=credits,
         )
+        ReplayObservationUsage.objects.filter(pk=receipt.pk).update(created_at=datetime.fromisoformat(created_at))
 
     @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
     def test_zero_filled_daily_credits_from_period_start_through_today(self) -> None:

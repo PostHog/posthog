@@ -16,6 +16,7 @@ import {
     mockReviewers,
     mockSignals,
     mockSourceConfigs,
+    mockSourceMetadata,
     mockTask,
     mockTeamConfig,
     pullRequestReports,
@@ -77,6 +78,9 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
     },
+    post: {
+        '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(allReports),
+    },
 })
 
 const meta: Meta = {
@@ -88,7 +92,6 @@ const meta: Meta = {
         mockDate: '2026-06-11',
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
@@ -102,6 +105,51 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+const valueSummaryMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/inbox_summary/': {
+            period_start: '2026-06-04T00:00:00Z',
+            period_end: '2026-06-11T00:00:00Z',
+            merged_pr_count: 12,
+            people_count: 5,
+            participation_complete: true,
+            pull_requests: Array.from({ length: 12 }, (_, index) => ({
+                repository: index % 3 === 0 ? 'PostHog/posthog-js' : 'PostHog/posthog',
+                number: 111094 - index,
+                url: `https://github.com/${index % 3 === 0 ? 'PostHog/posthog-js' : 'PostHog/posthog'}/pull/${111094 - index}`,
+            })),
+            people: [
+                { id: 1, login: 'sam-example' },
+                { id: 2, login: 'alex-example' },
+                { id: 3, login: 'riley-example' },
+                { id: 4, login: 'taylor-example' },
+                { id: 5, login: 'jordan-example' },
+            ],
+        },
+    },
+})
+
+export const WithValueSummary: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.SIGNALS_INBOX_VALUE_SUMMARY]: true,
+        },
+    },
+    decorators: [valueSummaryMocks],
+}
+
+export const LegacyWithValueSummary: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.SIGNALS_INBOX_VALUE_SUMMARY]: true,
+            [FEATURE_FLAGS.INBOX_REDESIGN]: false,
+        },
+    },
+    decorators: [valueSummaryMocks],
+}
 
 function reportWithEvidenceItems(count: number): Story {
     return {
@@ -148,14 +196,18 @@ export const Settings: Story = {
 // setup rail. Story parameters replace the meta's, so the meta-level flags are re-listed.
 const LEGACY_FLAGS = {
     [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-    [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
     [FEATURE_FLAGS.INBOX_REDESIGN]: false,
 }
 
 export const Legacy: Story = {
     parameters: {
         featureFlags: LEGACY_FLAGS,
-        testOptions: { waitForLoadersToDisappear: true },
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            // The setup rail loads its own team config and integrations, sometimes after the loader wait.
+            // This button renders only after both loads finish.
+            waitForSelector: '[data-attr="signals-issue-tracker-connect"]',
+        },
     },
     decorators: [routeTo(urls.inbox('pulls'))],
 }
@@ -180,26 +232,6 @@ export const LegacyScouts: Story = {
 
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
-                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
-            },
-        }),
-    ],
-}
-
-export const EmptyControl: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-        },
-    },
     decorators: [
         mswDecorator({
             get: {
@@ -251,6 +283,45 @@ export const SelfDrivingOnboarding: Story = {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
+export const FocusedOnboarding: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    decorators: [
+        ...(Array.isArray(SelfDrivingOnboarding.decorators) ? SelfDrivingOnboarding.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'test-ui' },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'test-ui' },
+            },
+        }),
+    ],
+}
+
+export const FocusedOnboardingComplete: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    decorators: [
+        ...(Array.isArray(Empty.decorators) ? Empty.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: {
+                        step: 'github',
+                        sources: [],
+                        scanner_ids: [],
+                        suggestions: [],
+
+                        automatic_implementation: false,
+                        implementation_priority: 'P1',
+                    },
+                    completed_at: '2026-06-11T10:00:00Z',
+                    variant: 'test-ui',
+                },
             },
         }),
     ],

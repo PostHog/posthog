@@ -1,13 +1,18 @@
 # Taxonomic filter search loading
 
-The classic picker and the rebuilt menu hold aggregated search results until the contributing categories settle. This prevents late category results from moving a choice under the pointer. Only categories offered by the picker contribute to that wait; a category-specific list waits for its own results. Recent and Pinned scopes use pre-resolved entries and never enter this search loading barrier.
+The classic picker and the rebuilt menu hold aggregated search results until the contributing categories settle. This prevents late category results from moving a choice under the pointer. Only categories offered by the picker contribute to that wait; a category-specific list waits for its own results. Recent and Pinned lists use pre-resolved entries and never enter this search loading barrier. Their separate category controls are hidden in both pickers. Recent and pinned items remain in Suggested, and the pin control remains available.
 
 The classic picker shows its active category in the search input. A person can dock the category rail from that menu. This preference persists for that person and project. A narrow picker hides the rail and shows the category control in the search input.
 
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
+With `taxonomic-filter-value-search-gating` enabled, email value searches require `@` or domain-like text, such as `example.com`. Pageview URL and pageview event value searches require URL-like text: a path, an HTTP prefix, a `www.` prefix, or a domain. Existing minimum query lengths still apply. These rules affect remote value searches; property-name searches, cached recents, and pins remain available. A rejected query sends no request and clears earlier remote results.
+
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
-In the classic picker, a failed search with no usable matches shows an error and a retry action.
+A failed search with no usable matches shows an error in the classic picker and the rebuilt menu.
+The rebuilt menu offers "Try again" to retry the failed result source.
+Pressing Enter or Space on the headless panel's "Try again" button retries without selecting the failed query.
+Retrying a server search does not reload the cached first page.
 A failed search does not offer an uncaptured event name, and it does not change the selected form value.
 When a caller allows custom event names, a successful empty search offers "Use event name".
 Pressing Enter in the search input selects that custom event name.
@@ -19,6 +24,20 @@ The expansion count must not delay the scoped results or keep the aggregate reve
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
 
+## Empty-result measurement
+
+The classic All tab records `taxonomic filter empty result` when it shows an empty search after all contributing lists settle.
+A pending or failed request does not count as an empty result.
+Empty queries and repeated renders of the same trimmed query do not send another event.
+
+Both implementations send `scope = 'all'` for All and `scope = 'category'` for content categories.
+The rebuilt menu also labels its Recent and Pinned scopes.
+Existing `groupType` values remain unchanged: classic All uses `suggested_filters`, and rebuilt All leaves it unset.
+
+Older classic clients do not record All-tab empty results.
+Compare periods with the same coverage.
+Use `scope = 'category'` for a category-only measure after this change.
+
 ## Action definitions
 
 Event-only insight editors and closed breakdown pickers do not load the action list.
@@ -26,6 +45,14 @@ Action series load their definitions to resolve names and event-scoped propertie
 Opening an event picker that offers Actions loads the list; later opens reuse the shared cache.
 When an insight series picker opens on Suggested series, the current selection is the first and selected item. All events follows it.
 The classic popover unmounts after its close transition and starts with a fresh search when reopened.
+
+## Element breakdowns
+
+Trends and funnels offer element text, tag name, and href in the Elements category and suggested filters.
+These breakdowns use values from the autocapture element chain.
+Text and tag name use the first matching value in the chain. Href uses the first href.
+CSS selectors remain available as property filters, but not as breakdowns.
+Other insight types exclude element breakdown suggestions.
 
 ## Typing and rendering
 
@@ -35,7 +62,7 @@ Local filtering and rendering still update on each keystroke.
 
 ## Event list pagination
 
-The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.
+The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page, except on projects above the large-project threshold, where it stops at the cap in `posthog/taxonomy/definition_search.py`. There the response sets `count_is_capped`, `count` is a lower bound rather than a total, and paging continues while pages come back full rather than ending at the cap. A request that filters by search, stale events, verification, names, tags or `event_type=event_posthog` keeps the exact count, because those filters match too few rows for a bounded count to stop early. Above a second, higher threshold the default order is by name instead of recency, because nothing indexes `last_seen_at`. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.
 
 Tag-filtered requests retain ORM pagination after resolving matching event IDs. Both paths preserve the same response fields and project scope, including legacy definitions whose `project_id` is null.
 

@@ -44,6 +44,8 @@ export function WizardRunTable({
     onSelect,
     onRefreshRun,
     onCopyRunId,
+    onOpenWorkspace,
+    onPaginate,
     onCancel,
 }: {
     runs: WizardRunApi[]
@@ -59,7 +61,9 @@ export function WizardRunTable({
     onRefreshRuns: () => void
     onSelect: (run: WizardRunApi) => void
     onRefreshRun: (run: WizardRunApi) => void
-    onCopyRunId: (runId: string) => void
+    onCopyRunId: (runId: string, location: 'bottom_button') => void
+    onOpenWorkspace: (run: WizardRunApi, url: string) => void
+    onPaginate: (page: number, nextPage: number) => void
     onCancel: (run: WizardRunApi) => void
 }): JSX.Element {
     const columns: DataTableProps<WizardRunApi, unknown>['columns'] = [
@@ -88,15 +92,19 @@ export function WizardRunTable({
             cell: ({ row }) => {
                 const run = row.original
                 if (run.workspace.type === 'git_repository') {
+                    const url = wizardGithubRepositoryUrl(run.workspace.repository)
                     return (
                         <Button
                             variant="link-muted"
                             size="sm"
                             render={
                                 <LinkPrimitive
-                                    to={wizardGithubRepositoryUrl(run.workspace.repository)}
+                                    to={url}
                                     target="_blank"
-                                    onClick={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        onOpenWorkspace(run, url)
+                                    }}
                                 />
                             }
                         >
@@ -106,8 +114,8 @@ export function WizardRunTable({
                     )
                 }
                 return (
-                    <Text size="sm" className="flex items-center gap-1">
-                        <IconFolder />
+                    <Text size="xs" className="flex h-6 items-center gap-1 px-2">
+                        <IconFolder className="size-3" />
                         {wizardWorkspaceLabel(run)}
                     </Text>
                 )
@@ -244,6 +252,7 @@ export function WizardRunTable({
                         pageSize={25}
                         fullWidth
                         onRowClick={onSelect}
+                        onPageChange={onPaginate}
                     />
                 </Card>
             )}

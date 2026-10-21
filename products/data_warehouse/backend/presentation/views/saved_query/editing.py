@@ -2,7 +2,8 @@
 
 import copy
 import uuid
-from typing import Any, cast
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -12,7 +13,12 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import exceptions, serializers
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import (
+    MODELS_NAMESPACE_QUERY_ERROR,
+    Database,
+    is_reserved_models_name,
+    models_namespace_chain,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
@@ -21,6 +27,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -28,11 +35,13 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
@@ -44,7 +53,19 @@ from products.warehouse_sources.backend.facade.models import sync_frequency_to_s
 
 from . import incremental_config, sync_cadence, view_description, view_state
 
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 logger = structlog.get_logger(__name__)
+
+GENERIC_LINEAGE_SYNC_ERROR = (
+    "Could not build this view's lineage. Check the query's tables and columns, then save again."
+)
+
+
+def _lineage_sync_error_detail(error: Exception) -> str:
+    # The marker is served verbatim by the node API, so only a message written for the user may reach it.
+    return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -65,6 +86,47 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
+
+
+def _apply_frequency_target(
+    view: DataWarehouseSavedQuery,
+    frequency: str | None,
+    user_access_control: "UserAccessControl | None",
+) -> timedelta | None:
+    target = sync_frequency_to_sync_frequency_interval(frequency) if frequency else None
+    # A refusal names what blocks the cadence, so it obeys the same grants the read
+    # payload does — otherwise one rejected PATCH reads back a name the caller was
+    # never shown. Withheld nodes fall back to generic prose inside the refusal.
+    bounds = modeling_api.saved_query_target_bounds(view.team_id, view.pk)
+    visible = (
+        sync_cadence.visible_blocker_names(bounds, user_access_control, team_id=view.team_id)
+        if bounds is not None
+        else {}
+    )
+    try:
+        # Validate before commit so a rejected frequency rolls back the write.
+        nodes_written = modeling_api.apply_saved_query_frequency_target(view, target, visible_names=visible)
+    except (modeling_api.UnsatisfiableFrequencyError, modeling_api.UnsupportedFrequencyTargetError) as e:
+        raise serializers.ValidationError(str(e))
+    if target is not None and nodes_written == 0:
+        raise serializers.ValidationError(
+            "Cannot set a materialization frequency: this view is not wired into the data "
+            "modeling DAG yet. Re-save the view to create its node, then set the frequency."
+        )
+    return target
+
+
+def _authored_model_answering_to(
+    team_id: int, name: str, exclude: DataWarehouseSavedQuery | None
+) -> DataWarehouseSavedQuery | None:
+    if not name.startswith("models."):
+        return None
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=name.removeprefix("models.")).exclude(
+        deleted=True
+    )
+    if exclude is not None:
+        candidates = candidates.exclude(pk=exclude.pk)
+    return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -136,10 +198,8 @@ class DataWarehouseSavedQuerySerializer(
         write_only=True,
         required=False,
         allow_null=True,
-        help_text="If true, skip column inference and validation. For saving drafts.",
-    )
-    dag_id = serializers.UUIDField(
-        write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
+        help_text="If true, skip column inference and external table discovery. On update, also skip the query "
+        "revision conflict check. Query validation and revision updates still run.",
     )
     description = view_description.ViewDescriptionField(
         required=False, allow_blank=True, allow_null=True, help_text=view_description.VIEW_DESCRIPTION_HELP_TEXT
@@ -187,7 +247,6 @@ class DataWarehouseSavedQuerySerializer(
             "edited_history_id",
             "latest_history_id",
             "soft_update",
-            "dag_id",
             "is_materialized",
             "origin",
             "is_test",
@@ -197,6 +256,8 @@ class DataWarehouseSavedQuerySerializer(
         ]
         read_only_fields = [
             "id",
+            # Deletion must run lifecycle cleanup and release the name through DELETE.
+            "deleted",
             "created_by",
             "created_at",
             "updated_at",
@@ -219,6 +280,7 @@ class DataWarehouseSavedQuerySerializer(
         extra_kwargs = {
             "soft_update": {"write_only": True},
             "name": {
+                "validators": [],
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
             },
         }
@@ -243,32 +305,45 @@ class DataWarehouseSavedQuerySerializer(
     def get_has_incremental_history(self, view: DataWarehouseSavedQuery) -> bool:
         return has_incremental_history(view)
 
-    @extend_schema_field(
-        serializers.DictField(
-            child=view_state.SavedQuerySuspensionSerializer(),
-            help_text="Engines this query's materialization is suspended for after repeated failures. "
-            "Suspended engines are skipped by scheduled runs until the query is resumed.",
-        )
-    )
-    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
-        from products.data_modeling.backend.facade.api import suspension_state_for_saved_query
+    def _report_view_action(
+        self, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
+    ) -> None:
+        if (
+            not self.context.get("report_view_actions", False)
+            or view.origin in {DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET}
+            or view.managed_viewset_id is not None
+        ):
+            return
 
-        return {
-            engine: view_state.SavedQuerySuspensionSerializer(entry).data
-            for engine, entry in suspension_state_for_saved_query(view).items()
-        }
+        request = self.context["request"]
+        try:
+            report_user_action(
+                request.user,
+                event,
+                {
+                    # Never include the query text or the view name: both are customer-authored content.
+                    "saved_query_id": str(view.id),
+                    "origin": view.origin,
+                    "is_materialized": bool(view.is_materialized),
+                    "has_warehouse_tables": bool(view.external_tables),
+                    **properties,
+                },
+                team=team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to report view action", analytics_event=event)
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
-        dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
-        # Sync cadence is configured via materialization, not on creation — drop it so it
-        # isn't passed to the model constructor.
-        validated_data.pop("sync_frequency", None)
+        sync_frequency = validated_data.pop("sync_frequency", None)
+        validated_data.pop("edited_history_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -298,14 +373,6 @@ class DataWarehouseSavedQuerySerializer(
             view.save()
             if has_description:
                 self._write_view_description(view, description)
-            try:
-                view.setup_model_paths()
-            except Exception:
-                # For now, do not fail saved query creation if we cannot model-ize it.
-                # Later, after bugs and errors have been ironed out, we may tie these two
-                # closer together.
-                logger.exception("Failed to create model path when creating view %s", view.name)
-
             team = Team.objects.get(id=view.team_id)
 
             log_activity(
@@ -329,31 +396,39 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-        # best effort sync to new data modeling DAG representation
-        try:
-            from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
-            from products.data_modeling.backend.facade.models import DAG
+            try:
+                with transaction.atomic():
+                    modeling_api.sync_saved_query_to_dag(view)
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+            if sync_frequency is not None:
+                if sync_frequency != "never":
+                    assert_user_can_read_query(
+                        view.query,
+                        view.team_id,
+                        cast(User, self.context["request"].user),
+                        database=self.context.get("database"),
+                    )
+                _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
-            dag_obj = None
-            if dag_id:
-                try:
-                    dag_obj = DAG.objects.get(id=dag_id, team_id=view.team_id)
-                except DAG.DoesNotExist:
-                    raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
-            sync_saved_query_to_dag(view, dag=dag_obj)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+        self._report_view_action(
+            "view created",
+            view,
+            {"has_description": has_description, "sync_frequency": sync_frequency},
+            team,
+        )
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
 
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
 
+        frequency_given = "sync_frequency" in validated_data
         sync_frequency = validated_data.pop("sync_frequency", None)
 
         if sync_frequency and sync_frequency != "never":
@@ -366,7 +441,7 @@ class DataWarehouseSavedQuerySerializer(
             )
 
         # The frequency writes through to the DAG node's freshness target.
-        frequency_changed = bool(sync_frequency)
+        frequency_changed = frequency_given
 
         soft_update = validated_data.pop("soft_update", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
@@ -421,8 +496,14 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             try:
+                # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
+                # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
+                # takes on this row for its job's foreign key, which deadlocks the two. It still
+                # blocks every other writer of the row, which is all the lost-update check needs.
                 locked_instance = (
-                    DataWarehouseSavedQuery.objects.select_for_update().exclude(deleted=True).get(pk=instance.pk)
+                    DataWarehouseSavedQuery.objects.select_for_update(no_key=True)
+                    .exclude(deleted=True)
+                    .get(pk=instance.pk)
                 )
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")
@@ -446,38 +527,10 @@ class DataWarehouseSavedQuerySerializer(
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
             if frequency_changed:
-                from products.data_modeling.backend.facade.api import (
-                    UnsatisfiableFrequencyError,
-                    UnsupportedFrequencyTargetError,
-                    apply_saved_query_frequency_target,
-                    declared_targets_by_saved_query,
-                    saved_query_target_bounds,
+                previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
+                    str(view.pk)
                 )
-
-                target = (
-                    None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
-                )
-                previous_target = declared_targets_by_saved_query(view.team_id, [view.pk]).get(str(view.pk))
-                # A refusal names what blocks the cadence, so it obeys the same grants the read
-                # payload does — otherwise one rejected PATCH reads back a name the caller was
-                # never shown. Withheld nodes fall back to generic prose inside the refusal.
-                bounds = saved_query_target_bounds(view.team_id, view.pk)
-                visible = (
-                    sync_cadence.visible_blocker_names(bounds, self.user_access_control, team_id=view.team_id)
-                    if bounds is not None
-                    else {}
-                )
-                try:
-                    # Validates inside the transaction (a rejected frequency rolls the whole
-                    # update back) and queues the schedule reconcile for after commit.
-                    nodes_written = apply_saved_query_frequency_target(view, target, visible_names=visible)
-                except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-                    raise serializers.ValidationError(str(e))
-                if target is not None and nodes_written == 0:
-                    raise serializers.ValidationError(
-                        "Cannot set a materialization frequency: this view is not wired into the data "
-                        "modeling DAG yet. Re-save the view to create its node, then set the frequency."
-                    )
+                target = _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
             if has_description:
                 self._write_view_description(view, description)
@@ -487,12 +540,6 @@ class DataWarehouseSavedQuerySerializer(
                 view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
-
-            try:
-                view.setup_model_paths()
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to update model path when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
 
@@ -529,19 +576,30 @@ class DataWarehouseSavedQuerySerializer(
                 activity="updated",
                 detail=Detail(name=view.name, changes=changes),
             )
-        # best effort sync to new data modeling DAG representation
-        if "query" in validated_data:
-            try:
-                from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
-                from products.data_modeling.backend.facade.models import DAG
 
-                dag_obj = None
-                if dag_id:
-                    dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
-                sync_saved_query_to_dag(view, dag=dag_obj)
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+            # Best effort sync to the data modeling DAG representation. The savepoint keeps a
+            # failed sync best effort without poisoning the update's own transaction.
+            if "query" in validated_data:
+                try:
+                    with transaction.atomic():
+                        modeling_api.sync_saved_query_to_dag(view)
+                except Exception as e:
+                    capture_exception(e)
+                    logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+
+        self._report_view_action(
+            "view updated",
+            view,
+            {
+                "query_changed": query_changed,
+                "name_changed": before_update.name != view.name,
+                "description_changed": has_description,
+                "sync_frequency": sync_frequency if frequency_changed else None,
+                "soft_update": soft_update,
+            },
+            team,
+        )
         return view
 
     def validate_query(self, query):
@@ -651,15 +709,43 @@ class DataWarehouseSavedQuerySerializer(
         return folder
 
     def validate_name(self, name):
+        own_models_name: str | None = None
         # if it's an upsert, we don't want to validate the name
         if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
             if self.instance.name == name:
                 return name
+            # The model's save() also rejects this name, but a Django ValidationError from save() becomes a 500.
+            if is_reserved_models_name(name) and self.instance.origin in {
+                DataWarehouseSavedQuery.Origin.ENDPOINT,
+                DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+            }:
+                raise serializers.ValidationError(MODELS_NAMESPACE_QUERY_ERROR)
+            own_chain = models_namespace_chain(self.instance)
+            own_models_name = ".".join(own_chain) if own_chain is not None else None
+
+        validate_saved_query_name(name)
+
+        # An authored model answers to `models.<its name>` for the whole team, and has_table hides models the
+        # caller is denied, so a denied caller could otherwise take that name over for everyone.
+        instance = self.instance if isinstance(self.instance, DataWarehouseSavedQuery) else None
+        owner = _authored_model_answering_to(self.context["team_id"], name, instance)
+        if owner is not None:
+            if self.context["database"].has_table(owner.name):
+                raise serializers.ValidationError(
+                    f"This name already refers to the model {owner.name}. Choose a different name."
+                )
+            raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
         # Otherwise a user with denied table could create another one with colliding name.
-        if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
+        # An authored model already resolves under `models.<stored name>`, so a rename to that name
+        # collides with nothing. The two lookups below still reject it if a stored view or table holds it.
+        if (
+            (name != own_models_name and self.context["database"].has_table(name))
+            or get_view_or_table_by_name(self.context["team_id"], name)
+            or DataWarehouseSavedQuery.objects.filter(team_id=self.context["team_id"], name=name, deleted=True).exists()
+        ):
             raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         return name

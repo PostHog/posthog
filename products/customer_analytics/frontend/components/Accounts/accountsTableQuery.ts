@@ -12,6 +12,7 @@ import {
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyOperator,
     AccountsTableFilter,
+    AccountsTablePropertyFilter,
     AccountsTableRelationshipFilter,
     AccountsTableRelationshipOperator,
     AccountsTableQuery,
@@ -119,6 +120,7 @@ export interface AccountsTableDatasetInput {
     accountIdFilter: string | null
     tileFilter: TileFilter | null
     accountFilters: AccountFilter[]
+    accountFilterGroups: AccountFilter[][]
     relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
 }
@@ -295,7 +297,27 @@ export function supportedAccountFilters(
     )
 }
 
-function queryFilters(input: AccountsTableDatasetInput): AccountsTableFilter[] {
+function queryPropertyFilter(
+    filter: AccountFilter,
+    input: AccountsTableDatasetInput
+): AccountsTablePropertyFilter | null {
+    return isAccountPropertyFilter(filter)
+        ? accountFieldFilter(filter)
+        : isAccountRelationshipFilter(filter)
+          ? relationshipFilter(filter, input.relationshipDefinitionsById)
+          : customPropertyFilter(filter, input.customPropertyDefinitionsById)
+}
+
+function queryPropertyFilterGroups(input: AccountsTableDatasetInput): AccountsTablePropertyFilter[][] {
+    return [input.accountFilters, ...input.accountFilterGroups]
+        .map((group) => group.map((filter) => queryPropertyFilter(filter, input)).filter((filter) => filter !== null))
+        .filter((group) => group.length > 0)
+}
+
+function queryFilters(
+    input: AccountsTableDatasetInput,
+    propertyGroups: AccountsTablePropertyFilter[][]
+): AccountsTableFilter[] {
     if (input.accountIdFilter) {
         return [{ kind: 'account_id', accountId: input.accountIdFilter } satisfies AccountsTableAccountIdFilter]
     }
@@ -323,15 +345,8 @@ function queryFilters(input: AccountsTableDatasetInput): AccountsTableFilter[] {
             filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
         }
     }
-    for (const filter of input.accountFilters) {
-        const translatedFilter = isAccountPropertyFilter(filter)
-            ? accountFieldFilter(filter)
-            : isAccountRelationshipFilter(filter)
-              ? relationshipFilter(filter, input.relationshipDefinitionsById)
-              : customPropertyFilter(filter, input.customPropertyDefinitionsById)
-        if (translatedFilter) {
-            filters.push(translatedFilter)
-        }
+    if (propertyGroups.length === 1) {
+        filters.push(...propertyGroups[0])
     }
     if (input.tileFilter?.filter) {
         const filter = input.tileFilter.filter
@@ -353,8 +368,10 @@ function queryFilters(input: AccountsTableDatasetInput): AccountsTableFilter[] {
 
 export function accountsTableDatasetKey(input: AccountsTableDatasetInput): string {
     const includeHiddenAccounts = input.accountIdFilter !== null
+    const propertyGroups = includeHiddenAccounts ? [] : queryPropertyFilterGroups(input)
     return JSON.stringify({
-        filters: queryFilters(input),
+        filters: queryFilters(input, propertyGroups),
+        filterGroups: propertyGroups.length > 1 ? propertyGroups : undefined,
         includeChurned: includeHiddenAccounts,
         includeIgnored: includeHiddenAccounts,
     })
@@ -391,13 +408,15 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
         }
     }
 
-    const filters = queryFilters(input)
+    const propertyGroups = input.accountIdFilter ? [] : queryPropertyFilterGroups(input)
+    const filters = queryFilters(input, propertyGroups)
 
     return {
         query: {
             kind: NodeKind.AccountsTableQuery,
             columns: columns.map(({ column }) => column),
             filters,
+            filterGroups: propertyGroups.length > 1 ? propertyGroups : undefined,
             includeChurned: input.accountIdFilter !== null,
             includeIgnored: input.accountIdFilter !== null,
             sort,

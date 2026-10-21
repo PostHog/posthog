@@ -387,6 +387,28 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError, match=expected_error):
             discover_canonical_skills(tmp_path)
 
+    @pytest.mark.parametrize(
+        "dir_name,precheck_yaml,expected_error",
+        [
+            ("signals-scout-bar", "scout-precheck-query: ''", "must be a non-empty string"),
+            ("signals-scout-bar", "scout-precheck-query: 'SELEC 1'", "not a valid HogQL SELECT"),
+            ("signals-scout-bar", "scout-precheck-query: 'SELECT {unknown}'", "not a valid HogQL SELECT"),
+            ("authoring-scouts", "scout-precheck-query: 'SELECT 1'", "Only a signals-scout-\\* skill may declare"),
+        ],
+    )
+    def test_rejects_malformed_scout_precheck_query(
+        self, tmp_path: Path, dir_name: str, precheck_yaml: str, expected_error: str
+    ) -> None:
+        name = dir_name if dir_name == "authoring-scouts" else "signals-scout-bar"
+        _write_canonical_skill(
+            tmp_path,
+            dir_name=dir_name,
+            frontmatter=f"---\nname: {name}\ndescription: bar skill\n{precheck_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
     def test_parses_scout_role(self, tmp_path: Path) -> None:
         _write_canonical_skill(
             tmp_path,
@@ -468,11 +490,15 @@ class TestDiscoverCanonicalSkills:
                 "extras/notes.txt": "ignored\n",
             },
         )
+        bytecode = tmp_path / "signals-scout-bar" / "scripts" / "__pycache__" / "check.cpython-313.pyc"
+        bytecode.parent.mkdir()
+        bytecode.write_bytes(b"\x00\xff\x0d\x0a")
         skills = discover_canonical_skills(tmp_path)
         files_by_path = {f.path: f for f in skills[0].files}
         assert "references/playbook.md" in files_by_path
         assert files_by_path["references/playbook.md"].content == "# Playbook\n"
         assert "scripts/check.py" in files_by_path
+        assert not any(path.startswith("scripts/__pycache__/") for path in files_by_path)
         # Files outside the allowlist must not leak in — guards the consumer divergence.
         assert "assets/template.txt" not in files_by_path
         assert "extras/notes.txt" not in files_by_path

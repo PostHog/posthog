@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonCheckbox } from '@posthog/lemon-ui'
+import { IconInfo, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -12,11 +14,13 @@ import { formatCredits } from 'products/replay_vision/frontend/utils/credits'
 
 import { ExposureCriteriaPanel } from '../../ExperimentForm/ExposureCriteriaPanel'
 import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
+import { flagAggregatesByGroup } from '../../replayVisionScanner'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AnalyticsStep(): JSX.Element {
     const { experiment, sharedMetrics } = useValues(experimentWizardLogic)
     const { setExperiment, setExposureCriteria, setSharedMetrics } = useActions(experimentWizardLogic)
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     return (
         <div className="space-y-6">
@@ -27,7 +31,18 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
 
                 <div className="mt-10">
-                    <h3 className="text-lg font-semibold mb-1">How to measure impact?</h3>
+                    <h3 className="text-lg font-semibold mb-1 flex items-center gap-1">
+                        How to measure impact?
+                        <Tooltip title="Add metrics to measure your experiment's impact. You can add them before or after launching.">
+                            <LemonButton
+                                size="xsmall"
+                                noPadding
+                                icon={<IconInfo className="text-base text-secondary" />}
+                                aria-label="About measuring impact"
+                                data-attr="experiment-analytics-metrics-help"
+                            />
+                        </Tooltip>
+                    </h3>
                     <MetricsPanel
                         experiment={experiment}
                         sharedMetrics={sharedMetrics}
@@ -80,11 +95,7 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
             </div>
 
-            <ReplayVisionScannerCheckbox />
-
-            <LemonBanner type="info">
-                You can always refine your analytics configuration and metrics after saving.
-            </LemonBanner>
+            {experimentScanners && <ReplayVisionScannerCheckbox />}
         </div>
     )
 }
@@ -93,16 +104,17 @@ export function AnalyticsStep(): JSX.Element {
  * endpoint refuses without org AI approval, so an unconsented tick opens the consent popover
  * instead of letting the experiment save and the scanner fail after the fact. */
 function ReplayVisionScannerCheckbox(): JSX.Element {
-    const { createReplayVisionScanner } = useValues(experimentWizardLogic)
+    const { createReplayVisionScanner, linkedFeatureFlag } = useValues(experimentWizardLogic)
     const { setCreateReplayVisionScanner } = useActions(experimentWizardLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
+    const groupAggregated = flagAggregatesByGroup(linkedFeatureFlag)
 
     const checkbox = (
         <LemonCheckbox
             bordered
             fullWidth
-            checked={createReplayVisionScanner}
+            checked={createReplayVisionScanner && !groupAggregated}
             onChange={(checked) => {
                 if (checked && !dataProcessingAccepted) {
                     setConsentRequested(true)
@@ -110,16 +122,23 @@ function ReplayVisionScannerCheckbox(): JSX.Element {
                     setCreateReplayVisionScanner(checked)
                 }
             }}
-            disabledReason={getReplayVisionEditDisabledReason() ?? undefined}
+            disabledReason={
+                getReplayVisionEditDisabledReason() ??
+                (groupAggregated
+                    ? "This experiment's feature flag aggregates by group. Replay Vision can only watch experiments that aggregate by person."
+                    : undefined)
+            }
             data-attr="experiment-create-replay-vision-scanner"
             label={
                 <div className="py-3">
-                    <div className="font-semibold">Watch participant behavior with Replay Vision</div>
+                    <div className="flex items-center gap-2 font-semibold">
+                        <IconSparkles className="text-ai" />
+                        Compare what users do in each variant
+                    </div>
                     <div className="mt-1 font-normal text-sm text-muted">
-                        Set up a scanner that classifies what participants do after experiment exposure. It is created
-                        turned off, so nothing is scanned and no credits are used until you turn it on. You can adjust
-                        its prompt, filters, and sampling first. A scanner keeps running after the experiment ends, so
-                        turn it off when you are done.
+                        Set up an experiment scanner. It uses Replay vision to summarize the recordings of exposed users
+                        and shows each variant side by side. It turns on when you launch the experiment and stops when
+                        the experiment ends. Until launch, nothing is scanned and no credits are used.
                     </div>
                     {/* Per-session price only: a monthly projection needs the 30-day recording history the
                      * estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so

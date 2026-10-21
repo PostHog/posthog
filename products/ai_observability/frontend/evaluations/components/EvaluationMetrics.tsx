@@ -78,8 +78,8 @@ export function EvaluationMetrics(): JSX.Element {
                 ) : (
                     <div className="flex-1 bg-bg-light border rounded p-8 flex items-center justify-center">
                         <div className="text-muted text-center">
-                            No enabled evaluations with pass rates. Enable a boolean evaluation or set a passing
-                            threshold on a numeric evaluation.
+                            No enabled evaluations with pass rates. Enable a boolean evaluation or set a passing rule on
+                            a numeric or categorical evaluation.
                         </div>
                     </div>
                 )}

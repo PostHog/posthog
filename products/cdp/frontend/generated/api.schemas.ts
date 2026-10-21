@@ -231,6 +231,7 @@ export interface InputsItemApi {
     value?: unknown
     templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
+    readonly bytecode_contract: string
     readonly order: number
     readonly transpiled: unknown
 }
@@ -288,6 +289,7 @@ export const HogFunctionTypeEnumApi = {
  * * `task_mcp_installations` - task_mcp_installations
  * * `signals_scout` - signals_scout
  * * `task_skills` - task_skills
+ * * `replay_vision_scan` - replay_vision_scan
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -314,6 +316,7 @@ export const InputsSchemaItemTypeEnumApi = {
     TaskMcpInstallations: 'task_mcp_installations',
     SignalsScout: 'signals_scout',
     TaskSkills: 'task_skills',
+    ReplayVisionScan: 'replay_vision_scan',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -373,6 +376,7 @@ export interface HogFunctionFiltersApi {
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
+    bytecode_contract?: string
 }
 
 export interface HogFunctionMaskingApi {
@@ -396,9 +400,9 @@ export interface HogFunctionMaskingApi {
 export type MappingsApiInputs = { [key: string]: InputsItemApi }
 
 export interface MappingsApi {
-    name?: string
     inputs_schema?: InputsSchemaItemApi[]
     inputs?: MappingsApiInputs
+    name?: string
     filters?: HogFunctionFiltersApi
 }
 

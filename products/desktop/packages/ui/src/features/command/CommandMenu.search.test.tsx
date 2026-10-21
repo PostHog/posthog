@@ -40,6 +40,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
+  useCanvasQueryResults: () => ({
+    canvases: [],
+    isLoading: false,
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({
     tasks: [],
@@ -121,7 +127,7 @@ describe("CommandMenu global search", () => {
     );
 
     await user.type(
-      screen.getByPlaceholderText(/Search commands and tasks/),
+      screen.getByPlaceholderText(/Search commands, channels, and tasks/),
       "run",
     );
 

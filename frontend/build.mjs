@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
+    commonConfig,
     copyIndexHtml,
     copyPublicFolder,
     copyRRWebWorkerFiles,
@@ -15,9 +16,13 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { AUTHENTICATED_SHELL, ENTRY } from './bin/bootEntries.mjs'
+import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './bin/loggedOutScenes.mjs'
 import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
+import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
+import { zodJitlessEsbuildPlugin } from './plugins/zodJitless.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -40,6 +45,7 @@ copyRRWebWorkerFiles(__dirname)
 writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
+writeInfrastructureAdminHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -47,6 +53,10 @@ const common = {
     bundle: true,
     writeMetaFile: !isDev,
 }
+
+// Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
+// there would replace the toolbar's module plugin. The toolbar bundles no zod.
+const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
 
 await buildInParallel(
     [
@@ -58,14 +68,15 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
-        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
+        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
             entryPoints: [entryPoint],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', outfileName),
-            ...common,
+            ...appBundle,
+            ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
         {
             name: 'Exporter',
@@ -77,7 +88,7 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
         {
             name: 'Render Query',
@@ -85,7 +96,14 @@ await buildInParallel(
             entryPoints: ['src/render-query/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
-            ...common,
+            ...appBundle,
+        },
+        {
+            name: 'Infrastructure Admin',
+            entryPoints: ['../products/tasks/frontend/infrastructure/mountInfrastructureAdmin.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'infrastructure-admin.js'),
+            ...appBundle,
         },
         {
             ...getToolbarAppBuildConfig(__dirname),
@@ -127,14 +145,24 @@ await buildInParallel(
                         preludes: new Map(
                             [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
                                 file,
-                                cssPrelude(groups, cssPlan.rankOfGroup),
+                                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
                             ])
                         ),
                         extraImports: Object.fromEntries(
                             [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
                         ),
                         eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+                        loggedOut: {
+                            ...loggedOutImportMapScope(),
+                            cssSpecifiersByOutput: new Map(
+                                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                    file,
+                                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
+                                ])
+                            ),
+                        },
                     })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
                 }
                 writeIndexHtml(chunks, entrypoints, stable)
             }
@@ -142,12 +170,17 @@ await buildInParallel(
             if (config.name === 'Exporter') {
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/exporter/index.tsx')
                 }
                 writeExporterHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Render Query') {
                 writeRenderQueryHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Infrastructure Admin') {
+                writeInfrastructureAdminHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Toolbar') {
@@ -158,6 +191,19 @@ await buildInParallel(
         },
     }
 )
+
+/** Which modules a logged-out page loads, for the logged-out import map. See loggedOutSpecifiers. */
+function loggedOutImportMapScope() {
+    const scenes = sceneModules(__dirname)
+    const missing = LOGGED_OUT_SCENES.filter((scene) => !scenes.has(scene))
+    if (missing.length > 0) {
+        throw new Error(`stable chunks: no scene loader for the logged-out scenes ${missing.join(', ')}`)
+    }
+    const loggedOutModules = new Set(LOGGED_OUT_SCENES.map((scene) => scenes.get(scene)))
+    const signedInModules = new Set([...scenes.values()].filter((module) => !loggedOutModules.has(module)))
+    signedInModules.add(moduleKey(AUTHENTICATED_SHELL))
+    return { entry: ENTRY, loggedOutModules, signedInModules }
+}
 
 /**
  * Write dist/preload-manifest.json, read by the Django backend (posthog/utils.py) to emit
@@ -234,6 +280,17 @@ export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
+        'dist/infrastructure_admin.html',
+        'infrastructure-admin',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {

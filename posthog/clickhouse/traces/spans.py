@@ -69,8 +69,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
-    INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
-    INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+    INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+    INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
 
     -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
     -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
@@ -95,15 +95,15 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
             is_root_span
     ),
 
-    PROJECTION projection_index_span_id
+    PROJECTION projection_index_team_span_id
     (
-        SELECT _part_offset
+        SELECT team_id, _part_offset
         ORDER BY span_id
     ),
 
-    PROJECTION projection_index_trace_id
+    PROJECTION projection_index_team_trace_id
     (
-        SELECT _part_offset
+        SELECT team_id, _part_offset
         ORDER BY trace_id
     )
 )
@@ -388,7 +388,7 @@ AS SELECT
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,

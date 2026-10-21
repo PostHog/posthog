@@ -16,6 +16,7 @@ from posthog.temporal.health_checks import WORKFLOWS as HEALTH_CHECK_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import COUNT_PLAYLIST_ITEMS_WORKFLOWS
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
@@ -23,12 +24,12 @@ from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORD
 from posthog.temporal.session_replay.replay_count_metrics import REPLAY_COUNT_METRICS_WORKFLOWS
 from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
-from posthog.temporal.sync_person_distinct_ids import WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
-from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.batch_exports.backend.facade.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.data_catalog.backend.facade.temporal import WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import WORKFLOWS as ERROR_TRACKING_WORKFLOWS
 from products.logs.backend.temporal.retention_entitlements import WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
 from products.posthog_ai.backend.temporal.backfill import WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS
@@ -147,9 +148,9 @@ class Command(BaseCommand):
             + AI_WORKFLOWS
             + CONVERSATION_BACKFILL_WORKFLOWS
             + SALESFORCE_ENRICHMENT_WORKFLOWS
-            + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
             + TEST_WORKFLOWS
             + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+            + COPY_RECORDING_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
             + SYNC_EVENTS_RETENTION_WORKFLOWS
@@ -160,6 +161,7 @@ class Command(BaseCommand):
             + HEALTH_CHECK_WORKFLOWS
             + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
             + WA_DIGEST_WORKFLOWS
+            + DATA_CATALOG_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
             + SURFACING_SCORING_SWEEP_WORKFLOWS
         )

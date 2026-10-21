@@ -16,7 +16,7 @@ CREATED = "created_datetime"
 UPDATED = "updated_datetime"
 
 
-@dataclass
+@dataclass(frozen=True)
 class GorgiasEndpointConfig:
     name: str
     path: str
@@ -26,8 +26,9 @@ class GorgiasEndpointConfig:
     partition_key: str = CREATED
     # Explicit ascending sort on the stable creation field keeps page boundaries
     # stable across a full-refresh sync even if rows are inserted while we paginate.
-    # Every list endpoint accepts `created_datetime:asc` (verified against the docs).
-    order_by: str = f"{CREATED}:asc"
+    # Most list endpoints accept `created_datetime:asc` (verified against the docs).
+    # None for endpoints that accept no `order_by` at all (voice calls).
+    order_by: str | None = f"{CREATED}:asc"
     # Datetime attributes this endpoint actually accepts in `order_by` — verified
     # per-endpoint against the Gorgias docs, because they differ: `users` exposes no
     # `updated_datetime` (only name/email/role), `messages` is created-only, etc.
@@ -35,6 +36,10 @@ class GorgiasEndpointConfig:
     # send a sort the API would reject (a rejected/ignored sort silently corrupts the
     # newest-first ordering that incremental relies on).
     sortable_datetime_fields: frozenset[str] = frozenset({CREATED})
+    # Datetime fields the endpoint filters server-side with `<field>[gte]`. Incremental on one
+    # of these sorts ascending and requests only rows from the watermark onwards, rather than
+    # walking newest-first and stopping client-side.
+    filterable_datetime_fields: frozenset[str] = frozenset()
     # Whether this endpoint can sync incrementally. Gorgias has no server-side time
     # filter, so incremental relies on sorting the cursor `<field>:desc` and halting
     # once a whole page predates the watermark. Only safe when the cursor field both
@@ -46,6 +51,18 @@ class GorgiasEndpointConfig:
     # Cursor fields offered to the user. Only advertise a field whose desc-sort yields
     # correct incremental semantics for this resource (must be in sortable_datetime_fields).
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    primary_keys: tuple[str, ...] = ("id",)
+    # One full pagination pass per entry, merged into a single table. `custom-fields`
+    # requires `object_type`, so it is listed once per type.
+    param_variants: tuple[dict[str, str], ...] = ({},)
+    # Name of a nested collection on each ticket to flatten into one row per item. The
+    # ticket list already embeds `tags` and `custom_fields`, so this avoids one request per
+    # ticket against the per-ticket `/tickets/{id}/tags` and `/tickets/{id}/custom-fields`.
+    ticket_child: str | None = None
+    # Per-row child path (`{id}` is the row id of `path`), fetched for every row and flattened
+    # into one row per child item. Costs one request per parent row, so only for collections
+    # the parent list does not embed.
+    child_path: str | None = None
 
 
 GORGIAS_ENDPOINTS: dict[str, GorgiasEndpointConfig] = {
@@ -108,6 +125,68 @@ GORGIAS_ENDPOINTS: dict[str, GorgiasEndpointConfig] = {
         name="teams",
         path="/teams",
         sortable_datetime_fields=frozenset({CREATED}),
+    ),
+    "custom_fields": GorgiasEndpointConfig(
+        name="custom_fields",
+        path="/custom-fields",
+        order_by="priority:asc",
+        sortable_datetime_fields=frozenset(),
+        param_variants=({"object_type": "Ticket"}, {"object_type": "Customer"}),
+    ),
+    "voice_calls": GorgiasEndpointConfig(
+        name="voice_calls",
+        path="/phone/voice-calls",
+        order_by=None,
+        sortable_datetime_fields=frozenset(),
+    ),
+    "voice_call_events": GorgiasEndpointConfig(
+        name="voice_call_events",
+        path="/phone/voice-call-events",
+        order_by=None,
+        sortable_datetime_fields=frozenset(),
+    ),
+    "voice_call_recordings": GorgiasEndpointConfig(
+        name="voice_call_recordings",
+        path="/phone/voice-call-recordings",
+        order_by=None,
+        sortable_datetime_fields=frozenset(),
+    ),
+    # Append-only audit log. Gorgias keeps only the last 12 months of events.
+    "events": GorgiasEndpointConfig(
+        name="events",
+        path="/events",
+        sortable_datetime_fields=frozenset({CREATED}),
+        filterable_datetime_fields=frozenset({CREATED}),
+        supports_incremental=True,
+        incremental_fields=[_datetime_field(CREATED)],
+    ),
+    # Derived from the ticket list, so they stay full refresh: a removed tag or cleared field
+    # value has no ticket-level row left to delete it on merge.
+    "ticket_tags": GorgiasEndpointConfig(
+        name="ticket_tags",
+        path="/tickets",
+        partition_key=f"ticket_{CREATED}",
+        sortable_datetime_fields=frozenset({CREATED, UPDATED}),
+        primary_keys=("ticket_id", "id"),
+        ticket_child="tags",
+    ),
+    "ticket_field_values": GorgiasEndpointConfig(
+        name="ticket_field_values",
+        path="/tickets",
+        partition_key=f"ticket_{CREATED}",
+        sortable_datetime_fields=frozenset({CREATED, UPDATED}),
+        primary_keys=("ticket_id", "field_id"),
+        ticket_child="custom_fields",
+    ),
+    # The customer list does not embed custom field values, so this fans out one request per
+    # customer. Full refresh for the same reason as the ticket-derived tables.
+    "customer_field_values": GorgiasEndpointConfig(
+        name="customer_field_values",
+        path="/customers",
+        partition_key=f"customer_{CREATED}",
+        sortable_datetime_fields=frozenset({CREATED, UPDATED}),
+        primary_keys=("customer_id", "field_id"),
+        child_path="/customers/{id}/custom-fields",
     ),
 }
 

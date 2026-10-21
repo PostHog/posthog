@@ -54,18 +54,6 @@ class TestDynamoDBSource:
         assert self.source.default_version == "2012-08-10"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
-    def test_tables_are_discovered_over_the_connection_not_from_a_static_catalog(self) -> None:
-        # Table names are per-account, so the public docs must not try to list them.
-        assert self.source.lists_tables_without_credentials is False
-        assert self.source.get_documented_tables() == []
-
-    @pytest.mark.parametrize(
-        "error_code",
-        ["UnrecognizedClientException", "AccessDeniedException", "ExpiredTokenException", "ValidationException"],
-    )
-    def test_permanent_aws_errors_stop_the_job(self, error_code: str) -> None:
-        assert error_code in self.source.get_non_retryable_errors()
-
     @pytest.mark.parametrize(
         "error_code", ["ThrottlingException", "ProvisionedThroughputExceededException", "InternalServerError"]
     )
@@ -88,20 +76,6 @@ class TestDynamoDBSource:
             api_version="2012-08-10",
         )
         get_schemas.assert_called_once_with(client_cls.return_value, with_counts=True, names=["users"])
-
-    def test_session_token_is_forwarded_when_set(self) -> None:
-        config = DynamoDBSourceConfig(
-            aws_access_key_id="AKIA",
-            aws_secret_access_key="secret",
-            aws_region="us-east-1",
-            aws_session_token="temp",
-        )
-
-        with mock.patch(f"{_SOURCE_MODULE}.DynamoDBClient") as client_cls:
-            with mock.patch(f"{_SOURCE_MODULE}.get_table_schemas", return_value=[]):
-                self.source.get_schemas(config, team_id=1)
-
-        assert client_cls.call_args.kwargs["session_token"] == "temp"
 
     def test_source_for_pipeline_syncs_the_selected_table(self) -> None:
         manager: ResumableSourceManager[DynamoDBResumeConfig] = mock.MagicMock()

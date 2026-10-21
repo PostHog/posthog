@@ -11,11 +11,17 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
+
+import {
+    clearSQLEditorDraftFromStorageEvent,
+    clearSQLEditorDrafts,
+} from 'products/data_warehouse/frontend/sqlEditorDraftCleanup'
 
 import type { BillingFeatureType } from '../types'
 import { urls } from './urls'
@@ -73,6 +79,7 @@ export interface userLogicValues {
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
     isImpersonationUpgradeInProgress: boolean
     isProvisionedUser: boolean
+    isSwitchingOrganization: boolean
     isUserDetailsSubmitting: boolean
     isUserDetailsValid: boolean
     isUserNonTechnical: boolean
@@ -161,8 +168,14 @@ export interface userLogicActions {
             resetOnFailure: boolean | undefined
         }
     }
-    logout: (preserveLocation?: any) => {
+    logout: (
+        preserveLocation?: any,
+        nextUrl?: string,
+        reason?: string
+    ) => {
+        nextUrl: string | undefined
         preserveLocation: any
+        reason: string | undefined
     }
     resetUserDetails: (values?: Record<string, any>) => {
         values?: Record<string, any>
@@ -249,6 +262,9 @@ export interface userLogicActions {
         destination: string | undefined
         organizationId: string
     }
+    updateCurrentOrganizationFailure: () => {
+        value: true
+    }
     updateDataPipelineErrorThreshold: (threshold: number) => {
         threshold: number
     }
@@ -321,8 +337,10 @@ export interface userLogicActions {
     }
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: () => void
+        successCallback?: () => void,
+        failureCallback?: () => void
     ) => {
+        failureCallback: (() => void) | undefined
         successCallback: (() => void) | undefined
         user: Partial<UserType>
     }
@@ -336,12 +354,14 @@ export interface userLogicActions {
     updateUserSuccess: (
         user: UserType,
         payload?: {
+            failureCallback: (() => void) | undefined
             successCallback: (() => void) | undefined
             user: Partial<UserType>
         }
     ) => {
         user: UserType
         payload?: {
+            failureCallback: (() => void) | undefined
             successCallback: (() => void) | undefined
             user: Partial<UserType>
         }
@@ -420,11 +440,17 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        logout: (preserveLocation = false) => ({ preserveLocation }),
+        updateCurrentOrganizationFailure: true,
+        logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
+            preserveLocation,
+            nextUrl,
+            reason,
+        }),
         upgradeImpersonation: (reason: string) => ({ reason }),
-        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
+        updateUser: (user: Partial<UserType>, successCallback?: () => void, failureCallback?: () => void) => ({
             user,
             successCallback,
+            failureCallback,
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
@@ -489,7 +515,7 @@ export const userLogic = kea<userLogicType>([
             },
         },
     })),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         user: [
             // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
             null as UserType | null,
@@ -504,16 +530,34 @@ export const userLogic = kea<userLogicType>([
                     }
                     return null
                 },
-                updateUser: async ({ user, successCallback }) => {
-                    if (!values.user) {
-                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                updateUser: async ({ user, successCallback, failureCallback }): Promise<UserType> => {
+                    const previousUpdate = cache.pendingUserUpdate as Promise<void> | undefined
+                    let completeUpdate: () => void = () => {}
+                    const pendingUpdate = new Promise<void>((resolve) => {
+                        completeUpdate = resolve
+                    })
+                    cache.pendingUserUpdate = pendingUpdate
+                    await previousUpdate
+
+                    try {
+                        if (!values.user) {
+                            throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                        }
+                        // Full user responses can replace newer state, so account writes finish in submission order.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
+                        const response = await api.update<UserType>('api/users/@me/', user)
+                        successCallback?.()
+                        return response
+                    } catch (error) {
+                        failureCallback?.()
+                        // Returning the old user would make kea-loaders report a failed write as a success.
+                        throw error
+                    } finally {
+                        completeUpdate()
+                        if (cache.pendingUserUpdate === pendingUpdate) {
+                            cache.pendingUserUpdate = undefined
+                        }
                     }
-                    // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
-                    // user here would be treated as a success, silently masking backend errors.
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
-                    const response = await api.update<UserType>('api/users/@me/', user)
-                    successCallback?.()
-                    return response
                 },
                 cancelEmailChangeRequest: async () => {
                     if (!values.user) {
@@ -589,6 +633,13 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
+        isSwitchingOrganization: [
+            false,
+            {
+                updateCurrentOrganization: () => true,
+                updateCurrentOrganizationFailure: () => false,
+            },
+        ],
         isImpersonationUpgradeInProgress: [
             false,
             {
@@ -616,7 +667,7 @@ export const userLogic = kea<userLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        logout: ({ preserveLocation }) => {
+        logout: ({ preserveLocation, nextUrl, reason }) => {
             if (cache.loggingOut) {
                 return
             }
@@ -624,6 +675,7 @@ export const userLogic = kea<userLogicType>([
             posthog.reset()
             // Drop the address a signup or login attempt stored for the verify page
             clearPendingVerificationEmail()
+            clearSQLEditorDrafts()
 
             // OAuth mode: there's no local Django session to end — just drop the stored cloud
             // token and return to the local login. (A cross-origin /logout POST would do nothing.)
@@ -644,12 +696,21 @@ export const userLogic = kea<userLogicType>([
             csrfInput.value = getCookie('posthog_csrftoken') || ''
             form.appendChild(csrfInput)
 
-            if (preserveLocation) {
+            // The server turns a known reason into the message the login page shows.
+            if (reason) {
+                const reasonInput = document.createElement('input')
+                reasonInput.type = 'hidden'
+                reasonInput.name = 'reason'
+                reasonInput.value = reason
+                form.appendChild(reasonInput)
+            }
+
+            if (preserveLocation || nextUrl) {
                 const { pathname, search, hash } = window.location
                 const nextInput = document.createElement('input')
                 nextInput.type = 'hidden'
                 nextInput.name = 'next'
-                nextInput.value = pathname + search + hash
+                nextInput.value = nextUrl || pathname + search + hash
                 form.appendChild(nextInput)
             }
 
@@ -679,45 +740,10 @@ export const userLogic = kea<userLogicType>([
                     })
                 }
 
-                if (posthog) {
-                    posthog.identify(user.distinct_id)
-                    posthog.people.set({
-                        email: user.anonymize_data ? null : user.email,
-                        realm: user.realm,
-                    })
-
-                    posthog.register({
-                        is_demo_project: user.team?.is_demo,
-                    })
-
-                    if (user.team) {
-                        posthog.group('project', user.team.uuid, {
-                            id: user.team.id,
-                            uuid: user.team.uuid,
-                            name: user.team.name,
-                            ingested_event: user.team.ingested_event,
-                            is_demo: user.team.is_demo,
-                            timezone: user.team.timezone,
-                            instance_tag: user.organization?.metadata?.instance_tag,
-                        })
-                    }
-
-                    if (user.organization) {
-                        posthog.group('organization', user.organization.id, {
-                            id: user.organization.id,
-                            name: user.organization.name,
-                            slug: user.organization.slug,
-                            created_at: user.organization.created_at,
-                            available_product_features: user.organization.available_product_features,
-                            member_count: user.organization.member_count,
-                            project_count: user.organization.teams.length,
-                            ...user.organization.metadata,
-                        })
-
-                        if (user.organization.customer_id) {
-                            posthog.group('customer', user.organization.customer_id)
-                        }
-                    }
+                // loadPostHogJS already identified the user in the page and loaded flags for them, so
+                // flags reload here only for a user that changed without a page load.
+                if (posthog && identifyUserInPostHog(posthog, user)) {
+                    posthog.reloadFeatureFlags()
                 }
 
                 // First-login interstitial: route users with unreviewed pre-existing API keys
@@ -731,7 +757,8 @@ export const userLogic = kea<userLogicType>([
                     !values.credentialReviewDismissedInSession &&
                     !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    const { pathname, search, hash } = router.values.location
+                    router.actions.push(urls.credentialReview(`${pathname}${search}${hash}`))
                 }
             }
         },
@@ -763,8 +790,14 @@ export const userLogic = kea<userLogicType>([
                 return
             }
             await breakpoint(10)
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
+                await api.update('api/users/@me/', { set_current_organization: organizationId })
+            } catch {
+                actions.updateCurrentOrganizationFailure()
+                lemonToast.error('Could not switch organization. Try again.')
+                return
+            }
 
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 
@@ -1054,7 +1087,15 @@ export const userLogic = kea<userLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(
+            () => {
+                window.addEventListener('storage', clearSQLEditorDraftFromStorageEvent)
+                return () => window.removeEventListener('storage', clearSQLEditorDraftFromStorageEvent)
+            },
+            'sqlEditorDraftLogout',
+            { pauseOnPageHidden: false }
+        )
         const preloadedUser = getAppContext()?.current_user
         if (preloadedUser) {
             actions.loadUserSuccess(preloadedUser)

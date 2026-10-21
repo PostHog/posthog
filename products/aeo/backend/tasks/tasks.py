@@ -19,11 +19,11 @@ from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG
 from products.aeo.backend.runner import run_citation_checks
 
 logger = structlog.get_logger(__name__)
 
-AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 
 # A full run is up to 50 prompts x 3 engines of sequential web-search calls
 # (typically 10-60s each); four hours gives slow days headroom without letting

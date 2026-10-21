@@ -92,7 +92,25 @@ export function MetricLineagePanel({
     }
 
     if (lineageLoading && !lineage) {
-        return <LemonSkeleton className="h-64 w-full" />
+        return (
+            <div className="@container">
+                <span className="sr-only @[40rem]:hidden" role="status">
+                    Loading lineage
+                </span>
+                <div className="@[40rem]:hidden" aria-hidden="true">
+                    <LemonSkeleton className="h-64 w-full" />
+                </div>
+                <div className="hidden @[40rem]:block h-[min(45vh,500px)] border border-border rounded-md overflow-hidden">
+                    <LineageGraph
+                        nodes={[]}
+                        edges={[]}
+                        loading
+                        loadingCenter={{ name: metric.name, type: 'metric' }}
+                        variant="full"
+                    />
+                </div>
+            </div>
+        )
     }
 
     if (lineageProblem === 'not_ready') {

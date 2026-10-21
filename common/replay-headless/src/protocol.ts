@@ -12,6 +12,11 @@
  * so both sides are compile-time checked against the same contract.
  */
 
+// --- Constants ---
+
+/** Height of the metadata footer. The rasterizer adds it to the capture viewport, so the recording keeps its full size. */
+export const METADATA_FOOTER_HEIGHT_PX = 80
+
 // --- Types ---
 
 export interface ViewportEvent {
@@ -45,6 +50,15 @@ export interface InactivityPeriod {
     active: boolean
 }
 
+export interface NavigationSample {
+    sample: number
+    /** Taken after any skip or tab switch, unlike the frame timeline, so it is the time the frame shows. */
+    session_ms: number
+    window_id: string
+    window_number: number
+    url: string
+}
+
 // --- Player → rasterizer messages ---
 
 export type PlayerMessage =
@@ -58,6 +72,7 @@ export type PlayerMessage =
 export const PLAYER_EMIT_FN = '__posthog_player_emit__'
 export const PLAYER_CONFIG_KEY = '__posthog_player_config__'
 export const PLAYER_FRAME_TIMELINE_KEY = '__posthog_frame_timeline__'
+export const PLAYER_NAVIGATION_KEY = '__posthog_navigation_timeline__'
 
 // --- Event names (rasterizer → player) ---
 

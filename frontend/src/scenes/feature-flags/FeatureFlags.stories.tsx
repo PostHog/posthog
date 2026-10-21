@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -12,6 +13,8 @@ import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
+const RULES_V2_FLAG_ID = 1802
+const DELETED_FLAG_ID = 1526
 
 const meta: Meta = {
     component: App,
@@ -49,8 +52,19 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
+                '/api/projects/:team_id/feature_flags/2222222222222/': [
+                    500,
+                    {
+                        type: 'server_error',
+                        code: 'error',
+                        detail: 'Something went wrong.',
+                    },
+                ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id === DELETED_FLAG_ID) {
+                        return [200, { ...flag, deleted: true, can_edit: true }]
+                    }
                     if (flag?.id !== STALE_FLAG_ID) {
                         return [200, flag]
                     }
@@ -162,6 +176,12 @@ export const EditMultiVariateFeatureFlag: Story = {
     },
 }
 
+export const EditExperimentFeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(1801)}?edit=true`,
+    },
+}
+
 export const EditRemoteConfigFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1738),
@@ -180,9 +200,98 @@ export const StaleFeatureFlag: Story = {
     },
 }
 
+export const FeatureFlagsListWithRulesV2Flag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlags()}?search=rules-v2`,
+    },
+}
+
+export const RulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+}
+
+// Without the editor flag, `?edit=true` must still show the read-only view, because the v1 form's full save would
+// rewrite the document.
+export const RulesV2FeatureFlagEditDeepLink: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+    },
+}
+
+export const NewRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlagNew({ format: 'rules_v2' }),
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+    },
+}
+
+export const EditRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+    },
+}
+
+export const StaleFeatureFlagWithAiAssessment: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(STALE_FLAG_ID),
+        featureFlags: [
+            FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+            FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-stale-banner-review-cleanup"]')) {
+                    throw new Error('AI assessment action not rendered')
+                }
+            },
+            { timeout: 30000 }
+        )
+    },
+}
+
+export const DeletedFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(DELETED_FLAG_ID),
+    },
+}
+
+// The banner has no Restore button, because the server refuses to restore a flag in another config version.
+export const DeletedRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/feature_flags/${RULES_V2_FLAG_ID}/`]: () => [
+                    200,
+                    {
+                        ...featureFlags.results.find((r) => r.id === RULES_V2_FLAG_ID),
+                        deleted: true,
+                        active: false,
+                        can_edit: true,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
+    },
+}
+
+export const FeatureFlagLoadFailed: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(2222222222222),
     },
 }
 
@@ -250,6 +359,35 @@ export const NewMultivariateFlagVariantKeyError: Story = {
         logic.actions.submitFeatureFlag()
 
         await waitForErrorText(canvasElement, 'Please set a key')
+    },
+}
+
+export const NewFeatureFlagKeyTaken: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag('new'),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => {
+        await waitForMountedFeatureFlagLogic()
+        const keyInput = await waitFor(
+            () => {
+                const input = canvasElement.querySelector<HTMLInputElement>('input[data-attr="feature-flag-key"]')
+                if (!input) {
+                    throw new Error('flag key input not yet rendered')
+                }
+                return input
+            },
+            { timeout: 5000 }
+        )
+        await userEvent.type(keyInput, 'session-recording-console')
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-key-conflict-link"]')) {
+                    throw new Error('key conflict message not yet visible')
+                }
+            },
+            { timeout: 5000 }
+        )
     },
 }
 

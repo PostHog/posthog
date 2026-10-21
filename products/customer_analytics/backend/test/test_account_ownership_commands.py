@@ -1,5 +1,6 @@
 import json
 import shutil
+import hashlib
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -57,18 +58,21 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         view = self._decision_view(self.team.id)
         definition_id = str(self.ae_definition.id)
 
-        self._configure(
-            "--control",
-            definition_id,
-            "--claim-view",
-            definition_id,
-            str(view.id),
-            "--claims",
-            definition_id,
-            "enabled",
-        )
+        bound = self._configure("--control", definition_id, "--claim-view", definition_id, str(view.id))
+
+        assert self._state(self.ae_definition) == (True, False, view.id)
+        assert f"claim_view_sha256={hashlib.sha256(b'select 1').hexdigest()}" in bound
+
+        self._configure("--claims", definition_id, "enabled")
 
         assert self._state(self.ae_definition) == (True, True, view.id)
+
+        view.query = {"query": "select 2"}
+        view.save(update_fields=["query"])
+        rebound = self._configure("--claim-view", definition_id, str(view.id))
+
+        assert self._state(self.ae_definition) == (True, False, view.id)
+        assert f"claim_view_sha256={hashlib.sha256(b'select 2').hexdigest()}" in rebound
 
         self._configure("--clear-claim-view", definition_id, "--uncontrol", definition_id)
 
@@ -102,6 +106,9 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
             ("binding_a_view_that_fills_another_definition", True, False),
             ("binding_and_clearing_in_one_call", True, False),
             ("naming_a_definition_twice_with_different_views", True, False),
+            ("binding_a_view_that_reads_another_saved_query", True, False),
+            ("binding_and_enabling_in_one_call", True, False),
+            ("enabling_a_binding_without_a_pin", True, True),
         ]
     )
     def test_a_claim_view_binding_is_refused(self, case, controlled, bound):
@@ -129,6 +136,19 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
                 team_id=self.team.id, name="other_decisions", columns=saved_query_columns(DECISION_COLUMNS)
             )
             args = ["--claim-view", definition_id, str(view.id), "--claim-view", definition_id, str(other.id)]
+        elif case == "binding_a_view_that_reads_another_saved_query":
+            create_saved_query(team_id=self.team.id, name="raw_decisions", columns=saved_query_columns(["task_id"]))
+            view.query = {"query": "select task_id from raw_decisions"}
+            view.save(update_fields=["query"])
+            args = ["--claim-view", definition_id, str(view.id)]
+        elif case == "binding_and_enabling_in_one_call":
+            args = ["--claim-view", definition_id, str(view.id), "--claims", definition_id, "enabled"]
+        elif case == "enabling_a_binding_without_a_pin":
+            self._configure("--claim-view", definition_id, str(view.id))
+            AccountRelationshipDefinition.objects.for_team(self.team.id).filter(id=self.ae_definition.id).update(
+                claim_saved_query_sha256=None
+            )
+            args = ["--claims", definition_id, "enabled"]
         else:
             args = ["--claim-view", definition_id, str(view.id), "--clear-claim-view", definition_id]
 

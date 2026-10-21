@@ -13,6 +13,8 @@ import { evaluationDirectoriesList, evaluationsList } from '../generated/api'
 export const evaluationsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.LLM_EVALUATIONS,
     path: ['products', 'ai_observability', 'frontend', 'emptyState', 'evaluationsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const [evaluations, directories] = await Promise.all([

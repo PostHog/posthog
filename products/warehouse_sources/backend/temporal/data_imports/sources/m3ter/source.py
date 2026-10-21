@@ -19,7 +19,7 @@ class M3terSource(SimpleSource[M3terSourceConfig]):
             name=ExternalDataSourceType.M3TER,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="m3ter",
-            iconPath="/static/services/m3ter.png",
+            iconPath="/static/services/m3ter.com.png",
             keywords=["billing", "usage-based billing", "metering", "invoicing"],
             fields=cast(list[FieldType], []),
             unreleasedSource=True,

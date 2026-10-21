@@ -32,11 +32,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.autoresearch.backend.access import has_autoresearch_access
-from products.autoresearch.backend.facade.api import output_person_property_taken
+from products.autoresearch.backend.facade.api import output_person_property_taken, start_training
+from products.autoresearch.backend.facade.contracts import AutoresearchConflict, PipelineNotFound
 from products.autoresearch.backend.management.scoping import resolve_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.presentation.views.serializers import validate_event_target
-from products.autoresearch.backend.training.runner import run_training
 from products.autoresearch.backend.training.stub import run_stub_training
 
 # The bounds the API applies to the same fields.
@@ -170,6 +170,7 @@ class Command(BaseCommand):
             self.stdout.write("")
 
             training_run = run_stub_training(pipeline=pipeline)
+            run_id, run_status = training_run.pk, training_run.status
         else:
             user = self._team_user(pipeline.team, options["user_id"])
             user_id = user.pk
@@ -183,10 +184,19 @@ class Command(BaseCommand):
             self.stdout.write(f"  User ID     : {user_id}")
             self.stdout.write("")
 
-            training_run = run_training(pipeline=pipeline, iteration_budget=iteration_budget, user_id=user_id)
+            # The facade takes the same pipeline lock as the API, so a concurrent start cannot add a second live run.
+            try:
+                launched = start_training(
+                    pipeline.team_id, pipeline.pk, iteration_budget=iteration_budget, user_id=user_id
+                )
+            except (AutoresearchConflict, PipelineNotFound) as exc:
+                # PipelineNotFound: a delete landed between resolving the pipeline and claiming it.
+                raise CommandError(str(exc)) from exc
 
-        self.stdout.write(f"Training run  : {training_run.pk}")
-        self.stdout.write(f"Status        : {training_run.status}")
+            run_id, run_status = launched.id, launched.status
+
+        self.stdout.write(f"Training run  : {run_id}")
+        self.stdout.write(f"Status        : {run_status}")
 
         if options["stub"]:
             self.stdout.write(f"Iterations    : {training_run.iteration_count}")
@@ -203,15 +213,15 @@ class Command(BaseCommand):
                 self.stdout.write(f"  Holdout AUC  : {champion.holdout_score}")
                 self.stdout.write(f"  Preliminary  : {champion.is_preliminary}")
         else:
-            task_run_id = training_run.task_run_id
+            task_run_id = launched.task_run_id
             self.stdout.write(f"Task run      : {task_run_id}")
             self.stdout.write("")
             self.stdout.write("Agent is running in the background. Monitor progress:")
-            self.stdout.write(f"  tail -f /tmp/temporal-worker2.log | grep {str(training_run.pk)[:8]}")
+            self.stdout.write(f"  tail -f /tmp/temporal-worker2.log | grep {str(run_id)[:8]}")
             self.stdout.write("")
             self.stdout.write("Check training run status:")
             self.stdout.write(
-                f"  python manage.py shell -c \"from products.autoresearch.backend.models import AutoresearchTrainingRun; r = AutoresearchTrainingRun.objects.get(pk='{training_run.pk}'); print(r.status, r.error)\""
+                f"  python manage.py shell -c \"from products.autoresearch.backend.models import AutoresearchTrainingRun; r = AutoresearchTrainingRun.objects.get(pk='{run_id}'); print(r.status, r.error)\""
             )
 
         self.stdout.write(f"\nNext step: python manage.py autoresearch_score --pipeline-id {pipeline.pk}")

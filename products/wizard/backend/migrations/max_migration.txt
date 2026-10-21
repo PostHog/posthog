@@ -1,1 +1,1 @@
-0008_create_wizard_worker
+0011_rename_competes_with_to_alternative_to

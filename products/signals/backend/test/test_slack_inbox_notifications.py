@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
+from rest_framework.exceptions import ValidationError
+from slack_sdk.errors import SlackApiError
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -72,6 +74,11 @@ def test_summary_excerpt_truncates_first_line_at_600_chars() -> None:
     assert _summary_excerpt(long_line).endswith("...")
 
 
+def test_summary_excerpt_keeps_links_out_of_the_cut() -> None:
+    sql_link = "[the query](https://us.posthog.com/project/2/sql?open_query=" + "SELECT%201%20" * 60 + ")"
+    assert _summary_excerpt(f"Errors rose, see {sql_link} for details.") == "Errors rose, see the query for details."
+
+
 def _plain_text_block_texts(blocks: list[dict]) -> list[str]:
     """Every plain_text string in the message — mentions here would render as raw `<@…>`."""
     texts: list[str] = []
@@ -115,7 +122,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
     assert text == "Report (P1): Checkout errors spiked"
 
 
@@ -205,14 +212,29 @@ def test_resolve_reviewer_mentions_uses_slack_mention_when_lookup_succeeds() -> 
         assert _resolve_reviewer_mentions(slack, [user]) == ["<@U_SLACK>"]
 
 
-def test_resolve_reviewer_mentions_falls_back_to_name_when_slack_user_not_found() -> None:
-    user = User(first_name="Marcus", last_name="Twix", email="marcus@example.com")
+@pytest.mark.parametrize(
+    ("lookup_result", "expected_lookups"),
+    [
+        (None, 2),
+        # A lookup error stops the remaining lookups, because each one fails the same way.
+        (SlackApiError("missing_scope", {"ok": False, "error": "missing_scope"}), 1),
+        (ValidationError({"slack_notification_direct_message": "Slack is unavailable"}), 1),
+    ],
+    ids=["slack_user_not_found", "missing_scope", "lookup_budget_spent"],
+)
+def test_resolve_reviewer_mentions_falls_back_to_name(lookup_result: object, expected_lookups: int) -> None:
+    users = [
+        User(first_name="Marcus", last_name="Twix", email="marcus@example.com"),
+        User(first_name="Ada", last_name="Lime", email="ada@example.com"),
+    ]
     slack = MagicMock()
     with patch(
         "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
-        return_value=None,
-    ):
-        assert _resolve_reviewer_mentions(slack, [user]) == ["Marcus Twix"]
+        side_effect=lookup_result if isinstance(lookup_result, Exception) else None,
+        return_value=lookup_result,
+    ) as lookup:
+        assert _resolve_reviewer_mentions(slack, users) == ["Marcus Twix", "Ada Lime"]
+    assert lookup.call_count == expected_lookups
 
 
 def test_resolve_reviewer_mentions_caps_at_five() -> None:
@@ -351,7 +373,9 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
     else:
         assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == (
+        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
+    )
 
 
 @pytest.mark.django_db

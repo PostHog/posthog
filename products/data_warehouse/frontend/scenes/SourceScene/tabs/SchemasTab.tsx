@@ -12,11 +12,14 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
+    Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -38,6 +41,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
 import {
     splitQualifiedTableName,
     supportsDirectQuery,
@@ -47,6 +51,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
     IncrementalSyncBlockedMessageMap,
@@ -56,6 +61,7 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
 } from 'products/data_warehouse/frontend/utils'
+import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
@@ -70,6 +76,44 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
         AccessControlLevel.Editor,
         schema.user_access_level
     )
+
+// Only data columns use this, so the sync toggle and row actions still look clickable on a schema that is not syncing.
+const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
+    schema.should_sync ? '' : 'opacity-60'
+
+interface SchemaStatusDisplay {
+    type: LemonTagType
+    label: string
+    tooltip: string | null
+}
+
+const schemaStatusDisplay = (
+    schema: ExternalDataSourceSchema,
+    status: ExternalDataSchemaStatus
+): SchemaStatusDisplay => {
+    // An empty table after a completed sync usually means a row filter that matches nothing, a missing
+    // permission, or an empty source. An incremental sync that finds no new rows still leaves rows in
+    // the table, so it doesn't trigger this.
+    const completedWithNoRows =
+        status === ExternalDataSchemaStatus.Completed &&
+        !!schema.last_synced_at &&
+        (schema.table ? schema.table.row_count === 0 : true)
+    if (completedWithNoRows) {
+        const filterHint = schema.row_filters?.length
+            ? ' Check that the row filters on this table match some rows.'
+            : ''
+        return {
+            type: 'warning',
+            label: 'Completed, no rows',
+            tooltip: `The sync finished but brought in no rows. Check that the source has data and that the account you connected can read it.${filterHint} Open the sync logs for details.`,
+        }
+    }
+    return {
+        type: StatusTagSetting[status] || 'default',
+        label: status,
+        tooltip: status === ExternalDataSchemaStatus.Failed ? (schema.latest_error ?? null) : null,
+    }
+}
 
 export interface SchemasTabProps {
     id: string
@@ -128,6 +172,15 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         loadJobs,
     } = useActions(sourceSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { loadDestinations } = useActions(destinationLookupLogic)
+    const { destinationsById } = useValues(destinationLookupLogic)
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+
+    useEffect(() => {
+        if (showDestinations) {
+            loadDestinations()
+        }
+    }, [showDestinations, loadDestinations])
 
     // Load (and poll) jobs so the Row count column can show live progress for in-progress
     // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
@@ -291,6 +344,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                     deleteTable={deleteTable}
                                     openAccessControl={openAccessControl}
                                     showMetrics={showMetrics}
+                                    destinationsById={showDestinations ? destinationsById : {}}
                                 />
                             ),
                         }))}
@@ -310,6 +364,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     deleteTable={deleteTable}
                     openAccessControl={openAccessControl}
                     showMetrics={showMetrics}
+                    destinationsById={showDestinations ? destinationsById : {}}
                 />
             )}
             {accessControlSchema?.table && (
@@ -340,6 +395,7 @@ interface ManagedSchemaTableProps {
     /** Undefined when the warehouse access control feature is off. */
     openAccessControl?: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
+    destinationsById: Record<string, ExternalDataDestinationApi>
     /** Rendered inside a namespace group — the group header already shows the namespace, so strip it from row names. */
     inSchemaGroup?: boolean
 }
@@ -357,6 +413,7 @@ function ManagedSchemaTable({
     deleteTable,
     openAccessControl,
     showMetrics,
+    destinationsById,
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
@@ -392,6 +449,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Schema',
                     key: 'name',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name),
                     render: function RenderName(_, schema) {
                         const fullName = schema.label ?? schema.name
@@ -399,6 +457,9 @@ function ManagedSchemaTable({
                         return (
                             <LemonTableLink
                                 to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id)}
+                                // Renders the description outside the anchor, so a click on the copy button
+                                // copies the table name and does not open the schema page.
+                                truncateDescription
                                 title={
                                     <div className="flex items-center gap-1">
                                         <span>{name}</span>
@@ -411,7 +472,17 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
-                                    return tableName ? <code>{tableName}</code> : undefined
+                                    return tableName ? (
+                                        <CopyToClipboardInline
+                                            explicitValue={tableName}
+                                            description="table name"
+                                            selectable
+                                            iconSize="xsmall"
+                                            data-attr="source-schema-table-name-copy"
+                                        >
+                                            <code>{tableName}</code>
+                                        </CopyToClipboardInline>
+                                    ) : undefined
                                 })()}
                             />
                         )
@@ -420,6 +491,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Status',
                     key: 'status',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => (a.status ?? '').localeCompare(b.status ?? ''),
                     render: (_, schema) => {
                         if (!schema.status) {
@@ -433,27 +505,47 @@ function ManagedSchemaTable({
                                 }).url
                             )
                         }
+                        const { type, label, tooltip } = schemaStatusDisplay(schema, schema.status)
                         const tagContent = (
-                            <LemonTag
-                                type={StatusTagSetting[schema.status] || 'default'}
-                                forceClickable
-                                onClick={openSyncsForSchema}
-                            >
-                                {schema.status}
+                            <LemonTag type={type} forceClickable onClick={openSyncsForSchema}>
+                                {label}
                             </LemonTag>
                         )
-                        return schema.latest_error && schema.status === 'Failed' ? (
-                            <Tooltip title={schema.latest_error} interactive>
+                        const statusTag = tooltip ? (
+                            <Tooltip title={tooltip} interactive>
                                 {tagContent}
                             </Tooltip>
                         ) : (
                             tagContent
+                        )
+                        const destination =
+                            schema.status === ExternalDataSchemaStatus.Failed
+                                ? failedDestinationFor(
+                                      schema.latest_error,
+                                      Object.keys(destinationsById),
+                                      destinationsById
+                                  )
+                                : null
+                        return (
+                            <div className="flex flex-col items-start gap-1">
+                                {statusTag}
+                                {destination && (
+                                    <Link
+                                        className="text-xs"
+                                        to={urls.warehouseDestination(destination.id)}
+                                        data-attr="warehouse-schema-failed-destination-link"
+                                    >
+                                        {`Could not deliver to ${destination.name}`}
+                                    </Link>
+                                )}
+                            </div>
                         )
                     },
                 },
                 {
                     title: 'Sync method',
                     key: 'sync_type',
+                    className: dimWhenNotSyncing,
                     render: (_, schema) => {
                         if (!schema.sync_type) {
                             return <span className="text-muted">Not set up</span>
@@ -472,12 +564,14 @@ function ManagedSchemaTable({
                 {
                     title: 'Frequency',
                     key: 'sync_frequency',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => frequencyRank(a.sync_frequency) - frequencyRank(b.sync_frequency),
                     render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',
                     key: 'last_synced_at',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) =>
                         (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
                         (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
@@ -491,6 +585,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Row count',
                     key: 'rows_synced',
+                    className: dimWhenNotSyncing,
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
                     render: (_, schema) => {
@@ -518,6 +613,7 @@ function ManagedSchemaTable({
                           {
                               title: 'Rows synced (7d)',
                               key: 'rows_synced_sparkline',
+                              className: dimWhenNotSyncing,
                               render: function RenderSparkline(_: unknown, schema: ExternalDataSourceSchema) {
                                   const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
                                   const syncedWithin7Days =

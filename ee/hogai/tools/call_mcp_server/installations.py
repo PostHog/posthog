@@ -6,7 +6,7 @@ from django.db.models import Q
 
 from posthog.models import Team, User
 
-from products.mcp_store.backend.facade.api import resolve_member_tool_states
+from products.mcp_store.backend.facade.api import resolve_member_tool_states, resolve_member_unlisted_tool_state
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
@@ -95,7 +95,14 @@ def _get_tool_approval_states(
         team_id,
         gateway_server_id,
         user_id=user.id if user is not None else None,
+        block_locked_approvals=True,
     )
+
+
+def _get_unlisted_tool_state(
+    installation_id: str, team_id: int, gateway_server_id: UUID | None, user: User, tool_name: str
+) -> str:
+    return resolve_member_unlisted_tool_state(installation_id, team_id, gateway_server_id, user.id, tool_name)
 
 
 def _mark_needs_reauth_sync(installation_id: str) -> None:
@@ -120,14 +127,15 @@ def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]
     headers: dict[str, dict[str, str]] = {}
     for inst in installations:
         url = inst["url"]
+        headers[url] = {"x-posthog-mcp-mode": "tools", "x-posthog-mcp-store": "true"}
         auth_type = inst.get("auth_type", "api_key")
         sensitive = inst.get("sensitive_configuration") or {}
 
         if auth_type == "api_key":
             if api_key := sensitive.get("api_key"):
-                headers[url] = {"Authorization": f"Bearer {api_key}"}
+                headers[url]["Authorization"] = f"Bearer {api_key}"
         elif auth_type == "oauth":
             if access_token := sensitive.get("access_token"):
-                headers[url] = {"Authorization": f"Bearer {access_token}"}
+                headers[url]["Authorization"] = f"Bearer {access_token}"
 
     return headers

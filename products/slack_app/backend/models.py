@@ -113,16 +113,29 @@ class SlackUserProfileCache(UUIDModel):
 
 
 class UntaggedFollowupMode(models.TextChoices):
-    """What PostHog does with an untagged reply in a thread it already owns.
+    """What PostHog does with a message that does not tag it.
 
-    Read from the thread creator's settings row, so it governs everyone
-    replying in a thread that user started. An unset row resolves to ``ASK``,
-    so the person who replied can choose whether to send their message.
+    Read from the settings row of the person who started the thread, so it governs
+    every untagged reply in a thread PostHog owns, and the author's own top-level
+    channel question. An unset row resolves to ``ASK``, so the person who wrote the
+    message chooses whether to send it.
     """
 
     AUTO = "auto", "Always pick it up"
     ASK = "ask", "Ask before picking it up"
     NEVER = "never", "Never pick it up"
+
+
+class ChannelWelcomeMode(models.TextChoices):
+    """Where the greeting goes when someone adds the app to a channel.
+
+    Read from the workspace-wide settings row. An unset row resolves to
+    ``CHANNEL``.
+    """
+
+    CHANNEL = "channel", "Post it in the channel"
+    INVITER = "inviter", "Show it only to the person who added the app"
+    OFF = "off", "Don't send it"
 
 
 class SlackSettings(UUIDModel):
@@ -169,6 +182,28 @@ class SlackSettings(UUIDModel):
         blank=True,
         choices=UntaggedFollowupMode.choices,
         help_text="What PostHog does with untagged replies in threads this user started.",
+    )
+    # NULL means the user has never picked, which resolves to ``ASK``.
+    untagged_question_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="What PostHog does with this user's top-level channel questions that do not tag the app.",
+    )
+    # Only read on the workspace-wide row. NULL resolves to ``CHANNEL``.
+    channel_welcome_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=ChannelWelcomeMode.choices,
+        help_text="Where the greeting goes when someone adds the app to a channel in this workspace.",
+    )
+    # Only read on a personal row. NULL means the user never turned it on, which resolves to off.
+    auto_model_choice = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Let PostHog pick the model for each new task this user starts from Slack.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

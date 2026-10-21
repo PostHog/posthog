@@ -51,6 +51,11 @@ failure. A failed replacement keeps its session when available, or restores the
 previous session with an error. A later retry can send the original prompt.
 A retry without a session reports failure instead of successful recovery.
 
+Provider request rejections are non-retryable prompt failures. Desktop keeps the
+local session connected, restores the submitted message when the composer is
+still empty, and suggests starting a new task. It does not restart the session
+or automatically resend the rejected request.
+
 Claude initialization includes the repository's `SessionStart` hooks. These hooks
 can prepare a new worktree and install dependencies before the SDK becomes ready.
 An observed setup hook gets a separate, bounded wait of ten minutes. Startup with
@@ -61,6 +66,8 @@ an agent, so it can show active setup hooks while `session/new` is still pending
 Startup subscriptions end on success or failure. Updates from an older run cannot
 change the current run's startup phase. Startup events do not count as conversation
 history during recovery.
+The model, effort and fast mode requests that follow initialization each get the same 30-second timeout.
+A failed or timed-out request stops the Claude process, and the startup fails with an error that names the request.
 
 Worktree creation shows its own preparation screen and setup output. Agent startup
 shows one status line beside a spinner: "Starting local agent" or "Running

@@ -13,11 +13,13 @@ from asgiref.sync import async_to_sync
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 
 from posthog.api.capture import CaptureInternalError
-from posthog.cdp.validation import compile_hog
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team, User
+from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -25,6 +27,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.cdp.backend.validation import compile_hog
 
 from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
@@ -490,6 +493,46 @@ class TestFetchTraceForEvaluation:
         assert outcome.skip_reason == "trace_not_found"
         assert outcome.trace is None
 
+    @pytest.mark.django_db(transaction=True)
+    # Rows only in `events` send the count and the trace read down the events fallback.
+    @pytest.mark.parametrize("insert_events", [bulk_create_ai_events, bulk_create_events])
+    def test_reads_the_trace_without_building_the_full_catalog(self, setup_data, insert_events):
+        team = setup_data["team"]
+        trace_id = f"trace-{uuid.uuid4()}"
+        timestamp = FROZEN_NOW - timedelta(minutes=1)
+        insert_events(
+            [
+                {
+                    "event": "$ai_trace",
+                    "team": team,
+                    "distinct_id": "user",
+                    "timestamp": timestamp,
+                    "properties": {"$ai_trace_id": trace_id},
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": team,
+                    "distinct_id": "user",
+                    "timestamp": timestamp,
+                    "properties": {
+                        "$ai_trace_id": trace_id,
+                        "$ai_input": [{"role": "user", "content": "What is the weather?"}],
+                        "$ai_output_choices": [{"role": "assistant", "content": "Sunny all day."}],
+                    },
+                },
+            ]
+        )
+
+        with (
+            time_machine.travel(FROZEN_NOW, tick=False),
+            patch.object(Database, "create_for", side_effect=AssertionError("eval read built the full HogQL catalog")),
+        ):
+            outcome = fetch_trace_for_evaluation(team.id, trace_id, FROZEN_NOW)
+
+        assert outcome.skip_reason is None
+        assert outcome.trace is not None
+        assert [event.event for event in outcome.trace.events] == ["$ai_generation"]
+
 
 class TestRunHogEvalOverRecentTraces:
     @patch("posthog.temporal.ai_observability.run_trace_evaluation.query_ai_events")
@@ -536,7 +579,7 @@ class TestRunHogEvalOverRecentTraces:
         assert rewritten_condition.left.chain == ["input"]
 
     @time_machine.travel(FROZEN_NOW, tick=False)
-    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
     def test_uses_the_sampled_trigger_and_configured_aggregation_window(self, output_type: str):
         team = MagicMock(spec=Team)
         user = MagicMock()
@@ -550,6 +593,8 @@ class TestRunHogEvalOverRecentTraces:
         bytecode = compile_hog(
             "return length(evaluation_events) / 4"
             if output_type == "numeric"
+            else "return ['resolved']"
+            if output_type == "categorical"
             else "return target.type == 'trace' and length(evaluation_events) == 2",
             "destination",
         )
@@ -574,7 +619,11 @@ class TestRunHogEvalOverRecentTraces:
                     sample_count=1,
                     allows_na=False,
                     output_type=output_type,
-                    output_config={"min": 0, "max": 1} if output_type == "numeric" else {},
+                    output_config={"min": 0, "max": 1}
+                    if output_type == "numeric"
+                    else {"options": [{"key": "resolved", "label": "Resolved"}]}
+                    if output_type == "categorical"
+                    else {},
                     window_seconds=120,
                 )
 
@@ -595,6 +644,9 @@ class TestRunHogEvalOverRecentTraces:
         assert runner_kwargs["query"].dateRange.date_to == (trigger_timestamp + timedelta(seconds=120)).isoformat()
         if output_type == "numeric":
             assert results[0].score == 0.5
+            assert results[0].verdict is None
+        elif output_type == "categorical":
+            assert results[0].categories == ["resolved"]
             assert results[0].verdict is None
         else:
             assert results[0].verdict is True
@@ -702,7 +754,7 @@ class TestExecuteTraceLLMJudgeActivity:
             {"outputState": [{"role": "assistant", "parts": [{"type": "text", "content": " \n "}]}]},
         ],
     )
-    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
     def test_skips_without_llm_call_when_the_trace_has_no_transcript(
         self, trace_state: dict[str, Any], output_type: str
     ) -> None:

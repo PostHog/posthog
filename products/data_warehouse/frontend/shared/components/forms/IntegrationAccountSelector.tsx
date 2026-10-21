@@ -4,9 +4,8 @@ import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -199,7 +198,10 @@ function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.El
     return (
         <Link
             disableClientSideRouting
-            to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+            to={integrationAuthorizeUrl({
+                kind: integrationKind,
+                next: reconnectReturnUrl(window.location.pathname, window.location.search),
+            })}
             onClick={() =>
                 reportIntegrationConnectClicked(integrationKind, integrationKind, 'warehouse_source_reconnect')
             }
@@ -347,11 +349,13 @@ function MultiAccountFieldWithOptions({
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     const options = useMemo<LemonInputSelectOption[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
@@ -448,11 +452,13 @@ function IntegrationAccountFieldWithDropdown({
     const { accounts, accountsLoading, accountsLoaded, accountsError, search } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     // The list is filtered server-side, so while a search term is active `accounts` holds the
     // matches rather than everything the connection can reach. Every "we found nothing" hint below

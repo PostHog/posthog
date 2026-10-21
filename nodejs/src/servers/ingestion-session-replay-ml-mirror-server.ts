@@ -15,6 +15,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
@@ -27,6 +28,7 @@ import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outpu
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
+import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { RedisPool } from '~/types'
@@ -38,12 +40,13 @@ import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 export { type IngestionSessionReplayMlMirrorServerConfig, buildMlMirrorServerConfig } from './ml-mirror-server-config'
 
 /** Boot-time smoke test so a broken addon crashes startup instead of dropping all traffic later. */
-async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
+export async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
     const inner = JSON.stringify({
         event: '$snapshot_items',
         properties: {
             $session_id: 's',
             $window_id: 'w',
+            $snapshot_source: 'web',
             $snapshot_items: [{ type: 3, timestamp: Date.now(), data: { source: 5, id: 1, text: 'health check' } }],
         },
     })
@@ -160,6 +163,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                     // lane follows its producer flag. The URL lane collects on its own flag,
                     // because collecting alone measures without sending anything anywhere.
                     collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                    maxImageBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGE_BYTES,
                     collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
                 },
                 // Producing needs collection: without it the anonymizer returns no URLs, and
@@ -178,6 +182,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.
             redisKeyNamespace: 'ml-mirror',
+            captureWatermark: new CaptureWatermark('ml_mirror'),
         }
 
         const ingester = new SessionRecordingIngester(
@@ -220,7 +225,15 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             maxAttempts: 5,
             requestHandler: new NodeHttpHandler(),
         })
-        return new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+        const legacy = new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+        const v3TableName = this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE
+        if (!v3TableName) {
+            return legacy
+        }
+        return new VersionedCrawlHistory(
+            legacy,
+            new DynamoDBCrawlHistory(this.crawlHistoryClient, v3TableName, timeoutMs, timeoutMs)
+        )
     }
 
     protected getCleanupResources(): CleanupResources {

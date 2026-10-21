@@ -30,7 +30,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')
@@ -38,7 +37,13 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes('raw_session_replay_events')) {
+                        return [200, { results: [[7]] }]
+                    }
+                    return [200, recordingEventsJson]
+                },
             },
         }),
     ],
@@ -102,4 +107,37 @@ const withPageFilter = (values: Record<string, any>[]): Record<string, any> => (
 
 export const PageFilterNudge: Story = {
     parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
+}
+
+const withEventMatchScope = (event_match_scope: 'recording' | undefined): Record<string, any> => ({
+    featureFlags: [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE],
+    pageUrl: combineUrl(urls.replay(), {
+        showFilters: true,
+        filters: {
+            date_from: '-3d',
+            date_to: null,
+            filter_test_accounts: false,
+            event_match_scope,
+            duration: [{ type: 'recording', key: 'duration', value: 1, operator: 'gt' }],
+            filter_group: {
+                type: 'AND',
+                values: [{ type: 'AND', values: [{ id: '$pageview', name: '$pageview', type: 'events' }] }],
+            },
+        },
+    }).url,
+    testOptions: { waitForSelector: '[data-attr="session-recordings-event-match-scope"]' },
+})
+
+export const EventMatchScopeWholeSession: Story = {
+    parameters: withEventMatchScope(undefined),
+}
+
+export const EventMatchScopeOnlyDuringRecording: Story = {
+    parameters: withEventMatchScope('recording'),
+}
+
+export const TemplatesTab: Story = {
+    parameters: {
+        pageUrl: combineUrl(urls.replay(), { showFilters: true, filtersTab: 'templates' }).url,
+    },
 }

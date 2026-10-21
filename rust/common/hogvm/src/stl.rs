@@ -5,7 +5,8 @@ use std::sync::Arc;
 use crate::values::HogMap;
 use base64::Engine as _;
 use chrono::{
-    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset, TimeZone,
+    Timelike,
 };
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
@@ -116,6 +117,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "values")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
+                    // A null array reads as empty, so the bytecode array helpers built on values()
+                    // see no elements instead of failing the whole program.
+                    HogLiteral::Null => Ok(HogLiteral::Array(vec![]).into()),
                     // Arrays and tuples both yield a plain array of their elements (reference: [...obj]).
                     HogLiteral::Array(a) | HogLiteral::Tuple(a) => {
                         Ok(HogLiteral::Array(a.clone()).into())
@@ -141,6 +145,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "length")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
                     HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         Ok(HogLiteral::Number(arr.len().into()).into())
                     }
@@ -160,14 +165,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 let value = args[1].clone();
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.push(value);
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPushBack() only supports arrays".to_string(),
-                    )),
+                    _ => Ok(HogLiteral::Array(vec![value]).into()),
                 }
             }),
         ),
@@ -178,14 +181,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 let value = args[1].clone();
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.insert(0, value);
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPushFront() only supports arrays".to_string(),
-                    )),
+                    _ => Ok(HogLiteral::Array(vec![value]).into()),
                 }
             }),
         ),
@@ -195,14 +196,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayPopBack")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.pop();
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPopBack() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -212,16 +212,15 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayPopFront")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         if !arr.is_empty() {
                             arr.remove(0);
                         }
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPopFront() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -231,13 +230,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arraySort")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arraySort() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -247,14 +245,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayReverse")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.reverse();
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayReverse() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -264,14 +261,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayReverseSort")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut nums = collect_sorted_nums(&vm.heap, arr, "arrayReverseSort")?;
                         nums.reverse();
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayReverseSort() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -281,10 +277,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 2, "arrayStringConcat")?;
                 let vals = args[0].deref(&vm.heap)?;
                 let sep = args[1].deref(&vm.heap)?.try_as::<str>()?;
-                let HogLiteral::Array(vals) = vals else {
-                    return Err(VmError::NativeCallFailed(
-                        "arrayStringConcat() only supports arrays".to_string(),
-                    ));
+                let (HogLiteral::Array(vals) | HogLiteral::Tuple(vals)) = vals else {
+                    return Ok(HogLiteral::from(String::new()).into());
                 };
                 let mut parts = Vec::with_capacity(vals.len());
                 for val in vals.iter() {
@@ -421,6 +415,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
         // `if(isNull(...), false, …)` guard yield `false` rather than erroring.
         ("toDateTime", native_func(err_to_null(to_datetime))),
         ("toDate", native_func(err_to_null(to_date))),
+        ("extract", native_func(extract)),
         (
             "multiSearchAnyCaseInsensitive",
             native_func(|vm, args| {
@@ -491,7 +486,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "upper",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "upper")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 Ok(HogLiteral::from(s.to_uppercase()).into())
             }),
         ),
@@ -500,6 +499,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "reverse")?;
                 match args[0].deref(&vm.heap)? {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
                     HogLiteral::String(s) => {
                         Ok(HogLiteral::from(s.chars().rev().collect::<String>()).into())
                     }
@@ -732,6 +732,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer(),
                     )
                 };
+                // Budget the Vec before collect, because walk_emplacing charges the heap only after it exists.
+                let len = usize::try_from(end.saturating_sub(start).max(0)).unwrap_or(usize::MAX);
+                let bytes = len
+                    .checked_mul(std::mem::size_of::<HogValue>())
+                    .ok_or_else(|| VmError::OutOfResource("Heap Memory".to_string()))?;
+                vm.heap.assert_can_allocate(bytes)?;
                 let arr = (start..end)
                     .map(|i| HogLiteral::Number(Num::Integer(i)).into())
                     .collect();
@@ -769,7 +775,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "replaceOne",
             native_func(|vm, args| {
                 assert_argc(&args, 3, "replaceOne")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
                 Ok(HogLiteral::from(s.replacen(from, to, 1)).into())
@@ -779,7 +789,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "replaceAll",
             native_func(|vm, args| {
                 assert_argc(&args, 3, "replaceAll")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
                 Ok(HogLiteral::from(s.replace(from, to)).into())
@@ -794,6 +808,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     ));
                 }
                 // splitByString(separator, string[, max])
+                if matches!(args[1].deref(&vm.heap)?, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
                 let sep: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let s: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let parts: Vec<HogValue> = if args.len() > 2 {
@@ -1604,6 +1621,113 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     )
 }
 
+/// `extract(part, value)` → one calendar field of a Hog Date or DateTime, read in the DateTime's
+/// own zone. A value with no wall-clock yields NaN, as an invalid luxon DateTime does in the
+/// reference.
+fn extract(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
+    assert_argc(&args, 2, "extract")?;
+    let part = print_hog_string_output(&vm.heap, &args[0])?;
+    let field: fn(&NaiveDateTime) -> i64 = match part.as_str() {
+        "year" => |dt| dt.year().into(),
+        "month" => |dt| dt.month().into(),
+        "day" => |dt| dt.day().into(),
+        "hour" => |dt| dt.hour().into(),
+        "minute" => |dt| dt.minute().into(),
+        "second" => |dt| dt.second().into(),
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unknown extract part: {part}"
+            )))
+        }
+    };
+    let number = match extract_wall_clock(vm, &args[1])? {
+        Some(dt) => Num::Integer(field(&dt)),
+        None => Num::Float(f64::NAN),
+    };
+    Ok(HogLiteral::Number(number).into())
+}
+
+// None where the reference's luxon DateTime is invalid. Luxon also reads values this VM cannot
+// (zones such as `UTC+5`, ISO forms such as `2024`, numbers as strings, years past 262142); those
+// return NotImplemented, which the transformation executor turns into a Node VM fallback
+// (`isUnsupportedByRustVm` in nodejs/src/cdp/hog-transformations/rust-vm.ts).
+fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTime>, VmError> {
+    let heap = &vm.heap;
+    let unsupported = || {
+        Err(VmError::NotImplemented(
+            "extract of a value only luxon reads".to_string(),
+        ))
+    };
+    match value.deref(heap)? {
+        HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDateTime__")? => {
+            let Some(secs) = obj_number(heap, obj, "dt")? else {
+                return unsupported();
+            };
+            // Past the JavaScript Date range of ±8.64e15 ms, luxon marks the instant invalid.
+            if !secs.is_finite() || (secs * 1000.0).abs() > 8.64e15 {
+                return Ok(None);
+            }
+            let Some(tz) =
+                obj_string(heap, obj, "zone")?.and_then(|zone| zone.parse::<chrono_tz::Tz>().ok())
+            else {
+                return unsupported();
+            };
+            // luxon adds the zone offset to the millisecond timestamp, then truncates toward zero
+            // as a JavaScript Date does.
+            let utc_ms = (secs * 1000.0).trunc() as i64;
+            let Some(utc) = DateTime::from_timestamp(utc_ms.div_euclid(1000), 0) else {
+                return unsupported();
+            };
+            let offset_secs = tz
+                .offset_from_utc_datetime(&utc.naive_utc())
+                .fix()
+                .local_minus_utc();
+            let local_ms = (secs * 1000.0 + f64::from(offset_secs) * 1000.0).trunc() as i64;
+            match DateTime::from_timestamp(local_ms.div_euclid(1000), 0) {
+                Some(local) => Ok(Some(local.naive_utc())),
+                None => unsupported(),
+            }
+        }
+        HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDate__")? => {
+            let (Some(year), Some(month), Some(day)) = (
+                obj_number(heap, obj, "year")?,
+                obj_number(heap, obj, "month")?,
+                obj_number(heap, obj, "day")?,
+            ) else {
+                return unsupported();
+            };
+            // Luxon rejects a fractional calendar field instead of truncating it.
+            if [year, month, day].iter().any(|f| f.fract() != 0.0) {
+                return Ok(None);
+            }
+            Ok(
+                NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0)),
+            )
+        }
+        HogLiteral::String(s) => {
+            // Luxon anchors its ISO grammar; every form starts with a digit or a sign.
+            let could_be_luxon_iso = s.trim() == s.as_str()
+                && s.starts_with(|c: char| c.is_ascii_digit() || c == '+' || c == '-');
+            if !could_be_luxon_iso {
+                return Ok(None);
+            }
+            // A `t` or space separator and a lowercase `z` parse here but not in luxon.
+            let shared_iso_form =
+                s.as_bytes().get(10).is_none_or(|sep| *sep == b'T') && !s.ends_with('z');
+            match parse_datetime_to_seconds(s, None) {
+                Ok(_) if !shared_iso_form => Ok(None),
+                Ok(secs) => {
+                    Ok(DateTime::from_timestamp(secs.floor() as i64, 0).map(|dt| dt.naive_utc()))
+                }
+                Err(_) => unsupported(),
+            }
+        }
+        HogLiteral::Null | HogLiteral::Boolean(_) => Ok(None),
+        _ => unsupported(),
+    }
+}
+
 /// The shared "date-like string" grammar, implemented identically by all three HogVMs. This is the
 /// canonical copy; `common/hogvm/typescript/src/stl/date.ts` (`parseDateLike`) and
 /// `common/hogvm/python/stl/date.py` (`_parse_date_like`) mirror it and must be changed together.
@@ -2005,7 +2129,11 @@ fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue
             "trim takes 1 or 2 arguments".to_string(),
         ));
     }
-    let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+    let subject = args[0].deref(&vm.heap)?;
+    if matches!(subject, HogLiteral::Null) {
+        return Ok(HogLiteral::Null.into());
+    }
+    let s: &str = subject.try_as()?;
     let result = if args.len() == 2 {
         let chars: Vec<char> = match args[1].deref(&vm.heap)? {
             HogLiteral::String(c) => c.chars().collect(),

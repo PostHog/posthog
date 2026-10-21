@@ -24,7 +24,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
-from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.facade.testing import acreate_workflow_for_test
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search.context import SEARCH_LIMIT, EntitySearchContext
@@ -56,7 +56,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
-            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
+            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error-tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
             ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
@@ -334,7 +334,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             created_by=self.user,
             type=Survey.SurveyType.POPOVER,
         )
-        await create_workflow_for_test(
+        await acreate_workflow_for_test(
             team_id=self.team.id, created_by_id=self.user.id, name="deleted workflow", status="archived"
         )
 
@@ -410,13 +410,13 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert entities[0]["extra_fields"]["name"] == "List Dashboard"
 
     async def test_list_entities_workflow_surfaces_status_and_hides_archived(self):
-        await create_workflow_for_test(
+        await acreate_workflow_for_test(
             team_id=self.team.id, created_by_id=self.user.id, name="welcome email", status="active"
         )
-        await create_workflow_for_test(
+        await acreate_workflow_for_test(
             team_id=self.team.id, created_by_id=self.user.id, name="win-back draft", status="draft"
         )
-        await create_workflow_for_test(
+        await acreate_workflow_for_test(
             team_id=self.team.id, created_by_id=self.user.id, name="old campaign", status="archived"
         )
 
@@ -440,7 +440,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
                 for index in range(SEARCH_LIMIT)
             ]
         )
-        await create_workflow_for_test(
+        await acreate_workflow_for_test(
             team_id=self.team.id,
             created_by_id=self.user.id,
             name="Priority workflow",

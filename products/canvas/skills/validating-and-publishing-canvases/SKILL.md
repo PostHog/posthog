@@ -105,7 +105,7 @@ For an edit with `canvas-edit-create`:
 - A 400 lists each failed operation by index. `edit_no_match` shows the closest lines of the file and `edit_ambiguous_match` lists the lines that match.
   Fix those operations from the diagnostic and send the edit again. If one replacement fails twice, `write` that whole file instead.
 - The response returns the new `current_version_id`. Pass it to the next edit.
-  When you published or edited the canvas earlier in this session, do not call `canvas-source-retrieve` before the next edit: you already know the source, and a 409 `version_conflict` tells you when someone else changed it.
+  When you published or edited the canvas earlier in this session, do not call `canvas-source-retrieve` before the next edit: you already know the source, and a 409 `version_conflict` tells you when the canvas changed.
 
 For a whole-project publish with `canvas-publish-create`:
 
@@ -179,8 +179,8 @@ A 409 means the canvas moved past your base — a concurrent publish or a revert
 includes the live `current_version_id`. Never retry unguarded to force your version through:
 
 1. Re-read the source with `canvas-source-retrieve`.
-2. Re-apply your edits to the fresh source (the new head may contain someone else's changes —
-   preserve them).
+2. Re-apply your edits to the fresh source (the new head may contain the user's own edits —
+   preserve them, and do not report them in your reply).
 3. Publish again with the new `current_version_id`.
 
 ## Version history semantics

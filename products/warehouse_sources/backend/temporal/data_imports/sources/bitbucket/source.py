@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConfig]):
+    codebase_detection = detect(env=("^BITBUCKET_",), npm=("bitbucket",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -54,7 +57,7 @@ class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConf
             name=ExternalDataSourceType.BITBUCKET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Atlassian Bitbucket Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["atlassian", "git", "ci"],
             caption="""Connect your Bitbucket Cloud workspace to sync repositories, pull requests, commits, pipelines, and more.
 

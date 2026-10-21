@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
@@ -29,18 +30,25 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.constants import AvailableFeature
 from posthog.middleware import (
+    ActivityLoggingMiddleware,
+    Fix204Middleware,
     ManagedProxyClientIPMiddleware,
-    ManagedProxyClientIPOutcome,
+    SignedClientIPOutcome,
     per_request_logging_context_middleware,
+    user_logging_context_middleware,
 )
-from posthog.models.organization import Organization
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -85,6 +93,24 @@ def _managed_proxy_headers(
         "HTTP_X_POSTHOG_CLIENT_IP": ip,
         "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(timestamp),
         "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, signed_ip or ip, str(timestamp)),
+    }
+
+
+MCP_CLIENT_IP_KEY = "mcp-client-ip-test-key"
+MCP_CLIENT_IP_OLD_KEY = "mcp-client-ip-old-key"
+MCP_POD_IP = "10.0.0.5"
+
+
+def _mcp_client_ip_headers(
+    ip: str = MANAGED_PROXY_CLIENT_IP,
+    *,
+    key: str = MCP_CLIENT_IP_KEY,
+    timestamp: int | str = MANAGED_PROXY_NOW,
+) -> dict[str, Any]:  # dict[str, str] does not unpack into the test client's typed keyword arguments
+    return {
+        "HTTP_X_POSTHOG_MCP_CLIENT_IP": ip,
+        "HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP": str(timestamp),
+        "HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, ip, str(timestamp)),
     }
 
 
@@ -267,7 +293,7 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
                 "posthog_managed_proxy_client_ip_verifications_total", {"outcome": outcome.value}
             )
             or 0.0
-            for outcome in ManagedProxyClientIPOutcome
+            for outcome in SignedClientIPOutcome
         }
 
     def _run_middleware(self, meta: dict[str, Any], expected_outcome: str | None) -> tuple[str, str | None]:
@@ -377,6 +403,19 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         )
 
 
+class TestFix204Middleware(SimpleTestCase):
+    def test_no_content_response_has_no_body_or_content_length(self) -> None:
+        def get_response(request: HttpRequest) -> HttpResponse:
+            response = HttpResponse(b'{"ok": true}', status=204, content_type="application/json")
+            response.headers["Content-Length"] = str(len(response.content))
+            return response
+
+        response = Fix204Middleware(get_response)(RequestFactory().post("/"))
+
+        assert response.content == b""
+        assert "Content-Length" not in response.headers
+
+
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
@@ -392,9 +431,22 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # indexed lookup on posthog_taggeditem per page load, and the organization it
         # serializes comes off the user's current_organization foreign key, which carries
         # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
-        cls.base_app_num_queries = 56
+        # +5: the app context also serializes the team's five extension configs, and each
+        # request reads them on its own Team instance, one primary-key lookup each.
+        cls.base_app_num_queries = 61
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+        # A page load creates any missing config row, which adds an insert per config to its first
+        # count. Create the rows here so that each count covers only the lookups.
+        for team in (cls.team, cls.second_team):
+            for config in (
+                "revenue_analytics_config",
+                "marketing_analytics_config",
+                "customer_analytics_config",
+                "workflows_config",
+                "feature_flag_policy_config",
+            ):
+                getattr(team, config)
 
         # some teams have non-standard API tokens
         cls.third_team = create_team(organization=cls.organization, name="Third Life")
@@ -411,7 +463,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.current_organization = self.organization
 
     def app_context(self, response) -> dict:
-        return json.loads(response.context["posthog_app_context"])
+        return response.context["posthog_app_context"]
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
@@ -583,6 +635,45 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
+
+    def test_bootstrap_does_not_serialize_a_project_after_access_is_revoked(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(f"/project/{self.second_team.pk}/home")
+        assert response.status_code == 200
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.second_team.pk
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        role = Role.objects.create(name="Project admins", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        AccessControl.objects.create(
+            team=self.second_team,
+            resource="project",
+            resource_id=str(self.second_team.pk),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.second_team,
+            resource="project",
+            resource_id=str(self.second_team.pk),
+            access_level="admin",
+            role=role,
+        )
+
+        response = self.client.get(f"/project/{self.second_team.pk}/home")
+
+        assert response.status_code == 200
+        assert self.app_context(response)["current_team"] is None
+        assert self.app_context(response)["current_project"] is None
+        self.user.refresh_from_db()
+        assert self.user.current_team_id is None
 
     def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -1093,7 +1184,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
-            ("metrics_explain", "metrics/explain/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
@@ -1156,6 +1246,17 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         self.login_as_other_user()
 
+        start = ActivityLog.objects.filter(scope="User", activity="logged_in", item_id=str(self.other_user.id)).latest(
+            "created_at"
+        )
+        assert (
+            start.user_id,
+            start.was_impersonated,
+            start.credential_type,
+            start.credential_id,
+            start.impersonated_by_id,
+        ) == (self.user.id, True, "session", None, self.user.id)
+
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
@@ -1171,6 +1272,14 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Verify dashboard was updated
         dashboard.refresh_from_db()
         assert dashboard.name == "Updated Dashboard"
+
+        log = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.id)).latest("created_at")
+        assert (log.user, log.was_impersonated, log.credential_type, log.impersonated_by_id) == (
+            self.other_user,
+            True,
+            "session",
+            self.user.id,
+        )
 
     def test_impersonation_blocked_when_user_disallows(self):
         """Verify regular impersonation fails when target user has allow_impersonation=False."""
@@ -2038,7 +2147,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
             ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
             ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
             ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("deactivated_keeps_partner_consent", "is_active", "/agentic/authorize", status.HTTP_200_OK),
             ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_keeps_partner_consent", "is_pending_deletion", "/agentic/authorize", status.HTTP_200_OK),
             ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
             (
                 "pending_deletion_drops_stripe_return",
@@ -2103,6 +2214,39 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
         self.middleware = ActivityLoggingMiddleware(get_response)
 
+    @parameterized.expand(
+        [
+            ("the session authenticates", "unchanged", "session"),
+            ("a later middleware rewraps the same user", "rewrapped", "session"),
+            ("another class authenticates", "replaced", None),
+        ]
+    )
+    def test_session_credential_applies_only_while_the_session_user_is_the_request_user(
+        self, _name: str, request_user: str, expected_type: str | None
+    ):
+        from django.contrib.auth.models import AnonymousUser
+        from django.http import HttpResponse
+        from django.utils.functional import SimpleLazyObject
+
+        from posthog.middleware import ActivityLoggingMiddleware
+
+        def get_response(request):
+            if request_user == "rewrapped":
+                request.user = SimpleLazyObject(lambda: self.user)
+            elif request_user == "replaced":
+                # DRF writes the principal of the class that authenticated back onto the request.
+                request.user = AnonymousUser()
+            self.captured["credential"] = self.activity_storage.get_credential()
+            return HttpResponse()
+
+        request = self.factory.get("/")
+        request.user = self.user
+        ActivityLoggingMiddleware(get_response)(request)
+
+        credential = self.captured["credential"]
+        assert (credential.type if credential else None) == expected_type
+        assert self.activity_storage.get_credential() is None
+
     def test_captures_x_posthog_client_header(self):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
         request.user = self.user
@@ -2164,8 +2308,83 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.middleware(request)
         self.assertIsNone(self.captured["ip_address"])
 
+    @parameterized.expand(
+        [
+            ("signed ip", _mcp_client_ip_headers(), [MCP_CLIENT_IP_KEY], MANAGED_PROXY_CLIENT_IP, "valid"),
+            (
+                "signed with an older key",
+                _mcp_client_ip_headers("2001:db8::1", key=MCP_CLIENT_IP_OLD_KEY),
+                [MCP_CLIENT_IP_KEY, MCP_CLIENT_IP_OLD_KEY],
+                "2001:db8::1",
+                "valid",
+            ),
+            (
+                "signed with the managed proxy key",
+                _mcp_client_ip_headers(key=MANAGED_PROXY_KEY),
+                [MCP_CLIENT_IP_KEY],
+                MCP_POD_IP,
+                "bad_signature",
+            ),
+            ("no key configured", _mcp_client_ip_headers(), [], MCP_POD_IP, "not_configured"),
+            (
+                "expired timestamp",
+                _mcp_client_ip_headers(timestamp=MANAGED_PROXY_NOW - 61),
+                [MCP_CLIENT_IP_KEY],
+                MCP_POD_IP,
+                "timestamp_out_of_window",
+            ),
+            (
+                "unsigned ip",
+                {"HTTP_X_POSTHOG_MCP_CLIENT_IP": MANAGED_PROXY_CLIENT_IP},
+                [MCP_CLIENT_IP_KEY],
+                MCP_POD_IP,
+                "invalid_input",
+            ),
+            ("no mcp headers", {}, [MCP_CLIENT_IP_KEY], MCP_POD_IP, None),
+        ]
+    )
+    def test_mcp_signed_client_ip(
+        self,
+        _name: str,
+        meta: dict[str, Any],
+        signing_keys: list[str],
+        expected_ip: str,
+        expected_outcome: str | None,
+    ) -> None:
+        def verification_counts() -> dict[str, float]:
+            return {
+                outcome.value: REGISTRY.get_sample_value(
+                    "posthog_mcp_client_ip_verifications_total", {"outcome": outcome.value}
+                )
+                or 0.0
+                for outcome in SignedClientIPOutcome
+            }
 
-class TestSocialAuthExceptionMiddleware(APIBaseTest):
+        def get_response(request: HttpRequest) -> HttpResponse:
+            self.captured["ip_address"] = self.activity_storage.get_ip_address()
+            self.captured["request_ip"] = get_ip_address(request)
+            self.captured["leftover"] = [name for name in request.headers if name.lower().startswith("x-posthog-mcp")]
+            return HttpResponse()
+
+        request = self.factory.get("/", REMOTE_ADDR=MCP_POD_IP, **meta)
+        request.user = self.user
+        # An earlier middleware may read request.headers, which caches a snapshot of META.
+        assert request.headers.get("x-posthog-mcp-client-ip") == meta.get("HTTP_X_POSTHOG_MCP_CLIENT_IP")
+        counts_before = verification_counts()
+
+        with self.settings(MCP_CLIENT_IP_SIGNING_KEYS=signing_keys), time_machine.travel(MANAGED_PROXY_NOW, tick=False):
+            ActivityLoggingMiddleware(get_response)(request)
+
+        assert self.captured["ip_address"] == expected_ip
+        assert self.captured["request_ip"] == MCP_POD_IP
+        assert self.captured["leftover"] == []
+        expected_counts = dict(counts_before)
+        if expected_outcome:
+            expected_counts[expected_outcome] += 1
+        assert verification_counts() == expected_counts
+
+
+class TestSocialAuthExceptionMiddleware(SimpleTestCase):
     CONFIG_AUTO_LOGIN = False
 
     def setUp(self):
@@ -2214,6 +2433,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 "/complete/saml/",
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
+            ),
+            (
+                "access_blocked",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "access_blocked"),
+                "/login?error_code=access_blocked",
             ),
         ]
     )
@@ -2303,6 +2528,15 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ("/signup", "next=/connect/vercel/link", None, "unsafe-none"),
         ("/signup", "", None, "same-origin"),
         ("/signup", "next=/dashboard", None, "same-origin"),
+        ("/organization/confirm-creation", "next=/connect/vercel/link?session=abc", None, "unsafe-none"),
+        ("/organization/confirm-creation", "next=/dashboard", None, "same-origin"),
+        (
+            "/verify_email/00000000-0000-0000-0000-000000000001",
+            "next=/connect/vercel/link?session=abc",
+            None,
+            "unsafe-none",
+        ),
+        ("/verify_email/00000000-0000-0000-0000-000000000001", "next=/dashboard", None, "same-origin"),
         ("/complete/github-link/", "", None, "same-origin"),
         ("/complete/slack-link/", "", None, "same-origin"),
         ("/login/not-a-backend/", "", None, "same-origin"),
@@ -2325,6 +2559,10 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "signup-next-oauth",
         "signup-no-next",
         "signup-next-non-oauth",
+        "confirm-creation-next-oauth",
+        "confirm-creation-next-non-oauth",
+        "verify-email-next-oauth",
+        "verify-email-next-non-oauth",
         "linking-complete-github",
         "linking-complete-slack",
         "login-unknown-backend",
@@ -2587,7 +2825,7 @@ def test_query_time_counting_middleware_should_instrument(path, expected) -> Non
     assert middleware._should_instrument(request) is expected
 
 
-class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
+class TestPerRequestLoggingContextMiddlewareMcpHeaders(SimpleTestCase):
     """Covers MCP session header binding inside `per_request_logging_context_middleware`."""
 
     def _run_middleware(self, **headers):
@@ -2656,4 +2894,60 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
 
         assert "mcp_session_id" not in ctx
         assert "mcp_conversation_id" not in ctx
+        assert "sessionId" not in ctx
+        span.set_attribute.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("plain", "01a11c97-2437-72c0-b147-66a8e9f56ec3", "01a11c97-2437-72c0-b147-66a8e9f56ec3"),
+            ("control_chars_stripped", "01a11c97-2437\n-72c0", "01a11c97-2437-72c0"),
+            ("blank", "   ", None),
+        ]
+    )
+    def test_binds_frontend_session_id(self, _name: str, header_value: str, expected: str | None) -> None:
+        with patch("posthog.middleware.trace") as mock_trace:
+            span = MagicMock()
+            mock_trace.get_current_span.return_value = span
+            ctx = self._run_middleware(HTTP_X_POSTHOG_SESSION_ID=header_value)
+
+        if expected is None:
+            assert "sessionId" not in ctx
+            span.set_attribute.assert_not_called()
+        else:
+            assert ctx["sessionId"] == expected
+            span.set_attribute.assert_any_call("sessionId", expected)
+
+
+class TestUserLoggingContextMiddleware(APIBaseTest):
+    def _run_middleware(self, user: User | AnonymousUser) -> tuple[dict[str, Any], MagicMock]:
+        captured: dict[str, Any] = {}
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            captured["ctx"] = dict(structlog.contextvars.get_contextvars())
+            return HttpResponse()
+
+        request = RequestFactory().get("/")
+        request.user = user
+        try:
+            structlog.contextvars.clear_contextvars()
+            with patch("posthog.middleware.trace") as mock_trace:
+                span = MagicMock()
+                mock_trace.get_current_span.return_value = span
+                user_logging_context_middleware(get_response)(request)
+        finally:
+            structlog.contextvars.clear_contextvars()
+        return captured["ctx"], span
+
+    def test_binds_team_and_distinct_id_for_authenticated_user(self) -> None:
+        ctx, span = self._run_middleware(self.user)
+
+        assert ctx["team_id"] == self.team.pk
+        assert ctx["posthogDistinctId"] == self.user.distinct_id
+        span.set_attribute.assert_called_once_with("posthogDistinctId", self.user.distinct_id)
+
+    def test_binds_nothing_for_anonymous_user(self) -> None:
+        ctx, span = self._run_middleware(AnonymousUser())
+
+        assert "team_id" not in ctx
+        assert "posthogDistinctId" not in ctx
         span.set_attribute.assert_not_called()
