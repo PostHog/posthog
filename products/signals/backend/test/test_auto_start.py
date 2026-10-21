@@ -2,7 +2,6 @@ import re
 import json
 from datetime import timedelta
 from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -24,12 +23,12 @@ from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.artefact_schemas import (
     PullRequestLink,
     ReportLink,
+    ReviewerEdit,
     SignalFinding,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
 )
-from products.signals.backend.assignment_service import AssignmentProposal, ReportAssignmentService
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
@@ -75,6 +74,7 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
@@ -570,7 +570,7 @@ def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected
 def test_create_implementation_task_rejects_a_changed_reviewer_list(organization: Organization, team: Team) -> None:
     user = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
-    state = ReportAssignmentService.read_for_report(team_id=team.id, report_id=str(report.id)).state
+    state = ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)).state
     SignalReportArtefact.append_status(
         team_id=team.id,
         report_id=str(report.id),
@@ -596,32 +596,45 @@ def test_create_implementation_task_rejects_a_changed_reviewer_list(organization
 
 
 @pytest.mark.django_db(transaction=True)
-def test_access_cleanup_keeps_the_human_editors_task_permission_check(organization: Organization, team: Team) -> None:
+@pytest.mark.parametrize("has_automatic_reviewer", [False, True])
+def test_human_pin_does_not_authorize_automatic_execution(
+    organization: Organization, team: Team, has_automatic_reviewer: bool
+) -> None:
     editor = _create_org_member_with_github("editor@example.com", organization, "example-editor")
     reviewer = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
     with (
-        patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True),
-        patch("products.signals.backend.assignment_service.assignment_side_effects_enabled", return_value=False),
+        patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
+        patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False),
     ):
-        service = ReportAssignmentService(team=team, report_id=str(report.id))
-        service.edit_reviewers(
-            SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(reviewer.uuid))]),
-            actor=ArtefactAttribution.from_user(editor.id),
+        SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(reviewer.uuid))]),
+            attribution=ArtefactAttribution.from_user(editor.id),
+            reviewer_edit=ReviewerEdit(action="add"),
         )
-        reviewer.is_active = False
-        reviewer.save(update_fields=["is_active"])
-        service.apply(
-            AssignmentProposal(
-                operation_id=uuid4(), expected_state=service.read().state, source="access_cleanup", action="cleanup"
+        automatic = _create_org_member_with_github("automatic@example.com", organization, "example-automatic")
+        if not has_automatic_reviewer:
+            reviewer.is_active = False
+            reviewer.save(update_fields=["is_active"])
+        SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers(
+                root=[SuggestedReviewerEntry(user_uuid=str(automatic.uuid))] if has_automatic_reviewer else []
             ),
-            actor=ArtefactAttribution.system(),
+            attribution=ArtefactAttribution.system(),
+            reviewer_proposal=ReviewerProposal(
+                expected_state=ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)).state
+            ),
         )
 
     with (
         patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
         patch("products.signals.backend.auto_start._resolve_triggering_user", return_value=None) as resolve_editor,
-        patch("products.signals.backend.auto_start._resolve_autostart_assignee") as resolve_reviewer,
+        patch("products.signals.backend.auto_start._resolve_autostart_assignee", return_value=None) as resolve_reviewer,
+        patch("products.signals.backend.auto_start._resolve_autostart_fallback_user", return_value=None),
         patch.object(tasks_facade, "create_and_run_task") as create_task,
     ):
         result = async_to_sync(maybe_autostart_implementation_task)(
@@ -639,8 +652,11 @@ def test_access_cleanup_keeps_the_human_editors_task_permission_check(organizati
             reviewers_content=[_reviewer("example-reviewer")],
         )
         assert result.status == "blocked"
-        assert resolve_editor.call_args.args[1] == editor.id
-        resolve_reviewer.assert_not_called()
+        resolve_editor.assert_not_called()
+        if has_automatic_reviewer:
+            assert [entry["user_uuid"] for entry in resolve_reviewer.call_args.args[2]] == [str(automatic.uuid)]
+        else:
+            resolve_reviewer.assert_not_called()
         create_task.assert_not_called()
 
 

@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
-from uuid import UUID, uuid5
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -31,11 +31,6 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.assignment_flags import assignment_writer_enabled
-from products.signals.backend.assignment_service import (
-    AssignmentProposal,
-    ReportAssignmentService,
-    StaleAssignmentProposal,
-)
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind, SuggestedSourceProduct
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
@@ -74,6 +69,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
@@ -673,7 +669,7 @@ def _append_agentic_report_artefacts(
     report_id: str,
     artefacts: list[ArtefactDraft],
     priority_judgment_id: UUID | None = None,
-    reviewer_proposal: AssignmentProposal | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
 ) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -689,7 +685,7 @@ def _append_agentic_report_artefacts(
     # the title/summary they illustrate, which a later activity writes (`mark_report_ready` /
     # `mark_report_pending_input`). The research activity only resolves the payload; see
     # `_resolve_report_charts_payload` and `RunAgenticReportOutput.charts`.
-    service = ReportAssignmentService(team=Team.objects.get(id=team_id), report_id=report_id)
+    service = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         # Priority edits take the same lock, so a correction cannot arrive between this check and append.
         SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
@@ -701,23 +697,21 @@ def _append_agentic_report_artefacts(
             if priority_adjusted_mid_run and isinstance(draft.content, PriorityAssessment):
                 continue
             if isinstance(draft.content, SuggestedReviewers):
-                if reviewer_proposal is not None and service.has_applied(reviewer_proposal.operation_id):
-                    continue
+                previous = service.read().state.reviewers_id
                 try:
-                    write = service.apply_compatibility_reviewers(
-                        draft.content,
-                        actor=draft.attribution,
-                        source="research",
+                    artefact = SignalReportArtefact.append_status(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=draft.content,
+                        attribution=draft.attribution,
+                        reviewer_proposal=reviewer_proposal
+                        or ReviewerProposal(expected_state=service.read().state, source="research"),
                         reevaluate_autostart=False,
-                        expected_state=reviewer_proposal.expected_state if reviewer_proposal else None,
-                        operation_id=reviewer_proposal.operation_id if reviewer_proposal else None,
-                        outcome=reviewer_proposal.outcome if reviewer_proposal else "selected",
-                        retry_reason=reviewer_proposal.retry_reason if reviewer_proposal else None,
                     )
-                except StaleAssignmentProposal:
+                except StaleReviewerProposal:
                     logger.info("signals.assignment.research_proposal_stale", team_id=team_id, report_id=report_id)
                 else:
-                    wrote_reviewers |= write.changed
+                    wrote_reviewers |= artefact.id != previous
                 continue
             SignalReportArtefact.append(
                 team_id=team_id,
@@ -787,7 +781,7 @@ async def _persist_agentic_report_artefacts(
     repo_selection: RepoSelectionResult,
     repo_selection_as_of: datetime | None = None,
     priority_judgment_id: UUID | None = None,
-    reviewer_proposal: AssignmentProposal | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
 ) -> None:
     reviewer_resolution = None
     reviewers_content: list[ReviewerContent] = []
@@ -1097,18 +1091,14 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         assert input.repo_selection.repository is not None, "run_agentic_report_activity called without a repository"
         repository = input.repo_selection.repository
 
-        assignment = await database_sync_to_async(ReportAssignmentService, thread_sensitive=False)(
+        assignment = await database_sync_to_async(ReviewerRules, thread_sensitive=False)(
             team=await Team.objects.aget(id=input.team_id),
             report_id=input.report_id,
         )
         reviewer_snapshot = await database_sync_to_async(assignment.read, thread_sensitive=False)()
         reviewer_proposal = None
-        if assignment.enabled or reviewer_snapshot.state.control_id:
-            activity_info = temporalio.activity.info()
-            reviewer_proposal = AssignmentProposal(
-                operation_id=uuid5(
-                    UUID(input.report_id), f"research:{activity_info.workflow_run_id}:{activity_info.activity_id}"
-                ),
+        if assignment.enabled or reviewer_snapshot.state.corrections_id:
+            reviewer_proposal = ReviewerProposal(
                 expected_state=reviewer_snapshot.state,
                 source="research",
             )

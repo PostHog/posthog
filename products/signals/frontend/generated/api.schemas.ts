@@ -606,70 +606,25 @@ export interface ReviewerStateApi {
      */
     reviewers_id: string | null
     /**
-     * Current reviewer control artefact ID, or null before migration.
+     * Current corrections artefact ID, or null before corrections are stored.
      * @nullable
      */
-    control_id: string | null
-}
-
-/**
- * * `human` - Human
- * * `automatic` - Automatic
- */
-export type ReviewerControlModeEnumApi = (typeof ReviewerControlModeEnumApi)[keyof typeof ReviewerControlModeEnumApi]
-
-export const ReviewerControlModeEnumApi = {
-    Human: 'human',
-    Automatic: 'automatic',
-} as const
-
-/**
- * * `no_project_access` - No project access
- * * `unresolved_identity` - Unresolved identity
- */
-export type ReviewerValidationIssueEnumApi =
-    (typeof ReviewerValidationIssueEnumApi)[keyof typeof ReviewerValidationIssueEnumApi]
-
-export const ReviewerValidationIssueEnumApi = {
-    NoProjectAccess: 'no_project_access',
-    UnresolvedIdentity: 'unresolved_identity',
-} as const
-
-export interface ReviewerIssueApi {
-    /**
-     * Candidate member UUID, when known.
-     * @nullable
-     */
-    user_uuid: string | null
-    /**
-     * Candidate GitHub login, when known.
-     * @nullable
-     */
-    github_login: string | null
-    /** Why the candidate was not applied.
-     *
-     * * `no_project_access` - No project access
-     * * `unresolved_identity` - Unresolved identity */
-    reason: ReviewerValidationIssueEnumApi
+    corrections_id: string | null
 }
 
 export interface ReviewerControlResponseApi {
-    /** Pass this state unchanged with the next automatic reviewer proposal. */
+    /** State token for a selection, replacement, or list confirmation. */
     state: ReviewerStateApi
-    /** A human edit permanently protects the complete list. Before any human edit, background updates are allowed.
-     *
-     * * `human` - Human
-     * * `automatic` - Automatic */
-    control: ReviewerControlModeEnumApi
-    /** Whether this report uses the protected writer. */
+    /** People an automatic selection must retain. */
+    pinned_user_uuids: string[]
+    /** People an automatic selection must not restore. */
+    excluded_user_uuids: string[]
+    /** A person explicitly confirmed the complete reviewer list. */
+    confirmed: boolean
+    /** Older edits lack complete correction records. Automatic replacement is paused. */
+    needs_review: boolean
+    /** Whether this report uses saved reviewer corrections. */
     enabled: boolean
-    /** Recipient validation results from the latest write attempt. */
-    issues: ReviewerIssueApi[]
-    /**
-     * Why the latest lookup needs a retry.
-     * @nullable
-     */
-    retry_reason: string | null
 }
 
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
@@ -2136,6 +2091,21 @@ export interface SignalReportReingestionStatusApi {
 }
 
 /**
+ * * `add` - Add
+ * * `remove` - Remove
+ * * `replace` - Replace
+ * * `confirm` - Confirm
+ */
+export type ReviewerEditActionEnumApi = (typeof ReviewerEditActionEnumApi)[keyof typeof ReviewerEditActionEnumApi]
+
+export const ReviewerEditActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Replace: 'replace',
+    Confirm: 'confirm',
+} as const
+
+/**
  * Single entry in a PUT body for a `suggested_reviewers` artefact.
  *
  * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
@@ -2163,18 +2133,26 @@ export interface SuggestedReviewerEntryWriteApi {
     reason?: string | null
 }
 
-/**
- * PUT body for replacing a `suggested_reviewers` artefact's content.
- *
- * Only `suggested_reviewers` artefacts may be modified via this endpoint;
- * the viewset enforces the type check before validation runs.
- */
 export interface SignalReportArtefactWriteApi {
+    /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
+     *
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm */
+    action?: ReviewerEditActionEnumApi
+    /** State from the last read. Required for replacement and confirmation when corrections are enabled. */
+    expected_reviewers?: ReviewerStateApi
     /**
-     * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+     * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
      * @maxItems 10
      */
     content: SuggestedReviewerEntryWriteApi[]
+    /**
+     * Explicit add or remove targets. When supplied, content is only a fallback for older servers.
+     * @maxItems 10
+     */
+    targets?: SuggestedReviewerEntryWriteApi[]
 }
 
 /**
@@ -2287,6 +2265,8 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      * @nullable
      */
     readonly task_id: string | null
+    /** Reviewer corrections after this edit. */
+    readonly reviewer_assignment: ReviewerControlResponseApi
 }
 
 /**
@@ -3363,8 +3343,7 @@ export interface SignalReportStateRequestApi {
  * * `signal_finding` - Signal Finding
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
- * * `assignment_decision` - Assignment Decision
- * * `reviewer_control` - Reviewer Control
+ * * `reviewer_corrections` - Reviewer Corrections
  * * `channel_assignment` - Channel Assignment
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
@@ -3404,8 +3383,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     SignalFinding: 'signal_finding',
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
-    AssignmentDecision: 'assignment_decision',
-    ReviewerControl: 'reviewer_control',
+    ReviewerCorrections: 'reviewer_corrections',
     ChannelAssignment: 'channel_assignment',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',
@@ -3470,13 +3448,23 @@ export interface SignalReportArtefactApi {
     readonly task_id: string | null
 }
 
-export interface PaginatedSignalReportArtefactListApi {
+export interface SignalReportArtefactListResponseApi {
+    /** Number of artefacts. */
     count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+    /**
+     * Next page, if any.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * Previous page, if any.
+     * @nullable
+     */
+    previous: string | null
+    /** Artefacts in this page. */
     results: SignalReportArtefactApi[]
+    /** Current reviewer corrections and state token. */
+    reviewer_assignment: ReviewerControlResponseApi
 }
 
 /**
@@ -3501,10 +3489,8 @@ export const ReviewerSelectionOutcomeEnumApi = {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** State returned by reviewer_state before selection began. Required when the shared writer is enabled. */
+    /** State returned by reviewer_state before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
-    /** Stable ID for this selection. Reuse this ID and payload on retries. */
-    operation_id?: string
     /** A successful selection, a deliberate empty result, or an unavailable lookup.
      *
      * * `selected` - Selected
@@ -7312,10 +7298,8 @@ export const ActionabilityEnumApi = {
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
-    /** State returned by reviewer_state before selection began. Required when the shared writer is enabled. */
+    /** State returned by reviewer_state before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
-    /** Stable ID for this selection. Reuse this ID and payload on retries. */
-    operation_id?: string
     /** A successful selection, a deliberate empty result, or an unavailable lookup.
      *
      * * `selected` - Selected
@@ -7356,7 +7340,7 @@ export interface EditReportRequestApi {
      */
     append_evidence?: ReportEvidenceApi[] | null
     /**
-     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when the shared writer is enabled. Human control is preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection, and a stable operation_id.
+     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.
      * @maxItems 10
      */
     suggested_reviewers?: SuggestedReviewerApi[]

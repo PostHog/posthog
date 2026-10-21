@@ -35,8 +35,11 @@ from products.signals.backend.artefact_schemas import (
     LogArtefactContent,
     RelatedTo,
     ReportLink,
+    ReviewerEdit,
+    ReviewerProposal,
     SignalFinding,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
     artefact_type_for,
     artefact_type_for_model,
@@ -1378,8 +1381,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
-        ASSIGNMENT_DECISION = "assignment_decision"
-        REVIEWER_CONTROL = "reviewer_control"
+        REVIEWER_CORRECTIONS = "reviewer_corrections"
         CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
@@ -1427,7 +1429,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
-            ArtefactType.REVIEWER_CONTROL,
+            ArtefactType.REVIEWER_CORRECTIONS,
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
@@ -1439,9 +1441,7 @@ class SignalReportArtefact(UUIDModel):
     # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
-    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
-        {ArtefactType.ASSIGNMENT_DECISION, ArtefactType.REVIEWER_CONTROL}
-    )
+    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.REVIEWER_CORRECTIONS})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1452,7 +1452,6 @@ class SignalReportArtefact(UUIDModel):
     MAX_REPORT_LINK_GRAPH_LEVELS = 50
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
-            ArtefactType.ASSIGNMENT_DECISION,
             ArtefactType.CODE_REFERENCE,
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
@@ -1668,7 +1667,8 @@ class SignalReportArtefact(UUIDModel):
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
         reevaluate_autostart: bool = True,
-        assignment_writer: bool = False,
+        reviewer_proposal: ReviewerProposal | None = None,
+        reviewer_edit: ReviewerEdit | None = None,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
@@ -1682,23 +1682,48 @@ class SignalReportArtefact(UUIDModel):
         """
         if artefact_type_for(content) not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a status artefact content model")
-        if artefact_type_for(content) == cls.ArtefactType.REVIEWER_CONTROL and not assignment_writer:
-            raise ArtefactContentValidationError("Reviewer control requires the shared writer.")
-        with ExitStack() as guard:
-            if artefact_type_for(content) == cls.ArtefactType.SUGGESTED_REVIEWERS:
-                guard.enter_context(transaction.atomic())
-                SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
-                if (
-                    not assignment_writer
-                    and SignalReportAssignmentRevision.objects.for_team(team_id).filter(report_id=report_id).exists()
-                ):
-                    raise ArtefactContentValidationError("This report requires the shared assignment writer.")
-            artefact = cls._create(
-                team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
-            )
-            if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
-                cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
-        return artefact
+        if artefact_type_for(content) == cls.ArtefactType.REVIEWER_CORRECTIONS:
+            raise ArtefactContentValidationError("Use reviewer edits to record corrections.")
+        if isinstance(content, SuggestedReviewers):
+            # The rules import this model; load them only on a reviewer write.
+            from posthog.models.team.team import Team
+
+            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.reviewer_rules import ReviewerRules
+
+            rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+            with transaction.atomic():
+                SignalReport.objects.select_for_update().exclude(status=SignalReport.Status.DELETED).get(
+                    team_id=team_id, id=report_id
+                )
+                if claim_id:
+                    claim = get_active_claim(team_id=team_id, report_id=report_id)
+                    if claim is None or str(claim.claim_id) != claim_id or not actor_owns_claim(claim, attribution):
+                        raise ArtefactContentValidationError("Claim is stale or belongs to another actor.")
+                update = rules.prepare(content, attribution=attribution, proposal=reviewer_proposal, edit=reviewer_edit)
+                if update.corrections is not None:
+                    cls._create(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=update.corrections,
+                        attribution=attribution,
+                        claim_id=claim_id,
+                    )
+                if update.current is not None and cls._parse_as(update.current, SuggestedReviewers) == update.reviewers:
+                    return update.current
+                artefact = cls._create(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=update.reviewers,
+                    attribution=attribution,
+                    claim_id=claim_id,
+                )
+                if reevaluate_autostart and (not update.protected or rules.effects_enabled):
+                    cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+                return artefact
+        return cls._create(
+            team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
+        )
 
     @classmethod
     def _latest_of(
@@ -2071,6 +2096,8 @@ class SignalReportArtefact(UUIDModel):
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
         reevaluate_autostart: bool = True,
+        reviewer_proposal: ReviewerProposal | None = None,
+        reviewer_edit: ReviewerEdit | None = None,
     ) -> "SignalReportArtefact":
         """Append an artefact of any content model, routing to its type's append semantics.
 
@@ -2092,6 +2119,8 @@ class SignalReportArtefact(UUIDModel):
                 content=cast(StatusArtefactContent, content),
                 attribution=attribution,
                 reevaluate_autostart=reevaluate_autostart,
+                reviewer_proposal=reviewer_proposal,
+                reviewer_edit=reviewer_edit,
                 claim_id=claim_id,
             )
         if artefact_type in cls.LOG_ARTEFACT_TYPES:
@@ -2114,8 +2143,8 @@ class SignalReportArtefact(UUIDModel):
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
         if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
             raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
-        if self.type in {self.ArtefactType.ASSIGNMENT_DECISION, self.ArtefactType.REVIEWER_CONTROL}:
-            raise ArtefactContentValidationError("Apply a new assignment decision instead of editing one.")
+        if self.type in {self.ArtefactType.REVIEWER_CORRECTIONS, self.ArtefactType.SUGGESTED_REVIEWERS}:
+            raise ArtefactContentValidationError("Append a reviewer change instead of editing history.")
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
@@ -2136,15 +2165,6 @@ class SignalReportArtefact(UUIDModel):
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
         with ExitStack() as guard:
-            if self.type == self.ArtefactType.SUGGESTED_REVIEWERS:
-                guard.enter_context(transaction.atomic())
-                SignalReport.objects.select_for_update().get(team_id=self.team_id, id=self.report_id)
-                if (
-                    SignalReportAssignmentRevision.objects.for_team(self.team_id)
-                    .filter(report_id=self.report_id)
-                    .exists()
-                ):
-                    raise ArtefactContentValidationError("Use the report reviewer controls to change this list.")
             if isinstance(parsed, ReportLink):
                 # An edit is a second way to write a link, so it answers to the same invariants
                 # under the same lock. Without this a PATCH could point an existing row at the
@@ -2162,22 +2182,6 @@ class SignalReportArtefact(UUIDModel):
             self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
-
-
-class SignalReportAssignmentRevision(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="assignment_revisions")
-    operation_id = models.UUIDField()
-    revision = models.PositiveBigIntegerField()
-    request_hash = models.CharField(max_length=64)
-    artefact = models.OneToOneField(SignalReportArtefact, on_delete=models.RESTRICT, related_name="+")
-    reviewers_artefact = models.ForeignKey(SignalReportArtefact, on_delete=models.RESTRICT, related_name="+")
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["report", "operation_id"], name="signals_assignment_operation"),
-            models.UniqueConstraint(fields=["report", "revision"], name="signals_assignment_revision"),
-        ]
 
 
 class SignalReportSuggestedReviewer(TeamScopedRootMixin, UUIDModel):

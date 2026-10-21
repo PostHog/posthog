@@ -13,7 +13,7 @@ import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, isUpdatingReviewers, reportArtefacts } = useValues(logic)
+    const { displayReviewers, isUpdatingReviewers, reportArtefacts, reviewerAssignment } = useValues(logic)
     const { updateReviewers } = useActions(logic)
 
     const [addOpen, setAddOpen] = useState(false)
@@ -40,6 +40,24 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
             reviewers={baseReviewers}
             disabled={isUpdatingReviewers}
             onRemove={removeReviewers}
+            confirmControl={
+                reviewerAssignment?.enabled ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        loading={isUpdatingReviewers}
+                        disabledReason={
+                            reviewerAssignment.confirmed
+                                ? 'This list is confirmed. You can still add or remove people.'
+                                : undefined
+                        }
+                        tooltip="Keep this exact list until a person changes it. Agents cannot add or remove reviewers."
+                        onClick={() => updateReviewers([], baseReviewers, 'confirm')}
+                    >
+                        {reviewerAssignment.confirmed ? 'List confirmed' : 'Confirm list'}
+                    </LemonButton>
+                ) : null
+            }
             addControl={
                 <LemonDropdown
                     visible={addOpen}

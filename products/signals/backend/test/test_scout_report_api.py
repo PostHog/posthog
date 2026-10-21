@@ -1601,31 +1601,37 @@ class TestScoutReportAPI(APIBaseTest):
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
 
-    @patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True)
-    @patch("products.signals.backend.assignment_service.assignment_side_effects_enabled", return_value=False)
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
     def test_human_scout_human_flow_preserves_corrections(self, _effects, _writer) -> None:
         human = APIClient()
         human.force_login(self.user)
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
         run = _make_run(self.team)
         root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
-        selected = {"content": [{"user_uuid": str(self.user.uuid)}]}
+        selected = {"action": "add", "content": [{"user_uuid": str(self.user.uuid)}]}
         assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
         before = human.get(f"{root}/reviewer_state/").json()
-        assert before["control"] == "human"
-        assert human.put(f"{root}/reviewers/", {"content": []}, format="json").status_code == 200
+        assert before["pinned_user_uuids"] == [str(self.user.uuid)]
+        assert (
+            human.put(
+                f"{root}/reviewers/",
+                {"action": "remove", "content": [{"user_uuid": str(self.user.uuid)}]},
+                format="json",
+            ).status_code
+            == 200
+        )
         request = {
             "report_id": str(report.id),
             "suggested_reviewers": [{"user_uuid": str(self.user.uuid)}],
             "expected_reviewers": before["state"],
-            "operation_id": str(uuid4()),
         }
         stale = self.client.post(self._edit_url(str(run.id)), request, format="json")
         assert stale.status_code == 200, stale.json()
         assert stale.json()["warnings"][0]["field"] == "suggested_reviewers"
         assert not stale.json()["reviewers_set"]
         state = human.get(f"{root}/reviewer_state/").json()
-        request.update(expected_reviewers=state["state"], operation_id=str(uuid4()))
+        request.update(expected_reviewers=state["state"])
         with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             for _ in range(2):
                 response = self.client.post(self._edit_url(str(run.id)), request, format="json")
@@ -1637,17 +1643,16 @@ class TestScoutReportAPI(APIBaseTest):
         state = human.get(f"{root}/reviewer_state/").json()
         response = human.post(
             f"{root}/reviewers/resume/",
-            {"expected_reviewers": state["state"], "operation_id": str(uuid4())},
+            {"expected_reviewers": state["state"]},
             format="json",
         )
         assert response.status_code == 404
-        assert human.get(f"{root}/reviewer_state/").json()["control"] == "human"
+        assert human.get(f"{root}/reviewer_state/").json()["pinned_user_uuids"] == [str(self.user.uuid)]
         failed = self.client.post(
             self._edit_url(str(run.id)),
             {
                 "report_id": str(report.id),
                 "expected_reviewers": state["state"],
-                "operation_id": str(uuid4()),
                 "reviewer_outcome": "lookup_failed",
                 "reviewer_retry_reason": "Member lookup unavailable",
             },
@@ -1655,7 +1660,6 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert failed.status_code == 200, failed.json()
         assert not failed.json()["reviewers_set"]
-        assert human.get(f"{root}/reviewer_state/").json()["retry_reason"] == "Member lookup unavailable"
         reviewers = SignalReportArtefact.latest_content(
             team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
         )
@@ -1666,7 +1670,6 @@ class TestScoutReportAPI(APIBaseTest):
                 "report_id": str(report.id),
                 "suggested_reviewers": [],
                 "expected_reviewers": state["state"],
-                "operation_id": str(uuid4()),
                 "reviewer_outcome": "no_suitable_owner",
             },
             format="json",

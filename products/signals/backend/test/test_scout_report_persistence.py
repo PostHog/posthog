@@ -26,7 +26,6 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.assignment_service import ReportAssignmentService
 from products.signals.backend.models import (
     MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
@@ -38,6 +37,7 @@ from products.signals.backend.models import (
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
@@ -103,7 +103,7 @@ class TestScoutReportPersistence(BaseTest):
 
     def test_empty_selection_enrolls_a_new_report_in_the_writer(self) -> None:
         with (
-            patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True),
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
         ):
             result = create_scout_report(
@@ -113,8 +113,8 @@ class TestScoutReportPersistence(BaseTest):
                 signals=[ScoutReportSignal(description="A synthetic finding", source_id="example", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
             )
-            snapshot = ReportAssignmentService.read_for_report(team_id=self.team.id, report_id=result.report_id)
-            assert snapshot.state.control_id is not None
+            snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
+            assert snapshot.state.corrections_id is not None
             assert snapshot.reviewers == ()
             assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
 

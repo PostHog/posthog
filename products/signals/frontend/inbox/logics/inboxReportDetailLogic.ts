@@ -43,10 +43,13 @@ import {
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
     signalsReportsPriorityUpdate,
+    signalsReportsReviewersUpdate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
-    PaginatedSignalReportArtefactListApi,
+    SignalReportArtefactListResponseApi,
+    ReviewerControlResponseApi,
+    ReviewerEditActionEnumApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
@@ -352,6 +355,7 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    reviewerAssignment: ReviewerControlResponseApi | null
     savedFeedback: SignalReportFeedbackStateApi | null
     savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
@@ -622,6 +626,9 @@ export interface inboxReportDetailLogicActions {
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
+    setReviewerAssignment: (assignment: ReviewerControlResponseApi | null) => {
+        assignment: ReviewerControlResponseApi | null
+    }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
@@ -647,8 +654,10 @@ export interface inboxReportDetailLogicActions {
     }
     updateReviewers: (
         content: Record<string, string>[],
-        optimistic: EnrichedReviewer[]
+        optimistic: EnrichedReviewer[],
+        action: ReviewerEditActionEnumApi
     ) => {
+        action: ReviewerEditActionEnumApi
         content: Record<string, string>[]
         optimistic: EnrichedReviewer[]
     }
@@ -772,10 +781,16 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
-        updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
+        updateReviewers: (
+            content: Record<string, string>[],
+            optimistic: EnrichedReviewer[],
+            action: ReviewerEditActionEnumApi
+        ) => ({
             content,
             optimistic,
+            action,
         }),
+        setReviewerAssignment: (assignment: ReviewerControlResponseApi | null) => ({ assignment }),
         setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => ({ reviewers }),
         // Debounced server-side org-member search for the add-reviewer picker.
         searchAvailableReviewers: (query: string) => ({ query }),
@@ -812,7 +827,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         savedFeedback: [
             null as SignalReportFeedbackStateApi | null,
             {
@@ -832,10 +847,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         }
                     )
                     await breakpoint()
+                    actions.setReviewerAssignment(response.reviewer_assignment ?? null)
                     const artefacts = [...response.results]
                     while (response.next) {
                         // nosemgrep: prefer-codegen-api -- follows the server-provided pagination next link.
-                        response = await api.get<PaginatedSignalReportArtefactListApi>(response.next)
+                        response = await api.get<SignalReportArtefactListResponseApi>(response.next)
                         await breakpoint()
                         artefacts.push(...response.results)
                     }
@@ -1038,6 +1054,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // While a reviewer update is in flight, this overrides the artefact-derived list so the UI
         // reflects the change immediately. Cleared once the reload lands (or the update fails).
+        reviewerAssignment: [
+            null as ReviewerControlResponseApi | null,
+            { setReviewerAssignment: (_, { assignment }) => assignment },
+        ],
         optimisticReviewers: [
             null as EnrichedReviewer[] | null,
             {
@@ -1492,7 +1512,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, asyncActions, values, props, selectors }) => ({
+    listeners(({ actions, asyncActions, values, props, selectors, cache }) => ({
         updatePriority: async ({ priority }) => {
             const teamId = teamLogic.values.currentTeamId
             const currentReport = values.report
@@ -1636,22 +1656,36 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ content, optimistic }) => {
+        updateReviewers: async ({ content, action }) => {
+            if (cache.reviewerWriteInFlight) {
+                return
+            }
+            cache.reviewerWriteInFlight = true
             let saved = false
             try {
-                await api.signalReports.setReviewers(props.reportId, content)
+                const result = await signalsReportsReviewersUpdate(
+                    String(teamLogic.values.currentTeamId),
+                    props.reportId,
+                    {
+                        content,
+                        action,
+                        expected_reviewers: values.reviewerAssignment?.state,
+                    }
+                )
+                actions.setReviewerAssignment(result.reviewer_assignment ?? null)
                 saved = true
                 await asyncActions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {
                 // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
+                cache.reviewerWriteInFlight = false
                 actions.setOptimisticReviewers(null)
             }
             // Broadcast last: the list can drop the row that hosts this logic (the context menu picker),
             // which unmounts it, and kea throws on an action dispatched through an unmounted logic.
             if (saved) {
-                const reviewerUuids = optimistic
+                const reviewerUuids = (values.displayReviewers ?? [])
                     .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
                     .filter((uuid): uuid is string => !!uuid)
                 inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, reviewerUuids)

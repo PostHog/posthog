@@ -38748,10 +38748,10 @@ export namespace Schemas {
          */
       reviewers_id: string | null;
       /**
-         * Current reviewer control artefact ID, or null before migration.
+         * Current corrections artefact ID, or null before corrections are stored.
          * @nullable
          */
-      control_id: string | null;
+      corrections_id: string | null;
     }
 
     /**
@@ -39030,10 +39030,8 @@ export namespace Schemas {
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
-      /** State returned by reviewer_state before selection began. Required when the shared writer is enabled. */
+      /** State returned by reviewer_state before selection began. Required when reviewer corrections are enabled. */
       expected_reviewers?: ReviewerState;
-      /** Stable ID for this selection. Reuse this ID and payload on retries. */
-      operation_id?: string;
       /** A successful selection, a deliberate empty result, or an unavailable lookup.
        *
        * * `selected` - Selected
@@ -39074,7 +39072,7 @@ export namespace Schemas {
          */
       append_evidence?: ReportEvidence[] | null;
       /**
-         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when the shared writer is enabled. Human control is preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection, and a stable operation_id.
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
@@ -75359,148 +75357,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `video_segment` - Video Segment
-     * * `safety_judgment` - Safety Judgment
-     * * `actionability_judgment` - Actionability Judgment
-     * * `priority_judgment` - Priority Judgment
-     * * `signal_finding` - Signal Finding
-     * * `repo_selection` - Repo Selection
-     * * `suggested_reviewers` - Suggested Reviewers
-     * * `assignment_decision` - Assignment Decision
-     * * `reviewer_control` - Reviewer Control
-     * * `channel_assignment` - Channel Assignment
-     * * `dismissal` - Dismissal
-     * * `code_reference` - Code Reference
-     * * `commit` - Commit
-     * * `task_run` - Task Run
-     * * `note` - Note
-     * * `title_change` - Title Change
-     * * `summary_change` - Summary Change
-     * * `code_review` - Code Review
-     * * `related_to` - Related To
-     * * `report_link` - Report Link
-     * * `autostart_skip` - Autostart Skip
-     * * `work_claim` - Work Claim
-     * * `work_release` - Work Release
-     * * `pull_request` - Pull Request
-     * * `check_result` - Check Result
-     * * `check_observation` - Check Observation
-     * * `check_scheduled` - Check Scheduled
-     * * `check_expired` - Check Expired
-     * * `check_cancelled` - Check Cancelled
-     * * `implementation_decision` - Implementation Decision
-     * * `implementation_dispatch` - Implementation Dispatch
-     * * `implementation_replacement` - Implementation Replacement
-     * * `implementation_handover` - Implementation Handover
-     * * `ranking_score` - Ranking Score
-     * * `impact_measurement_plan` - Impact Measurement Plan
-     * * `source_suggestion` - Source Suggestion
-     */
-    export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
-
-
-    export const SignalReportArtefactArtefactTypeEnum = {
-      VideoSegment: 'video_segment',
-      SafetyJudgment: 'safety_judgment',
-      ActionabilityJudgment: 'actionability_judgment',
-      PriorityJudgment: 'priority_judgment',
-      SignalFinding: 'signal_finding',
-      RepoSelection: 'repo_selection',
-      SuggestedReviewers: 'suggested_reviewers',
-      AssignmentDecision: 'assignment_decision',
-      ReviewerControl: 'reviewer_control',
-      ChannelAssignment: 'channel_assignment',
-      Dismissal: 'dismissal',
-      CodeReference: 'code_reference',
-      Commit: 'commit',
-      TaskRun: 'task_run',
-      Note: 'note',
-      TitleChange: 'title_change',
-      SummaryChange: 'summary_change',
-      CodeReview: 'code_review',
-      RelatedTo: 'related_to',
-      ReportLink: 'report_link',
-      AutostartSkip: 'autostart_skip',
-      WorkClaim: 'work_claim',
-      WorkRelease: 'work_release',
-      PullRequest: 'pull_request',
-      CheckResult: 'check_result',
-      CheckObservation: 'check_observation',
-      CheckScheduled: 'check_scheduled',
-      CheckExpired: 'check_expired',
-      CheckCancelled: 'check_cancelled',
-      ImplementationDecision: 'implementation_decision',
-      ImplementationDispatch: 'implementation_dispatch',
-      ImplementationReplacement: 'implementation_replacement',
-      ImplementationHandover: 'implementation_handover',
-      RankingScore: 'ranking_score',
-      ImpactMeasurementPlan: 'impact_measurement_plan',
-      SourceSuggestion: 'source_suggestion',
-    } as const;
-
-    export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
-
-
-    export const SignalActorKindEnum = {
-      User: 'user',
-      Task: 'task',
-      Agent: 'agent',
-      System: 'system',
-    } as const;
-
-    export interface _User {
-      readonly id: number;
-      readonly uuid: string;
-      readonly first_name: string;
-      readonly last_name: string;
-      readonly email: string;
-    }
-
-    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
-
-    export interface SignalReportArtefact {
-      /**
-         * Work claim that produced this artefact.
-         * @nullable
-         */
-      readonly claim_id: string | null;
-      /**
-         * Shared PR record linked by this artefact.
-         * @nullable
-         */
-      readonly pull_request_id: string | null;
-      readonly id: string;
-      readonly type: SignalReportArtefactArtefactTypeEnum;
-      readonly content: SignalReportArtefactContent;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** Actor kind. Legacy rows without attribution are returned as system. */
-      readonly actor_kind: SignalActorKindEnum;
-      /**
-         * MCP client name when an external agent produced the artefact.
-         * @nullable
-         */
-      readonly actor_agent: string | null;
-      /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
-      readonly created_by: _User | null;
-      /**
-         * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
-         * @nullable
-         */
-      readonly task_id: string | null;
-    }
-
-    export interface PaginatedSignalReportArtefactList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SignalReportArtefact[];
-    }
-
-    /**
      * * `pending` - Pending
      * * `active` - Active
      * * `passed` - Passed
@@ -75637,65 +75493,19 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
-    /**
-     * * `human` - Human
-     * * `automatic` - Automatic
-     */
-    export type ReviewerControlModeEnum = typeof ReviewerControlModeEnum[keyof typeof ReviewerControlModeEnum];
-
-
-    export const ReviewerControlModeEnum = {
-      Human: 'human',
-      Automatic: 'automatic',
-    } as const;
-
-    /**
-     * * `no_project_access` - No project access
-     * * `unresolved_identity` - Unresolved identity
-     */
-    export type ReviewerValidationIssueEnum = typeof ReviewerValidationIssueEnum[keyof typeof ReviewerValidationIssueEnum];
-
-
-    export const ReviewerValidationIssueEnum = {
-      NoProjectAccess: 'no_project_access',
-      UnresolvedIdentity: 'unresolved_identity',
-    } as const;
-
-    export interface ReviewerIssue {
-      /**
-         * Candidate member UUID, when known.
-         * @nullable
-         */
-      user_uuid: string | null;
-      /**
-         * Candidate GitHub login, when known.
-         * @nullable
-         */
-      github_login: string | null;
-      /** Why the candidate was not applied.
-       *
-       * * `no_project_access` - No project access
-       * * `unresolved_identity` - Unresolved identity */
-      reason: ReviewerValidationIssueEnum;
-    }
-
     export interface ReviewerControlResponse {
-      /** Pass this state unchanged with the next automatic reviewer proposal. */
+      /** State token for a selection, replacement, or list confirmation. */
       state: ReviewerState;
-      /** A human edit permanently protects the complete list. Before any human edit, background updates are allowed.
-       *
-       * * `human` - Human
-       * * `automatic` - Automatic */
-      control: ReviewerControlModeEnum;
-      /** Whether this report uses the protected writer. */
+      /** People an automatic selection must retain. */
+      pinned_user_uuids: string[];
+      /** People an automatic selection must not restore. */
+      excluded_user_uuids: string[];
+      /** A person explicitly confirmed the complete reviewer list. */
+      confirmed: boolean;
+      /** Older edits lack complete correction records. Automatic replacement is paused. */
+      needs_review: boolean;
+      /** Whether this report uses saved reviewer corrections. */
       enabled: boolean;
-      /** Recipient validation results from the latest write attempt. */
-      issues: ReviewerIssue[];
-      /**
-         * Why the latest lookup needs a retry.
-         * @nullable
-         */
-      retry_reason: string | null;
     }
 
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
@@ -75876,6 +75686,24 @@ export namespace Schemas {
       ChangesRequested: 'changes_requested',
       ReviewRequired: 'review_required',
     } as const;
+
+    export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
+
+
+    export const SignalActorKindEnum = {
+      User: 'user',
+      Task: 'task',
+      Agent: 'agent',
+      System: 'system',
+    } as const;
+
+    export interface _User {
+      readonly id: number;
+      readonly uuid: string;
+      readonly first_name: string;
+      readonly last_name: string;
+      readonly email: string;
+    }
 
     export interface SignalReportPullRequestAttachedBy {
       /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
@@ -100522,6 +100350,22 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum = typeof ReviewerEditActionEnum[keyof typeof ReviewerEditActionEnum];
+
+
+    export const ReviewerEditActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Replace: 'replace',
+      Confirm: 'confirm',
+    } as const;
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -104087,6 +103931,138 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
+    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
+
+    /**
+     * * `video_segment` - Video Segment
+     * * `safety_judgment` - Safety Judgment
+     * * `actionability_judgment` - Actionability Judgment
+     * * `priority_judgment` - Priority Judgment
+     * * `signal_finding` - Signal Finding
+     * * `repo_selection` - Repo Selection
+     * * `suggested_reviewers` - Suggested Reviewers
+     * * `reviewer_corrections` - Reviewer Corrections
+     * * `channel_assignment` - Channel Assignment
+     * * `dismissal` - Dismissal
+     * * `code_reference` - Code Reference
+     * * `commit` - Commit
+     * * `task_run` - Task Run
+     * * `note` - Note
+     * * `title_change` - Title Change
+     * * `summary_change` - Summary Change
+     * * `code_review` - Code Review
+     * * `related_to` - Related To
+     * * `report_link` - Report Link
+     * * `autostart_skip` - Autostart Skip
+     * * `work_claim` - Work Claim
+     * * `work_release` - Work Release
+     * * `pull_request` - Pull Request
+     * * `check_result` - Check Result
+     * * `check_observation` - Check Observation
+     * * `check_scheduled` - Check Scheduled
+     * * `check_expired` - Check Expired
+     * * `check_cancelled` - Check Cancelled
+     * * `implementation_decision` - Implementation Decision
+     * * `implementation_dispatch` - Implementation Dispatch
+     * * `implementation_replacement` - Implementation Replacement
+     * * `implementation_handover` - Implementation Handover
+     * * `ranking_score` - Ranking Score
+     * * `impact_measurement_plan` - Impact Measurement Plan
+     * * `source_suggestion` - Source Suggestion
+     */
+    export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
+
+
+    export const SignalReportArtefactArtefactTypeEnum = {
+      VideoSegment: 'video_segment',
+      SafetyJudgment: 'safety_judgment',
+      ActionabilityJudgment: 'actionability_judgment',
+      PriorityJudgment: 'priority_judgment',
+      SignalFinding: 'signal_finding',
+      RepoSelection: 'repo_selection',
+      SuggestedReviewers: 'suggested_reviewers',
+      ReviewerCorrections: 'reviewer_corrections',
+      ChannelAssignment: 'channel_assignment',
+      Dismissal: 'dismissal',
+      CodeReference: 'code_reference',
+      Commit: 'commit',
+      TaskRun: 'task_run',
+      Note: 'note',
+      TitleChange: 'title_change',
+      SummaryChange: 'summary_change',
+      CodeReview: 'code_review',
+      RelatedTo: 'related_to',
+      ReportLink: 'report_link',
+      AutostartSkip: 'autostart_skip',
+      WorkClaim: 'work_claim',
+      WorkRelease: 'work_release',
+      PullRequest: 'pull_request',
+      CheckResult: 'check_result',
+      CheckObservation: 'check_observation',
+      CheckScheduled: 'check_scheduled',
+      CheckExpired: 'check_expired',
+      CheckCancelled: 'check_cancelled',
+      ImplementationDecision: 'implementation_decision',
+      ImplementationDispatch: 'implementation_dispatch',
+      ImplementationReplacement: 'implementation_replacement',
+      ImplementationHandover: 'implementation_handover',
+      RankingScore: 'ranking_score',
+      ImpactMeasurementPlan: 'impact_measurement_plan',
+      SourceSuggestion: 'source_suggestion',
+    } as const;
+
+    export interface SignalReportArtefact {
+      /**
+         * Work claim that produced this artefact.
+         * @nullable
+         */
+      readonly claim_id: string | null;
+      /**
+         * Shared PR record linked by this artefact.
+         * @nullable
+         */
+      readonly pull_request_id: string | null;
+      readonly id: string;
+      readonly type: SignalReportArtefactArtefactTypeEnum;
+      readonly content: SignalReportArtefactContent;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Actor kind. Legacy rows without attribution are returned as system. */
+      readonly actor_kind: SignalActorKindEnum;
+      /**
+         * MCP client name when an external agent produced the artefact.
+         * @nullable
+         */
+      readonly actor_agent: string | null;
+      /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    export interface SignalReportArtefactListResponse {
+      /** Number of artefacts. */
+      count: number;
+      /**
+         * Next page, if any.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * Previous page, if any.
+         * @nullable
+         */
+      previous: string | null;
+      /** Artefacts in this page. */
+      results: SignalReportArtefact[];
+      /** Current reviewer corrections and state token. */
+      reviewer_assignment: ReviewerControlResponse;
+    }
+
     /**
      * Body for appending an artefact to a report.
      *
@@ -104095,10 +104071,8 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** State returned by reviewer_state before selection began. Required when the shared writer is enabled. */
+      /** State returned by reviewer_state before selection began. Required when reviewer corrections are enabled. */
       expected_reviewers?: ReviewerState;
-      /** Stable ID for this selection. Reuse this ID and payload on retries. */
-      operation_id?: string;
       /** A successful selection, a deliberate empty result, or an unavailable lookup.
        *
        * * `selected` - Selected
@@ -104146,18 +104120,26 @@ export namespace Schemas {
       reason?: string | null;
     }
 
-    /**
-     * PUT body for replacing a `suggested_reviewers` artefact's content.
-     *
-     * Only `suggested_reviewers` artefacts may be modified via this endpoint;
-     * the viewset enforces the type check before validation runs.
-     */
     export interface SignalReportArtefactWrite {
+      /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
+       *
+       * * `add` - Add
+       * * `remove` - Remove
+       * * `replace` - Replace
+       * * `confirm` - Confirm */
+      action?: ReviewerEditActionEnum;
+      /** State from the last read. Required for replacement and confirmation when corrections are enabled. */
+      expected_reviewers?: ReviewerState;
       /**
-         * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
          * @maxItems 10
          */
       content: SuggestedReviewerEntryWrite[];
+      /**
+         * Explicit add or remove targets. When supplied, content is only a fallback for older servers.
+         * @maxItems 10
+         */
+      targets?: SuggestedReviewerEntryWrite[];
     }
 
     /**
@@ -104702,6 +104684,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+      /** Reviewer corrections after this edit. */
+      readonly reviewer_assignment: ReviewerControlResponse;
     }
 
     /**

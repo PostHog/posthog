@@ -13,9 +13,9 @@
             "description": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema."
         },
         "expected_reviewers": {
-            "description": "State returned by reviewer_state before selection began. Required when the shared writer is enabled.",
+            "description": "State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.",
             "properties": {
-                "control_id": {
+                "corrections_id": {
                     "anyOf": [
                         {
                             "type": "string"
@@ -24,7 +24,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Current reviewer control artefact ID, or null before migration."
+                    "description": "Current corrections artefact ID, or null before corrections are stored."
                 },
                 "reviewers_id": {
                     "anyOf": [
@@ -38,12 +38,8 @@
                     "description": "Current reviewer artefact ID, or null before the first list."
                 }
             },
-            "required": ["reviewers_id", "control_id"],
+            "required": ["reviewers_id", "corrections_id"],
             "type": "object"
-        },
-        "operation_id": {
-            "description": "Stable ID for this selection. Reuse this ID and payload on retries.",
-            "type": "string"
         },
         "report_id": {
             "description": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",

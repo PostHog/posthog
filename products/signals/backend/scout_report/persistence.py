@@ -64,7 +64,6 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
-from products.signals.backend.assignment_service import AssignmentProposal, ReportAssignmentService
 from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -81,6 +80,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import captur
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
@@ -246,7 +246,7 @@ def create_scout_report(
     total_weight = sum(s.weight for s in signals)
 
     report_id = str(uuid.uuid4())
-    assignment = ReportAssignmentService(team=Team.objects.get(id=team_id), report_id=report_id)
+    assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
@@ -326,15 +326,15 @@ def create_scout_report(
                     raise InvalidScoutReportError(str(err))
             if (suggested_reviewers is not None and suggested_reviewers.root) or assignment.enabled:
                 suggested_reviewers = suggested_reviewers or SuggestedReviewers(root=[])
-                result = assignment.apply_compatibility_reviewers(
-                    suggested_reviewers,
-                    actor=attribution,
-                    expected_state=ReviewerState(),
-                    operation_id=uuid.uuid5(uuid.UUID(report_id), "scout-reviewers"),
-                    source="scout",
+                artefact = SignalReportArtefact.append_status(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=suggested_reviewers,
+                    attribution=attribution,
+                    reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
-                suggested_reviewers = SuggestedReviewers.model_validate_json(result.reviewers_artefact.content)
+                suggested_reviewers = SuggestedReviewers.model_validate_json(artefact.content)
                 # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
                 # still fire when the post-commit signal emits below fail (they propagate).
                 transaction.on_commit(
@@ -1178,30 +1178,29 @@ def set_scout_report_reviewers(
     suggested_reviewers: SuggestedReviewers,
     attribution: ArtefactAttribution,
     author: str | None = None,
-    proposal: AssignmentProposal | None = None,
-    service: ReportAssignmentService | None = None,
+    proposal: ReviewerProposal | None = None,
+    service: ReviewerRules | None = None,
 ) -> bool:
-    """Apply a scout's selection without replacing a human-controlled reviewer list."""
+    """Apply a scout's selection with the report's saved reviewer corrections."""
     _validate_report_id(report_id)
-    service = service or ReportAssignmentService(team=Team.objects.get(id=team_id), report_id=report_id)
-    if not suggested_reviewers.root and not service.enabled and service.read().state.control_id is None:
+    service = service or ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    if not suggested_reviewers.root and not service.enabled and service.read().state.corrections_id is None:
         return False
     with transaction.atomic():
         SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
         merged = _merge_forward_reviewer_evidence(report_id=report_id, suggested_reviewers=suggested_reviewers)
-        result = service.apply_compatibility_reviewers(
-            merged,
-            actor=attribution,
-            source="scout_edit",
+        previous = service.read().state.reviewers_id
+        artefact = SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=merged,
+            attribution=attribution,
+            reviewer_proposal=proposal,
             reevaluate_autostart=False,
-            expected_state=proposal.expected_state if proposal else None,
-            operation_id=proposal.operation_id if proposal else None,
-            outcome=proposal.outcome if proposal else "selected",
-            retry_reason=proposal.retry_reason if proposal else None,
         )
-        if not result.changed:
+        if artefact.id == previous:
             return False
-        applied = SuggestedReviewers.model_validate_json(result.reviewers_artefact.content)
+        applied = SuggestedReviewers.model_validate_json(artefact.content)
         reviewer_labels = [_reviewer_note_label(entry) for entry in applied.root]
         SignalReportArtefact.add_log(
             team_id=team_id,

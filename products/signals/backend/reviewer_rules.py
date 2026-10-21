@@ -1,0 +1,296 @@
+from __future__ import annotations
+
+import json
+from uuid import UUID
+
+from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.team import Team
+
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import (
+    ReviewerCorrections,
+    ReviewerEdit,
+    ReviewerProposal,
+    ReviewerState,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
+from products.signals.backend.assignment_flags import assignment_side_effects_enabled, assignment_writer_enabled
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.resolve_reviewers import (
+    bounded_reviewer_reason,
+    get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
+)
+
+
+class ReviewerWriteError(ValueError):
+    pass
+
+
+class StaleReviewerProposal(ReviewerWriteError):
+    pass
+
+
+@frozen
+class ReviewerSnapshot:
+    state: ReviewerState
+    reviewers: tuple[SuggestedReviewerEntry, ...]
+    corrections: ReviewerCorrections
+
+
+@frozen
+class ReviewerUpdate:
+    protected: bool
+    reviewers: SuggestedReviewers
+    corrections: ReviewerCorrections | None
+    current: SignalReportArtefact | None
+
+
+@frozen
+class EligibleReviewers:
+    reviewers: tuple[SuggestedReviewerEntry, ...]
+    ineligible_user_uuids: tuple[str, ...]
+    unresolved_candidates: tuple[SuggestedReviewerEntry, ...]
+
+
+def same_reviewer(left: SuggestedReviewerEntry, right: SuggestedReviewerEntry) -> bool:
+    if left.user_uuid and right.user_uuid:
+        return left.user_uuid == right.user_uuid
+    return bool(left.github_login and right.github_login and left.github_login.lower() == right.github_login.lower())
+
+
+def contains_reviewer(entries: tuple[SuggestedReviewerEntry, ...], reviewer: SuggestedReviewerEntry) -> bool:
+    return any(same_reviewer(entry, reviewer) for entry in entries)
+
+
+def correct_reviewers(
+    corrections: ReviewerCorrections,
+    added: tuple[SuggestedReviewerEntry, ...],
+    removed: tuple[SuggestedReviewerEntry, ...],
+) -> ReviewerCorrections:
+    return corrections.model_copy(
+        update={
+            "pinned": tuple(entry for entry in corrections.pinned if not contains_reviewer(removed + added, entry))
+            + added,
+            "excluded": tuple(entry for entry in corrections.excluded if not contains_reviewer(added + removed, entry))
+            + removed,
+        }
+    )
+
+
+class ReviewerRules:
+    def __init__(self, *, team: Team, report_id: str) -> None:
+        self.team = team
+        self.report_id = report_id
+        self.enabled = assignment_writer_enabled(team.id)
+        self.effects_enabled = assignment_side_effects_enabled(team.id)
+
+    @staticmethod
+    def _read_reviewers(artefact: SignalReportArtefact | None) -> tuple[SuggestedReviewerEntry, ...]:
+        if artefact is None:
+            return ()
+        content = json.loads(artefact.content)
+        if isinstance(content, list):
+            for entry in content:
+                if isinstance(entry, dict):
+                    entry["reason"] = bounded_reviewer_reason(entry.get("reason"))
+                    for commit in entry.get("relevant_commits") or []:
+                        if isinstance(commit, dict):
+                            commit["reason"] = bounded_reviewer_reason(commit.get("reason")) or ""
+        return tuple(SuggestedReviewers.model_validate(content).root)
+
+    @staticmethod
+    def _label(entry: SuggestedReviewerEntry) -> str:
+        return entry.github_login.lower() if entry.github_login else entry.user_uuid or ""
+
+    @classmethod
+    def _legacy_corrections(cls, *, team_id: int, report_id: str) -> ReviewerCorrections:
+        rows = SignalReportArtefact.objects.filter(
+            team_id=team_id, report_id=report_id, type="suggested_reviewers"
+        ).order_by("created_at", "id")
+        if (
+            not rows.filter(actor_kind="user").exists()
+            and not rows.filter(actor_kind__isnull=True, created_by__isnull=False).exists()
+        ):
+            return ReviewerCorrections()
+        changes = [
+            (log.user_id, change)
+            for log in ActivityLog.objects.filter(
+                team_id=team_id, scope="SignalReport", item_id=report_id, activity="suggested_reviewers_changed"
+            ).order_by("created_at", "id")
+            for change in (log.detail or {}).get("changes", [])
+            if change.get("field") == "suggested_reviewers"
+        ]
+        corrections = ReviewerCorrections()
+        previous: tuple[SuggestedReviewerEntry, ...] = ()
+        for row in rows:
+            try:
+                current = cls._read_reviewers(row)
+            except ValueError:
+                return corrections.model_copy(update={"needs_review": True})
+            if row.actor_kind == "user" or (row.actor_kind is None and row.created_by_id is not None):
+                added = tuple(entry for entry in current if not contains_reviewer(previous, entry))
+                removed = tuple(entry for entry in previous if not contains_reviewer(current, entry))
+                if added or removed:
+                    before, after = {cls._label(entry) for entry in previous}, {cls._label(entry) for entry in current}
+                    match = next(
+                        (
+                            i
+                            for i, (user_id, change) in enumerate(changes)
+                            if user_id == row.created_by_id
+                            and set(change.get("before") or []) == before
+                            and set(change.get("after") or []) == after
+                        ),
+                        None,
+                    )
+                    if match is None:
+                        return corrections.model_copy(update={"needs_review": True})
+                    changes.pop(match)
+                    corrections = correct_reviewers(corrections, added, removed)
+            previous = current
+        return corrections.model_copy(update={"needs_review": bool(changes)})
+
+    @classmethod
+    def read_for_report(cls, *, team_id: int, report_id: str) -> ReviewerSnapshot:
+        SignalReport.objects.get(team_id=team_id, id=report_id)
+        rows = SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id)
+        reviewers = rows.filter(type="suggested_reviewers").order_by("-created_at", "-id").first()
+        corrections = rows.filter(type="reviewer_corrections").order_by("-created_at", "-id").first()
+        return ReviewerSnapshot(
+            state=ReviewerState(
+                reviewers_id=reviewers.id if reviewers else None, corrections_id=corrections.id if corrections else None
+            ),
+            reviewers=cls._read_reviewers(reviewers),
+            corrections=ReviewerCorrections.model_validate_json(corrections.content)
+            if corrections
+            else cls._legacy_corrections(team_id=team_id, report_id=report_id),
+        )
+
+    def read(self) -> ReviewerSnapshot:
+        return self.read_for_report(team_id=self.team.id, report_id=self.report_id)
+
+    def _validate_members(self, reviewers: tuple[SuggestedReviewerEntry, ...]) -> EligibleReviewers:
+        unresolved_logins = {
+            entry.github_login.lower() for entry in reviewers if entry.github_login and not entry.user_uuid
+        }
+        members = resolve_org_github_login_to_users(self.team.id, unresolved_logins) if unresolved_logins else {}
+        resolved: list[SuggestedReviewerEntry] = []
+        unresolved: list[SuggestedReviewerEntry] = []
+        for entry in reviewers:
+            if entry.user_uuid:
+                try:
+                    UUID(entry.user_uuid)
+                except ValueError as error:
+                    raise ReviewerWriteError("A reviewer must have a valid user UUID.") from error
+            member = members.get(entry.github_login.lower()) if entry.github_login and not entry.user_uuid else None
+            if member:
+                entry = entry.model_copy(update={"user_uuid": str(member.uuid)})
+            if entry.user_uuid:
+                resolved.append(entry)
+            else:
+                unresolved.append(entry)
+        wanted = {entry.user_uuid for entry in resolved if entry.user_uuid}
+        eligible = {str(user.uuid) for user in self.team.all_users_with_access(user_uuids=wanted)} if wanted else set()
+        logins = get_org_member_github_logins_by_user_uuid(self.team.id, sorted(eligible)) if eligible else {}
+        accepted = {
+            entry.user_uuid: entry.model_copy(update={"github_login": logins.get(entry.user_uuid)})
+            for entry in resolved
+            if entry.user_uuid in eligible
+        }
+        return EligibleReviewers(
+            reviewers=tuple(accepted.values()),
+            ineligible_user_uuids=tuple(sorted(wanted - eligible)),
+            unresolved_candidates=tuple(unresolved),
+        )
+
+    def prepare(
+        self,
+        content: SuggestedReviewers,
+        *,
+        attribution: ArtefactAttribution,
+        proposal: ReviewerProposal | None,
+        edit: ReviewerEdit | None,
+    ) -> ReviewerUpdate:
+        """Called by append_status while it holds the report lock."""
+        snapshot = self.read()
+        current = (
+            SignalReportArtefact.objects.get(
+                team_id=self.team.id, report_id=self.report_id, id=snapshot.state.reviewers_id
+            )
+            if snapshot.state.reviewers_id
+            else None
+        )
+        enrolled = snapshot.state.corrections_id is not None
+        corrections = snapshot.corrections
+        protected = self.enabled or enrolled
+        proposed = tuple(content.root)
+        if edit is not None and attribution.kind != "user":
+            raise ReviewerWriteError("Only a person can change reviewer corrections.")
+        expected = edit.expected_state if edit else proposal.expected_state if proposal else None
+        if protected:
+            if edit is None and not self.enabled:
+                proposed = snapshot.reviewers
+            elif expected != snapshot.state and (edit is None or edit.action in {"replace", "confirm"}):
+                raise StaleReviewerProposal("Reviewers or corrections changed. Read the report again before saving.")
+        if edit is not None:
+            if edit.action == "confirm":
+                if not protected:
+                    raise ReviewerWriteError("List confirmation is not enabled for this report.")
+                corrections = corrections.model_copy(update={"confirmed": True, "needs_review": False})
+                proposed = snapshot.reviewers
+            else:
+                additions = (
+                    proposed
+                    if edit.action == "add"
+                    else tuple(entry for entry in proposed if not contains_reviewer(snapshot.reviewers, entry))
+                    if edit.action == "replace"
+                    else ()
+                )
+                removals = (
+                    proposed
+                    if edit.action == "remove"
+                    else tuple(entry for entry in snapshot.reviewers if not contains_reviewer(proposed, entry))
+                    if edit.action == "replace"
+                    else ()
+                )
+                checked = self._validate_members(additions)
+                if protected and (checked.ineligible_user_uuids or checked.unresolved_candidates):
+                    raise ReviewerWriteError("New reviewers must be active members with access to this project.")
+                additions = checked.reviewers if protected else additions
+                if protected:
+                    corrections = correct_reviewers(corrections, additions, removals)
+                if edit.action == "add":
+                    proposed = snapshot.reviewers + tuple(
+                        entry for entry in additions if not contains_reviewer(snapshot.reviewers, entry)
+                    )
+                elif edit.action == "remove":
+                    proposed = tuple(entry for entry in snapshot.reviewers if not contains_reviewer(removals, entry))
+        elif protected and self.enabled:
+            if proposal and proposal.outcome != "selected" and proposed:
+                raise ReviewerWriteError("An unsuccessful selection cannot supply reviewers.")
+            validated = self._validate_members(proposed)
+            failed = proposal is not None and proposal.outcome == "lookup_failed"
+            invalid = bool(proposed) and not validated.reviewers
+            if corrections.confirmed or corrections.needs_review or failed or invalid:
+                proposed = snapshot.reviewers
+            else:
+                proposed = tuple(
+                    entry for entry in validated.reviewers if not contains_reviewer(corrections.excluded, entry)
+                )
+                proposed += tuple(entry for entry in corrections.pinned if not contains_reviewer(proposed, entry))
+        elif (
+            proposal
+            and proposal.source == "research"
+            and (corrections.pinned or corrections.excluded or corrections.needs_review)
+        ):
+            proposed = snapshot.reviewers
+        if protected:
+            proposed = self._validate_members(proposed).reviewers
+        return ReviewerUpdate(
+            protected=protected,
+            reviewers=SuggestedReviewers(root=list(proposed)),
+            corrections=corrections if protected and (not enrolled or corrections != snapshot.corrections) else None,
+            current=current,
+        )

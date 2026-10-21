@@ -12,11 +12,13 @@ export function SuggestedReviewersSectionView({
     disabled,
     onRemove,
     addControl,
+    confirmControl,
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
     onRemove: (reviewers: EnrichedReviewer[]) => void
     addControl: ReactNode
+    confirmControl?: ReactNode
 }): JSX.Element {
     return (
         <DetailSection icon={<IconPeople />} title="Suggested reviewers" collapsible>
@@ -33,6 +35,7 @@ export function SuggestedReviewersSectionView({
                 </Tooltip>
                 <div className="flex flex-wrap items-center gap-2">
                     {disabled && <Spinner className="size-3" />}
+                    {confirmControl}
                     {addControl}
                 </div>
             </div>

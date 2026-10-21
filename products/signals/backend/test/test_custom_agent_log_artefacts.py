@@ -68,7 +68,7 @@ class TestCustomAgentLogArtefacts(BaseTest):
             priority=PriorityAssessment(explanation="e", priority=Priority.P1),
         )
 
-    @patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
     def test_registered_reviewers_use_shared_writer(self, _writer) -> None:
         result = create_custom_agent_ready_report(
             team_id=self.team.id,
@@ -88,9 +88,7 @@ class TestCustomAgentLogArtefacts(BaseTest):
             team_id=self.team.id, report_id=result.report_id, model=SuggestedReviewers
         )
         assert reviewers is not None and [entry.user_uuid for entry in reviewers.root] == [str(self.user.uuid)]
-        assert SignalReportArtefact.objects.filter(report_id=result.report_id, type="reviewer_control").count() == 1
-        decision = SignalReportArtefact.objects.get(report_id=result.report_id, type="assignment_decision")
-        assert json.loads(decision.content)["unresolved_candidates"][0]["github_login"] == "unlinked-example"
+        assert SignalReportArtefact.objects.filter(report_id=result.report_id, type="reviewer_corrections").count() == 1
 
     def test_register_artefact_queues_any_content_model(self):
         agent = self._agent()

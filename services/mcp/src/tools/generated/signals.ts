@@ -91,9 +91,6 @@ const inboxReportArtefactsCreate = (): ToolBase<
         if (params.expected_reviewers !== undefined) {
             body['expected_reviewers'] = params.expected_reviewers
         }
-        if (params.operation_id !== undefined) {
-            body['operation_id'] = params.operation_id
-        }
         if (params.reviewer_outcome !== undefined) {
             body['reviewer_outcome'] = params.reviewer_outcome
         }
@@ -146,13 +143,13 @@ const InboxReportArtefactsListSchema = () => {
 
 const inboxReportArtefactsList = (): ToolBase<
     ReturnType<typeof InboxReportArtefactsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>>
+    WithAgentNote<WithPostHogUrl<Schemas.SignalReportArtefactListResponse>>
 > => ({
     name: 'inbox-report-artefacts-list',
     schema: InboxReportArtefactsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalReportArtefactList>({
+        const result = await context.api.request<Schemas.SignalReportArtefactListResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
             query: {
@@ -1311,9 +1308,6 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         const body: Record<string, unknown> = {}
         if (params.expected_reviewers !== undefined) {
             body['expected_reviewers'] = params.expected_reviewers
-        }
-        if (params.operation_id !== undefined) {
-            body['operation_id'] = params.operation_id
         }
         if (params.reviewer_outcome !== undefined) {
             body['reviewer_outcome'] = params.reviewer_outcome
@@ -2751,9 +2745,6 @@ const signalsScoutEditReport = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.expected_reviewers !== undefined) {
             body['expected_reviewers'] = params.expected_reviewers
-        }
-        if (params.operation_id !== undefined) {
-            body['operation_id'] = params.operation_id
         }
         if (params.reviewer_outcome !== undefined) {
             body['reviewer_outcome'] = params.reviewer_outcome
