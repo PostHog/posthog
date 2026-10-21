@@ -4,7 +4,7 @@ Task PRs open as drafts. The snapshot-based PR monitor can make a draft ready af
 
 ## Enable the transition
 
-Enable `tasks-pr-auto-ready` for selected users or organizations in PostHog. The flag is off by default and is checked before each attempt. The task must also use the PR loop and `tasks-pr-babysit-snapshot`. Its GitHub integration needs permission to write pull requests. The task-management monitor and local runs do not use this transition.
+Enable `tasks-pr-auto-ready` for selected users or organizations in PostHog. The flag is off by default and is checked before each attempt. The task must also use the PR loop. Its GitHub integration needs permission to write pull requests. The task-management monitor and local runs do not use this transition.
 
 To keep a PR in draft, add the `keep-draft` label. Create this label in each repository before you enable the flag. The `no-ci` label also prevents the transition. A task run with `state.keep_draft: true` stays in draft. A PR that someone has already made ready or returned to draft is left alone. An explicit preference to open a report PR ready is independent of this transition and can make the PR ready earlier.
 

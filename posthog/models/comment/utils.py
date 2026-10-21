@@ -38,7 +38,7 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Replay": "/replay/{item_id}",
     "Notebook": "/notebooks/{item_id}",
     "Insight": "/insights/{item_id}",
-    "FeatureFlag": "/feature_flags/{item_id}",
+    "FeatureFlag": "/feature-flags/{item_id}",
     "Dashboard": "/dashboard/{item_id}",
     "Survey": "/surveys/{item_id}",
     "Experiment": "/experiments/{item_id}",

@@ -829,34 +829,3 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
         raise TypeError(f"expected a string, list, or None, got {type(s).__name__}")
     values = [value for value in values if value]
     return values or None
-
-
-_DefaultType = typing.TypeVar("_DefaultType")
-
-
-def default_from_settings(
-    key: str, converter: typing.Callable[[str], _DefaultType] = _noop_convert
-) -> typing.Callable[[], _DefaultType]:
-    """Return a default factory that obtains the value from app settings."""
-
-    def default_factory() -> _DefaultType:
-        from django.conf import settings
-
-        return converter(getattr(settings, key))
-
-    return default_factory
-
-
-def default_from_env(
-    key: str, converter: typing.Callable[[str], _DefaultType] = _noop_convert
-) -> typing.Callable[[], _DefaultType]:
-    """Return a default factory that obtains the value from an env variable."""
-
-    def default_factory() -> _DefaultType:
-        import os
-
-        value = os.environ[key]
-
-        return converter(value)
-
-    return default_factory

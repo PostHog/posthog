@@ -44,7 +44,7 @@ import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkil
 import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
-import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { webAnalyticsEmptyState } from 'products/web_analytics/frontend/emptyState/webAnalyticsEmptyState'
 import { heatmapsEmptyState } from 'products/web_analytics/frontend/heatmaps/emptyState/heatmapsEmptyState'
 import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
@@ -389,19 +389,11 @@ export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyS
     { mocks: sessionReplayMocks }
 )
 
-// Web vitals detection asks event definitions on mount - answer "none yet".
-const webVitalsMocks = {
-    get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] },
-} as const
-
-export const WebVitalsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(webVitalsEmptyState, 'needs-setup', {
-    mocks: webVitalsMocks,
-})
-
-export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
-    webVitalsEmptyState,
-    'waiting-for-data',
-    { mocks: webVitalsMocks }
+// Web analytics detection asks event definitions on mount - answer "none yet".
+export const WebAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    webAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] } } }
 )
 
 // Alerts detection counts both alert kinds on mount - answer "none yet" to each.

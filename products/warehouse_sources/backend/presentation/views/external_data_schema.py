@@ -2343,6 +2343,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
+        # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
+        # also pauses the schedule and takes a CDC table out of the publication. It runs even when
+        # should_sync is already false, so a retry after a failed pause pauses the schedule again.
+        serializer = self.get_serializer(instance, data={"should_sync": False}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)
@@ -2365,9 +2372,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         config = new_source.parse_config(source.job_inputs)
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
-        credentials_valid, credentials_error = new_source.validate_credentials(
-            config, self.team_id, instance.name, api_version=effective_api_version
-        )
+        try:
+            credentials_valid, credentials_error = new_source.validate_credentials(
+                config, self.team_id, instance.name, api_version=effective_api_version
+            )
+        except Exception as e:
+            credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
+                new_source, self.team_id, e
+            )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

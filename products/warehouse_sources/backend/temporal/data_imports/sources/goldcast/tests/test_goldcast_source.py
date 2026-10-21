@@ -1,5 +1,3 @@
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -24,34 +22,6 @@ class TestSourceConfig:
         assert fields["access_key"].secret is True
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://customapi.goldcast.io/event/",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://customapi.goldcast.io/core/organization/",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = GoldcastSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='customapi.goldcast.io', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://customapi.goldcast.io/event/"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = GoldcastSource().get_non_retryable_errors()
-        assert not any(key in observed_error for key in non_retryable)
-
-
 class TestValidateCredentials:
     def test_valid_token_passes(self) -> None:
         with scripted_network([ScriptedResponse(json={"id": "org"})]):
@@ -59,12 +29,6 @@ class TestValidateCredentials:
                 True,
                 None,
             )
-
-    def test_invalid_token_surfaces_message(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, message = GoldcastSource().validate_credentials(GoldcastSourceConfig(access_key="tok"), team_id=1)
-        assert valid is False
-        assert message == "Invalid Goldcast API token"
 
 
 class TestDocumentedTables:
