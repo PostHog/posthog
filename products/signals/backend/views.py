@@ -84,7 +84,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
-from products.signals.backend.agent_instructions import STEERING_FIELDS
+from products.signals.backend.agent_instructions import STEERING_FIELDS, SignalAgentRole
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
@@ -637,9 +637,20 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # The read returns the singleton, so the inherited limit and offset params are noise.
     pagination_class = None
 
+    # These fields start or steer implementation task runs, so an inbox-only credential must not set them.
+    TASK_RUN_FIELDS = (
+        "autostart_enabled",
+        "autostart_base_branches",
+        "default_autostart_priority",
+        "default_open_pull_request_ready",
+        STEERING_FIELDS[SignalAgentRole.IMPLEMENTATION],
+    )
+
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return ["inbox:read"]
+        if isinstance(request.data, dict) and any(field in request.data for field in self.TASK_RUN_FIELDS):
+            return ["inbox:write", "task:write"]
         return ["inbox:write"]
 
     def _get_config(self) -> SignalTeamConfig:
