@@ -59,7 +59,9 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 5. The Go AI gateway (`:18080`) starts in resolver mode, on the gateway compose Postgres (database `ai_gateway_evals`) and Valkey (DB 5), and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
 6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
 7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
-8. The master Hedgebox team is seeded. It then gets the AI gateway mint key: a `phs_` key, gateway admission, and test credits in the separate eval ledger. One model listing and one token mint check that path before any case starts.
+8. The master Hedgebox team is seeded. It then gets the AI gateway mint key: a `phs_` key, gateway admission, and test credits in the separate eval ledger. One model listing and one token mint check that path before any case starts. The harness refreshes the same mint credential before its cache TTL expires during the run.
+
+Gateway cache writes stay disabled until the gateway starts. A one-shot run leaves them disabled.
 
 The async phase then starts the Temporal dev server on the main loop, applies the provider's settings overrides, terminates stale workflows, starts the Temporal worker on its own thread and loop, and fans the suites out with `asyncio.gather`.
 

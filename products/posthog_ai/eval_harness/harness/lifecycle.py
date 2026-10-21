@@ -42,7 +42,7 @@ from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
-from .ports import DJANGO_LIVE_PORT
+from .ports import AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
@@ -55,6 +55,7 @@ from .services import (
     build_local_skills,
     ensure_ai_gateway_binary,
     ensure_personhog_binaries,
+    maintain_ai_gateway_mint_key,
     package_local_skills_archive,
     provision_ai_gateway_mint_key,
     start_ai_gateway,
@@ -269,6 +270,7 @@ class SandboxedEvalHarness:
     def _bootstrap(self, required: frozenset[Infra], reporter: ProgressReporter) -> None:
         """Stand up everything the selected suites share. Teardown is registered in
         reverse on the stack, so what wasn't started is never torn down."""
+        self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=None))
         LONG_LIVED_SUBPROCESSES.startup_retries = self.options.infrastructure_retries
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
@@ -299,6 +301,7 @@ class SandboxedEvalHarness:
         if Infra.AI_GATEWAY in required:
             reporter.setup_started("start AI gateway")
             self._stack.callback(start_ai_gateway())
+            self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=AI_GATEWAY_REDIS_URL))
         if Infra.MCP_SERVER in required:
             reporter.setup_started("build skills and start MCP server")
             assert self._live_server is not None
@@ -358,6 +361,11 @@ class SandboxedEvalHarness:
         self, suites: Sequence[EvalSuite], required: frozenset[Infra], reporter: ProgressReporter
     ) -> list[SuiteRunResult]:
         async with AsyncExitStack() as stack:
+            if Infra.AI_GATEWAY in required:
+                assert self._demo_data is not None and self._ai_gateway_mint_key is not None
+                await stack.enter_async_context(
+                    maintain_ai_gateway_mint_key(self._demo_data.master_team_id, self._ai_gateway_mint_key)
+                )
             overrides: dict[str, object] = {}
             if Infra.LIVE_SERVER in required:
                 overrides.update(

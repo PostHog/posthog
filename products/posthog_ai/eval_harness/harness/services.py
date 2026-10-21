@@ -7,19 +7,23 @@ import json
 import time
 import shutil
 import signal
+import asyncio
 import hashlib
 import logging
 import secrets
 import zipfile
 import contextlib
 import subprocess
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management import call_command
+from django.db import close_old_connections
 
 import requests
+
+from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
 
 from products.posthog_ai.eval_harness.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
 from products.tasks.backend.facade.agents import (
@@ -50,16 +54,16 @@ AI_GATEWAY_EVAL_DATABASE = "ai_gateway_evals"
 AI_GATEWAY_EVAL_CREDITS_USD = "10000"
 _AI_GATEWAY_INTERNAL_TOKEN = secrets.token_urlsafe(32)
 _AI_GATEWAY_CREDIT_GRANT_ID = secrets.token_hex(16)
+AI_GATEWAY_CREDENTIAL_REFRESH_SECONDS = max(1, min(3600, GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL // 3))
 
 
 def ai_gateway_repo() -> Path:
     """The local ``PostHog/ai-gateway`` clone, at the path ``bin/start-ai-gateway`` uses."""
     override = os.environ.get("AI_GATEWAY_REPO")
-    return Path(override) if override else Path.home() / "Development" / "ai-gateway"
+    return (Path(override).expanduser() if override else Path.home() / "Development" / "ai-gateway").resolve()
 
 
 def _ai_gateway_binary() -> Path:
-    # .run/ is gitignored in the gateway repo.
     return ai_gateway_repo() / ".run" / "eval-gateway"
 
 
@@ -136,9 +140,7 @@ def start_ai_gateway() -> Callable[[], None]:
             "AI_GATEWAY_ENV": "dev",
             "AI_GATEWAY_AUTH_MODE": "resolver",
             "AI_GATEWAY_LISTEN_ADDR": f":{AI_GATEWAY_PORT}",
-            "AI_GATEWAY_POSTGRES_DSN": (
-                f"postgres://postgres:postgres@localhost:5435/{AI_GATEWAY_EVAL_DATABASE}?sslmode=disable"
-            ),
+            "AI_GATEWAY_POSTGRES_DSN": f"postgres://postgres:postgres@localhost:5435/{AI_GATEWAY_EVAL_DATABASE}",
             "AI_GATEWAY_REDIS_URL": AI_GATEWAY_REDIS_URL,
             "AI_GATEWAY_INTERNAL_TOKEN": _AI_GATEWAY_INTERNAL_TOKEN,
             "AI_GATEWAY_ANTHROPIC_API_KEY": os.environ["LLM_GATEWAY_ANTHROPIC_API_KEY"],
@@ -191,6 +193,34 @@ def _wait_for_ai_gateway_ready(timeout_seconds: float = 120) -> None:
     )
 
 
+def refresh_ai_gateway_mint_key(team_id: int, mint_key: str) -> None:
+    try:
+        call_command("setup_local_gateway_credential", "--phs", mint_key, "--team", str(team_id), stdout=io.StringIO())
+        call_command("llm_gateway_team", "refresh", str(team_id), stdout=io.StringIO())
+    finally:
+        close_old_connections()
+
+
+@contextlib.asynccontextmanager
+async def maintain_ai_gateway_mint_key(team_id: int, mint_key: str) -> AsyncIterator[None]:
+    async def refresh() -> None:
+        while True:
+            await asyncio.sleep(AI_GATEWAY_CREDENTIAL_REFRESH_SECONDS)
+            pending = asyncio.create_task(asyncio.to_thread(refresh_ai_gateway_mint_key, team_id, mint_key))
+            try:
+                await asyncio.shield(pending)
+            except asyncio.CancelledError:
+                await pending
+                raise
+
+    async with asyncio.TaskGroup() as group:
+        task = group.create_task(refresh())
+        try:
+            yield
+        finally:
+            task.cancel()
+
+
 def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     """Give the master demo team a ``phs_`` key the worker mints per-run tokens with.
 
@@ -201,8 +231,7 @@ def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     setup fails here and not as a model error in every case.
     """
     mint_key = f"phs_{secrets.token_hex(24)}"
-    call_command("setup_local_gateway_credential", "--phs", mint_key, "--team", str(team_id), stdout=io.StringIO())
-    call_command("llm_gateway_team", "refresh", str(team_id), stdout=io.StringIO())
+    refresh_ai_gateway_mint_key(team_id, mint_key)
 
     base_url = f"http://localhost:{AI_GATEWAY_PORT}"
     credits = requests.post(

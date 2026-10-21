@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import json
+import asyncio
 import zipfile
 import itertools
+import subprocess
 from functools import partial
 from pathlib import Path
 
@@ -13,7 +15,10 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 
 from products.posthog_ai.eval_harness import long_lived_subprocess
+from products.posthog_ai.eval_harness.harness import services
 from products.posthog_ai.eval_harness.harness.services import (
+    ensure_ai_gateway_binary,
+    maintain_ai_gateway_mint_key,
     package_local_skills_archive,
     provision_ai_gateway_mint_key,
     start_mcp_server,
@@ -178,3 +183,54 @@ def test_gateway_provisioning_requires_test_credits(requests_mock: requests_mock
     assert credits.last_request is not None
     assert credits.last_request.json() == {"amount_usd": "10000", "reason": "Local eval test credits"}
     assert credits.last_request.headers["Idempotency-Key"] != credits.last_request.headers["Authorization"]
+
+
+@pytest.mark.parametrize("relative_path", ["gateway", "./gateway"])
+def test_gateway_build_from_relative_clone_creates_the_binary_used_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative_path: str
+) -> None:
+    repo = tmp_path / "gateway"
+    (repo / "cmd" / "gateway").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AI_GATEWAY_REPO", relative_path)
+    monkeypatch.setattr(services.shutil, "which", lambda _name: "/go")
+
+    def build(cmd: list[str], *, cwd: Path, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        output = cwd / cmd[cmd.index("-o") + 1]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("binary")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(services.subprocess, "run", build)
+    ensure_ai_gateway_binary()
+
+    assert (repo / ".run" / "eval-gateway").read_text() == "binary"
+
+
+@pytest.mark.asyncio
+async def test_gateway_mint_credential_is_renewed_without_rotating_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop = asyncio.get_running_loop()
+    refreshed = asyncio.Event()
+    parked = asyncio.Event()
+    intervals: list[float] = []
+    keys: list[str] = []
+
+    async def tick(seconds: float) -> None:
+        intervals.append(seconds)
+        if len(intervals) > 1:
+            await parked.wait()
+
+    def command(name: str, *args: str, **_kwargs: object) -> None:
+        if name == "setup_local_gateway_credential":
+            keys.append(args[args.index("--phs") + 1])
+            loop.call_soon_threadsafe(refreshed.set)
+
+    monkeypatch.setattr(services.asyncio, "sleep", tick)
+    monkeypatch.setattr(services, "call_command", command)
+    async with maintain_ai_gateway_mint_key(42, "phs_test"):
+        await asyncio.wait_for(refreshed.wait(), timeout=5)
+
+    assert keys == ["phs_test"]
+    assert intervals[0] < services.GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL

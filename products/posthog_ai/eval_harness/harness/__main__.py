@@ -47,8 +47,8 @@ def _run(
     # would otherwise silently point eval reads at the dev persons DB.
     os.environ["PERSONHOG_ADDR"] = f"127.0.0.1:{PERSONHOG_ROUTER_PORT}"
 
-    # Django builds its ai-gateway cache alias from this at django.setup(), and under
-    # TEST=1 the setting has no default, so the credential blobs would go nowhere.
+    # HyperCache selects its cache alias at import time. Bootstrap enables
+    # gateway projections only after the selected suites start the gateway Redis.
     os.environ["AI_GATEWAY_REDIS_URL"] = AI_GATEWAY_REDIS_URL
 
     setup_django(keep_logging=transcript is not None)
