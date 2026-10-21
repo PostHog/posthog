@@ -9,7 +9,13 @@ import { TraceTimeline } from './TraceTimeline'
 const meta: Meta<typeof TraceTimeline> = {
     title: 'Scenes-App/AI observability/Trace view/Trace timeline',
     component: TraceTimeline,
-    args: { rows: FIXTURE_TIMELINE_ROWS, totalMs: 2310, selectedNodeId: 'gen-answer', onSelectNode: () => {} },
+    args: {
+        rows: FIXTURE_TIMELINE_ROWS,
+        totalMs: 2310,
+        selectedNodeId: 'gen-answer',
+        onSelectNode: () => {},
+        onPrefetchNode: () => {},
+    },
 }
 export default meta
 

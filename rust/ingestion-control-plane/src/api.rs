@@ -6,9 +6,9 @@ use anyhow::Context;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use personhog_coordination::types::ChangelogConfig;
+use personhog_coordination::types::{ChangelogConfig, MigrationRequest, MigrationState};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
@@ -471,6 +471,65 @@ async fn personhog_seed_changelog(
     Ok(Json(seeded))
 }
 
+#[derive(Deserialize)]
+struct StartMigrationRequest {
+    topic: String,
+}
+
+async fn personhog_start_migration(
+    State(state): State<AppState>,
+    Json(request): Json<StartMigrationRequest>,
+) -> Result<Json<MigrationRequest>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let topic = request.topic.trim();
+    if topic.is_empty() {
+        return Err(ApiError::bad_request("topic must not be empty"));
+    }
+    let client = etcd_client(&state).await?;
+    let migration = changelog::start_migration(&state.config, &client, &prefix, topic)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("migration refused: {e:#}")))?;
+    Ok(Json(migration))
+}
+
+#[derive(Deserialize)]
+struct RetireTopicRequest {
+    topic: String,
+}
+
+async fn personhog_retire_topic(
+    State(state): State<AppState>,
+    Json(request): Json<RetireTopicRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let client = etcd_client(&state).await?;
+    changelog::retire(&state.config, &client, &prefix, request.topic.trim())
+        .await
+        .map_err(|e| ApiError::bad_request(format!("retire refused: {e:#}")))?;
+    Ok(Json(json!({ "retired": request.topic.trim() })))
+}
+
+#[derive(Deserialize)]
+struct StopMigrationRequest {
+    /// The request or saga the operator saw; anything else is left alone.
+    id: String,
+}
+
+async fn personhog_cancel_migration(
+    State(state): State<AppState>,
+    Json(request): Json<StopMigrationRequest>,
+) -> Result<Json<MigrationState>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let client = etcd_client(&state).await?;
+    let migration = changelog::cancel_migration(&client, &prefix, &request.id)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("cancel refused: {e:#}")))?;
+    Ok(Json(migration))
+}
+
 #[derive(Serialize)]
 struct PodsResponse {
     pods: Vec<DiscoveredPod>,
@@ -508,6 +567,15 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/personhog/changelog/seed",
             post(personhog_seed_changelog),
+        )
+        .route("/api/personhog/migrations", post(personhog_start_migration))
+        .route(
+            "/api/personhog/migrations/current",
+            delete(personhog_cancel_migration),
+        )
+        .route(
+            "/api/personhog/changelog/retire",
+            post(personhog_retire_topic),
         )
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by

@@ -39,6 +39,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { buildConversionWatcher } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { hasSensitiveEmailStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
@@ -95,6 +96,7 @@ export function createHogFlowInvocation(
             // manager may be serving a newer version. A message step re-pins this to the version
             // that actually sent (see HogFunctionHandler); until then this is the best answer.
             flowVersion: hogFlow.version,
+            ...(hasSensitiveEmailStep(hogFlow) ? { sensitive: true } : {}),
         },
         teamId: hogFlow.team_id,
         // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
