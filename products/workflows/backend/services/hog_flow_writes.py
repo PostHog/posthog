@@ -14,7 +14,13 @@ from products.workflows.backend.facade.contracts import (
     WorkflowWriteResult,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    BILLABLE_ACTION_TYPES,
+    RECHECKED_TRIGGER_TYPES,
+    ROW_SCOPED_TRIGGER_TYPES,
+    HogFlow,
+    exit_condition_that_runs,
+)
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
@@ -156,10 +162,18 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
     if "exit_condition" in derived:
         # validate forces exit_only_at_end when the trigger it read is row-scoped. Apply that rule to the
         # locked trigger instead. When only the old trigger forced the value, keep the locked row's value.
-        if (derived.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        locked_type = (derived.get("trigger") or {}).get("type")
+        read_type = (validated_data.get("trigger") or {}).get("type")
+        if locked_type in ROW_SCOPED_TRIGGER_TYPES:
             derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
-        elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        elif read_type in ROW_SCOPED_TRIGGER_TYPES or (
+            locked_type in RECHECKED_TRIGGER_TYPES and read_type not in RECHECKED_TRIGGER_TYPES
+        ):
+            # The read trigger may have rewritten the value, and the locked trigger can run any exit
+            # condition, so keep the locked row's value instead.
             del derived["exit_condition"]
+        else:
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, derived["exit_condition"])
     if "billable_action_types" in derived:
         derived["billable_action_types"] = sorted(
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
