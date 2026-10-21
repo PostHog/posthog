@@ -367,8 +367,13 @@ function captureOpenWhenRanked(
 ): void {
     const previousReportId = cache.previousReportId ?? null
     const deadline = Date.now() + OPEN_RANK_WAIT_MS
+    let sent = false
 
     const fire = (resolved: ReturnType<typeof findReportRank>, options?: CaptureOptions): void => {
+        if (sent) {
+            return
+        }
+        sent = true
         cache.pendingOpenCapture = undefined
         cache.disposables.dispose('openRank')
         captureInboxReportOpened(
@@ -403,11 +408,20 @@ function captureOpenWhenRanked(
 
     cache.pendingOpenCapture = (options?: CaptureOptions) => fire(findReportRank(tracking.report.id, flatList), options)
     fireWhenReady(true)
-    if (!cache.pendingOpenCapture) {
+    if (sent) {
         return
     }
+    // kea-disposables runs this setup again on each resume. A resume without a pause replaces the
+    // stored cleanup and leaves the earlier interval running, so each tick checks `sent` and stops
+    // itself rather than rely on `dispose` alone.
     cache.disposables.add(() => {
-        const interval = setInterval(() => fireWhenReady(false), OPEN_RANK_POLL_MS)
+        const interval = setInterval(() => {
+            if (sent) {
+                clearInterval(interval)
+                return
+            }
+            fireWhenReady(false)
+        }, OPEN_RANK_POLL_MS)
         return () => clearInterval(interval)
     }, 'openRank')
 }
