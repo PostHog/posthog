@@ -37,6 +37,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
+from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 SCHEDULE_MATERIALIZATION = (
@@ -196,19 +197,57 @@ class TestManagedViewSetProviders(BaseTest):
         self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.MAT_VIEW)
         mock_schedule.assert_called_once()
 
-    @patch(SCHEDULE_MATERIALIZATION, side_effect=UnsatisfiableFrequencyError("sources sync every 6 hours"))
-    def test_a_cadence_the_sources_cannot_feed_leaves_the_view_computed_at_query_time(self, _):
+    @parameterized.expand([False, True])
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_a_cadence_the_sources_cannot_feed_leaves_the_view_computed_at_query_time(
+        self, existing: bool, mock_schedule: Mock
+    ) -> None:
         fake_view = _fake_view(sync_frequency=timedelta(minutes=15))
         with patch.dict(_expected_views_providers, clear=True):
             register_expected_views_provider(KIND, lambda team: [fake_view])
 
             viewset = self._viewset()
+            if existing:
+                viewset.sync_views()
+                set_declared_target(Node.objects.get(saved_query__managed_viewset=viewset), timedelta(hours=12))
+            mock_schedule.side_effect = UnsatisfiableFrequencyError("sources sync every 6 hours")
             viewset.sync_views()
 
         view = next(v for v in self._views(viewset) if v.name == fake_view.name)
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
-        self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.VIEW)
+        node = Node.objects.get(saved_query=view)
+        self.assertEqual(node.type, NodeType.VIEW)
+        self.assertIsNone(get_declared_target(node))
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_resync_revalidates_incremental_config_against_updated_upstream_definitions(self, _: Mock) -> None:
+        views = [
+            _fake_view(name="upstream", materialized=False),
+            ProvidedView(
+                name="downstream",
+                query="SELECT id FROM upstream",
+                fields={"id": IntegerDatabaseField(name="id")},
+                incremental_config=INCREMENTAL_CONFIG,
+            ),
+        ]
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: views)
+            viewset = self._viewset()
+            viewset.sync_views()
+            downstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="downstream")
+            self.assertEqual(downstream.incremental_config, INCREMENTAL_CONFIG)
+
+            views[0] = ProvidedView(
+                name="upstream",
+                query="SELECT 1 AS id LIMIT 1",
+                fields={"id": IntegerDatabaseField(name="id")},
+                materialized=False,
+            )
+            viewset.sync_views()
+
+        downstream.refresh_from_db()
+        self.assertIsNone(downstream.incremental_config)
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_an_incremental_key_the_query_does_not_output_is_not_stored(self, _):
