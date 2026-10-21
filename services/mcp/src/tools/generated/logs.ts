@@ -50,6 +50,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
+        if (params.grouping !== undefined) {
+            body['grouping'] = params.grouping
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -70,6 +73,8 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
             'cooldown_minutes',
             'schedule_restriction',
             'snooze_until',
+            'grouping',
+            'platform_owned',
             'next_check_at',
             'last_notified_at',
             'last_checked_at',
@@ -281,6 +286,8 @@ const logsAlertsList = (): ToolBase<
                     'threshold_operator',
                     'window_minutes',
                     'schedule_restriction',
+                    'grouping',
+                    'platform_owned',
                     'created_at',
                     'updated_at',
                 ])
@@ -338,6 +345,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
+        if (params.grouping !== undefined) {
+            body['grouping'] = params.grouping
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
@@ -358,6 +368,8 @@ const logsAlertsPartialUpdate = (): ToolBase<
             'cooldown_minutes',
             'schedule_restriction',
             'snooze_until',
+            'grouping',
+            'platform_owned',
             'next_check_at',
             'last_notified_at',
             'last_checked_at',
@@ -402,6 +414,8 @@ const logsAlertsRetrieve = (): ToolBase<
             'cooldown_minutes',
             'schedule_restriction',
             'snooze_until',
+            'grouping',
+            'platform_owned',
             'next_check_at',
             'last_notified_at',
             'last_checked_at',
