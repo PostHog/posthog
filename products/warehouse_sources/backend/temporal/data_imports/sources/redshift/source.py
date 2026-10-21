@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    _TRANSIENT_CONNECTION_DROP_SUBSTRINGS,
     REDSHIFT_READ_TIMEOUT_ERROR,
     RedshiftImplementation,
     get_connection_metadata as get_connection_metadata_redshift,
@@ -70,6 +71,19 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
 # cluster answers. A paused, resizing or briefly overloaded cluster gives the same result as a
 # blocked network path, so a later attempt can succeed.
 _CONNECT_TIMEOUT_ERROR = "connection timeout expired"
+
+# `_TRANSIENT_CONNECTION_DROP_SUBSTRINGS` (redshift.py) already retries a connection drop in-process
+# during sync setup, but once `_stream_arrow_batches` has yielded a batch it can no longer safely
+# replay the query, so the same drop mid-stream propagates all the way up to this activity. Temporal
+# then retries the whole activity and the failure is transient and self-recovering, so classify it
+# here too — otherwise `_handle_import_error` logs it at `exception` on every occurrence, flooding
+# error tracking with a self-recovering network blip. Mirrors the equivalent Postgres source.
+_CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
+    "PostHog's connection to your Redshift cluster kept closing before the sync could finish, and "
+    "reconnecting didn't help. Check that the cluster is not paused, resizing, or dropping idle "
+    "connections (a firewall or load balancer in front of it can do this too). This sync is still "
+    "enabled and will run again on its next schedule."
+)
 
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -196,6 +210,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             TEMPORARY_HOST_RESOLUTION_ERROR,
             REDSHIFT_READ_TIMEOUT_ERROR,
             _CONNECT_TIMEOUT_ERROR,
+            *_TRANSIENT_CONNECTION_DROP_SUBSTRINGS,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -214,6 +229,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
                 "SSH tunnel, check that the bastion host can reach the cluster. This sync is still enabled "
                 "and will run again on its next schedule."
             ),
+            **dict.fromkeys(_TRANSIENT_CONNECTION_DROP_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
