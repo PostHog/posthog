@@ -185,6 +185,14 @@ class UpsertAlertToolArgs(BaseModel):
     )
 
 
+def _follow_on_commit(alert: AlertConfiguration) -> None:
+    # Deferred to break a cycle: platform_alert_backfill reaches this module back through the alert
+    # workflows and the chat agent.
+    from products.alerts.backend.platform_alert_backfill import follow_insight_alert  # noqa: PLC0415
+
+    transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
+
+
 class UpsertAlertTool(MaxTool):
     name: str = "upsert_alert"
     description: str = UPSERT_ALERT_TOOL_DESCRIPTION
@@ -462,6 +470,8 @@ class UpsertAlertTool(MaxTool):
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
             alert.save(update_fields=update_fields)
+            if enabled_changed and action.enabled:
+                _follow_on_commit(alert)
         return None
 
     @staticmethod
@@ -653,5 +663,7 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
+        if alert.enabled:
+            _follow_on_commit(alert)
 
         return alert

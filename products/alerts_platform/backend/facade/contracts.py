@@ -265,6 +265,9 @@ class PlatformAlertCheckInput:
     owned_by_platform: bool = False
     instances: tuple[InstanceCheckState, ...] = ()
     grouping: Grouping = field(default_factory=Grouping)
+    # The calendar half of the schedule, so a source can tell when its own cadence has moved.
+    recurrence_unit: str | None = None
+    anchor_time: str | None = None
 
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.

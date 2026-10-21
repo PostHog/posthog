@@ -101,6 +101,7 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
+from products.alerts.backend.facade.platform import follow_insight_alert
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -899,6 +900,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        if instance.enabled:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     @transaction.atomic
@@ -1023,6 +1028,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        if enable_now:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
