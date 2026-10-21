@@ -65,14 +65,13 @@ def test_concurrent_assignment_writes_create_one_revision(same_operation: bool) 
     organization = Organization.objects.create(name="Assignment test")
     team = Team.objects.create(organization=organization)
     report = SignalReport.objects.create(team=team, status="ready")
-    service = ReportAssignmentService(team=team, report_id=str(report.id))
+    with patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True):
+        service = ReportAssignmentService(team=team, report_id=str(report.id))
     snapshot = service.read()
     proposal = AssignmentProposal(
         operation_id=uuid4(),
-        expected_revision=snapshot.revision,
-        evidence_revision=snapshot.evidence_revision,
+        expected_state=snapshot.state,
         source="research",
-        policy_version="1",
         outcome="no_suitable_owner",
     )
     other = proposal if same_operation else proposal.model_copy(update={"operation_id": uuid4()})
@@ -88,10 +87,10 @@ def test_concurrent_assignment_writes_create_one_revision(same_operation: bool) 
         finally:
             connections.close_all()
 
-    with patch("products.signals.backend.assignment_service.assignment_agent_selection_enabled", return_value=True):
+    with patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True):
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(attempt, value) for value in (proposal, other)]
             results = sorted(future.result(timeout=20) for future in futures)
     assert results == ["applied", "replayed" if same_operation else "stale"]
-    assert service.read().revision == 1
+    assert report.assignment_revisions.for_team(team.id).count() == 1
     assert report.artefacts.filter(type="assignment_decision").count() == 1

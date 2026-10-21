@@ -44,6 +44,7 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
@@ -55,6 +56,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     PriorityAssessment,
     ReportLink,
+    ReviewerState,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -62,6 +64,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.assignment_service import AssignmentProposal, ReportAssignmentService
 from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -242,9 +245,12 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
+    report_id = str(uuid.uuid4())
+    assignment = ReportAssignmentService(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
+                id=report_id,
                 team_id=team_id,
                 status=status,
                 title=title,
@@ -318,14 +324,17 @@ def create_scout_report(
                     )
                 except ArtefactContentValidationError as err:
                     raise InvalidScoutReportError(str(err))
-            if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
-                SignalReportArtefact.append_status(
-                    team_id=team_id,
-                    report_id=report_id,
-                    content=suggested_reviewers,
-                    attribution=attribution,
+            if (suggested_reviewers is not None and suggested_reviewers.root) or assignment.enabled:
+                suggested_reviewers = suggested_reviewers or SuggestedReviewers(root=[])
+                result = assignment.apply_compatibility_reviewers(
+                    suggested_reviewers,
+                    actor=attribution,
+                    expected_state=ReviewerState(),
+                    operation_id=uuid.uuid5(uuid.UUID(report_id), "scout-reviewers"),
+                    source="scout",
                     reevaluate_autostart=False,
                 )
+                suggested_reviewers = SuggestedReviewers.model_validate_json(result.reviewers_artefact.content)
                 # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
                 # still fire when the post-commit signal emits below fail (they propagate).
                 transaction.on_commit(
@@ -1109,7 +1118,7 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
         SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if current is None:
@@ -1169,66 +1178,47 @@ def set_scout_report_reviewers(
     suggested_reviewers: SuggestedReviewers,
     attribution: ArtefactAttribution,
     author: str | None = None,
+    proposal: AssignmentProposal | None = None,
+    service: ReportAssignmentService | None = None,
 ) -> bool:
-    """Replace an existing report's `suggested_reviewers` status artefact (latest-wins) — the
-    `edit_report` reviewer path. Returns True when reviewers were written, False when the supplied list
-    is empty (a no-op that leaves any existing reviewers untouched, never silently clears them).
-
-    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
-    inbox report (pipeline-authored included), so the change is attributed (to the scout's task) and an
-    audit note is logged, keeping it auditable and distinguishable from pipeline output.
-
-    The append opts out of the model's autostart re-eval hook (`reevaluate_autostart=False`); the caller
-    (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns — never in-txn,
-    since it spawns a Task — mirroring `create_scout_report`. Autostart is idempotent, so re-running it
-    for an already-started report no-ops, while a report that lacked a qualifying reviewer can now open a
-    draft PR.
-
-    Evidence merges forward: a scout can only supply `github_login`/`user_uuid` (+ `reason`), so for
-    reviewers already on the report's current reviewer list, the prior entry's `relevant_commits`,
-    `github_name`, and (when the scout supplies none) `reason` are carried over — mirroring the inbox
-    PUT. Without this, a reason-only re-route would wipe the commit evidence precedent-weighing runs on."""
+    """Apply a scout's selection without replacing a human-controlled reviewer list."""
     _validate_report_id(report_id)
-    if len(suggested_reviewers.root) == 0:
+    service = service or ReportAssignmentService(team=Team.objects.get(id=team_id), report_id=report_id)
+    if not suggested_reviewers.root and not service.enabled and service.read().state.control_id is None:
         return False
-    reviewer_labels = [_reviewer_note_label(entry) for entry in suggested_reviewers.root]
     with transaction.atomic():
-        # The lock is the team-scoped gate AND serializes the read-merge-append against concurrent
-        # reviewer edits (same discipline as the inbox PUT) so an interleaved write isn't lost.
-        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
-            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
         merged = _merge_forward_reviewer_evidence(report_id=report_id, suggested_reviewers=suggested_reviewers)
-        SignalReportArtefact.append_status(
-            team_id=team_id,
-            report_id=report_id,
-            content=merged,
-            attribution=attribution,
+        result = service.apply_compatibility_reviewers(
+            merged,
+            actor=attribution,
+            source="scout_edit",
             reevaluate_autostart=False,
+            expected_state=proposal.expected_state if proposal else None,
+            operation_id=proposal.operation_id if proposal else None,
+            outcome=proposal.outcome if proposal else "selected",
+            retry_reason=proposal.retry_reason if proposal else None,
         )
+        if not result.changed:
+            return False
+        applied = SuggestedReviewers.model_validate_json(result.reviewers_artefact.content)
+        reviewer_labels = [_reviewer_note_label(entry) for entry in applied.root]
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
             content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(reviewer_labels)}", author=author),
             attribution=attribution,
         )
-        # on_commit, not inline: `_do_edit_report` wraps this call in an outer transaction, so an
-        # inline capture would fire for an edit that later rolls back — and a DB error inside the
-        # capture, though swallowed, would poison that outer transaction. The merged content is the
-        # live reviewer set (latest-wins), so telemetry reflects what routing will actually see.
         transaction.on_commit(
             partial(
                 capture_suggested_reviewers_resolved,
                 team_id=team_id,
                 report_id=report_id,
-                github_logins=[entry.github_login for entry in merged.root if entry.github_login],
-                user_uuids=[entry.user_uuid for entry in merged.root if entry.user_uuid and not entry.github_login],
+                github_logins=[entry.github_login for entry in applied.root if entry.github_login],
+                user_uuids=[entry.user_uuid for entry in applied.root if entry.user_uuid and not entry.github_login],
                 source="scout_edit",
             )
         )
-    logger.info(
-        "signals_scout.edit_report: reviewers set",
-        extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(reviewer_labels)},
-    )
     return True
 
 

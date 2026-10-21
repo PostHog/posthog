@@ -146,67 +146,54 @@ When an implementation pull request reaches the report, the worker requests revi
 
 ## Assignment decisions
 
-The existing Inbox controls save reviewer edits during the API request: **Suggested reviewers**, the **Reviewers** menu, and **Unassign me**.
-With `signals-assignment-human-writer` off, reports without assignment decisions keep the existing writer and its effects.
-With it on, the report and artefact reviewer PUTs and step-off API use `ReportAssignmentService`.
-Each decision is an append-only `assignment_decision` artefact.
-These internal records stay out of the normal work log and its count.
-`SignalReportAssignmentRevision` indexes the current revision and operation IDs.
-The writer saves the decision, revision, and compatible reviewer list in one transaction under the report lock.
-The existing reviewer index and API response format remain available.
-Assignment changes do not claim or release work.
+Research, scouts, custom agents, the generic artefact API, and the existing Inbox reviewer controls use `ReportAssignmentService`.
+The `signals-assignment-writer` flag enables the shared rules for an organization.
+The existing `suggested_reviewers` artefact remains the authoritative list. `SignalReportSuggestedReviewer` remains its derived read index.
+The current row is the greatest `(created_at, id)` pair in both readers.
 
-An automatic proposal supplies the assignment revision and evidence fingerprint read before selection.
-The fingerprint covers report text, signal totals, findings, repository selection, and code references.
-The writer rejects a stale proposal.
-Repeating an operation ID with the same request returns the original decision without another write or callback.
-Reusing that ID for different input fails.
-The reviewer API allocates an operation ID for each edit; it does not expose a retry token.
+A human edit saves the complete chosen list and a `reviewer_control` status with mode `human` in one transaction under the report lock.
+An empty human choice is also protected. Automatic proposals cannot replace it.
+On first use, the writer checks the existing human-edit history before it initializes control.
+**Use automatic selection** changes control to `automatic` and keeps the current valid reviewers until a fresh selection arrives.
+This operation is also available at `POST /signals/reports/{id}/reviewers/resume/`.
 
-Human additions, removals, and explicit empty PUTs are stored as report-level overrides.
-A person can clear those overrides with a `resume` proposal through the service, under the same human-writer flag.
-Existing suggestions remain suggestions when a person keeps them in the list.
-A successful empty selection clears automatic assignments but preserves human overrides.
-A failed lookup preserves valid assignments and records a reason for reassessment.
-Every application checks current project access and resolves linked GitHub identities from the member record.
-Access rules, role memberships, and GitHub identities are loaded in batches for the proposed members.
-Loss of access removes an assignment even when a person selected it earlier.
-The generic artefact API cannot edit or delete decisions or their reviewer projections.
+Automatic callers must read `GET /signals/reports/{id}/reviewer_state/` before selection.
+The report detail response also includes this state as `reviewer_assignment`.
+Send the returned reviewer and control record IDs as `expected_reviewers`, with a stable `operation_id`.
+Reuse the same ID and payload on retries. The writer rejects stale state and conflicting reuse of an ID.
+These IDs protect assignment state; they do not cover the report's research evidence.
+An accepted request that leaves the list unchanged does not append a reviewer row or schedule delivery.
+`SignalReportAssignmentRevision` records operation IDs for retry handling. The decision log is not a second recipient store.
+
+Automatic adapters submit `selected`, `no_suitable_owner`, or `lookup_failed`.
+A deliberate empty result clears an automatic list. A failed lookup retains valid recipients and records a retry reason.
+Every applied recipient must resolve to an active member with current project access, including legacy login-only entries.
+Unresolved candidates remain in the decision log, outside the applied list. The state response exposes their exclusion reasons.
+Access cleanup removes ineligible recipients and retains human control. It does not select replacements.
+Task start reads the applied recipients, retains the human editor's permission check, and checks the state again under the report lock.
+Generic artefact PATCH and DELETE cannot change protected reviewer history.
+
+### Rollout and rollback
+
+| Control                                 | Allows                                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `signals-assignment-writer`             | Shared rules for all reviewer writers and the return-to-automatic control.                                 |
+| `signals-assignment-side-effects`       | Existing Slack delivery and automatic task start for reports enrolled in the writer.                       |
+| `signals-assignment-github-application` | Existing GitHub owner, review-request, and ready-state operations. Also requires the side-effects control. |
+
+All controls require explicit enablement and support organization targeting.
+With external effects disabled, local activity logs, scoped correction notes, and reviewer measurements remain active.
+The delivery checks use enrollment, so they still apply after the writer flag is disabled and when queued work runs.
+To stop the trial, disable delivery and the writer. Automatic writes stop on enrolled reports, while human corrections remain usable.
+Reports that never entered the writer keep their existing behavior. Rollback does not reactivate a legacy writer for protected reports.
+A flag change cannot retract a sent message or stop an external call that already passed its check.
+After-commit scheduling remains best effort. Suppressed actions are not stored for later delivery.
+
+This flag changes the real Inbox list and index. It does not write a shadow copy.
+Test human edit → scout update → human edit, stale proposals, retries, access loss, return to automatic, and failed lookups before expanding the trial.
+Run recipient-reviewed selection comparisons separately; write protection does not prove that the selected owner is suitable.
+Team assignments, separate PR roles, and durable delivery are later changes in [the system design](https://github.com/PostHog/posthog/issues/120572).
 The development-only `cleanup_signals` command deletes assignment revisions before their artefacts.
-
-The release controls require literal `true`. Missing flags and failed evaluations keep the new operations off, including in development.
-They evaluate for the report's organization; use an isolated test organization for the first trial.
-
-| Control                                 | Operation allowed when enabled                                                                                                                                       |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `signals-assignment-human-writer`       | Save human edits and resume automatic selection through the versioned writer.                                                                                        |
-| `signals-assignment-agent-selection`    | Apply automatic proposals through the versioned writer.                                                                                                              |
-| `signals-assignment-side-effects`       | Send report/reviewer Slack notifications, start implementation work automatically, and publish reviewer corrections to scouts for reports with assignment decisions. |
-| `signals-assignment-github-application` | Assign GitHub owners, request reviews, and mark PRs ready for reports with assignment decisions. This also requires the side-effects flag.                           |
-
-The side-effects checks use the presence of assignment decisions, not the current writer flag.
-They still apply after a writer is disabled and when an existing worker handles queued work.
-The task creation path checks again under the report lock.
-With side effects disabled, human edits do not write scout correction activity or forward correction notes.
-The assignment decision remains the audit record.
-Suppressed actions are not saved for later delivery; enabling a flag does not replay them.
-
-To stop the trial, disable side effects and both writers.
-Human edits on reports with decisions then return an error and leave saved state intact.
-They do not fall back to the old writer, which cannot preserve override history.
-Re-enable the human writer to continue edits on those reports.
-Reports without decisions keep their existing behavior.
-Flag changes cannot retract sent messages, reverse GitHub changes, or stop work already started.
-An external call that passed its check can still finish after a flag changes.
-
-This is a live writer, not a shadow copy: enabling it changes the real Inbox reviewer list and its read index.
-Research, scouts, team-provider validation, and decision-based GitHub delivery move to the shared contract in later change sets.
-Once a report has assignment decisions, the status appender refuses legacy reviewer writes under the report lock.
-Scouts and other old writers must move to the shared service before they can update reviewers on those reports.
-The GitHub control gates the current delivery worker; it does not yet make that worker apply the decision's separate PR roles.
-Team identities are part of the contract, but the writer refuses team assignments until a provider can validate them.
-Keep automatic application disabled until all producers and readers use the shared state.
-A full shadow comparison and a controlled end-to-end delivery test remain required before rollout.
 
 ## Report links
 

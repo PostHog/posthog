@@ -2,6 +2,7 @@ import re
 import json
 from datetime import timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -24,9 +25,11 @@ from products.signals.backend.artefact_schemas import (
     PullRequestLink,
     ReportLink,
     SignalFinding,
+    SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
 )
+from products.signals.backend.assignment_service import AssignmentProposal, ReportAssignmentService
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
@@ -561,6 +564,84 @@ def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected
     branch = _generate_self_driving_head_branch(title)
 
     assert re.fullmatch(rf"posthog-self-driving/{re.escape(expected_slug)}-[0-9a-f]{{6}}", branch)
+
+
+@pytest.mark.django_db
+def test_create_implementation_task_rejects_a_changed_reviewer_list(organization: Organization, team: Team) -> None:
+    user = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+    state = ReportAssignmentService.read_for_report(team_id=team.id, report_id=str(report.id)).state
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=str(report.id),
+        content=SuggestedReviewers(root=[]),
+        attribution=ArtefactAttribution.from_user(user.id),
+        reevaluate_autostart=False,
+    )
+
+    with patch.object(tasks_facade, "create_and_run_task") as create_task:
+        with pytest.raises(ReportChangedDuringAutostart, match="Reviewers changed"):
+            _create_implementation_task_if_absent(
+                team_id=team.id,
+                report_id=str(report.id),
+                title="t",
+                description="s",
+                expected_content=ImplementationReportContent.from_report(report),
+                expected_reviewers=state,
+                user_id=user.id,
+                repository="owner/repo",
+                base_branch=None,
+            )
+        create_task.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_access_cleanup_keeps_the_human_editors_task_permission_check(organization: Organization, team: Team) -> None:
+    editor = _create_org_member_with_github("editor@example.com", organization, "example-editor")
+    reviewer = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+    with (
+        patch("products.signals.backend.assignment_service.assignment_writer_enabled", return_value=True),
+        patch("products.signals.backend.assignment_service.assignment_side_effects_enabled", return_value=False),
+    ):
+        service = ReportAssignmentService(team=team, report_id=str(report.id))
+        service.edit_reviewers(
+            SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(reviewer.uuid))]),
+            actor=ArtefactAttribution.from_user(editor.id),
+        )
+        reviewer.is_active = False
+        reviewer.save(update_fields=["is_active"])
+        service.apply(
+            AssignmentProposal(
+                operation_id=uuid4(), expected_state=service.read().state, source="access_cleanup", action="cleanup"
+            ),
+            actor=ArtefactAttribution.system(),
+        )
+
+    with (
+        patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
+        patch("products.signals.backend.auto_start._resolve_triggering_user", return_value=None) as resolve_editor,
+        patch("products.signals.backend.auto_start._resolve_autostart_assignee") as resolve_reviewer,
+        patch.object(tasks_facade, "create_and_run_task") as create_task,
+    ):
+        result = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            title="t",
+            summary="s",
+            repository="owner/repo",
+            actionability=ActionabilityAssessment(
+                explanation="A clear fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P2),
+            reviewers_content=[_reviewer("example-reviewer")],
+        )
+        assert result.status == "blocked"
+        assert resolve_editor.call_args.args[1] == editor.id
+        resolve_reviewer.assert_not_called()
+        create_task.assert_not_called()
 
 
 @pytest.mark.django_db

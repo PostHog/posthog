@@ -59,6 +59,11 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.assignment_service import (
+    AssignmentProposal,
+    ReportAssignmentService,
+    StaleAssignmentProposal,
+)
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
@@ -2448,6 +2453,7 @@ def _do_edit_report(
     charts: list[ReportChart] | None,
     metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
+    reviewer_proposal: AssignmentProposal | None = None,
     links: list[ReportLink] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -2503,11 +2509,15 @@ def _do_edit_report(
     corroboration_collapsed = False
     supersede_recorded = False
     decision_fields_set: list[str] = []
+    reviewer_warnings: tuple[EditReportWarning, ...] = ()
     implementation_context = (
         prepare_scout_supersession(team_id=team.id, report_id=report_id, title=title, summary=summary)
         if supersedes_implementation
         else NO_IMPLEMENTATION_CONTEXT
     )
+    assignment = ReportAssignmentService(team=team, report_id=report_id)
+    if reviewers is None and reviewer_proposal is not None and reviewer_proposal.outcome != "selected":
+        reviewers = SuggestedReviewers(root=[])
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
@@ -2559,20 +2569,23 @@ def _do_edit_report(
         # added during that wait must not remain an identity candidate.
         if reviewers is not None:
             reviewers = _stamp_owner_provenance(team, reviewers, skill_name=author.skill_name)
-        # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
-        # fix — a report authored without a reviewer (so it routes to no one) can have one added after
-        # the fact. `reviewers` is None for empty/all-blank input, which leaves existing ones untouched.
-        reviewers_set = (
-            set_scout_report_reviewers(
-                team_id=team.id,
-                report_id=report_id,
-                suggested_reviewers=reviewers,
-                attribution=attribution,
-                author=author.skill_name,
+        try:
+            reviewers_set = (
+                set_scout_report_reviewers(
+                    team_id=team.id,
+                    report_id=report_id,
+                    suggested_reviewers=reviewers,
+                    proposal=reviewer_proposal,
+                    service=assignment,
+                    attribution=attribution,
+                    author=author.skill_name,
+                )
+                if reviewers is not None
+                else False
             )
-            if reviewers is not None
-            else False
-        )
+        except StaleAssignmentProposal as error:
+            reviewers_set = False
+            reviewer_warnings = (EditReportWarning(field="suggested_reviewers", message=str(error)),)
         # The other routing fix: a report that surfaced against the wrong codebase is repointed in
         # place, so the scout corrects it instead of filing a duplicate report to carry the right
         # repository. Omitting the field leaves the report's selection as it stands.
@@ -2869,7 +2882,8 @@ def _do_edit_report(
         corroboration_collapsed=corroboration_collapsed,
         links_appended=links_appended,
         decision_fields_set=tuple(decision_fields_set),
-        warnings=(
+        warnings=reviewer_warnings
+        + (
             (_supersede_warning(updated_fields=updated_fields, content_revision_count=content_revision_count),)
             if supersedes_implementation and not supersede_recorded
             else ()
@@ -2998,7 +3012,7 @@ def _validate_edit_inputs(
         and summary is None
         and append_note is None
         and not append_evidence
-        and not suggested_reviewers
+        and suggested_reviewers is None
         and repository is None
         and charts is None
         and metrics is None
@@ -3031,6 +3045,7 @@ async def edit_report(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    reviewer_proposal: AssignmentProposal | None = None,
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -3048,6 +3063,8 @@ async def edit_report(
     Content-changing edits pass the same safety judge as `emit_report` before anything is written
     (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
     had."""
+    if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
+        suggested_reviewers = []
     await database_sync_to_async(_validate_edit_inputs, thread_sensitive=False)(
         team,
         author,
@@ -3112,7 +3129,10 @@ async def edit_report(
         summary=summary,
         append_note=append_note,
         append_evidence=built_evidence,
-        reviewers=built_reviewers,
+        reviewers=built_reviewers
+        if suggested_reviewers is None or built_reviewers is not None
+        else SuggestedReviewers(root=[]),
+        reviewer_proposal=reviewer_proposal,
         repository=normalized_repository,
         charts=built_charts,
         metrics=built_metrics,
@@ -3162,6 +3182,7 @@ def edit_report_sync(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    reviewer_proposal: AssignmentProposal | None = None,
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -3172,6 +3193,8 @@ def edit_report_sync(
     priority_explanation: str | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
+    if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
+        suggested_reviewers = []
     _validate_edit_inputs(
         team,
         author,
@@ -3231,7 +3254,10 @@ def edit_report_sync(
         summary=summary,
         append_note=append_note,
         append_evidence=built_evidence,
-        reviewers=built_reviewers,
+        reviewers=built_reviewers
+        if suggested_reviewers is None or built_reviewers is not None
+        else SuggestedReviewers(root=[]),
+        reviewer_proposal=reviewer_proposal,
         repository=normalized_repository,
         charts=built_charts,
         metrics=built_metrics,

@@ -26,12 +26,8 @@ def _enabled(key: str, team_id: int) -> bool:
         return False
 
 
-def assignment_agent_selection_enabled(team_id: int) -> bool:
-    return _enabled("signals-assignment-agent-selection", team_id)
-
-
-def assignment_human_writer_enabled(team_id: int) -> bool:
-    return _enabled("signals-assignment-human-writer", team_id)
+def assignment_writer_enabled(team_id: int) -> bool:
+    return _enabled("signals-assignment-writer", team_id)
 
 
 def assignment_side_effects_enabled(team_id: int) -> bool:

@@ -24,8 +24,14 @@ from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import AutostartSkip, ImplementationDispatch, ImplementationReplacement
+from products.signals.backend.artefact_schemas import (
+    AutostartSkip,
+    ImplementationDispatch,
+    ImplementationReplacement,
+    ReviewerState,
+)
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
+from products.signals.backend.assignment_service import ReportAssignmentService
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -756,6 +762,7 @@ def _create_implementation_task_if_absent(
     dispatch: ImplementationDispatch | None = None,
     requested_after_run_count: int | None = None,
     runner_source: str = "requested",
+    expected_reviewers: ReviewerState | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
@@ -793,6 +800,12 @@ def _create_implementation_task_if_absent(
             return False
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return False
+        if (
+            expected_reviewers is not None
+            and ReportAssignmentService.read_for_report(team_id=team_id, report_id=report_id).state
+            != expected_reviewers
+        ):
+            raise ReportChangedDuringAutostart("Reviewers changed before task creation")
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
         if requested_after_run_count is not None and (
@@ -1413,6 +1426,15 @@ async def maybe_autostart_implementation_task(
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
+    assignment = await database_sync_to_async(ReportAssignmentService.read_for_report)(
+        team_id=team_id, report_id=report_id
+    )
+    if assignment.state.control_id is not None:
+        reviewers_content, triggering_user_id = await _latest_reviewers_content(report_id)
+        if assignment.control == "human":
+            if assignment.human_editor_id is None:
+                return AutostartOutcome(status="blocked", reason="The reviewer editor is no longer available")
+            triggering_user_id = assignment.human_editor_id
     expected_content = ImplementationReportContent.from_report(report)
     if title != expected_content.title or summary != expected_content.summary:
         if remaining_retries:
@@ -1603,6 +1625,7 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             title=title,
             expected_content=expected_content,
+            expected_reviewers=assignment.state,
             description=_build_autostart_task_description(
                 report_id=report_id,
                 team_id=team_id,
@@ -1660,7 +1683,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
         await SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .afirst()
     )
     if artefact is None:

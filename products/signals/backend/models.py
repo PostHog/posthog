@@ -1379,6 +1379,7 @@ class SignalReportArtefact(UUIDModel):
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
         ASSIGNMENT_DECISION = "assignment_decision"
+        REVIEWER_CONTROL = "reviewer_control"
         CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
@@ -1426,6 +1427,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
+            ArtefactType.REVIEWER_CONTROL,
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
@@ -1437,7 +1439,9 @@ class SignalReportArtefact(UUIDModel):
     # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
-    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.ASSIGNMENT_DECISION})
+    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
+        {ArtefactType.ASSIGNMENT_DECISION, ArtefactType.REVIEWER_CONTROL}
+    )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1678,6 +1682,8 @@ class SignalReportArtefact(UUIDModel):
         """
         if artefact_type_for(content) not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a status artefact content model")
+        if artefact_type_for(content) == cls.ArtefactType.REVIEWER_CONTROL and not assignment_writer:
+            raise ArtefactContentValidationError("Reviewer control requires the shared writer.")
         with ExitStack() as guard:
             if artefact_type_for(content) == cls.ArtefactType.SUGGESTED_REVIEWERS:
                 guard.enter_context(transaction.atomic())
@@ -2108,15 +2114,8 @@ class SignalReportArtefact(UUIDModel):
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
         if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
             raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
-        if self.type == self.ArtefactType.ASSIGNMENT_DECISION:
+        if self.type in {self.ArtefactType.ASSIGNMENT_DECISION, self.ArtefactType.REVIEWER_CONTROL}:
             raise ArtefactContentValidationError("Apply a new assignment decision instead of editing one.")
-        if (
-            self.type == self.ArtefactType.SUGGESTED_REVIEWERS
-            and SignalReportAssignmentRevision.objects.for_team(self.team_id).filter(reviewers_artefact=self).exists()
-        ):
-            raise ArtefactContentValidationError(
-                "This reviewer list records an assignment decision. Edit the report's reviewers to change it."
-            )
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
@@ -2137,6 +2136,15 @@ class SignalReportArtefact(UUIDModel):
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
         with ExitStack() as guard:
+            if self.type == self.ArtefactType.SUGGESTED_REVIEWERS:
+                guard.enter_context(transaction.atomic())
+                SignalReport.objects.select_for_update().get(team_id=self.team_id, id=self.report_id)
+                if (
+                    SignalReportAssignmentRevision.objects.for_team(self.team_id)
+                    .filter(report_id=self.report_id)
+                    .exists()
+                ):
+                    raise ArtefactContentValidationError("Use the report reviewer controls to change this list.")
             if isinstance(parsed, ReportLink):
                 # An edit is a second way to write a link, so it answers to the same invariants
                 # under the same lock. Without this a PATCH could point an existing row at the

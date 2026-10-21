@@ -223,3 +223,13 @@ export const GroupedAndIndividualReviewers: Story = {
         ],
     },
 }
+
+export const HumanControlled: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: { suggestions: codeHistorySuggestions, humanControlled: true },
+}
+
+export const EmptyHumanControlled: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: { suggestions: [], humanControlled: true },
+}

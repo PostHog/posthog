@@ -55,6 +55,8 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ResumeReviewersApi,
+    ReviewerControlResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
     ScoutCheckSummaryApi,
@@ -923,6 +925,21 @@ export const signalsReportsReingestCreate = async (
     })
 }
 
+export const getSignalsReportsReviewerStateRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewer_state/`
+}
+
+export const signalsReportsReviewerStateRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewerControlResponseApi> => {
+    return apiMutator<ReviewerControlResponseApi>(getSignalsReportsReviewerStateRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/reviewers/`
 }
@@ -964,6 +981,24 @@ export const signalsReportsReviewersMeDestroy = async (
     return apiMutator<void>(getSignalsReportsReviewersMeDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsReviewersResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/resume/`
+}
+
+export const signalsReportsReviewersResumeCreate = async (
+    projectId: string,
+    id: string,
+    resumeReviewersApi: ResumeReviewersApi,
+    options?: RequestInit
+): Promise<ReviewerControlResponseApi> => {
+    return apiMutator<ReviewerControlResponseApi>(getSignalsReportsReviewersResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resumeReviewersApi),
     })
 }
 
@@ -1157,7 +1192,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `assignment_decision`, `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `assignment_decision`, `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_control`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (

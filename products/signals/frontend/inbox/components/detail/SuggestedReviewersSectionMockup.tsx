@@ -8,7 +8,9 @@ export function SuggestedReviewersSectionMockup({
     suggestions,
     onAdd,
     onRemove,
+    humanControlled = false,
 }: {
+    humanControlled?: boolean
     suggestions: EnrichedReviewer[]
     onAdd: () => void
     onRemove: (suggestions: EnrichedReviewer[]) => void
@@ -17,6 +19,8 @@ export function SuggestedReviewersSectionMockup({
         <SuggestedReviewersSectionView
             reviewers={suggestions}
             disabled={false}
+            humanControlled={humanControlled}
+            onResumeAutomatic={() => undefined}
             onRemove={onRemove}
             addControl={
                 <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={onAdd}>
