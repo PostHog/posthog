@@ -8,6 +8,7 @@ the other in the same transaction, and every writer locks the logs row before th
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
+from typing import Final
 from uuid import UUID
 
 from django.utils import timezone
@@ -15,9 +16,13 @@ from django.utils import timezone
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    Grouping,
+    GroupingMode,
+    InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     PlatformAlertNotEditable,
 )
+from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
@@ -25,22 +30,49 @@ from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETT
 from products.logs.backend.platform_cutover import hand_over, has_begun_cutover, in_an_environment
 from products.logs.backend.platform_source_config import filters_of
 
+GROUPING_NOT_AVAILABLE: Final = "Grouping isn't available for this alert yet. Set the mode to single to save it."
 
-def on_created(alert: LogsAlertConfiguration, at: datetime) -> bool:
+
+def _refuse_grouping_on_logs(grouping: Grouping | None) -> None:
+    # The logs stack cannot group. A single grouping is what the API reads for such an alert, so a
+    # client that sends back what it read still saves.
+    if grouping is not None and grouping.mode != GroupingMode.SINGLE:
+        raise InvalidPlatformAlertEdit("grouping", GROUPING_NOT_AVAILABLE)
+
+
+def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
     """Hands a new alert to the platform when its team has begun the cutover, so the team never has
-    to be cut over again for it. False when the alert stays with logs."""
-    return not in_an_environment(alert) and has_begun_cutover(alert.team_id) and hand_over(alert, at)
+    to be cut over again for it, and creates the copy with `grouping`. False when the alert stays
+    with logs.
 
-
-def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool) -> None:
-    """Writes an edit the logs API saved onto the platform's copy.
-
-    Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit.
+    Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping.
     """
+    grouping = grouping if grouping is not None else Grouping()
+    if in_an_environment(alert) or not has_begun_cutover(alert.team_id):
+        _refuse_grouping_on_logs(grouping)
+        return False
+    if grouping.mode != GroupingMode.SINGLE and (problem := grouping_problem(grouping.keys, alert.threshold_operator)):
+        raise InvalidPlatformAlertEdit("grouping", problem)
+    if hand_over(alert, at, grouping=grouping):
+        return True
+    _refuse_grouping_on_logs(grouping)
+    return False
+
+
+def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping: Grouping | None = None) -> None:
+    """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
+    A `grouping` of None keeps the copy's own. An alert logs owns has no copy to write.
+
+    Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
+    alert cannot take the grouping.
+    """
+    if not alert.platform_owned:
+        _refuse_grouping_on_logs(grouping)
+        return
     update_owned_copy(
         team_id=alert.team_id,
         legacy_configuration_id=alert.id,
-        change=_platform_change_of(alert),
+        change=_platform_change_of(alert, grouping),
         snooze_until=alert.snooze_until,
         snooze_changed=snooze_changed,
     )
@@ -51,13 +83,15 @@ def on_deleted(*, team_id: int, alert_id: UUID) -> None:
 
 
 def _platform_change_of(
-    alert: LogsAlertConfiguration,
+    alert: LogsAlertConfiguration, grouping: Grouping | None
 ) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
-    # Only the settings a logs alert has. The platform's own, such as grouping, keep what the copy
-    # stores, so an edit through the logs API never resets them.
+    # Only the settings a logs alert has, and a grouping the edit named. The logs row has no grouping,
+    # so an edit that names none keeps what the copy stores rather than resetting it.
     upsert = platform_upsert_of(alert)
     shared = {field: getattr(upsert, field) for field in SETTINGS_FIELDS}
-    return lambda stored: replace(stored, enabled=upsert.enabled, **shared)
+    return lambda stored: replace(
+        stored, enabled=upsert.enabled, grouping=grouping if grouping is not None else stored.grouping, **shared
+    )
 
 
 def mirror_platform_edit(

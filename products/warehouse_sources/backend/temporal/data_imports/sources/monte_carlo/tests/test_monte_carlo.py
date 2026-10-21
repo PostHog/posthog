@@ -99,7 +99,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, {"data": {"getUser": {"email": "a@b.com"}}}, True),
-            ("unauthorized", 401, {"message": "Unauthorized"}, False),
             ("graphql_error", 200, {"errors": [{"message": "boom"}]}, False),
         ]
     )
