@@ -235,6 +235,15 @@ describe('Hog Inputs', () => {
             globals = createHogExecutionGlobals()
         })
 
+        it('keeps the MCP credential out of persisted invocation globals', async () => {
+            hogFunction.encrypted_inputs = {
+                mcp_credential: { value: 'phx_synthetic_mcp_credential' },
+            }
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+            expect(result.inputs).not.toHaveProperty('mcp_credential')
+            expect(JSON.stringify(result)).not.toContain('phx_synthetic_mcp_credential')
+        })
+
         it('should template out hog inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.hog_templated).toMatchInlineSnapshot(`"event: "test""`)

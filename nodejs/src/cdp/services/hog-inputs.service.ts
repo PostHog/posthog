@@ -130,6 +130,9 @@ export class HogInputsService {
         })
 
         for (const [key, input] of orderedInputs) {
+            if (key === 'mcp_credential') {
+                continue
+            }
             if (!input) {
                 continue
             }
