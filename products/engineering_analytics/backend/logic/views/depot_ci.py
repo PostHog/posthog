@@ -379,32 +379,42 @@ def stored_runs(
     jobs_table: str,
     *,
     optional_columns: frozenset[str] = frozenset(),
+    full_history: bool = False,
 ) -> str:
-    """The runs of both engines created at or after the stored window, with ``STORED_RUN_COLUMNS``.
+    """The runs of both engines with ``STORED_RUN_COLUMNS``, normally bounded by the stored window.
 
     A hand-off shell stays and is flagged, where ``with_depot_runs`` drops it. A stored job row
     cannot tell a dropped run from a run that never synced, and it needs that to leave the jobs of a
-    shell out.
+    shell out. ``full_history`` lets a new job resolve the suppression of an older run.
     """
+    floor = "1" if full_history else incremental_floor.stored_rows()
     if depot is None:
         github_runs = _github_runs(
             runs_table,
-            incremental_floor.stored_rows(),
+            floor,
             optional_columns=optional_columns,
             extra_columns=_stored_run_columns("0"),
         )
         return f"({github_runs})"
-    handoffs = _handoff_workflows(depot, incremental_floor.stored_rows_and_earlier("a.workflow_created_at"))
+    handoffs = _handoff_workflows(
+        depot, "1" if full_history else incremental_floor.stored_rows_and_earlier("a.workflow_created_at")
+    )
     # A job is created after its run, so the jobs of the runs in the window start at the window too.
-    scan = _ShellScan(runs=incremental_floor.stored_rows(), jobs=incremental_floor.stored_rows(), handoff_jobs="1")
+    scan = (
+        _whole_history_shell_scan(jobs_table, handoffs)
+        if full_history
+        else _ShellScan(runs=floor, jobs=incremental_floor.stored_rows(), handoff_jobs="1")
+    )
     github_runs = _github_runs(
         runs_table,
-        incremental_floor.stored_rows(),
+        floor,
         optional_columns=optional_columns,
         extra_columns=_stored_run_columns(f"id IN ({_github_shells(jobs_table, runs_table, handoffs, scan)})"),
     )
     depot_runs = _runs(
-        _attempts(depot, pull_requests_table, incremental_floor.stored_rows("a.workflow_created_at")),
+        _attempts(
+            depot, pull_requests_table, "1" if full_history else incremental_floor.stored_rows("a.workflow_created_at")
+        ),
         f""",
             ifNull(any(workflow_created_at), '') AS created_at_raw,
             ifNull(any(workflow_started_at), '') AS run_started_at_raw,
@@ -424,7 +434,7 @@ def _stored_run_columns(is_handoff_shell: str) -> str:
 def stored_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> workflow_jobs.JobsTable:
     """The job attempts of both engines created at or after the stored window.
 
-    The jobs of a hand-off shell stay. A reader leaves them out through the flag on their run. The
+    The jobs of a hand-off shell stay so the stored builder can flag them in the same snapshot. The
     source of the duplicate scan starts earlier, because the first listing of a job row can be older
     than its re-listed copy.
     """
