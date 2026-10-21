@@ -19,7 +19,6 @@ import {
     mockSourceMetadata,
     mockTask,
     mockTeamConfig,
-    pullRequestReports,
     reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
@@ -92,8 +91,6 @@ const meta: Meta = {
         mockDate: '2026-06-11',
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
@@ -141,17 +138,6 @@ export const WithValueSummary: Story = {
     decorators: [valueSummaryMocks],
 }
 
-export const LegacyWithValueSummary: Story = {
-    parameters: {
-        featureFlags: {
-            ...meta.parameters?.featureFlags,
-            [FEATURE_FLAGS.SIGNALS_INBOX_VALUE_SUMMARY]: true,
-            [FEATURE_FLAGS.INBOX_REDESIGN]: false,
-        },
-    },
-    decorators: [valueSummaryMocks],
-}
-
 function reportWithEvidenceItems(count: number): Story {
     return {
         decorators: [
@@ -193,67 +179,8 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
-// The layout the flag replaces: one tab per report list, the Runs and Configuration tabs, and the
-// setup rail. Story parameters replace the meta's, so the meta-level flags are re-listed.
-const LEGACY_FLAGS = {
-    [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-    [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
-    [FEATURE_FLAGS.INBOX_REDESIGN]: false,
-}
-
-export const Legacy: Story = {
-    parameters: {
-        featureFlags: LEGACY_FLAGS,
-        testOptions: {
-            waitForLoadersToDisappear: true,
-            // The setup rail loads its own team config and integrations, sometimes after the loader wait.
-            // This button renders only after both loads finish.
-            waitForSelector: '[data-attr="signals-issue-tracker-connect"]',
-        },
-    },
-    decorators: [routeTo(urls.inbox('pulls'))],
-}
-
-export const LegacyReport: Story = {
-    parameters: { featureFlags: LEGACY_FLAGS },
-    decorators: [routeTo(urls.inboxReport('pulls', pullRequestReports[0].id))],
-}
-
-export const LegacyScouts: Story = {
-    parameters: { featureFlags: LEGACY_FLAGS },
-    decorators: [
-        routeTo(urls.inbox('scouts')),
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
-                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
-            },
-        }),
-    ],
-}
-
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
-                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
-            },
-        }),
-    ],
-}
-
-export const EmptyControl: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-        },
-    },
     decorators: [
         mswDecorator({
             get: {
@@ -305,6 +232,45 @@ export const SelfDrivingOnboarding: Story = {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
+export const FocusedOnboarding: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    decorators: [
+        ...(Array.isArray(SelfDrivingOnboarding.decorators) ? SelfDrivingOnboarding.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'test-ui' },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'test-ui' },
+            },
+        }),
+    ],
+}
+
+export const FocusedOnboardingComplete: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+    decorators: [
+        ...(Array.isArray(Empty.decorators) ? Empty.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: {
+                        step: 'github',
+                        sources: [],
+                        scanner_ids: [],
+                        suggestions: [],
+
+                        automatic_implementation: false,
+                        implementation_priority: 'P1',
+                    },
+                    completed_at: '2026-06-11T10:00:00Z',
+                    variant: 'test-ui',
+                },
             },
         }),
     ],

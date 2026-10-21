@@ -23,7 +23,6 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 #[derive(Clone)]
 pub struct RecoveryConfig {
     pub kafka: KafkaConfig,
-    pub topic: String,
     pub pod_name: String,
     /// Overall deadline for one recovery, including transient-failure
     /// retries.
@@ -73,7 +72,6 @@ enum FetchError {
 /// consumer while freeing its permit, eventually leaving permits with an
 /// empty pool.
 pub struct ChangelogRecovery {
-    topic: String,
     recv_timeout: Duration,
     idle: Mutex<VecDeque<StreamConsumer>>,
     permits: Semaphore,
@@ -93,7 +91,6 @@ impl ChangelogRecovery {
             );
         }
         Ok(Self {
-            topic: cfg.topic,
             recv_timeout: cfg.recv_timeout,
             idle: Mutex::new(idle),
             permits: Semaphore::new(cfg.pool_size),
@@ -139,7 +136,8 @@ impl ChangelogRecovery {
         mark: &DirtyMark,
         expected: &PersonCacheKey,
     ) -> Result<CachedPerson, String> {
-        let partition = mark.partition;
+        let topic = &mark.stream.topic;
+        let partition = mark.stream.partition;
         let offset = mark.offset;
         let partition_i32 = i32::try_from(partition)
             .map_err(|_| format!("partition {partition} exceeds i32::MAX"))?;
@@ -154,7 +152,7 @@ impl ChangelogRecovery {
         let deadline = Instant::now() + self.recv_timeout;
         loop {
             let attempt = self
-                .attempt_fetch(&consumer, partition_i32, mark, expected, deadline)
+                .attempt_fetch(&consumer, topic, partition_i32, mark, expected, deadline)
                 .await;
             match attempt {
                 Ok(person) => return Ok(person),
@@ -180,13 +178,14 @@ impl ChangelogRecovery {
     async fn attempt_fetch(
         &self,
         consumer: &StreamConsumer,
+        topic: &str,
         partition_i32: i32,
         mark: &DirtyMark,
         expected: &PersonCacheKey,
         deadline: Instant,
     ) -> Result<CachedPerson, FetchError> {
         let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset(&self.topic, partition_i32, Offset::Offset(mark.offset))
+        tpl.add_partition_offset(topic, partition_i32, Offset::Offset(mark.offset))
             .map_err(|e| FetchError::Permanent(format!("tpl add_partition_offset: {e}")))?;
         consumer
             .assign(&tpl)
@@ -201,7 +200,7 @@ impl ChangelogRecovery {
                 Err(_) => {
                     return Err(FetchError::Transient(format!(
                         "recovery timed out after {:?} seeking partition {} offset {offset}",
-                        self.recv_timeout, mark.partition
+                        self.recv_timeout, mark.stream.partition
                     )));
                 }
             };

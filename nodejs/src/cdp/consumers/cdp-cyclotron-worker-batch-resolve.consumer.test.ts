@@ -11,6 +11,7 @@ import { CdpOutput } from '../cdp-services'
 import {
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
+    deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
 import { AudienceFetchTimeoutError } from '../services/hogflows/hogflow-batch-person-query.service'
@@ -451,6 +452,33 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             attempts: MAX_RESOLVER_ATTEMPTS - 1,
             variables: {},
             startedAt: '2026-08-11T00:00:00.000Z',
+        })
+
+        it.each([
+            ['before its deadline parks it again without reading members', 3600 * 1000, false],
+            ['at its deadline fails the run', -1000, true],
+        ])('a realtime cohort resolver woken %s', async (_name, untilOffsetMs, fails) => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            const waitUntil = new Date(Date.now() + untilOffsetMs).toISOString()
+            const job = buildJob({
+                ...lastAttemptState(),
+                attempts: 0,
+                realtimeCohort: { id: 7, teamId: team.id, waitUntil },
+            })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            const [{ scheduledAt, state }] = job.reschedule.mock.calls[0]
+            if (fails) {
+                expect(deserializeResolverState(state).pendingTerminal).toEqual('failed')
+                expect(queueLogs.mock.calls[0][0][0].message).toContain("didn't finish calculating")
+            } else {
+                expect(scheduledAt.toISOString()).toEqual(waitUntil)
+                expect(state).toBeUndefined()
+            }
         })
 
         it('tells the customer what to change when the audience query timed out', async () => {

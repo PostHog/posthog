@@ -10,6 +10,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
     Integration,
     OauthIntegration,
     google_ads_hierarchy_level,
@@ -24,6 +26,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
@@ -302,6 +307,7 @@ class GoogleAdsSource(
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
             history_start=inputs.history_start,
             requested_start=config.start_date if isinstance(config, GoogleAdsSourceConfig) else None,
+            skip_removed=isinstance(config, GoogleAdsSourceConfig) and config.skip_removed_keywords,
         )
 
     @property
@@ -347,6 +353,23 @@ class GoogleAdsSource(
                         required=False,
                         placeholder="2020-01-01",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="skip_removed_keywords",
+                        label="Skip removed keywords?",
+                        caption=(
+                            "Leave out keywords that are removed, or that sit in a removed ad group or "
+                            "campaign, from the keyword and ad group criterion tables. Every sync reads "
+                            "these tables in full, so removed keywords count towards your billed row "
+                            "usage on each sync."
+                        ),
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -410,6 +433,9 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsScopeInsufficientError as e:
+            # Reconnecting alone repeats the same consent screen, so name the permission to allow.
+            raise IntegrationAccountListingError(_SCOPE_INSUFFICIENT_ERROR) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.
@@ -423,6 +449,12 @@ class GoogleAdsSource(
             # a clean message instead of the raw connection error.
             raise IntegrationAccountListingError(
                 "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
+        except GoogleAdsQuotaExhaustedError as e:
+            # Unlike the sync path, no Temporal activity retries this interactive call, so a 429
+            # otherwise surfaces as an unhandled 500 instead of something the user can act on.
+            raise IntegrationAccountListingError(
+                "Google Ads rate-limited this request. Please wait a moment and try again."
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}

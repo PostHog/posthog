@@ -7,11 +7,11 @@ The harness builds product skills from the current checkout and uses native bund
 `--skill-delivery exec` instead packages those skills for MCP distribution, enables the exec skill prompt, and removes native skills from every sandbox so the two paths cannot satisfy the same case.
 
 This is the eval harness for PostHog AI 2.0. It does **not** run under pytest.
-It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
+It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, AI gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
 
 The harness also hosts non-sandboxed suite kinds — see [Suite kinds](#suite-kinds).
-A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, LLM gateway, or MCP server.
+A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, AI gateway, or MCP server.
 
 Two other docs sit next to this one:
 
@@ -37,7 +37,7 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -117,6 +117,21 @@ Dependency warnings, SDK progress bars, and direct setup prints stay in the tran
 `--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
 Native subprocess output always goes to the transcript.
 
+### AI gateway
+
+Sandboxed agents call their model through the Go [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway), as PostHog AI runs do in production.
+The harness builds and starts it from a local clone at `~/Development/ai-gateway`, the same path `bin/start-ai-gateway` uses. Set `AI_GATEWAY_REPO` to use a clone at a different path.
+
+```bash
+git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
+```
+
+The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
+It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
+The harness adds test credits to the master demo team in this separate ledger. Scoped tokens require a positive balance and cannot use an overspend allowance.
+Each run gets a capped `phe_` token minted with a key on that team, so spend is per run and never reaches a real wallet. The harness refreshes the mint key during long runs. It retries temporary database or Redis errors until the credential expires. Retry delays increase to at most one minute.
+If token minting fails, the fallback URL stays on the eval gateway, which rejects requests without a run token.
+
 ### Interactive view
 
 The view is `phrocs evals`, the same Bubble Tea program that renders `hogli start`.
@@ -169,8 +184,8 @@ The experiment metadata records `skill_delivery`; compare the shared `expected_s
 
 ### Codex runtime
 
-`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
-It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
+`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
+It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's AI gateway uses to proxy the agent's OpenAI calls.
 Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
 ### Claude and Codex smoke comparison
@@ -191,8 +206,8 @@ eval_comparison_args=(
     --skill-delivery exec
     --trials 1
 )
-EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5
-EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-5.5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5-5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-6.1-sol
 ```
 
 Compare the named scorer results, completed cases, timeouts, infrastructure errors, and total duration in both final summaries.
@@ -226,7 +241,7 @@ The first modal run pays a one-time remote image build; later runs reuse the cac
 
 Modal prerequisites, all checked by preflight before anything boots:
 
-- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the LLM gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
+- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the AI gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
 - `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 
@@ -387,22 +402,25 @@ The summary includes the trial ID, the agent trace ID when available, phase dura
 Case names and `--eval` filters stay the same.
 
 `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
-`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
-PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
+`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service by default; local logs are still written.
+Both sandboxed and one-shot suites can set `send_to_posthog=True` with `offline_suite` to publish only to PostHog while Braintrust uploads remain disabled, or `send_to_posthog=False` to disable PostHog uploads independently.
+The 11 experiment-skill suites use this PostHog-only mode.
+PostHog result uploads default to following `no_send_logs`, independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
 
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
 It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
-Other public suites report scores to Braintrust until they opt into offline publishing.
-Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
+PostHog AI and Slack app public suites also opt into offline publishing with their own tagged scorer versions.
+Agent and judge trace capture remains available. `no_send_logs=True` suppresses offline result uploads unless `send_to_posthog=True` is explicitly set.
 
-Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal key with `offline_evaluation_ingestion:write`, `evaluation:write`, and access to project `2` to upload and tag results. An ingestion-only personal or project secret key can upload results, but tagging will warn and leave the run untagged.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
-The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metrics and explains local and CI key configuration.
+The [suite configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#configured-offline-experiment-suites) lists the metrics and explains local and CI key configuration.
 Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
+A completed upload records its results link before tagging begins. Tagging has a separate five-second deadline; failures, timeouts, and shutdown interruptions only warn and preserve the successful upload status.
 Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to the full 60-second upload deadline for delivery to finish.
 Requests use a 5-second timeout and up to two retries within that overall deadline. Terminal API failures trigger a best-effort attempt to mark the experiment failed, limited to 5 seconds; pauses and interruptions leave it resumable.
 Both sandboxed and one-shot suites can opt in through `offline_suite`. Rich scorer recording runs only when offline publishing is configured and uploads are allowed.

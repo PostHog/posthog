@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { YAxisFormat } from '@posthog/quill-charts'
 
 // ============================================================================
@@ -220,6 +222,12 @@ export type PathsResult = PathsResultItem[]
 export interface TrendsVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
+    title?: string
+    /** Drawn as a child of a line or bar chart, so it can read the chart's scales. */
+    overlay?: ReactNode
+    showControls?: boolean
+    chartClassName?: string
+    showTitle?: boolean | 'axis'
 }
 
 export interface FunnelVisualizerProps {

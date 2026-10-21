@@ -1247,6 +1247,15 @@ export const MonitorOverview: StoryObj = {
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
+// A scanner with legacy experiment targeting points its owner to an experiment scanner.
+export const MonitorOverviewLegacyTargeting: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(monitorOverviewScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
+}
+
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
@@ -1798,10 +1807,6 @@ export const ScannerAlertsEmpty: StoryObj = {
     },
 }
 
-export const ScannerTemplates: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionTemplates() },
-}
-
 export const ScannerEditorDetails: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerDetails(summarizerScanner.id) },
 }
@@ -1927,12 +1932,10 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal-based creation flow when the flag's test variant is on: a typed goal and budget on the
-// left, one-click starting points on the right.
+// The goal step: a typed goal and budget on the left, one-click starting points on the right.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
-        pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+        pageUrl: urls.replayVisionScannerGoal('new'),
     },
 }
 
@@ -1961,6 +1964,7 @@ const goalDraft: DraftScannerResponseApi = {
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
+    free_only: false,
     estimated_monthly_observations: 1000,
 }
 
@@ -1969,7 +1973,6 @@ const goalDraft: DraftScannerResponseApi = {
 export const ScannerEditorGoalOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
     },
     decorators: [
         (StoryFn) => {
@@ -1997,7 +2000,7 @@ export const ScannerEditorGoalOverview: StoryObj = {
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test', [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
     decorators: [
         mswDecorator({
@@ -2083,7 +2086,6 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
 export const ScannerEditorGoalOverviewLoading: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.LemonSkeleton' },
     },
     decorators: [
@@ -2097,7 +2099,10 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()
             // Hold the draft loader open so the overview renders its skeleton instead of a result.
-            logic.actions.draftScannerFromGoal('find out where people give up in billing', 5000)
+            logic.actions.draftScannerFromGoal({
+                goal: 'find out where people give up in billing',
+                spend: { monthlyCreditBudget: 5000 },
+            })
             return <StoryFn />
         },
     ],
@@ -2188,8 +2193,7 @@ export const ScannerEditorBudgetFreeOnlyNearlyUsed: StoryObj = {
 // The goal flow with "Set a budget" picked instead of the free default.
 export const ScannerEditorGoalFlowBudget: StoryObj = {
     parameters: {
-        pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+        pageUrl: urls.replayVisionScannerGoal('new'),
     },
     decorators: [
         (StoryFn) => {
@@ -2205,8 +2209,7 @@ export const ScannerEditorGoalFlowBudget: StoryObj = {
 // experiment scanner on the one picked.
 export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
     parameters: {
-        pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+        pageUrl: urls.replayVisionScannerGoal('new'),
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -2224,8 +2227,7 @@ export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
 // No free credits left this period, so "Free" is disabled and the budget input shows.
 export const ScannerEditorGoalFlowFreeCreditsUsed: StoryObj = {
     parameters: {
-        pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+        pageUrl: urls.replayVisionScannerGoal('new'),
     },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } })],
 }
@@ -2234,7 +2236,6 @@ export const ScannerEditorGoalFlowFreeCreditsUsed: StoryObj = {
 export const ScannerEditorGoalOverviewFreeOnly: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
     },
     decorators: [
         mswDecorator({ post: { '/api/projects/:team_id/vision/scanners/estimate/': largeEstimate } }),

@@ -109,7 +109,13 @@ Discovery skips an experiment before its exposure query when:
 - its recalculation is already running,
 - its last one finished within the hour on a recent window,
 - no release condition of its flag has a rollout above 0%,
-- it has no metric that the recalculation computes, inline or saved.
+- it has no metric that the recalculation computes, inline or saved,
+- its last 3 exposure checks in a row found fewer than 50 exposures, and the last one ran less than 7 days ago.
+
+The exposure back-off keeps its state in Redis, one key per experiment (`experiments:exposure_backoff:v1:<experiment_id>`) with a 14-day TTL renewed on every write.
+Each exposure check below 50 adds 1 to the count, a check at 50 or more deletes the key, and a failed exposure query leaves it unchanged.
+Discovery reads every key in one `MGET`.
+A Redis error or an unreadable key never skips an experiment: the exposure gate decides as it would without the back-off.
 
 The freshness check ignores `timeseries_sync` rows, which carry a timeseries run's window rather
 than a full recalculation. Discovery reads these with a fixed number of queries for the whole hour,

@@ -54,6 +54,7 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
                 "message_category_id": str(content.message_category_id) if content.message_category_id else None,
                 # Puts the send on the email queue's fast lane and skips marketing opt-outs.
                 "message_category_type": "transactional",
+                "sensitive": content.sensitive,
                 "inputs": {
                     "email": {
                         "templating": "liquid",
@@ -100,7 +101,6 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
 
 
 def _verified_sender(team_id: int, requested_id: int | None) -> int:
-    # A fresh read: Team.workflows_config is memoized for the whole process.
     sender_id = requested_id or (
         TeamWorkflowsConfig.objects.filter(team_id=team_id)
         .values_list("default_email_integration_id", flat=True)
@@ -167,4 +167,5 @@ def update_transactional_email_workflow(
             base_live_updated_at=None,
             includes_staged_draft=False,
             validated_status=flow.status,
+            keeps_live_sensitivity=False,
         )

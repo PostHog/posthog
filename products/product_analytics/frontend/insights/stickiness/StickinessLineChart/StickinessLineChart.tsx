@@ -76,15 +76,21 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -92,6 +98,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 seriesIdentification,
             }),
         [
+            querySource,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -114,9 +121,9 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 // instead of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
             }),
-        [indexedResults, display, getTrendsColor, getLabel, showMultipleYAxes]
+        [indexedResults, display, getTrendsColor, getLabel, buildMeta, showMultipleYAxes]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(

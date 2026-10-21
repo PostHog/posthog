@@ -56,6 +56,7 @@ export function FunnelBarHorizontalChart({
         querySource,
         isComparedFunnel,
         insightData,
+        hasPartialBreakdownSelection,
     } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
@@ -158,6 +159,7 @@ export function FunnelBarHorizontalChart({
                             breakdownFilter={breakdownFilter}
                             groupTypeLabel={groupTypeLabel}
                             showPersonsModal={showPersonsModal}
+                            isPartialBreakdownSelection={hasPartialBreakdownSelection}
                             resolvedDateRange={insightData?.resolved_date_range}
                             compareTo={querySource?.compareFilter?.compare_to}
                         />

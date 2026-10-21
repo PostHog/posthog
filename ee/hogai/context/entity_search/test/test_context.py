@@ -52,7 +52,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("insight", "test_insight_id", "/project/{team_id}/insights/test_insight_id"),
             ("dashboard", "test_dashboard_id", "/project/{team_id}/dashboard/test_dashboard_id"),
             ("experiment", "test_experiment_id", "/project/{team_id}/experiments/test_experiment_id"),
-            ("feature_flag", "test_flag_id", "/project/{team_id}/feature_flags/test_flag_id"),
+            ("feature_flag", "test_flag_id", "/project/{team_id}/feature-flags/test_flag_id"),
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),

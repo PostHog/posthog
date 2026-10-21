@@ -24,7 +24,13 @@ tools:
             Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as
             certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on
             the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another
-            schedule. Requires human typed confirmation.
+            schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by
+            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a
+            starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key,
+            unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
+            with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
+            changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
+            confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
@@ -47,9 +53,14 @@ tools:
         enabled: true
         title: Get a warehouse suggestion
         description: >
-            Get one warehouse suggestion by id, including `evidence`: the read counts and usage window that led to it.
-            Use this to explain to the user why a view or table should be certified, deprecated or materialized before
-            accepting.
+            Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between
+            `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or
+            table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface`
+            those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog
+            ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background
+            included. `days_with_data` is how many days of the window PostHog has read history for, not how active this
+            project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload`
+            to explain to the user why a view or table should be certified, deprecated or materialized before accepting.
     warehouse-suggestions-list:
         operation: warehouse_suggestions_list
         enabled: true
@@ -61,9 +72,10 @@ tools:
             `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or
             table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires
             edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion.
-            If the list is empty, call warehouse-suggestions-status to learn why. Results come strongest first within
-            each kind. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent
-            per month. For a certify suggestion, use the read counts from warehouse-suggestions-get.
+            If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the
+            one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and
+            bytes saved or spent per month. For a certify suggestion, use the read counts in `evidence` from
+            warehouse-suggestions-get.
         response:
             include:
                 - id

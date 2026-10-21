@@ -9,6 +9,10 @@ CORE_ENDPOINTS = (
     "PullRequests",
     "Repos",
     "Tickets",
+    "UserAliases",
+    "TeamMemberships",
+    "PullRequestProjects",
+    "TicketProjects",
 )
 
 # Aggregate report resources under the shared Metrics API (`https://api.appfireflow.com/collaboration/`).
@@ -29,6 +33,11 @@ CORE_ENDPOINT_PATHS: dict[str, str] = {
     "PullRequests": "pull_requests/",
     "Repos": "repos/",
     "Tickets": "tickets/",
+    "UserAliases": "user_alias/",
+    # Flow documents this path without a trailing slash, but only `team_membership/` routes to the API.
+    "TeamMemberships": "team_membership/",
+    "PullRequestProjects": "pull_request_projects/",
+    "TicketProjects": "ticket_projects/",
 }
 
 # Path of each metrics endpoint under the shared collaboration host.
@@ -54,12 +63,16 @@ TABLE_NAMES: dict[str, str] = {
     "PullRequests": "pull_requests",
     "Repos": "repos",
     "Tickets": "tickets",
+    "UserAliases": "user_aliases",
+    "TeamMemberships": "team_memberships",
+    "PullRequestProjects": "pull_request_projects",
+    "TicketProjects": "ticket_projects",
     "CodingMetrics": "coding_metrics",
     "CollaborationMetrics": "collaboration_metrics",
 }
 
 # Stable datetime field to partition on, for endpoints where one is confirmed by the API docs.
-# Repos has no documented date field, and the metrics endpoints return one aggregate row per
+# Repos and TeamMemberships have no documented date field, and the metrics endpoints return one aggregate row per
 # sync, so neither partitions.
 PARTITION_KEYS: dict[str, str] = {
     "Users": "created_at",
@@ -67,11 +80,15 @@ PARTITION_KEYS: dict[str, str] = {
     "Commits": "author_date",
     "PullRequests": "created_at",
     "Tickets": "created_at",
+    "UserAliases": "created_at",
+    "PullRequestProjects": "created_at",
+    "TicketProjects": "created_at",
 }
 
 # Only endpoints with a documented `<field>__gte`/`<field>__lt`-filterable timestamp get an entry.
-# Repos and the metrics endpoints are full refresh: Repos has no documented date field to filter on,
-# and the metrics endpoints already require an explicit date-range window on every call.
+# Repos, TeamMemberships, PullRequestProjects, TicketProjects and the metrics endpoints are full refresh:
+# the first four document no date filter, and the metrics endpoints already require an explicit
+# date-range window on every call.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "Users": [incremental_field("last_activity_at", IncrementalFieldType.DateTime)],
     "Teams": [incremental_field("created_at", IncrementalFieldType.DateTime)],
@@ -81,6 +98,10 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     # matches the incremental window (e.g. merged much later) won't be re-fetched.
     "PullRequests": [incremental_field("created_at", IncrementalFieldType.DateTime)],
     "Tickets": [incremental_field("updated_at", IncrementalFieldType.DateTime)],
+    # `last_activity_at` is null for an alias with no activity yet, and a `__gte` filter would never
+    # return it. Merging an alias into another apex user does not move `created_at`, so only a
+    # full refresh picks up that change.
+    "UserAliases": [incremental_field("created_at", IncrementalFieldType.DateTime)],
 }
 
 # Maximum page size documented for the Customer API's `limit` parameter.

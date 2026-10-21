@@ -3,16 +3,24 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { objectsEqual } from 'lib/utils/objects'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { messagingTemplatesMakeTransactionalCreate } from 'products/messaging/frontend/generated/api'
+import {
+    messagingTemplatesMakeTransactionalCreate,
+    messagingTemplatesPartialUpdate,
+} from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateContentApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
@@ -24,6 +32,19 @@ import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
 
+type TemplateContent = MessageTemplate['content']
+
+/** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
+function splitDraft(template: MessageTemplate): {
+    form: MessageTemplate
+    draft: TemplateContent | null
+    published: TemplateContent
+} {
+    const { draft_content, ...form } = template
+    const draft = (draft_content as TemplateContent | null | undefined) ?? null
+    return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
+}
+
 export interface MessageTemplateLogicProps {
     id: string
     messageId?: string | null
@@ -34,8 +55,15 @@ export interface messageTemplateLogicValues {
     aiComposerAvailable: boolean // newTemplateAgentLogic
     currentTeamIdStrict: number | string // teamLogic
     deferredExternalEdit: ResourceEditedEvent | null
+    draftOutOfDate: boolean
+    draftsEnabled: boolean
     externallyEdited: boolean
+    hasDraft: boolean
+    hasUnsavedChanges: boolean
+    isDiscardingDraft: boolean
     isMakingTransactional: boolean
+    isSavingDraft: boolean
+    isSavingSensitive: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
     isTemplateValid: boolean
@@ -43,6 +71,8 @@ export interface messageTemplateLogicValues {
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
+    publishedContent: TemplateContent | null
+    savedDraft: TemplateContent | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -56,8 +86,11 @@ export interface messageTemplateLogicValues {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -78,8 +111,11 @@ export interface messageTemplateLogicValues {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -94,7 +130,19 @@ export interface messageTemplateLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    autoSaveDraft: () => {
+        value: true
+    }
+    confirmDiscardDraft: () => {
+        value: true
+    }
     deleteTemplate: () => {
+        value: true
+    }
+    discardDraft: () => {
+        value: true
+    }
+    discardDraftDone: () => {
         value: true
     }
     duplicateTemplate: () => {
@@ -150,8 +198,11 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
+        draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
+        tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -163,11 +214,33 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
+    }
+    saveDraft: () => {
+        value: true
+    }
+    saveDraftDone: (
+        draft: TemplateContent,
+        updatedAt: string
+    ) => {
+        draft: {
+            email: EmailTemplate
+            templating: 'hog' | 'liquid'
+        }
+        updatedAt: string
+    }
+    saveDraftFailed: () => {
+        value: true
+    }
+    saveTags: (tags: string[]) => {
+        tags: string[]
     }
     saveTemplate: (template: any) => any
     saveTemplateFailure: (
@@ -187,11 +260,30 @@ export interface messageTemplateLogicActions {
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
     }
+    setDraftState: (
+        draft: TemplateContent | null,
+        published: TemplateContent
+    ) => {
+        draft: {
+            email: EmailTemplate
+            templating: 'hog' | 'liquid'
+        } | null
+        published: {
+            email: EmailTemplate
+            templating: 'hog' | 'liquid'
+        }
+    }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
     }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
+    }
+    setSensitive: (sensitive: boolean) => {
+        sensitive: boolean
+    }
+    setSensitiveDone: () => {
+        value: true
     }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
@@ -221,8 +313,11 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -235,8 +330,11 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -262,8 +360,11 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
+        draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
+        tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -275,8 +376,11 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -289,8 +393,11 @@ export interface messageTemplateLogicActions {
         created_at: string | null
         created_by: UserBasicType | null
         description: string
+        draft_content?: MessageTemplateContentApi | null | undefined
         id: string
         name: string
+        sensitive?: boolean | undefined
+        tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -302,8 +409,11 @@ export interface messageTemplateLogicActions {
             created_at: string | null
             created_by: UserBasicType | null
             description: string
+            draft_content?: MessageTemplateContentApi | null | undefined
             id: string
             name: string
+            sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -325,6 +435,31 @@ export interface messageTemplateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
+        draftsEnabled: (transactionalHogFlowId: string | null) => boolean
+        hasDraft: (
+            savedDraft: {
+                email: EmailTemplate
+                templating: 'hog' | 'liquid'
+            } | null
+        ) => boolean
+        draftOutOfDate: (
+            template: MessageTemplate,
+            savedDraft: {
+                email: EmailTemplate
+                templating: 'hog' | 'liquid'
+            } | null,
+            publishedContent: {
+                email: EmailTemplate
+                templating: 'hog' | 'liquid'
+            } | null
+        ) => boolean
+        hasUnsavedChanges: (
+            draftsEnabled: boolean,
+            templateChanged: boolean,
+            template: MessageTemplate,
+            originalTemplate: MessageTemplate,
+            draftOutOfDate: boolean
+        ) => boolean
     }
 }
 
@@ -349,6 +484,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         duplicateTemplate: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
+        saveTags: (tags: string[]) => ({ tags }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
         setDeferredExternalEdit: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredExternalEdit: true,
@@ -358,7 +494,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         makeTransactional: true,
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
+        setSensitive: (sensitive: boolean) => ({ sensitive }),
+        setSensitiveDone: true,
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
+        setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
+        autoSaveDraft: true,
+        saveDraft: true,
+        saveDraftDone: (draft: TemplateContent, updatedAt: string) => ({ draft, updatedAt }),
+        saveDraftFailed: true,
+        discardDraft: true,
+        confirmDiscardDraft: true,
+        discardDraftDone: true,
     }),
     selectors({
         logicProps: [
@@ -407,6 +553,42 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 makeTransactionalDone: () => false,
             },
         ],
+        isSavingSensitive: [
+            false,
+            {
+                setSensitive: () => true,
+                setSensitiveDone: () => false,
+            },
+        ],
+        // The draft as last saved, and the content sends use. Both come from the server.
+        savedDraft: [
+            null as TemplateContent | null,
+            {
+                setDraftState: (_, { draft }) => draft,
+                saveDraftDone: (_, { draft }) => draft,
+            },
+        ],
+        publishedContent: [
+            null as TemplateContent | null,
+            {
+                setDraftState: (_, { published }) => published ?? null,
+            },
+        ],
+        isSavingDraft: [
+            false,
+            {
+                saveDraft: () => true,
+                saveDraftDone: () => false,
+                saveDraftFailed: () => false,
+            },
+        ],
+        isDiscardingDraft: [
+            false,
+            {
+                confirmDiscardDraft: () => true,
+                discardDraftDone: () => false,
+            },
+        ],
         transactionalTab: [
             'design' as TransactionalTemplateTab,
             {
@@ -449,8 +631,51 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
         ],
+        // Sends use a transactional template's content, so its edits save as a draft until they are published.
+        draftsEnabled: [
+            (s) => [s.transactionalHogFlowId],
+            (transactionalHogFlowId: string | null): boolean => !!transactionalHogFlowId,
+        ],
+        hasDraft: [
+            (s) => [s.savedDraft],
+            (
+                savedDraft: {
+                    email: EmailTemplate
+                    templating: 'hog' | 'liquid'
+                } | null
+            ): boolean => savedDraft !== null,
+        ],
+        draftOutOfDate: [
+            (s) => [s.template, s.savedDraft, s.publishedContent],
+            (
+                template: MessageTemplate,
+                savedDraft: {
+                    email: EmailTemplate
+                    templating: 'hog' | 'liquid'
+                } | null,
+                publishedContent: {
+                    email: EmailTemplate
+                    templating: 'hog' | 'liquid'
+                } | null
+            ): boolean => !objectsEqual(template.content, savedDraft ?? publishedContent),
+        ],
+        hasUnsavedChanges: [
+            (s) => [s.draftsEnabled, s.templateChanged, s.template, s.originalTemplate, s.draftOutOfDate],
+            (
+                draftsEnabled: boolean,
+                templateChanged: boolean,
+                template: MessageTemplate,
+                originalTemplate: MessageTemplate,
+                draftOutOfDate: boolean
+            ): boolean =>
+                draftsEnabled
+                    ? template.name !== originalTemplate.name ||
+                      template.description !== originalTemplate.description ||
+                      draftOutOfDate
+                    : templateChanged,
+        ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         template: {
             loadTemplate: async () => {
                 if (!props.id || props.id === 'new') {
@@ -459,13 +684,22 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
-                return await api.messaging.getTemplate(props.id)
+                const { form, draft, published } = splitDraft(await api.messaging.getTemplate(props.id))
+                actions.setDraftState(draft, published)
+                return form
             },
-            saveTemplate: (template) => {
-                if (template.id === 'new') {
-                    return api.messaging.createTemplate(template)
-                }
-                return api.messaging.updateTemplate(template.id, template)
+            saveTemplate: async (template) => {
+                // Saving the content publishes it, and the server clears the draft. The sensitive setting
+                // and the tags each save on their own, so a publish never sends them and can't undo a
+                // change made in another tab since this one loaded the template.
+                const { sensitive: _sensitive, tags: _tags, ...content } = template
+                const saved =
+                    template.id === 'new'
+                        ? await api.messaging.createTemplate(template)
+                        : await api.messaging.updateTemplate(template.id, content)
+                const { form, draft, published } = splitDraft(saved)
+                actions.setDraftState(draft, published)
+                return form
             },
         },
         message: {
@@ -486,7 +720,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         templateEditedElsewhere: ({ event }) => {
             // The echo of our own save can arrive before its response. Parked until the flight settles,
             // it then compares equal to the loaded stamp and is dropped.
-            if (values.templateLoading || values.isMakingTransactional) {
+            if (
+                values.templateLoading ||
+                values.isMakingTransactional ||
+                values.isSavingSensitive ||
+                values.isSavingDraft ||
+                values.isDiscardingDraft
+            ) {
                 actions.setDeferredExternalEdit(event)
                 return
             }
@@ -494,7 +734,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
                 return
             }
-            if (values.templateChanged) {
+            if (values.hasUnsavedChanges) {
                 actions.setExternallyEdited(true)
             } else {
                 actions.syncExternalEdit()
@@ -513,6 +753,109 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         keepMyTemplateVersion: () => {
             actions.setExternallyEdited(false)
+            actions.autoSaveDraft()
+        },
+        setTemplateValue: () => actions.autoSaveDraft(),
+        saveTags: async ({ tags }, breakpoint) => {
+            // An unsaved template has no row yet, so its tags ride the create.
+            if (!props.id || props.id === 'new') {
+                actions.setTemplateValue('tags', tags)
+                return
+            }
+            // The editor fires one save per tag added or removed. Without this, a burst of clicks puts
+            // several writes in flight at once, and the one that lands last wins rather than the latest
+            // selection. The wait collapses the burst into a single write.
+            await breakpoint(300)
+            // Tags are metadata: they apply live and must not publish a transactional template's draft,
+            // which a full form save would.
+            let updated: MessageTemplate
+            try {
+                updated = await api.messaging.updateTemplate(props.id, { tags })
+            } catch (error: any) {
+                lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+                return
+            }
+            // Outside the catch: a breakpoint throws to unwind a superseded listener, and catching that
+            // would report it as a failed save.
+            breakpoint()
+            actions.setTemplate({ ...values.template, tags: updated.tags })
+            actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
+        },
+        setTemplateValues: () => actions.autoSaveDraft(),
+        autoSaveDraft: async (_, breakpoint) => {
+            if (!values.draftsEnabled) {
+                return
+            }
+            await breakpoint(1500)
+            // A save in flight starts the next one when it lands, so edits made meanwhile are not lost.
+            // While the edited-elsewhere banner is up, a save would overwrite the other edit before the person chooses.
+            if (
+                !values.draftOutOfDate ||
+                values.externallyEdited ||
+                values.isTemplateSubmitting ||
+                values.isSavingDraft ||
+                values.isDiscardingDraft
+            ) {
+                return
+            }
+            actions.saveDraft()
+        },
+        saveDraft: async () => {
+            const content = values.template.content
+            try {
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    // The form type still allows the legacy 'hog' templating, which templates never use.
+                    draft_content: content as MessageTemplateContentApi,
+                })
+                actions.saveDraftDone(content, updated.updated_at)
+            } catch {
+                actions.saveDraftFailed()
+                lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
+            }
+        },
+        saveDraftDone: ({ updatedAt }) => {
+            // The echo of this save then matches the loaded stamp and is not read as an edit from elsewhere.
+            actions.setOriginalTemplate({ ...values.originalTemplate, updated_at: updatedAt })
+            actions.replayDeferredExternalEdit()
+            actions.autoSaveDraft()
+        },
+        saveDraftFailed: () => {
+            actions.replayDeferredExternalEdit()
+        },
+        discardDraft: () => {
+            LemonDialog.open({
+                title: 'Discard your draft?',
+                description: 'This deletes your unpublished changes. The live email stays as it is.',
+                primaryButton: {
+                    children: 'Discard draft',
+                    status: 'danger',
+                    onClick: () => actions.confirmDiscardDraft(),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        confirmDiscardDraft: async (_, breakpoint) => {
+            // A draft save that lands after the discard would bring the draft back, so let it finish first.
+            while (values.isSavingDraft) {
+                await breakpoint(100)
+            }
+            try {
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    draft_content: null,
+                })
+                const published = updated.content as TemplateContent
+                actions.setDraftState(null, published)
+                actions.setOriginalTemplate({
+                    ...values.originalTemplate,
+                    content: published,
+                    updated_at: updated.updated_at,
+                })
+                actions.resetTemplate({ ...values.template, content: published, updated_at: updated.updated_at })
+            } catch {
+                lemonToast.error("Couldn't discard your draft. Try again.")
+            }
+            actions.discardDraftDone()
+            actions.replayDeferredExternalEdit()
         },
         makeTransactional: async () => {
             try {
@@ -541,6 +884,26 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.replayDeferredExternalEdit()
                 lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
             }
+        },
+        setSensitive: async ({ sensitive }) => {
+            try {
+                // Saved on its own, so it applies to sends at once and leaves any content draft untouched.
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    sensitive,
+                })
+                const changes = { sensitive: updated.sensitive, updated_at: updated.updated_at }
+                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+                if (values.templateChanged) {
+                    actions.setTemplateValues(changes)
+                } else {
+                    actions.resetTemplate({ ...values.template, ...changes })
+                }
+                posthog.capture('email template sensitive changed', { template_id: props.id, sensitive })
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
+            }
+            actions.setSensitiveDone()
+            actions.replayDeferredExternalEdit()
         },
         loadTemplateFailure: () => {
             // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.
@@ -582,7 +945,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.error('Failed to save template. Please try again.')
         },
         saveTemplateSuccess: async ({ template }) => {
-            lemonToast.success(props.id === 'new' ? 'Template created' : 'Template saved')
+            lemonToast.success(
+                props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
+            )
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
             actions.resetTemplate(template)
@@ -611,7 +976,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
         duplicateTemplate: async () => {
-            if (values.templateChanged) {
+            if (values.hasUnsavedChanges) {
                 lemonToast.error('Please save your changes before duplicating')
                 return
             }
@@ -677,7 +1042,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         // Guards both new and existing templates - a brand-new template only exists in form
         // state until "Create" is pressed, so leaving without saving would discard it entirely.
         enabled: (newLocation) => {
-            if (!values.templateChanged) {
+            if (!values.hasUnsavedChanges) {
                 return false
             }
             // Allow same-path changes (e.g. query params) through without warning.

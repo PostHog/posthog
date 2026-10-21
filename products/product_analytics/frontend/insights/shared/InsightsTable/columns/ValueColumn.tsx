@@ -46,6 +46,7 @@ export function ValueColumnTitle({
 type ValueColumnItemProps = {
     index: number
     item: IndexedTrendResult
+    mathProperty: string | null | undefined
     isStickiness: boolean
     renderCount: (value: number) => ReactNode
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction
@@ -54,12 +55,13 @@ type ValueColumnItemProps = {
 export const ValueColumnItem = memo(function ValueColumnItem({
     index,
     item,
+    mathProperty,
     isStickiness,
     renderCount,
     formatPropertyValueForDisplay,
 }: ValueColumnItemProps): JSX.Element {
     const formattedValue = formatAggregationValue(
-        item.action?.math_property,
+        mathProperty,
         item.data[index],
         renderCount,
         formatPropertyValueForDisplay

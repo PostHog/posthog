@@ -35,6 +35,8 @@ class MercuryEndpointConfig:
     # Body path of the next-page cursor and the query param it is sent back in.
     cursor_path: str = "page.nextPage"
     cursor_param: str = "start_after"
+    # Some list endpoints document no `order` param, so it is only sent where the API accepts it.
+    sends_order: bool = True
     page_size: int = DEFAULT_PAGE_SIZE
     # Per-account child endpoints, fanned out over a parent account listing.
     fanout: DependentEndpointConfig | None = None
@@ -111,10 +113,34 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         path="/merchants",
         data_selector="data",
     ),
+    "RecipientInvites": MercuryEndpointConfig(
+        name="RecipientInvites",
+        path="/recipients/invites",
+        data_selector="invites",
+        partition_key="createdAt",
+        timestamp_columns=("createdAt", "expiresAt"),
+    ),
     "Recipients": MercuryEndpointConfig(
         name="Recipients",
         path="/recipients",
         data_selector="recipients",
+    ),
+    "SafeRequests": MercuryEndpointConfig(
+        name="SafeRequests",
+        path="/safes",
+        # The response body is a bare array with no pagination.
+        data_selector="$",
+        paginated=False,
+        timestamp_columns=("expiresAt", "canceledAt", "paidAt", "signedByInvestorAt", "signedByOwnerAt"),
+    ),
+    "SendMoneyApprovalRequests": MercuryEndpointConfig(
+        name="SendMoneyApprovalRequests",
+        path="/request-send-money",
+        data_selector="requests",
+        primary_keys=("requestId",),
+        partition_key="createdAt",
+        timestamp_columns=("createdAt",),
+        sends_order=False,
     ),
     "Transactions": MercuryEndpointConfig(
         name="Transactions",

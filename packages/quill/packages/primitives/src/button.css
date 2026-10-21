@@ -368,6 +368,21 @@
         height: 0.75rem;
     }
 
+    /* A link inside a sentence takes the sentence's type, because the other sizes set a control height and font size. */
+    .quill-button--size-inline {
+        gap: 0.25em;
+        height: auto;
+        padding: 0;
+        font-size: inherit;
+        line-height: inherit;
+        vertical-align: baseline;
+    }
+
+    .quill-button--size-inline svg:not([class*='size-']) {
+        width: 1em;
+        height: 1em;
+    }
+
     .quill-button--size-lg {
         gap: 0.5rem;
         height: 2rem;

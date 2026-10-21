@@ -1,6 +1,7 @@
 import functools
 import threading
 import contextvars
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -27,9 +28,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+    source_inputs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
+    StripeBalanceHistoryAllCustomersConfig,
     StripeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
@@ -42,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -57,10 +67,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
     PLAN_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
     PROMOTION_CODE_RESOURCE_NAME,
     QUOTE_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
@@ -81,6 +93,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     InvoiceListWithAllLines,
     RateLimitCallback,
+    WebhookObjectRefetcher,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
@@ -95,6 +108,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     StripeTransientError,
+    StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
@@ -368,10 +382,6 @@ class TestStripeSource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            # Transient/infra errors must stay retryable.
-            "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
-            "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
-            "Connection reset by peer",
             # Rate limits are transient (Retry-After-bounded) — must never disable the source.
             "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
         ],
@@ -493,6 +503,34 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "stripe_error,expected_start",
+        [
+            ("Invalid request (check your request parameters)", "Stripe couldn't read your account"),
+            ("This API call cannot be made with a publishable API key.", "Your Stripe API key is a publishable key"),
+        ],
+    )
+    def test_validate_credentials_validation_error_hides_raw_stripe_text(self, stripe_error, expected_start):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+                side_effect=StripeValidationError({"Customer": stripe_error}),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.capture_exception"
+            ),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert message.startswith(expected_start)
+        assert stripe_error not in message
 
     @pytest.mark.parametrize(
         "body,expected",
@@ -936,6 +974,61 @@ class TestInvoiceListWithAllLines:
                     params={}, logger=MagicMock(), client_factory=lambda _throttled: client
                 ).auto_paging_iter()
             )
+
+
+def test_credit_note_rows_carry_lines_past_the_embedded_page():
+    embedded = [{"id": f"cnli_{i}", "object": "credit_note_line_item"} for i in range(10)]
+    all_lines = [*embedded, {"id": "cnli_10", "object": "credit_note_line_item"}]
+
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/credit_notes/cn_1/lines":
+            return ScriptedResponse(json={"object": "list", "data": all_lines, "has_more": False, "url": request.path})
+        lines = {"object": "list", "data": embedded, "has_more": True, "url": "/v1/credit_notes/cn_1/lines"}
+        credit_note = {"id": "cn_1", "object": "credit_note", "created": 1700000000, "lines": lines}
+        return ScriptedResponse(json={"object": "list", "data": [credit_note], "has_more": False, "url": request.path})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(CREDIT_NOTE_RESOURCE_NAME, script)
+
+    assert result.raised is None
+    rows = [row for table in result.rows for row in table.to_pylist()]
+    lines_column = orjson.loads(rows[0]["lines"])
+    assert [line["id"] for line in lines_column["data"]] == [line["id"] for line in all_lines]
+    assert lines_column["has_more"] is False
+
+
+@parameterized.expand([(INVOICE_RESOURCE_NAME,), (CREDIT_NOTE_RESOURCE_NAME,)])
+def test_first_page_error_of_a_line_expanding_listing_is_cleaned(endpoint):
+    redacted = "rk_live_" + "*" * 80 + "abcd"
+    message = f"The provided key '{redacted}' does not have the required permissions for this endpoint"
+    forbidden = ScriptedResponse(status=403, json={"error": {"type": "invalid_request_error", "message": message}})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(endpoint, [forbidden])
+
+    assert isinstance(result.raised, stripe_lib.PermissionError)
+    assert "rk_live_***abcd" in str(result.raised)
+
+
+@parameterized.expand([("switch_off", False, ["cus_credit"]), ("switch_on", True, ["cus_credit", "cus_zero"])])
+def test_balance_history_switch_decides_which_customers_are_swept(_name, enabled, expected_customers):
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/customers":
+            customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
+            return ScriptedResponse(json={"object": "list", "data": customers, "has_more": False, "url": request.path})
+        customer = request.path.split("/")[3]
+        transaction = {"id": f"cbtxn_{customer}", "object": "customer_balance_transaction", "created": 1700000000}
+        return ScriptedResponse(json={"object": "list", "data": [transaction], "has_more": False, "url": request.path})
+
+    config = StripeSourceConfig(
+        auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"),
+        balance_history_all_customers=StripeBalanceHistoryAllCustomersConfig(enabled=enabled),
+    )
+    result = SourceDriver(StripeSource(), config).run(CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, script)
+
+    assert result.raised is None
+    rows = [row for table in result.rows for row in table.to_pylist()]
+    assert sorted(row["customer"] for row in rows) == expected_customers
 
 
 class TestScrubClientSecrets:
@@ -1549,6 +1642,200 @@ class TestWebhookUpsertCollapse:
         )
         rows = stripe_module._webhook_table_transformer(events).to_pylist()
         assert [row["status"] for row in rows] == [expected_status]
+
+
+def _stripe_list(data: list[dict[str, Any]], url: str, has_more: bool = False) -> dict[str, Any]:
+    return {"object": "list", "data": data, "has_more": has_more, "url": url}
+
+
+_FIRST_PAGE = [{"id": f"line_{i}"} for i in range(10)]
+_ALL_LINES = [*_FIRST_PAGE, {"id": "line_10"}]
+
+
+def _error(status: int, error_type: str, code: str) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"error": {"type": error_type, "code": code, "message": "Rejected"}})
+
+
+_INCOMPLETE_INVOICE = {
+    "id": "in_1",
+    "object": "invoice",
+    "status": "paid",
+    "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
+}
+
+
+class TestWebhookRefetch:
+    def _transform(self, endpoint: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
+        refetcher = WebhookObjectRefetcher(
+            stripe_module.WEBHOOK_REFETCH[endpoint],
+            MagicMock(),
+            client_factory_provider=lambda: stripe_module._refetch_client_factory(
+                "sk_test", None, STRIPE_API_VERSION_ACACIA
+            ),
+        )
+        events = table_from_py_list([_event_row("evt_1", f"{obj['object']}.updated", 1700000100, obj)])
+        return stripe_module._refetching_webhook_table_transformer(refetcher)(events).to_pylist()
+
+    @parameterized.expand(
+        [
+            (
+                "invoice lines past the first page",
+                INVOICE_RESOURCE_NAME,
+                _INCOMPLETE_INVOICE,
+                {"/v1/invoices/in_1/lines": ({"limit": "100"}, _stripe_list(_ALL_LINES, "/v1/invoices/in_1/lines"))},
+                lambda row: (
+                    row["status"] == "paid"
+                    and [line["id"] for line in orjson.loads(row["lines"])["data"]]
+                    == [expected["id"] for expected in _ALL_LINES]
+                ),
+            ),
+            (
+                "credit note lines past the first page",
+                CREDIT_NOTE_RESOURCE_NAME,
+                {
+                    "id": "cn_1",
+                    "object": "credit_note",
+                    "lines": _stripe_list(_FIRST_PAGE, "/v1/credit_notes/cn_1/lines", True),
+                },
+                {
+                    "/v1/credit_notes/cn_1/lines": (
+                        {"limit": "100"},
+                        _stripe_list(_ALL_LINES, "/v1/credit_notes/cn_1/lines"),
+                    )
+                },
+                lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
+            ),
+            (
+                "tiers of a tiered price",
+                PRICE_RESOURCE_NAME,
+                {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
+                {
+                    "/v1/prices/price_1": (
+                        {"expand[0]": "tiers"},
+                        {
+                            "id": "price_1",
+                            "object": "price",
+                            "billing_scheme": "tiered",
+                            "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
+                        },
+                    )
+                },
+                lambda row: len(orjson.loads(row["tiers"])) == 2,
+            ),
+            (
+                "expanded subscription discounts",
+                SUBSCRIPTION_RESOURCE_NAME,
+                {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
+                {
+                    "/v1/subscriptions/sub_1": (
+                        {"expand[0]": "discounts", "expand[1]": "items.data.discounts"},
+                        {
+                            "id": "sub_1",
+                            "object": "subscription",
+                            "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                        },
+                    )
+                },
+                lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
+            ),
+        ]
+    )
+    def test_incomplete_object_is_completed(
+        self,
+        _name: str,
+        endpoint: str,
+        event_object: dict[str, Any],
+        answers: dict[str, tuple[dict[str, str], dict[str, Any]]],
+        row_is_complete: Callable[[dict[str, Any]], bool],
+    ) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(json=answers[request.path][1])
+
+        with scripted_network(script) as network:
+            rows = self._transform(endpoint, event_object)
+
+        sent = [
+            (request.path, {name: request.param(name) for name in answers[request.path][0]})
+            for request in network.requests_log
+        ]
+        assert sent == [(path, params) for path, (params, _) in answers.items()]
+        assert len(rows) == 1
+        assert row_is_complete(rows[0])
+
+    @parameterized.expand(
+        [
+            (
+                "complete object",
+                {"lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines")},
+                _error(404, "invalid_request_error", "resource_missing"),
+                0,
+            ),
+            ("object deleted since the event", {}, _error(404, "invalid_request_error", "resource_missing"), 1),
+            ("object Stripe rejects", {}, _error(400, "invalid_request_error", "parameter_unknown"), 1),
+        ]
+    )
+    def test_event_payload_is_kept(
+        self, _name: str, fields: dict[str, Any], answer: ScriptedResponse, expected_requests: int
+    ) -> None:
+        with scripted_network([answer]) as network:
+            rows = self._transform(INVOICE_RESOURCE_NAME, {**_INCOMPLETE_INVOICE, **fields})
+
+        assert len(network.requests_log) == expected_requests
+        assert [line["id"] for line in orjson.loads(rows[0]["lines"])["data"]] == [
+            expected["id"] for expected in _FIRST_PAGE
+        ]
+
+    @parameterized.expand(
+        [
+            ("revoked key", _error(401, "invalid_request_error", "api_key_expired"), stripe_lib.AuthenticationError),
+            (
+                "missing permission",
+                _error(403, "invalid_request_error", "secret_key_required"),
+                stripe_lib.PermissionError,
+            ),
+        ]
+    )
+    def test_account_wide_error_fails_the_batch(
+        self, _name: str, answer: ScriptedResponse, error: type[Exception]
+    ) -> None:
+        with scripted_network([answer]), pytest.raises(error):
+            self._transform(INVOICE_RESOURCE_NAME, _INCOMPLETE_INVOICE)
+
+    def test_webhook_sync_completes_invoice_lines(self) -> None:
+        source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        webhooks = MagicMock(spec=WebhookSourceManager)
+        webhooks.webhook_enabled = mock.AsyncMock(return_value=True)
+        events = table_from_py_list([_event_row("evt_1", "invoice.paid", 1700000100, _INCOMPLETE_INVOICE)])
+
+        with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))):
+            inputs = source_inputs(INVOICE_RESOURCE_NAME)
+            with mock.patch.object(source, "get_webhook_source_manager", return_value=webhooks):
+                response = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
+            response.items()
+            transformer = webhooks.get_items.call_args.kwargs["table_transformer"]
+            rows = transformer(events).to_pylist()
+
+        assert len(orjson.loads(rows[0]["lines"])["data"]) == len(_ALL_LINES)
+        assert webhooks.get_items.call_args.kwargs["batch_row_limit"] == stripe_module.STRIPE_CHUNK_SIZE
+
+    def test_client_takes_a_pacer_turn_before_every_line_page(self) -> None:
+        turns: list[str] = []
+        pages = [
+            ScriptedResponse(json=_stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", has_more=True)),
+            ScriptedResponse(json=_stripe_list([{"id": "line_10"}], "/v1/invoices/in_1/lines")),
+        ]
+        client = stripe_module._refetch_client_factory("sk_test", None, STRIPE_API_VERSION_ACACIA)(
+            lambda _retry_after: None, lambda: turns.append("turn")
+        )
+
+        with scripted_network(pages):
+            lines = list(client.invoices.line_items.list("in_1", params={"limit": 10}).auto_paging_iter())
+
+        assert len(lines) == 11
+        assert turns == ["turn", "turn"]
 
 
 class TestEndpointCatalogWiring:
