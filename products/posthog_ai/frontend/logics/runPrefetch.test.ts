@@ -58,4 +58,18 @@ describe('prefetchRunStream', () => {
         expect(continued.values.bootstrappedRunId).toBe('run-b')
         expect(tasksRunsRetrieve).toHaveBeenCalledTimes(1)
     })
+
+    it('skips a run that a retained chat already streams under another key', async () => {
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
+        const continued = runStreamLogic({ streamKey: 'run-a' })
+        continued.mount()
+        continued.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-b' })
+        await expectLogic(continued).toFinishAllListeners()
+
+        prefetchRunStream('task-1', 'run-b', null)
+
+        expect(runStreamLogic.findMounted({ streamKey: 'run-b' })).toBeNull()
+        expect(tasksRunsRetrieve).toHaveBeenCalledTimes(1)
+    })
 })
