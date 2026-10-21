@@ -105,6 +105,19 @@
                     },
                     "type": "array"
                 },
+                "limit": {
+                    "anyOf": [
+                        {
+                            "maximum": 500,
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Return at most this many entries, most interesting first. Omit for all. Sets `truncated`."
+                },
                 "personId": {
                     "description": "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
                     "type": "string"
