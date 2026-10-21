@@ -477,7 +477,7 @@ def _ensure_schema(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataS
     locks it, so two runs can't create two sources or two schemas for the same table.
     """
     with transaction.atomic():
-        DataWarehouseCredential.objects.select_for_update().get(pk=table.credential_id)
+        DataWarehouseCredential.objects.select_for_update().get(team_id=table.team_id, pk=table.credential_id)
         existing = (
             ExternalDataSchema.objects.filter(team_id=table.team_id, table_id=table.id)
             .exclude(deleted=True)

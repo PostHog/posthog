@@ -19,8 +19,8 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 """
 
 from collections import defaultdict
-from collections.abc import Collection
-from typing import TYPE_CHECKING
+from collections.abc import Collection, Mapping
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
@@ -94,6 +94,7 @@ __all__ = [
     "list_jobs_for_source",
     "list_column_statistics",
     "get_sync_alert_context",
+    "server_held_table_options",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
@@ -650,3 +651,8 @@ def get_sync_alert_context(
     )
 
     return build_sync_alert_context(team_id, schema_id, job_id, include_error=include_error)
+
+
+def server_held_table_options(options: Mapping[str, Any]) -> list[str]:
+    """The keys of a table's `options` that only PostHog writes, so a client may not send them."""
+    return _DataWarehouseTable.server_held_options_in(options)

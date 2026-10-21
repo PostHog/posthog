@@ -98,17 +98,23 @@ class CsvCastResult:
     nulled_values: dict[str, int]
 
 
-def _unwrap(clickhouse_type: str) -> tuple[str, str]:
+@frozen
+class _ClickHouseType:
+    base: str
+    arguments: str
+
+
+def _unwrap(clickhouse_type: str) -> _ClickHouseType:
     """The base type name and its arguments, without `Nullable(...)` or `LowCardinality(...)`."""
     inner = clickhouse_type.strip()
     while (wrapped := _WRAPPER.match(inner)) is not None:
         inner = wrapped.group("inner").strip()
     base, _, arguments = inner.partition("(")
-    return base.strip(), arguments.removesuffix(")")
+    return _ClickHouseType(base=base.strip(), arguments=arguments.removesuffix(")"))
 
 
 def clickhouse_base_type(clickhouse_type: str) -> str:
-    return _unwrap(clickhouse_type)[0]
+    return _unwrap(clickhouse_type).base
 
 
 def _datetime_timezone(name: str, arguments: str) -> str | None:
@@ -144,7 +150,8 @@ def csv_column_type(name: str, clickhouse_type: str) -> CsvColumnType | None:
 
     Raises `UnsupportedCsvColumnError` for a number that neither a cast nor a string column keeps.
     """
-    base, arguments = _unwrap(clickhouse_type)
+    parsed = _unwrap(clickhouse_type)
+    base, arguments = parsed.base, parsed.arguments
     if base in _WIDE_INTEGERS:
         raise UnsupportedCsvColumnError(f"the column '{name}' is a {base}, which PostHog can't store")
     if base in _DECIMAL_PRECISIONS:
@@ -236,7 +243,7 @@ def _cast_isolating_failures(values: pa.Array, parse: Callable[[pa.Array], pa.Ar
 
 def _without_plus_sign(values: pa.Array) -> pa.Array:
     # Arrow refuses an explicit plus sign, which ClickHouse reads as part of the number.
-    return pc.replace_substring_regex(values, pattern=r"^\+", replacement="")
+    return cast(pa.Array, pc.replace_substring_regex(values, pattern=r"^\+", replacement=""))
 
 
 def _parse_number(target: pa.DataType) -> Callable[[pa.Array], pa.Array]:

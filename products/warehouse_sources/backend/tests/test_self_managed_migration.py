@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
 
@@ -481,7 +481,7 @@ class TestSelfManagedMigration(BaseTest):
         assert not ExternalDataSchema.objects.filter(table=first).exists()
 
     def test_a_new_source_is_dated_to_its_oldest_table(self) -> None:
-        old = datetime.now(UTC) - timedelta(days=400)
+        old = datetime(2024, 1, 15, tzinfo=UTC)
         newer = self._table("newer", url="https://exports.s3.eu-west-1.amazonaws.com/n/*.csv")
         self._table("older", created_at=old)
 
@@ -494,7 +494,7 @@ class TestSelfManagedMigration(BaseTest):
         newer = self._table("newer", url="https://exports.s3.eu-west-1.amazonaws.com/n/*.csv")
         self._migrate()
         source_created_at = self._schema_for(newer).source.created_at
-        older = self._table("older", created_at=datetime.now(UTC) - timedelta(days=400))
+        older = self._table("older", created_at=datetime(2024, 1, 15, tzinfo=UTC))
 
         self._migrate()
 
