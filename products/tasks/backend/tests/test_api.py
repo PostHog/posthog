@@ -11234,6 +11234,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             self.assertEqual(
                 (response["X-Log-Offset"], response["X-Log-Count"], response["X-Log-Preamble"]), expected_headers
             )
+            self.assertIn("X-Log-Offset", response["Access-Control-Expose-Headers"])
             lines = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
             turns = [
                 line["notification"]["params"]["update"]["content"]["text"]

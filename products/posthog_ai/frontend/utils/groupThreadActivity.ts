@@ -154,18 +154,28 @@ export function groupToolRuns(
 
 export function reuseActivityGroups(previous: ThreadDisplayItem[], next: ThreadDisplayItem[]): ThreadDisplayItem[] {
     const previousGroups = new Map<string, ThreadActivityGroup>()
+    const groupOfMember = new Map<string, string>()
     for (const item of previous) {
         if (item.type === 'activity_group') {
             previousGroups.set(item.id, item)
+            item.items.forEach((row) => groupOfMember.set(row.id, item.id))
         }
     }
     if (previousGroups.size === 0) {
         return next
     }
-    return next.map((item) => {
-        if (item.type !== 'activity_group') {
-            return item
+    // A group's id comes from its first member, so earlier calls that load in front of it would rename it and
+    // remount it. A group that shares a member with a previous group keeps that group's id.
+    const claimed = new Set<string>()
+    return next.map((nextItem) => {
+        if (nextItem.type !== 'activity_group') {
+            return nextItem
         }
+        const carried = previousGroups.has(nextItem.id)
+            ? undefined
+            : nextItem.items.map((row) => groupOfMember.get(row.id)).find((id) => id !== undefined && !claimed.has(id))
+        const item = carried ? { ...nextItem, id: carried } : nextItem
+        claimed.add(item.id)
         const old = previousGroups.get(item.id)
         return old &&
             old.startedAt === item.startedAt &&

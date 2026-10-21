@@ -5065,13 +5065,20 @@ const api = {
             /**
              * Fetch the latest turns of a run's resume-chain log (at least `tailBytes`, cut at a user turn) that
              * end before entry index `before`. The page starts with `preamble` earlier entries that still set run
-             * state; `offset` is the full-log index of the first entry after them, and `count` is the full-log size.
+             * state; `offset` is the full-log index of the first entry after them, `count` is the full-log size, and
+             * `turnsBefore` counts the user turns before `offset`.
              */
             async getLogPage(
                 taskId: Task['id'],
                 runId: TaskRun['id'],
                 options: { signal?: AbortSignal; projectId?: TeamType['id']; tailBytes: number; before?: number }
-            ): Promise<{ entries: Record<string, any>[]; offset: number; count: number; preamble: number }> {
+            ): Promise<{
+                entries: Record<string, any>[]
+                offset: number
+                count: number
+                preamble: number
+                turnsBefore: number
+            }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
@@ -5087,6 +5094,7 @@ const api = {
                     offset: header('X-Log-Offset'),
                     count: header('X-Log-Count'),
                     preamble: header('X-Log-Preamble'),
+                    turnsBefore: header('X-Log-Turns-Before'),
                 }
             },
             /**

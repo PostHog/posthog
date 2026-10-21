@@ -3590,6 +3590,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response["X-Log-Offset"] = str(log_slice.offset)
             response["X-Log-Count"] = str(log_slice.count)
             response["X-Log-Preamble"] = str(log_slice.preamble)
+            response["X-Log-Turns-Before"] = str(log_slice.turns_before)
+            # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
+            # headers it cannot read looks like the whole log.
+            response["Access-Control-Expose-Headers"] = "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before"
 
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()

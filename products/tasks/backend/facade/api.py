@@ -5284,7 +5284,7 @@ def _conversation_log_part(log_url: str, *, settled: bool) -> LogPart:
             return summarize_log_part(entries())
         head = object_storage.head_object(log_url)
         size = int(head.get("ContentLength", 0)) if head else 0
-        key = f"tasks:log-part-summary:v1:{hashlib.sha256(log_url.encode()).hexdigest()}:{size}"
+        key = f"tasks:log-part-summary:v2:{hashlib.sha256(log_url.encode()).hexdigest()}:{size}"
         cached = cache.get(key) if size else None
         if isinstance(cached, LogPartSummary):
             return cached
@@ -5325,7 +5325,11 @@ def read_task_run_conversation_log_slice(
         ]
         sliced = slice_log_parts_tail(parts, tail_bytes, before)
     return contracts.TaskRunLogSliceDTO(
-        content=sliced.content, offset=sliced.offset, count=sliced.count, preamble=sliced.preamble
+        content=sliced.content,
+        offset=sliced.offset,
+        count=sliced.count,
+        preamble=sliced.preamble,
+        turns_before=sliced.turns_before,
     )
 
 

@@ -11,7 +11,17 @@ USAGE_METHOD = "_posthog/usage_update"
 USAGE_SESSION_UPDATE = "usage_update"
 PERMISSION_REQUEST = "_posthog/permission_request"
 PERMISSION_RESOLVED = "_posthog/permission_resolved"
-STATE_MARKERS = (*STATE_METHODS, *STATE_SESSION_UPDATES, USAGE_SESSION_UPDATE, PERMISSION_REQUEST, PERMISSION_RESOLVED)
+TURN_COMPLETE = "_posthog/turn_complete"
+USER_SESSION_UPDATES = frozenset({"user_message_chunk", "user_message"})
+STATE_MARKERS = (
+    *STATE_METHODS,
+    *STATE_SESSION_UPDATES,
+    USAGE_SESSION_UPDATE,
+    PERMISSION_REQUEST,
+    PERMISSION_RESOLVED,
+    TURN_COMPLETE,
+    "user_message",
+)
 
 
 @frozen
@@ -20,6 +30,7 @@ class LogSlice:
     offset: int
     count: int
     preamble: int = 0
+    turns_before: int = 0
 
 
 @frozen
@@ -28,13 +39,16 @@ class LogPartSummary:
 
     ``state`` maps each state key to the last entry in the part that set it, as its index in the part and its
     line; ``requests`` holds the part's permission requests the same way, with their ids; ``resolved`` holds
-    the request ids the part resolves.
+    the request ids the part resolves. ``last_turn_complete`` is the index of its last turn completion, which
+    closes every request before it, and ``user_turns`` counts the user turns that start in it.
     """
 
     count: int
     state: dict[str, tuple[int, str]]
     requests: list[tuple[int, str, str]]
     resolved: frozenset[str]
+    last_turn_complete: int | None = None
+    user_turns: int = 0
 
 
 @frozen
@@ -49,12 +63,16 @@ def log_entries(content: str) -> list[str]:
     return [line for line in content.split("\n") if line.strip().startswith("{")]
 
 
-def _notification(line: str) -> dict:
+def _entry(line: str) -> dict:
     try:
         entry = json.loads(line)
     except ValueError:
         return {}
-    notification = entry.get("notification") if isinstance(entry, dict) else None
+    return entry if isinstance(entry, dict) else {}
+
+
+def _notification(line: str) -> dict:
+    notification = _entry(line).get("notification")
     return notification if isinstance(notification, dict) else {}
 
 
@@ -70,19 +88,33 @@ def _session_update_type(notification: dict) -> str | None:
 
 
 def _is_user_message(line: str) -> bool:
+    """A user turn in any log format the chat reads: the ACP chunk or whole-message update, the PostHog
+    notification, or a legacy Pi event."""
     if "user_message" not in line:
         return False
-    notification = _notification(line)
+    entry = _entry(line)
+    event = entry.get("event")
+    if entry.get("type") == "pi_event" and isinstance(event, dict):
+        return event.get("type") == "user_message"
+    notification = entry.get("notification")
+    if not isinstance(notification, dict):
+        return False
     if notification.get("method") == "_posthog/user_message":
         return True
-    return notification.get("method") == "session/update" and _session_update_type(notification) == "user_message_chunk"
+    return notification.get("method") == "session/update" and _session_update_type(notification) in USER_SESSION_UPDATES
 
 
 def _is_tool_call_start(line: str) -> bool:
+    """A top-level tool call. A subagent's nested call renders under its parent card, so a slice that
+    started at one would show nothing until the parent loads."""
     if '"tool_call"' not in line:
         return False
     notification = _notification(line)
-    return notification.get("method") == "session/update" and _session_update_type(notification) == "tool_call"
+    if notification.get("method") != "session/update" or _session_update_type(notification) != "tool_call":
+        return False
+    meta = _session_update(notification).get("_meta")
+    claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
+    return not (isinstance(claude_code, dict) and claude_code.get("parentToolCallId"))
 
 
 def _request_id(notification: dict) -> str | None:
@@ -111,18 +143,31 @@ def summarize_log_part(entries: Sequence[str]) -> LogPartSummary:
     state: dict[str, tuple[int, str]] = {}
     requests: list[tuple[int, str, str]] = []
     resolved: set[str] = set()
+    last_turn_complete: int | None = None
+    user_turns = 0
     for index, line in enumerate(entries):
         if not any(marker in line for marker in STATE_MARKERS):
             continue
+        if _is_user_message(line) and (index == 0 or not _is_user_message(entries[index - 1])):
+            user_turns += 1
         notification = _notification(line)
         method = notification.get("method")
         if method == PERMISSION_REQUEST and (request_id := _request_id(notification)) is not None:
             requests.append((index, request_id, line))
         elif method == PERMISSION_RESOLVED and (request_id := _request_id(notification)) is not None:
             resolved.add(request_id)
+        elif method == TURN_COMPLETE:
+            last_turn_complete = index
         for key in _state_keys(notification):
             state[key] = (index, line)
-    return LogPartSummary(count=len(entries), state=state, requests=requests, resolved=frozenset(resolved))
+    return LogPartSummary(
+        count=len(entries),
+        state=state,
+        requests=requests,
+        resolved=frozenset(resolved),
+        last_turn_complete=last_turn_complete,
+        user_turns=user_turns,
+    )
 
 
 def slice_log_parts_tail(parts: Sequence[LogPart], tail_bytes: int, before: int | None = None) -> LogSlice:
@@ -175,7 +220,27 @@ def slice_log_parts_tail(parts: Sequence[LogPart], tail_bytes: int, before: int 
         start = starts[part_index]
         window += loaded[part_index][max(cut - start, 0) : max(min(end - start, len(loaded[part_index])), 0)]
     preamble = _preamble(summaries, starts, loaded, cut) if cut else []
-    return LogSlice(content=_join([*preamble, *window]), offset=cut, count=total, preamble=len(preamble))
+    return LogSlice(
+        content=_join([*preamble, *window]),
+        offset=cut,
+        count=total,
+        preamble=len(preamble),
+        turns_before=_turns_before(summaries, starts, loaded, cut),
+    )
+
+
+def _turns_before(
+    summaries: Sequence[LogPartSummary], starts: Sequence[int], loaded: dict[int, list[str]], cut: int
+) -> int:
+    turns = 0
+    for part_index, summary in enumerate(summaries):
+        start = starts[part_index]
+        if start >= cut:
+            break
+        if start + summary.count > cut:
+            summary = summarize_log_part(loaded[part_index][: cut - start])
+        turns += summary.user_turns
+    return turns
 
 
 def _preamble(
@@ -185,6 +250,15 @@ def _preamble(
     start, SDK session, starting mode, mode, commands, each usage field) and the permission requests nobody
     resolved."""
     resolved = frozenset().union(*(summary.resolved for summary in summaries))
+    # A turn completion closes every request before it, resolved or not.
+    closed_before = max(
+        (
+            starts[part_index] + summary.last_turn_complete
+            for part_index, summary in enumerate(summaries)
+            if summary.last_turn_complete is not None
+        ),
+        default=-1,
+    )
     latest: dict[str, tuple[int, str]] = {}
     requests: list[tuple[int, str]] = []
     for part_index, summary in enumerate(summaries):
@@ -194,7 +268,11 @@ def _preamble(
         part = summarize_log_part(loaded[part_index][: cut - start]) if start + summary.count > cut else summary
         for key, (index, line) in part.state.items():
             latest[key] = (start + index, line)
-        requests += [(start + index, line) for index, request_id, line in part.requests if request_id not in resolved]
+        requests += [
+            (start + index, line)
+            for index, request_id, line in part.requests
+            if request_id not in resolved and start + index > closed_before
+        ]
     return [line for _, line in sorted({*latest.values(), *requests})]
 
 

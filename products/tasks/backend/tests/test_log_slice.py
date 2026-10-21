@@ -58,10 +58,42 @@ class TestSliceLogTail(SimpleTestCase):
 
         sliced = slice_log_tail(_log(lines), tail_bytes, before)
 
-        self.assertEqual((sliced.offset, sliced.count), (offset, len(lines)))
+        self.assertEqual((sliced.offset, sliced.count, sliced.turns_before), (offset, len(lines), 1 if offset else 0))
         entries = [json.loads(line) for line in sliced.content.splitlines()][sliced.preamble :]
         self.assertEqual(entries[0]["notification"]["params"]["update"]["content"]["text"], first_text)
         self.assertEqual(len(entries), (before if before is not None else len(lines)) - offset)
+
+    @parameterized.expand(
+        [
+            ("acp_whole_message", _update("user_message", content={"type": "text", "text": "second"})),
+            ("posthog_notification", _line("_posthog/user_message", {"content": "second"})),
+            (
+                "legacy_pi_event",
+                json.dumps({"type": "pi_event", "event": {"type": "user_message", "content": "second"}}),
+            ),
+        ]
+    )
+    def test_recognizes_every_user_turn_format(self, _name: str, user_line: str) -> None:
+        second = [user_line, *_turn("second", 4, 100)[1:]]
+        lines = [*_turn("first", 4, 100), *second]
+
+        sliced = slice_log_tail(_log(lines), 1000)
+
+        self.assertEqual(sliced.content.splitlines()[sliced.preamble], user_line)
+
+    def test_cuts_a_turn_past_the_cap_before_a_top_level_tool_call(self) -> None:
+        nested = [
+            _update(
+                "tool_call", toolCallId="child", title="Bash", _meta={"claudeCode": {"parentToolCallId": "parent"}}
+            ),
+            _update("tool_call_update", toolCallId="child", status="completed", rawOutput="x" * 1000),
+        ]
+        lines = [*_turn("only", 40, 1000), *(nested * 6)]
+
+        sliced = slice_log_tail(_log(lines), 2000)
+
+        first = json.loads(sliced.content.splitlines()[sliced.preamble])["notification"]["params"]["update"]
+        self.assertEqual((first["sessionUpdate"], "_meta" in first), ("tool_call", False))
 
     def test_cuts_a_turn_past_the_cap_before_a_tool_call(self) -> None:
         lines = _turn("only", 40, 1000)
@@ -84,7 +116,8 @@ class TestSliceLogTail(SimpleTestCase):
             _line("_posthog/permission_request", {"requestId": "answered"}),
             _line("_posthog/permission_resolved", {"requestId": "answered"}),
         ]
-        lines = [*head, *_turn("first", 4, 100), *_turn("second", 4, 100)]
+        closed = [_line("_posthog/permission_request", {"requestId": "closed"}), _line("_posthog/turn_complete")]
+        lines = [*closed, *head, *_turn("first", 4, 100), *_turn("second", 4, 100)]
 
         sliced = slice_log_tail(_log(lines), 1000)
 

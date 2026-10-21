@@ -1,3 +1,4 @@
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -248,7 +249,7 @@ describe('runStreamLogic', () => {
         jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
         jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (taskId, runId, options) => {
             const entries = await api.tasks.runs.getLogEntries(taskId, runId, options)
-            return { entries, offset: 0, count: entries.length, preamble: 0 }
+            return { entries, offset: 0, count: entries.length, preamble: 0, turnsBefore: 0 }
         })
         jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
         projectLogic.mount()
@@ -1198,8 +1199,9 @@ describe('runStreamLogic', () => {
 
     describe('pushHumanMessage', () => {
         it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
+            logic.actions.pushHumanMessage('hello agent')
+            const placeholderId = logic.values.threadItems[0].id
             await expectLogic(logic, () => {
-                logic.actions.pushHumanMessage('hello agent')
                 // The agent takes the send up and echoes it, which is what places the message.
                 logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello agent' }))
                 logic.actions.ingestAcpFrame(
@@ -1210,7 +1212,7 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems).toHaveLength(2)
             // The echo keeps the row the placeholder drew, rather than minting a second id.
             expect(logic.values.threadItems[0]).toEqual({
-                id: 'human-0',
+                id: placeholderId,
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
@@ -5246,11 +5248,12 @@ describe('runStreamLogic', () => {
             offset: number,
             count: number,
             preamble = 0
-        ): { entries: StoredLogEntry[]; offset: number; count: number; preamble: number } => ({
+        ): { entries: StoredLogEntry[]; offset: number; count: number; preamble: number; turnsBefore: number } => ({
             entries,
             offset,
             count,
             preamble,
+            turnsBefore: 0,
         })
         const turn = (text: string, eventId: string): StoredLogEntry => ({
             ...sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } }),
@@ -5281,31 +5284,54 @@ describe('runStreamLogic', () => {
             expect(disjoint.entries.map((entry) => entry.event_id)).toEqual(['e-9'])
         })
 
-        it('loads an older page in front of the thread without changing the rows it already shows', async () => {
+        it('loads an older page in front of the thread without changing the rows, sends or mode it already shows', async () => {
+            const mode = (modeId: string, eventId: string): StoredLogEntry => ({
+                ...sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: modeId }),
+                event_id: eventId,
+            })
             jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) =>
                 options.before === undefined
-                    ? page(
-                          [
-                              notification('_posthog/run_started', { runId: 'run-1' }),
-                              turn('latest question', 'b-3'),
-                              reply('latest answer', 'b-4'),
-                          ],
-                          2,
-                          4,
-                          1
-                      )
-                    : page([turn('older question', 'b-1'), reply('older answer', 'b-2')], 0, 4)
+                    ? {
+                          ...page(
+                              [
+                                  notification('_posthog/run_started', { runId: 'run-1' }),
+                                  mode('plan', 'b-3m'),
+                                  turn('latest question', 'b-3'),
+                                  reply('latest answer', 'b-4'),
+                              ],
+                              3,
+                              5,
+                              1
+                          ),
+                          turnsBefore: 1,
+                      }
+                    : page([mode('default', 'b-0m'), turn('older question', 'b-1'), reply('older answer', 'b-2')], 0, 5)
             )
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
             await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(reply('stale backlog', 'b-1x'), 'log-0')
             await MockStream.latest().emitMessage(reply('live answer', 'b-5'), 'b-5')
+            logic.actions.pushHumanMessage('older question')
             const shown = logic.values.threadItems.map((item) => item.id)
-            expect(logic.values.olderHistoryState).toEqual('idle')
+            expect([logic.values.olderHistoryState, logic.values.historyTurnBase]).toEqual(['idle', 1])
 
-            logic.actions.loadOlderHistory()
-            await flushPromises()
+            const dispatched: string[] = []
+            const store = getContext().store
+            const dispatch = store.dispatch
+            store.dispatch = ((action: { type: string }) => {
+                dispatched.push(action.type)
+                return dispatch(action)
+            }) as typeof store.dispatch
+            try {
+                logic.actions.loadOlderHistory()
+                await flushPromises()
+            } finally {
+                store.dispatch = dispatch
+            }
+
+            expect(dispatched).not.toContain(logic.actionTypes.setCurrentMode)
 
             expect(texts(logic.values.threadItems)).toEqual([
                 'older question',
@@ -5313,9 +5339,14 @@ describe('runStreamLogic', () => {
                 'latest question',
                 'latest answer',
                 'live answer',
+                'older question',
             ])
             expect(logic.values.threadItems.slice(-shown.length).map((item) => item.id)).toEqual(shown)
-            expect(logic.values.olderHistoryState).toEqual('none')
+            expect([logic.values.olderHistoryState, logic.values.historyTurnBase, logic.values.currentMode]).toEqual([
+                'none',
+                0,
+                'plan',
+            ])
         })
     })
 

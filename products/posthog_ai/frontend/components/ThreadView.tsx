@@ -149,8 +149,15 @@ export function ThreadView({
         logBootstrapLoading,
         pendingPermissionRequest,
         olderHistoryState,
+        historyTurnBase,
     } = useValues(runStreamLogic)
     const { loadOlderHistory } = useActions(runStreamLogic)
+    // A flow thread has no scroll of its own to bring the reader near the top, so it reads every older page.
+    useEffect(() => {
+        if (!virtualized && olderHistoryState === 'idle') {
+            loadOlderHistory()
+        }
+    }, [virtualized, olderHistoryState, loadOlderHistory])
     const turnCancelled = currentRunStatus === 'cancelled'
     // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
     // still going, so it keeps the softer title.
@@ -190,11 +197,11 @@ export function ThreadView({
     const previousTrailers = useRef<Map<string, TurnTrailer> | null>(null)
     const trailers = useMemo(() => {
         const next = renderTurnTrailer
-            ? reuseTurnTrailers(previousTrailers.current, computeTurnTrailers(threadItems))
+            ? reuseTurnTrailers(previousTrailers.current, computeTurnTrailers(threadItems, historyTurnBase))
             : null
         previousTrailers.current = next
         return next
-    }, [threadItems, renderTurnTrailer])
+    }, [threadItems, renderTurnTrailer, historyTurnBase])
     const revealGroups = useMemo(() => mapRowsToRevealGroup(displayItems), [displayItems])
     const previousRows = useRef<ThreadViewRow[]>([])
     const rows = useMemo(() => {

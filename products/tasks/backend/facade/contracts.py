@@ -754,13 +754,15 @@ class TaskRunLogSliceDTO:
     """Part of a run's conversation log.
 
     ``content`` is JSONL. ``offset`` is the index in the full log of the first entry after the
-    ``preamble`` entries, and ``count`` is the number of entries in the full log.
+    ``preamble`` entries, ``count`` is the number of entries in the full log, and ``turns_before`` is the
+    number of user turns that start before ``offset``.
     """
 
     content: str
     offset: int
     count: int
     preamble: int = 0
+    turns_before: int = 0
 
 
 @dataclass(frozen=True)

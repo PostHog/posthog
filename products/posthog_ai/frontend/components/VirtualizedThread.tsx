@@ -352,6 +352,9 @@ function Root<T>({
         [items, getItemKey, hasHeader]
     )
 
+    // Delayed loops read the resolver through this ref: the one a timer captured resolves keys against the items
+    // of the render that started it, and older rows loaded since would shift every index.
+    const findVirtualIndexForKeyRef = useRef<(key: string) => number>(() => -1)
     const findVirtualIndexForKey = useCallback(
         (key: string): number => {
             // Scan from the end — the anchor (a recent human message) is near the tail in practice.
@@ -384,6 +387,7 @@ function Root<T>({
         [items, hasHeader, estimateItemHeight, defaultRowHeight, gap]
     )
 
+    findVirtualIndexForKeyRef.current = findVirtualIndexForKey
     const virtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: () => scrollRef.current,
@@ -564,7 +568,7 @@ function Root<T>({
                     return
                 }
                 // Resolved per tick: older rows put in front of the items move the anchor's index.
-                const anchorIndex = findVirtualIndexForKey(anchorKey)
+                const anchorIndex = findVirtualIndexForKeyRef.current(anchorKey)
                 if (anchorIndex < 0) {
                     return
                 }
@@ -584,7 +588,7 @@ function Root<T>({
             }
             setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
         },
-        [virtualizer, noteProgrammaticScroll, findVirtualIndexForKey]
+        [virtualizer, noteProgrammaticScroll]
     )
 
     // The open's top-or-bottom verdict, re-taken once real measurements exist. The opening commit only
@@ -614,7 +618,7 @@ function Root<T>({
                 }
                 const viewport = el.clientHeight
                 const totalSize = virtualizer.getTotalSize()
-                const anchorIndex = findVirtualIndexForKey(anchorKey)
+                const anchorIndex = findVirtualIndexForKeyRef.current(anchorKey)
                 const anchorStart = anchorIndex >= 0 ? virtualizer.measurementsCache[anchorIndex]?.start : undefined
                 const contentBelow = anchorStart !== undefined ? totalSize - anchorStart : 0
                 if (viewport > 0 && contentBelow >= viewport) {
@@ -630,7 +634,7 @@ function Root<T>({
             }
             setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
         },
-        [virtualizer, noteProgrammaticScroll, setPinned, findVirtualIndexForKey]
+        [virtualizer, noteProgrammaticScroll, setPinned]
     )
 
     // Rows that land above the reader (a history page loading in front, or the fold placing an older row
@@ -646,7 +650,8 @@ function Root<T>({
         previousItemsRef.current = items
         const el = scrollRef.current
         const topRow = topRowRef.current
-        if (!virtualized || !el || !topRow) {
+        // A thread following a live reply belongs to the follow effect; holding a row would pull it back up.
+        if (!virtualized || !el || !topRow || (pinnedRef.current && followingRef.current)) {
             return
         }
         const hold = prependHoldRef.current
