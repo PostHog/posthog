@@ -395,6 +395,8 @@ class PlatformHandback:
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    # False when the platform switched the copy off, such as for a configuration it cannot run.
+    enabled: bool = True
 
 
 @frozen

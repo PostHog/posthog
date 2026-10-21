@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
-from products.alerts.backend.insight_alert_state_machine import apply_platform_state
+from products.alerts.backend.insight_alert_state_machine import apply_invalid_configuration, apply_platform_state
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
@@ -194,6 +194,10 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         update_fields = apply_platform_state(
             alert, AlertState.SNOOZED if snoozed else _INSIGHT_STATE_OF_PLATFORM[handback.state]
         )
+        if not handback.enabled and alert.enabled:
+            # The platform switches a copy off only for a configuration it cannot run, which the
+            # insight stack reports the same way, so it does not resume the alert.
+            update_fields.extend(apply_invalid_configuration(alert))
         alert.owner = PlatformAlertOwner.SOURCE
         alert.owner_changed_at = at
         alert.last_notified_at = handback.last_notified_at
