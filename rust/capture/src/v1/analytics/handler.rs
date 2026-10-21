@@ -87,7 +87,7 @@ pub async fn handle_request(
         .record(payload.len() as f64);
 
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
-        let err = v1::Error::RequestParsingError(e.to_string());
+        let err = v1::Error::from(e);
         log_stat_error!(err, &context);
         err
     })?;
@@ -191,6 +191,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::Router;
+    use rstest::rstest;
     use tower::ServiceExt;
     use uuid::Uuid;
 
@@ -328,18 +329,51 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[rstest]
+    #[case::invalid_json(
+        "not json at all {{{",
+        "Failed to parse request body: invalid JSON at line 1, column 2."
+    )]
+    #[case::wrong_type_distinct_id(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e","uuid":"019a0000-0000-7000-8000-000000000001","distinct_id":12345678901234567890123,"timestamp":"2026-03-19T14:30:00Z"}]}"#,
+        "Failed to parse request body: wrong JSON type or value at line 1, column 142."
+    )]
+    #[case::wrong_type_batch(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":"alice@example.com"}"#,
+        "Failed to parse request body: wrong JSON type or value at line 1, column 64."
+    )]
+    #[case::truncated(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e""#,
+        "Failed to parse request body: unexpected end of JSON at line 1, column 58."
+    )]
     #[tokio::test]
-    async fn malformed_json() {
+    async fn unparseable_body_reports_position_without_content(
+        #[case] body: &str,
+        #[case] expected_description: &str,
+    ) {
         let ts = TestStateBuilder::new().build();
         let app = test_app(ts.state);
 
-        let garbage = b"not json at all {{{".to_vec();
         let resp = app
-            .oneshot(valid_request().body(Body::from(garbage)).unwrap())
+            .oneshot(valid_request().body(Body::from(body.to_owned())).unwrap())
             .await
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let json = response_json(resp).await;
+        assert_eq!(json["error"], "request_parsing_error");
+        assert_eq!(json["error_description"], expected_description);
+        let raw = json.to_string();
+        for value in [
+            "alice@example.com",
+            "12345678901234567890123",
+            "1.2345678901234568e22",
+        ] {
+            assert!(
+                !raw.contains(value),
+                "response echoes request content: {raw}"
+            );
+        }
     }
 
     #[tokio::test]

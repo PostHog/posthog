@@ -3,6 +3,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use metrics::counter;
 use serde::Serialize;
+use serde_json::error::Category;
 use thiserror::Error;
 use tracing::Level;
 
@@ -15,6 +16,47 @@ pub struct ErrorResponse {
     pub error: String,
     pub error_description: String,
     pub error_uri: String,
+}
+
+#[derive(Debug)]
+pub struct ParseFailure {
+    /// Can quote request values, so it never goes into a response.
+    message: String,
+    category: Category,
+    line: usize,
+    column: usize,
+}
+
+impl ParseFailure {
+    fn description(&self) -> String {
+        let what = match self.category {
+            Category::Syntax => "invalid JSON",
+            Category::Data => "wrong JSON type or value",
+            Category::Eof => "unexpected end of JSON",
+            Category::Io => "unreadable body",
+        };
+        format!(
+            "Failed to parse request body: {what} at line {}, column {}.",
+            self.line, self.column
+        )
+    }
+}
+
+impl std::fmt::Display for ParseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl From<serde_json::Error> for ParseFailure {
+    fn from(e: serde_json::Error) -> Self {
+        Self {
+            message: e.to_string(),
+            category: e.classify(),
+            line: e.line(),
+            column: e.column(),
+        }
+    }
 }
 
 impl ErrorResponse {
@@ -41,7 +83,7 @@ pub enum Error {
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
-    RequestParsingError(String),
+    RequestParsingError(ParseFailure),
     #[error("request body is empty")]
     EmptyBody,
     #[error("request batch is empty")]
@@ -147,7 +189,7 @@ impl Error {
     pub fn description(&self) -> String {
         match self {
             Self::RequestDecodingError(_) => "Failed to decode request body.".to_string(),
-            Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
+            Self::RequestParsingError(failure) => failure.description(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
             Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
@@ -357,7 +399,7 @@ macro_rules! log_stat_error {
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
-        Error::RequestParsingError(e.to_string())
+        Error::RequestParsingError(e.into())
     }
 }
 
@@ -409,6 +451,18 @@ mod tests {
         let err = Error::InternalError("boom".into());
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn parse_failure_logs_serde_message_but_describes_only_the_position() {
+        let serde_err = serde_json::from_str::<Vec<u32>>(r#"["alice@example.com"]"#).unwrap_err();
+        let err = Error::from(serde_err);
+
+        assert!(err.to_string().contains("alice@example.com"));
+        assert_eq!(
+            err.description(),
+            "Failed to parse request body: wrong JSON type or value at line 1, column 20."
+        );
     }
 
     #[tokio::test]
