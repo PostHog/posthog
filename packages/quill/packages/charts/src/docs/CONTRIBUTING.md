@@ -38,18 +38,24 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
     return { x, y, yTicks: () => yScale.ticks() }
   }, [])
 
-  const draw = useCallback(({ ctx, dimensions, scales, series, labels, hoverIndex }: ChartDrawArgs) => {
+  const drawStatic = useCallback(({ ctx, dimensions, scales, series, labels }: ChartDrawArgs) => {
     // Draw bars using canvas-renderer primitives or custom drawing
+  }, [])
+
+  const drawHover = useCallback(({ ctx, hoverIndex }: ChartDrawArgs) => {
+    // Highlight the hovered bar; return false when nothing was drawn
   }, [])
 
   return (
     <Chart
       series={series}
       labels={labels}
-      config={config}
+      config={applyChartDefaults(config)}
       theme={theme}
       createScales={createScales}
-      draw={draw}
+      drawStatic={drawStatic}
+      drawHover={drawHover}
+      drawChrome
       {...props}
     >
       {/* Bar-chart-specific overlays as children */}
@@ -57,3 +63,7 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
   )
 }
 ```
+
+- `applyChartDefaults` turns on the same grid, axis lines, tick marks and crosshair as the built-in charts. The core reads them from `config` and treats a missing switch as off.
+- `drawChrome` makes the core draw the stock grid behind `drawStatic` and the stock axis lines over it, so `drawStatic` draws only the marks. A chart type that needs a different grid draws its own with `drawGrid` and `drawAxes` and leaves `drawChrome` off.
+- Leave `tooltip` unset for the stock `DefaultTooltip`, configured through `config.tooltip`. For other content, return `DefaultTooltip` with a `labelRenderer` or `valueFormatter`, or compose `TooltipSurface` and `TooltipSwatch`, so the tooltip still matches the built-in charts.
