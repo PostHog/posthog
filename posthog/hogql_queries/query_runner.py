@@ -191,9 +191,11 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    events_route_cache_modifiers,
     events_route_scope,
     get_new_events_cluster_host,
     new_events_cluster_host_scope,
+    pin_events_table,
     strip_events_route,
     use_new_events_schema,
 )
@@ -2102,22 +2104,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return None
 
     def _reads_events_route(self) -> bool:
-        """Whether this query reads PostHog events, so its events route keys the cache and the queued payload."""
+        """True when this query reads the PostHog events table.
+
+        Only then does the events route belong in the query's cache key and in its queued payload.
+        """
         return True
 
     def _query_json_with_events_schema(self) -> dict[str, Any]:
-        # The worker rebuilds this runner from the payload. Pin a resolved native table, so the worker writes the cache
-        # key this request reads even when its instance-setting snapshot differs. A legacy payload stays unchanged,
-        # so workers from the previous deploy, which key on the raw query, still write the same key.
+        # A worker rebuilds this runner from the payload. The payload carries the resolved events table, so the
+        # worker reads the same table and writes the cache key this request reads.
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if not self.modifiers.useNewEventsSchema or not self._reads_events_route():
-            return query_json
-        node: dict[str, Any] | None = query_json
-        while isinstance(node, dict) and "modifiers" not in node:
-            node = node.get("source")
-        if isinstance(node, dict):
-            node["modifiers"] = {**(node["modifiers"] or {}), "useNewEventsSchema": self.modifiers.useNewEventsSchema}
+        if self.modifiers.useNewEventsSchema and self._reads_events_route():
+            pin_events_table(query_json, self.modifiers.useNewEventsSchema)
         return query_json
 
     def enqueue_async_calculation(
@@ -3165,13 +3164,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
         strip_events_route(query, drop_empty=True)
 
-        cache_modifiers = to_dict(self.modifiers)
-        # A legacy-table query omits these default values, so its cache key does not depend on them. A query
-        # that reads no events table is never keyed by one.
-        if cache_modifiers.get("useNewEventsSchema") is False or not self._reads_events_route():
-            cache_modifiers.pop("useNewEventsSchema", None)
-        if not cache_modifiers.get("useNewEventsCluster"):
-            cache_modifiers.pop("useNewEventsCluster", None)
+        cache_modifiers = events_route_cache_modifiers(to_dict(self.modifiers), reads_events=self._reads_events_route())
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
