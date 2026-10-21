@@ -1,4 +1,8 @@
+import os
 import random
+import socket
+import logging
+import secrets
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -27,6 +31,8 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch, execute_after_commit
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
+
+logger = logging.getLogger(__name__)
 
 DISPATCH_PAYLOAD_VERSION = 1
 
@@ -358,6 +364,23 @@ def dispatch_exceeded_max_age(
     return current_time - dispatch.enqueued_at > timedelta(seconds=max_age_seconds)
 
 
+def claim_dispatch(dispatch_id: Any, instance_id: str, lease: timedelta) -> TaskWorkflowDispatch | None:
+    now = django_timezone.now()
+    claimed = (
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(id=dispatch_id, status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)
+        .update(
+            status=TaskWorkflowDispatch.Status.CLAIMED,
+            claimed_by=instance_id,
+            lease_expires_at=now + lease,
+            attempt_count=F("attempt_count") + 1,
+        )
+    )
+    if not claimed:
+        return None
+    return TaskWorkflowDispatch.objects.unscoped().get(id=dispatch_id)
+
+
 def renew_leases(instance_id: str, dispatch_ids: list[Any], lease: timedelta) -> int:
     return (
         TaskWorkflowDispatch.objects.unscoped()
@@ -467,6 +490,27 @@ def renew_leases_in_worker_thread(instance_id: str, dispatch_ids: list[Any], lea
         close_old_connections()
 
 
+def start_dispatch_now(dispatch_id: Any) -> None:
+    from asgiref.sync import async_to_sync
+
+    from posthog.temporal.common.client import async_connect
+
+    from products.tasks.backend.management.commands.run_task_workflow_dispatcher import process_dispatch
+
+    async def connect_and_process(dispatch: TaskWorkflowDispatch, instance_id: str) -> None:
+        await process_dispatch(await async_connect(), dispatch, instance_id)
+
+    instance_id = f"{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(4)}"
+    try:
+        dispatch = claim_dispatch(dispatch_id, instance_id, timedelta(seconds=settings.TASKS_DISPATCHER_LEASE_SECONDS))
+        if dispatch is None:
+            return
+        async_to_sync(connect_and_process)(dispatch, instance_id)
+    except Exception:
+        logger.exception("workflow_dispatch_on_commit_failed", extra={"dispatch_id": str(dispatch_id)})
+        release_claims(instance_id)
+
+
 def enqueue_or_start_workflow(
     task_run: TaskRun,
     *,
@@ -484,13 +528,17 @@ def enqueue_or_start_workflow(
         task_run.state = {**(task_run.state or {}), "workflow_id": workflow_id}
     if settings.TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED:
         if transaction.get_connection().in_atomic_block:
-            create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
+            dispatch = create_dispatch(
+                task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
+            )
         else:
             with transaction.atomic():
                 locked_run = TaskRun.objects.select_for_update().get(id=task_run.id)
-                create_dispatch(
+                dispatch = create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )
+        if settings.TASKS_WORKFLOW_DISPATCH_ON_COMMIT_ENABLED:
+            execute_after_commit(lambda: start_dispatch_now(dispatch.id))
         return
 
     def start_synchronously() -> None:

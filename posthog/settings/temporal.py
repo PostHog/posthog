@@ -3,7 +3,7 @@ import os
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -359,6 +359,9 @@ TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
     "TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED",
     CLOUD_DEPLOYMENT in ("US", "EU"),
     type_cast=str_to_bool,
+)
+TASKS_WORKFLOW_DISPATCH_ON_COMMIT_ENABLED: bool = get_from_env(
+    "TASKS_WORKFLOW_DISPATCH_ON_COMMIT_ENABLED", not TEST, type_cast=str_to_bool
 )
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
