@@ -1839,8 +1839,8 @@ class TestUpsertDashboardTool(BaseTest):
         await DashboardTile.objects.acreate(dashboard=dashboard, text=text, layouts={})
         return dashboard, insight, subscription, rate
 
-    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
-    async def test_duplicate_dashboard_keeps_variables_and_chart_settings(self, mock_report):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    async def test_duplicate_dashboard_keeps_variables_and_chart_settings(self, mock_capture: MagicMock) -> None:
         source, source_insight, subscription, rate = await self._create_variable_dashboard()
 
         _, artifact = await self._create_tool()._arun_impl(
@@ -1871,7 +1871,18 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(insight_tiles[0].insight.query, source_insight.query)
         self.assertEqual(insight_tiles[0].layouts, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}})
 
-        created_props = next(c[0][2] for c in mock_report.call_args_list if c[0][1] == "dashboard created")
+        copied_insight = insight_tiles[0].insight
+        copied_insight.query = DEFAULT_TRENDS_QUERY.model_dump()
+        await copied_insight.asave(update_fields=["query"])
+        await source_insight.arefresh_from_db()
+        self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
+
+        creation_events = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == "dashboard created"
+        ]
+        self.assertEqual(len(creation_events), 1)
+        created_props = creation_events[0].kwargs["properties"]
+        self.assertEqual(created_props["source"], "posthog_ai")
         self.assertEqual(created_props["duplicated"], True)
         self.assertEqual(created_props["duplicated_from_dashboard_id"], source.id)
 
@@ -1888,6 +1899,29 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("customer_id", str(error.exception))
         self.assertIn("subscription_id", str(error.exception))
         self.assertEqual(await Dashboard.objects.filter(team=self.team).acount(), 1)
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    async def test_duplicate_dashboard_rolls_back_invalid_insight(self, mock_capture: MagicMock) -> None:
+        source, source_insight, *_ = await self._create_variable_dashboard()
+        invalid_insight = await self._create_insight("x" * 400)
+        await DashboardTile.objects.acreate(dashboard=source, insight=invalid_insight)
+        dashboard_count = await Dashboard.objects.filter(team=self.team).acount()
+        insight_count = await Insight.objects.filter(team=self.team).acount()
+        tile_count = await DashboardTile.objects.filter(dashboard__team=self.team).acount()
+        text_count = await Text.objects.filter(team=self.team).acount()
+
+        with self.assertRaisesRegex(MaxToolRetryableError, "copy the insight"):
+            await self._create_tool()._arun_impl(
+                DuplicateDashboardToolArgs(dashboard_id=str(source.id), name="Invalid copy")
+            )
+
+        self.assertEqual(await Dashboard.objects.filter(team=self.team).acount(), dashboard_count)
+        self.assertEqual(await Insight.objects.filter(team=self.team).acount(), insight_count)
+        self.assertEqual(await DashboardTile.objects.filter(dashboard__team=self.team).acount(), tile_count)
+        self.assertEqual(await Text.objects.filter(team=self.team).acount(), text_count)
+        await source_insight.arefresh_from_db()
+        self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
+        self.assertFalse(any(call.kwargs.get("event") == "dashboard created" for call in mock_capture.call_args_list))
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):

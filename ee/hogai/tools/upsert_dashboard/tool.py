@@ -3,10 +3,13 @@ from base64 import urlsafe_b64encode
 from typing import Any, Literal, TypedDict, cast
 
 from django.db import transaction
+from django.http import HttpRequest
 
 import structlog
 from pydantic import BaseModel, Field
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from posthog.schema import (
     DataTableNode,
@@ -36,7 +39,7 @@ from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourc
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
@@ -299,16 +302,6 @@ class UpsertDashboardTool(MaxTool):
             source.description if action.description is None else action.description,
             variables,
         )
-        await self._report_dashboard_action(
-            dashboard,
-            "dashboard created",
-            {
-                "from_template": False,
-                "template_key": None,
-                "duplicated": True,
-                "duplicated_from_dashboard_id": source.id,
-            },
-        )
 
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
@@ -348,55 +341,32 @@ class UpsertDashboardTool(MaxTool):
     def _duplicate_dashboard(
         self, source: Dashboard, name: str, description: str, variables: dict[str, Any]
     ) -> Dashboard:
-        dashboard = Dashboard.objects.create(
-            team=self._team,
-            created_by=self._user,
-            name=name,
-            description=description,
-            filters=source.filters,
-            variables=variables,
-            breakdown_colors=source.breakdown_colors,
-            data_color_theme_id=source.data_color_theme_id,
-            quick_filter_ids=source.quick_filter_ids,
-            customization=source.customization,
-            creation_mode="duplicate",
+        http_request = HttpRequest()
+        http_request.method = "GET"
+        http_request.user = self._user
+        request = Request(http_request, authenticators=[SessionAuthentication()])
+        serializer = DashboardSerializer(
+            data={
+                "use_dashboard": source.id,
+                "duplicate_tiles": True,
+                "name": name,
+                "description": description,
+            },
+            context={
+                "request": request,
+                "team_id": self._team.id,
+                "get_team": lambda: self._team,
+                "insight_variables": insight_variables_for_team(self._team.id),
+                "creation_event_properties": {"source": EventSource.POSTHOG_AI},
+            },
         )
-        source_tiles = DashboardTile.objects.filter(dashboard=source).select_related(
-            "insight", "text", "button_tile", "widget"
-        )
-        for tile in source_tiles:
-            if tile.insight is not None:
-                if not self.user_access_control.check_access_level_for_object(tile.insight, "viewer"):
-                    raise MaxToolAccessDeniedError("insight", "viewer", action="read")
-                # Copy the insight so later edits to the new dashboard do not change the source dashboard.
-                insight = Insight.objects.create(
-                    team=self._team,
-                    created_by=self._user,
-                    name=tile.insight.name,
-                    derived_name=tile.insight.derived_name,
-                    description=tile.insight.description,
-                    filters=tile.insight.filters,
-                    query=tile.insight.query,
-                    saved=True,
-                )
-                DashboardTile.objects.create(
-                    dashboard=dashboard,
-                    team_id=dashboard.team_id,
-                    insight=insight,
-                    layouts=tile.layouts,
-                    color=tile.color,
-                    filters_overrides=tile.filters_overrides,
-                    show_description=tile.show_description,
-                    transparent_background=tile.transparent_background,
-                    group_key=tile.group_key,
-                    badge=tile.badge,
-                )
-            elif tile.widget is not None:
-                DashboardSerializer._clone_widget_tile_to_dashboard(
-                    tile, dashboard, self._user, append_copy_suffix=False
-                )
-            else:
-                tile.copy_to_dashboard(dashboard)
+        try:
+            serializer.is_valid(raise_exception=True)
+            dashboard = serializer.save()
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
+        dashboard.variables = variables
+        dashboard.save(update_fields=["variables"])
         return dashboard
 
     def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight]:

@@ -1932,6 +1932,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "duplicated_from_dashboard_id": use_dashboard,
+                **self.context.get("creation_event_properties", {}),
             },
             team=dashboard.team,
             request=request,
