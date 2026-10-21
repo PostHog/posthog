@@ -2,7 +2,7 @@ from collections.abc import Mapping
 
 from products.docs_freshness.backend.facade.contracts import PullRequestHead
 from products.docs_freshness.backend.logic.impact_check import CHECKED_REPOSITORY, configured_settings
-from products.docs_freshness.backend.tasks.tasks import check_pull_request_head
+from products.docs_freshness.backend.temporal.client import start_check_pull_request_head_workflow
 
 CHECKED_ACTIONS = frozenset({"opened", "reopened", "synchronize"})
 
@@ -33,4 +33,4 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
     head = pull_request_head_from_payload(payload)
     if head is None:
         return
-    check_pull_request_head.delay(repository=head.repository, pr_number=head.pr_number, head_sha=head.head_sha)
+    start_check_pull_request_head_workflow(head)

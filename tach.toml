@@ -110,6 +110,7 @@ depends_on = [
     "products.data_quality",
     "products.data_warehouse",
     "products.demo",
+    "products.docs_freshness",
     "products.early_access_features",
     "products.endpoints",
     "products.engineering_analytics",

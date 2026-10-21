@@ -2,10 +2,10 @@ import re
 import json
 import uuid
 import shlex
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
-from django.core.cache import cache
+from django.db import IntegrityError, transaction
 
 import structlog
 
@@ -40,7 +40,6 @@ CHECKED_EVENT_UUID_NAMESPACE = uuid.uuid5(
 CHECK_TIMEOUT_SECONDS = 15 * 60
 PROMPT_TIMEOUT_SECONDS = 60
 MAX_STDERR_CHARACTERS = 300
-AGENT_STARTED_MARKER_TIMEOUT_SECONDS = 30 * 24 * 60 * 60
 
 CLEAR_EXIT_CODE = 0
 FLAGGED_EXIT_CODE = 1
@@ -60,9 +59,12 @@ class DocsFreshnessSettings:
     tool_ref: str
 
 
+VerdictName = Literal["clear", "flagged", "unmergeable"]
+
+
 @frozen
 class ImpactVerdict:
-    impacted: tuple[dict[str, Any], ...]
+    impacted: list[dict[str, Any]]
     prompt_template: str | None = None
 
     @property
@@ -86,26 +88,25 @@ def pull_request_url(head: PullRequestHead) -> str:
     return f"https://github.com/PostHog/posthog/pull/{head.pr_number}"
 
 
-def check_pull_request_head(head: PullRequestHead) -> None:
+def check_pull_request_head(head: PullRequestHead) -> ImpactVerdict | None:
     config = configured_settings()
     if config is None:
-        return
+        return None
     if head.repository.lower() != CHECKED_REPOSITORY or not _SHA_RE.fullmatch(head.head_sha):
-        return
+        return None
     if not _is_current_head(config, head):
         logger.info("docs_freshness: head superseded", pr_number=head.pr_number, head_sha=head.head_sha)
-        return
-    verdict = run_impact_check(config.tool_ref, head)
-    if verdict.is_flagged:
-        start_docs_agent(config, head, verdict)
-    capture_verdict(config, head, "flagged" if verdict.is_flagged else "clear", len(verdict.impacted))
+        return None
+    return run_impact_check(config.tool_ref, head)
 
 
-def record_unmergeable_verdict(head: PullRequestHead) -> None:
+def record_verdict(head: PullRequestHead, verdict_name: VerdictName, verdict: ImpactVerdict) -> None:
     config = configured_settings()
     if config is None:
         return
-    capture_verdict(config, head, "unmergeable", 0)
+    if verdict.is_flagged:
+        start_docs_agent(config, head, verdict)
+    capture_verdict(config, head, verdict_name, len(verdict.impacted))
 
 
 def _is_current_head(config: DocsFreshnessSettings, head: PullRequestHead) -> bool:
@@ -155,9 +156,9 @@ def _read_verdict(sandbox: SandboxBase, tool_ref: str, head: PullRequestHead) ->
             f"Impact check of pull request {head.pr_number} failed with exit code {result.exit_code}: "
             f"{result.stderr[-MAX_STDERR_CHARACTERS:]}"
         )
-    impacted = tuple(json.loads(result.stdout))
+    impacted = list(json.loads(result.stdout))
     if result.exit_code == CLEAR_EXIT_CODE or not impacted:
-        return ImpactVerdict(impacted=())
+        return ImpactVerdict(impacted=[])
     prompt = sandbox.execute(f"cat {PROMPT_PATH}", timeout_seconds=PROMPT_TIMEOUT_SECONDS)
     if prompt.exit_code != 0:
         raise DocsFreshnessCheckError(f"Reading the docs agent prompt failed: {prompt.stderr[-MAX_STDERR_CHARACTERS:]}")
@@ -197,26 +198,31 @@ def checked_event_uuid(head: PullRequestHead) -> str:
     return str(uuid.uuid5(CHECKED_EVENT_UUID_NAMESPACE, f"{pull_request_url(head)}@{head.head_sha}"))
 
 
+def docs_agent_origin_key(head: PullRequestHead) -> str:
+    return f"docs-freshness:{head.pr_number}@{head.head_sha}"
+
+
 def start_docs_agent(config: DocsFreshnessSettings, head: PullRequestHead, verdict: ImpactVerdict) -> None:
     team = Team.objects.get(id=config.team_id)
-    agent_started_marker_key = f"docs_freshness:agent_started:{checked_event_uuid(head)}"
-    if not cache.add(agent_started_marker_key, True, timeout=AGENT_STARTED_MARKER_TIMEOUT_SECONDS):
+    origin_key = docs_agent_origin_key(head)
+    try:
+        with transaction.atomic():
+            created = tasks_facade.create_and_run_task(
+                team=team,
+                title=f"docs: update for PostHog/posthog#{head.pr_number}",
+                description=docs_agent_description(head, verdict),
+                origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+                user_id=config.owner_user_id,
+                repository=DOCS_REPOSITORY,
+                create_pr=True,
+                posthog_mcp_scopes=[],
+                origin_key=origin_key,
+            )
+    except IntegrityError:
+        if tasks_facade.get_task_by_origin_key(team.id, origin_key) is None:
+            raise
         logger.info("docs_freshness: docs agent already started", pr_number=head.pr_number, head_sha=head.head_sha)
         return
-    try:
-        created = tasks_facade.create_and_run_task(
-            team=team,
-            title=f"docs: update for PostHog/posthog#{head.pr_number}",
-            description=docs_agent_description(head, verdict),
-            origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
-            user_id=config.owner_user_id,
-            repository=DOCS_REPOSITORY,
-            create_pr=True,
-            posthog_mcp_scopes=[],
-        )
-    except Exception:
-        cache.delete(agent_started_marker_key)
-        raise
     logger.info("docs_freshness: docs agent started", pr_number=head.pr_number, task_id=str(created.task_id))
 
 

@@ -207,6 +207,10 @@ from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
     WORKFLOWS as DATA_QUALITY_WORKFLOWS,
 )
+from products.docs_freshness.backend.facade.temporal import (
+    ACTIVITIES as DOCS_FRESHNESS_ACTIVITIES,
+    WORKFLOWS as DOCS_FRESHNESS_WORKFLOWS,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     CI_SIGNALS_ACTIVITIES,
     CI_SIGNALS_WORKFLOWS,
@@ -456,6 +460,12 @@ _task_queue_specs = [
         settings.CANVAS_BUILD_TASK_QUEUE,
         CANVAS_BUILD_WORKFLOWS,
         CANVAS_BUILD_ACTIVITIES,
+    ),
+    # DOCS_FRESHNESS_TASK_QUEUE defaults to the general-purpose queue, so it runs on that fleet.
+    (
+        settings.DOCS_FRESHNESS_TASK_QUEUE,
+        DOCS_FRESHNESS_WORKFLOWS,
+        DOCS_FRESHNESS_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
