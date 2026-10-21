@@ -92,6 +92,10 @@ class ReplacePlaceholders(CloningVisitor):
 
         from common.hogvm.python.execute import execute_bytecode
 
+        chain = node.chain
+        if chain and len(chain) > 1 and chain[0] == "variables" and "variables" not in (self.placeholders or {}):
+            raise QueryError(f"Variable {chain[1]} is missing from query")
+
         if self._deadline is None:
             self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()
 

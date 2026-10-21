@@ -80,6 +80,15 @@ class TestParser(SimpleTestCase):
             str(context.exception),
         )
 
+    @parameterized.expand([("no_placeholders", {}), ("other_placeholders", {"foo": ast.Constant(value=1)})])
+    def test_replace_placeholders_without_variables_raises_query_error(
+        self, _name: str, placeholders: dict[str, ast.Expr]
+    ) -> None:
+        expr = parse_expr("{variables.start_date}")
+        with self.assertRaises(QueryError) as context:
+            replace_placeholders(expr, placeholders)
+        self.assertEqual("Variable start_date is missing from query", str(context.exception))
+
     @patch("posthog.hogql.placeholders.MAX_PLACEHOLDER_EXPANSIONS", 3)
     def test_replace_placeholders_caps_expansion_count(self):
         # A low cap keeps the case away from the shared time budget: at the cap it resolves, one past
