@@ -141,16 +141,23 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_delivered_firing_stays_with_its_source", "ok", True, False, ("source", "firing", True)),
+            ("a_delivered_firing_stays_with_its_source", "ok", True, 60, False, ("source", "firing", True)),
             # A copy checking beside its source fires without sending, so nothing it opened is orphaned.
-            ("an_undelivered_firing_is_taken_over", "ok", False, True, ("platform", "not_firing", False)),
+            ("an_undelivered_firing_is_taken_over", "ok", False, 60, True, ("platform", "not_firing", False)),
+            ("a_firing_whose_delivery_may_be_queued_stays", "ok", False, 1, False, ("source", "firing", True)),
             # The machine ended the firing when the check broke, so the row's firing is stale.
-            ("a_broken_copy_is_taken_over", "broken", True, True, ("platform", "not_firing", False)),
-            ("an_errored_copy_is_taken_over", "errored", True, True, ("platform", "not_firing", False)),
+            ("a_broken_copy_is_taken_over", "broken", True, 60, True, ("platform", "not_firing", False)),
+            ("an_errored_copy_is_taken_over", "errored", True, 60, True, ("platform", "not_firing", False)),
         ]
     )
     def test_a_copy_inside_its_own_firing_is_taken_over_unless_that_firing_was_delivered_and_runs(
-        self, _name: str, check_status: str, delivered: bool, expected_taken: bool, expected: tuple[str, str, bool]
+        self,
+        _name: str,
+        check_status: str,
+        delivered: bool,
+        started_minutes_ago: int,
+        expected_taken: bool,
+        expected: tuple[str, str, bool],
     ) -> None:
         legacy_id = uuid4()
         with team_scope(self.team.id):
@@ -160,7 +167,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             platform_testing.start_firing(
                 self.configuration.id,
                 team_id=self.team.id,
-                at=self.cutoff,
+                at=self.cutoff - timedelta(minutes=started_minutes_ago),
                 sent_natively=delivered,
             )
 

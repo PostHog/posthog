@@ -865,18 +865,29 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
 
 
-def _delivered_firing(team_id: int, configuration: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> bool:
-    """Whether any of these instances is inside a firing the platform delivered.
+# Longer than a delivery workflow can wait between the check that starts a firing and the first
+# thread claim. Inside it, a firing with no claimed thread may still have a delivery on its way.
+_DELIVERY_FENCE: Final = timedelta(minutes=10)
+
+
+def _delivered_firing(
+    team_id: int, configuration: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert], *, at: datetime
+) -> bool:
+    """Whether any of these instances is inside a firing the platform delivered, or may still deliver.
 
     Every native send claims a thread keyed on the firing's start, so a firing with no claimed
-    thread was never sent. A firing with an unknown start has no key to find, so it counts as sent.
+    thread was never sent, once its delivery had time to start. A firing with an unknown start has
+    no key to find, so it counts as sent.
     """
     started: list[PlatformAlert] = []
     for instance in alerts:
-        if instance.firing_started_at is not None:
-            started.append(instance)
-        elif instance.state == PlatformAlertState.FIRING:
+        if instance.firing_started_at is None:
+            if instance.state == PlatformAlertState.FIRING:
+                return True
+        elif instance.firing_started_at > at - _DELIVERY_FENCE:
             return True
+        else:
+            started.append(instance)
     if not started:
         return False
     delivered = Q()
@@ -922,7 +933,7 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             alerts = _instances_by_configuration(handover.team_id, [configuration]).get(str(configuration.id), [])
         # A failing check status means the machine already ended the firing the row still holds.
         if configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK and _delivered_firing(
-            handover.team_id, configuration, alerts
+            handover.team_id, configuration, alerts, at=handover.at
         ):
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
