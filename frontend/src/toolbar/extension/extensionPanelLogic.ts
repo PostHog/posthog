@@ -31,6 +31,8 @@ const REQUEST_TIMEOUT_MS = 5000
 
 const ENTITLEMENTS_PATH = '/api/user/toolbar_entitlements/'
 
+const REFRESH_ON_TAB_CHANGE_MS = 30 * 1000
+
 const RECHECK_ON_TAB_CHANGE: ExtensionPanelState['kind'][] = [
     'signed-out',
     'no-toolbar-access',
@@ -62,6 +64,7 @@ export interface extensionPanelLogicValues {
     entitlements: ToolbarEntitlementsApiEntitlements | null
     hostPermission: boolean | null
     panelState: ExtensionPanelState
+    projectSwitchFailed: boolean
     session: SessionResult | null
     sessionUser: SessionUserResult | null
     sessionUserLoading: boolean
@@ -86,13 +89,13 @@ export interface extensionPanelLogicActions {
         errorObject?: any
     }
     loadAuthorizedUrlsSuccess: (
-        authorizedUrls: string[] | 'error',
+        authorizedUrls: string[] | 'error' | null,
         payload?: {
             organizationId: string
             projectId: number
         }
     ) => {
-        authorizedUrls: string[] | 'error'
+        authorizedUrls: string[] | 'error' | null
         payload?: {
             organizationId: string
             projectId: number
@@ -107,10 +110,10 @@ export interface extensionPanelLogicActions {
         errorObject?: any
     }
     loadSessionUserSuccess: (
-        sessionUser: SessionUserResult,
+        sessionUser: SessionUserResult | null,
         payload?: any
     ) => {
-        sessionUser: SessionUserResult
+        sessionUser: SessionUserResult | null
         payload?: any
     }
     loadToolbarAccess: () => any
@@ -122,10 +125,10 @@ export interface extensionPanelLogicActions {
         errorObject?: any
     }
     loadToolbarAccessSuccess: (
-        toolbarAccess: ToolbarAccessResult,
+        toolbarAccess: ToolbarAccessResult | null,
         payload?: any
     ) => {
-        toolbarAccess: ToolbarAccessResult
+        toolbarAccess: ToolbarAccessResult | null
         payload?: any
     }
     openFeature: (
@@ -147,6 +150,9 @@ export interface extensionPanelLogicActions {
     setHostPermission: (granted: boolean) => {
         granted: boolean
     }
+    setProjectSwitchFailed: (failed: boolean) => {
+        failed: boolean
+    }
     setTabUrl: (tabUrl: string | null) => {
         tabUrl: string | null
     }
@@ -166,7 +172,7 @@ export interface extensionPanelLogicMeta {
         entitlements: (toolbarAccess: ToolbarAccessResult | null) => ToolbarEntitlementsApiEntitlements | null
         panelState: (
             tabUrl: string | null | undefined,
-            uiHost: 'https://us.posthog.com',
+            uiHost: string,
             hostPermission: boolean | null,
             session: SessionResult | null,
             toolbarAccess: ToolbarAccessResult | null,
@@ -193,10 +199,15 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         openPostHogPath: (path: string) => ({ path }),
         openFeature: (feature: ExtensionFeatureKey, path: string) => ({ feature, path }),
         retry: true,
+        setProjectSwitchFailed: (failed: boolean) => ({ failed }),
     }),
     reducers({
         tabUrl: [undefined as string | null | undefined, { setTabUrl: (_, { tabUrl }) => tabUrl }],
         uiHost: [DEFAULT_UI_HOST as string, { setUiHost: (_, { uiHost }) => uiHost }],
+        projectSwitchFailed: [
+            false,
+            { setProjectSwitchFailed: (_, { failed }) => failed, switchProject: () => false, setUiHost: () => false },
+        ],
         hostPermission: [
             null as boolean | null,
             { setUiHost: () => null, setHostPermission: (_, { granted }) => granted },
@@ -206,8 +217,12 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         sessionUser: [
             null as SessionUserResult | null,
             {
-                loadSessionUser: async (): Promise<SessionUserResult> => {
-                    const { status, data } = await fetchWithSession(values.uiHost, getUsersRetrieveUrl('@me'))
+                loadSessionUser: async (): Promise<SessionUserResult | null> => {
+                    const uiHost = values.uiHost
+                    const { status, data } = await fetchWithSession(uiHost, getUsersRetrieveUrl('@me'))
+                    if (values.uiHost !== uiHost) {
+                        return null
+                    }
                     if (status === 401 || status === 403) {
                         return { status: 'signed-out' }
                     }
@@ -222,8 +237,12 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         toolbarAccess: [
             null as ToolbarAccessResult | null,
             {
-                loadToolbarAccess: async (): Promise<ToolbarAccessResult> => {
-                    const { status, data } = await fetchWithSession(values.uiHost, ENTITLEMENTS_PATH)
+                loadToolbarAccess: async (): Promise<ToolbarAccessResult | null> => {
+                    const uiHost = values.uiHost
+                    const { status, data } = await fetchWithSession(uiHost, ENTITLEMENTS_PATH)
+                    if (values.uiHost !== uiHost) {
+                        return null
+                    }
                     if (status === 200) {
                         const entitlements = (data as { entitlements?: ToolbarEntitlementsApiEntitlements } | null)
                             ?.entitlements
@@ -245,11 +264,15 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 }: {
                     organizationId: string
                     projectId: number
-                }): Promise<string[] | 'error'> => {
+                }): Promise<string[] | 'error' | null> => {
+                    const uiHost = values.uiHost
                     const { status, data } = await fetchWithSession(
-                        values.uiHost,
+                        uiHost,
                         getOrganizationsProjectsRetrieveUrl(organizationId, projectId)
                     )
+                    if (values.uiHost !== uiHost) {
+                        return null
+                    }
                     if (status !== 200 || !data) {
                         return 'error'
                     }
@@ -294,7 +317,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 getExtensionPanelState({ tabUrl, uiHost, hostPermission, session, toolbarAccess, authorizedUrls }),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setUiHost: async ({ uiHost }) => {
             void setStoredUiHost(uiHost)
             actions.setHostPermission(await hasHostPermission(uiHost))
@@ -315,14 +338,20 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             }
         },
         setTabUrl: () => {
-            // The panel stays open while the user logs in or adds an authorized URL in another tab, so check
-            // again when the user comes back.
+            // The panel stays open while the user logs in, switches project or adds an authorized URL in another
+            // tab, so check again when the user comes back.
             if (RECHECK_ON_TAB_CHANGE.includes(values.panelState.kind)) {
                 actions.retry()
+                return
+            }
+            if (values.hostPermission && Date.now() - (cache.lastRefresh ?? 0) > REFRESH_ON_TAB_CHANGE_MS) {
+                cache.lastRefresh = Date.now()
+                actions.loadSessionUser()
+                toolbarPosthogJS.reloadFeatureFlags()
             }
         },
         loadSessionUserSuccess: ({ sessionUser }) => {
-            if (sessionUser.status !== 'signed-in') {
+            if (sessionUser?.status !== 'signed-in') {
                 return
             }
             const { user } = sessionUser
@@ -336,8 +365,12 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         switchProject: async ({ teamId }) => {
             // The app's project-switch path moves the session's current project, which is the project
             // toolbar authentication uses.
-            await fetchWithSession(values.uiHost, `/project/${teamId}`)
-            toolbarPosthogJS.capture('toolbar extension project switched')
+            const { status } = await fetchWithSession(values.uiHost, `/project/${teamId}`)
+            if (status >= 200 && status < 300) {
+                toolbarPosthogJS.capture('toolbar extension project switched')
+            } else {
+                actions.setProjectSwitchFailed(true)
+            }
             actions.loadSessionUser()
         },
         openPostHogPath: ({ path }) => {
