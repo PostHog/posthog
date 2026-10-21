@@ -45,6 +45,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
     compute_team_shard_offset_seconds,
+    parse_blocked_windows_tuples,
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
@@ -614,6 +615,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 now=now,
                 configuration_id=configuration.id,
                 shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
+                schedule_key=outcome.schedule_key,
+                blocked_windows=parse_blocked_windows_tuples(configuration.schedule_restriction),
             )
 
         # Batched, because a grouped check writes a row per group rather than one per configuration.
