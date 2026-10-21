@@ -343,7 +343,7 @@ It does not read the main lane's or the v3 mirror's blocklist.
 - A new session from the overflow topic takes no token. The recorder only counts it, as the replay overflow lane does.
 - The bucket holds `AI_RESEARCH_V4_NEW_SESSION_BUCKET_CAPACITY` tokens (default 3000) and refills at `AI_RESEARCH_V4_NEW_SESSION_BUCKET_REPLENISH_RATE` per second (default 300), the main lane's production values. Both scale with the sample percentage, because the limit counts only sessions that pass the gate. With `AI_RESEARCH_V4_NEW_SESSION_BLOCKING_ENABLED` set to false, the recorder counts and blocks nothing.
 - Each pod keeps its own buckets in memory, as the main lane does, so two deployments block slightly different sessions.
-- Seen and blocked sessions are stored in the ML lanes' Redis (`AI_RESEARCH_V4_REDIS_URL`), not in the primary replay Redis, under `@posthog/ai-research-v4/`. They have the main lane's expiry, so a block survives a restart or a rebalance.
+- Seen and blocked sessions are stored in v4's own Redis, `ai-research-v4` (`AI_RESEARCH_V4_REDIS_URL`), not in the primary replay Redis, under `@posthog/ai-research-v4/`. They have the main lane's expiry, so a block survives a restart or a rebalance.
 - That Redis evicts the least recently used keys under memory pressure. An evicted seen key makes its session take a second token, and an evicted blocked key lets its session through, so both fail open.
 - A Redis error lets the session through, as in the main lane.
 
@@ -427,7 +427,7 @@ Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a de
 | Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | Until the key row of its month expires                                                                                             | DynamoDB TTL                  |
 | Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                             | Topic retention               |
 | Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                           | Topic retention               |
-| Seen and blocked sessions      | ML Redis, `@posthog/ai-research-v4/`                             | The main lane's expiry, or earlier under memory pressure                                                                           | Redis expiry and LRU eviction |
+| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                           | Redis expiry and LRU eviction |
 | Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                         | Cache expiry                  |
 
 - S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
