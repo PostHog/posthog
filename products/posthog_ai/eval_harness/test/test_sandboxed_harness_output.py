@@ -413,7 +413,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     http_status: int,
     delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
-    for key in ("API_KEY", "HOST"):
+    for key in ("API_KEY", "HOST", "LOCAL_CONFIG"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
     monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
     monkeypatch.chdir(tmp_path)

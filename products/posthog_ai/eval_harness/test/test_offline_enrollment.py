@@ -11,7 +11,7 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 
 @pytest.mark.asyncio
-async def test_discovered_suites_publish_every_scorer(tmp_path: Path) -> None:
+async def test_discovered_suites_match_reporting_enrollment(tmp_path: Path) -> None:
     ctx = Mock(spec=EvalContext, posthog_client=None, case_filter=None, skill_delivery="bundled")
     ctx.engine = Mock()
     ctx.provider_strategy = Mock()
@@ -40,6 +40,10 @@ async def test_discovered_suites_publish_every_scorer(tmp_path: Path) -> None:
             run = runs[0]
             assert run.no_send_logs == suite.no_send_logs, suite.id
             config = run.offline_suite
+            if suite.id == "logs/eval_agent_observability::eval_agent_observability":
+                assert config is None
+                assert not run.no_send_logs
+                continue
             assert config is not None, suite.id
             assert run.send_to_posthog, suite.id
             assert config.key == suite.id

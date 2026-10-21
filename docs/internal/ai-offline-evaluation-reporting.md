@@ -43,7 +43,7 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 
 ## Configured offline experiment suites
 
-All discovered shared-harness suites are enrolled in the offline experiment publisher, including both sandboxed and one-shot suites.
+Shared-harness suites are enrolled in the offline experiment publisher, including both sandboxed and one-shot suites, except for `logs/eval_agent_observability::eval_agent_observability`, which currently reports only to Braintrust.
 The experiment-skill, Feature Flags, Dashboards, turn-suggestion and Business Knowledge retrieval suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
 Public suites retain their Braintrust uploads during enrollment. Braintrust also remains the execution engine for every shared-harness suite, including those whose results publish only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
@@ -52,7 +52,7 @@ Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses t
 The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and each product's `evals/offline_config.py` pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
 Suites select their own metrics from the catalog; sandboxed suites also include the harness-provided `exit_code_zero` metric.
 The SQL suite retains its seven existing scorer versions.
-The discovery-wide enrollment test checks every suite's publishing flag, stable key, scorer coverage, pinned UUIDs and ownership tags without executing agents or judges.
+The discovery-wide enrollment test checks every enrolled suite's publishing flag, stable key, scorer coverage, pinned UUIDs and ownership tags without executing agents or judges. It also checks that the Logs agent-observability suite retains its Braintrust-only reporting configuration.
 Provide the API key through the environment before running the suite:
 
 | Variable                       | Purpose                                                                                                                                                                                                                                  |
