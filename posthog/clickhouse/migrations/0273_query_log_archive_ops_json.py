@@ -25,9 +25,11 @@ ALL_ROLES = [
     NodeRole.OPS,
 ]
 
-# Earlier generations. A stack that ran part of the old migration chain can still have them. The cloud
-# clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the v3 objects
-# take over some of these names there.
+# Write path of earlier generations. A stack that ran part of the old migration chain can still have
+# these objects. None of them stores data, so they are dropped. The data tables of those generations
+# (sharded_query_log_archive, query_log_archive_v2) stay, and the operator decides when to drop them.
+# The cloud clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the
+# v3 objects take over some of these names there.
 LEGACY_VIEWS = [
     "query_log_archive_mv",
     "sharded_query_log_archive_mv",
@@ -35,14 +37,10 @@ LEGACY_VIEWS = [
     "ops_query_log_archive_mv",
     "daily_aggregated_query_log_archive",
 ]
-LEGACY_TABLES = [
+LEGACY_WRITE_TABLES = [
     "writable_query_log_archive",
     "writable_sharded_query_log_archive",
     "query_log_archive_buffer",
-    "sharded_query_log_archive",
-    "sharded_query_log_archive_old",
-    "query_log_archive_v2",
-    "query_log_archive_old",
 ]
 
 operations = [
@@ -54,7 +52,7 @@ operations = [
             *[run_sql_with_exceptions(f"DROP TABLE IF EXISTS {view}", node_roles=ALL_ROLES) for view in LEGACY_VIEWS],
             *[
                 run_sql_with_exceptions(f"DROP TABLE IF EXISTS {table}", node_roles=ALL_ROLES)
-                for table in LEGACY_TABLES
+                for table in LEGACY_WRITE_TABLES
             ],
         ]
     ),
@@ -62,8 +60,11 @@ operations = [
     run_sql_with_exceptions(QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(), node_roles=[NodeRole.OPS]),
     run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=ALL_ROLES),
     run_sql_with_exceptions(QUERY_LOG_ARCHIVE_V3_MV_SQL(), node_roles=ALL_ROLES),
-    # An earlier generation used query_log_archive as a data table, so drop it before the Distributed
-    # read table takes the name.
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=[NodeRole.ALL]),
+    # An earlier generation used query_log_archive as a data table. Rename it aside, so that the read
+    # table can take the name and no archived rows are lost.
+    run_sql_with_exceptions(
+        f"RENAME TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE} TO {QUERY_LOG_ARCHIVE_DATA_TABLE}_legacy",
+        node_roles=[NodeRole.ALL],
+    ),
     run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.ALL]),
 ]
