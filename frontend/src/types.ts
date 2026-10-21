@@ -45,6 +45,7 @@ import type {
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
+    SharingConfigurationApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -5824,6 +5825,7 @@ export interface SharePasswordType {
 }
 
 export interface SharingConfigurationType {
+    has_relevant_access_controls?: SharingConfigurationApi['has_relevant_access_controls']
     enabled: boolean
     access_token: string
     created_at: string
