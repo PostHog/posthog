@@ -197,6 +197,7 @@ pub(crate) struct PollBuilder {
     accumulator: Accumulator,
     partitions: HashMap<TopicPartition, PartitionDeliveries>,
     stats: BatchStats,
+    charge: Charge,
     started_ms: i64,
     current_topic: Option<Arc<str>>,
 }
@@ -207,6 +208,7 @@ impl PollBuilder {
             accumulator: Accumulator::default(),
             partitions: HashMap::new(),
             stats: BatchStats::new(),
+            charge: Charge::ZERO,
             started_ms: current_time_ms(),
             current_topic: None,
         }
@@ -218,6 +220,10 @@ impl PollBuilder {
 
     pub(crate) fn payload_bytes(&self) -> usize {
         self.stats.total_bytes
+    }
+
+    pub(crate) fn charge(&self) -> Charge {
+        self.charge
     }
 
     pub(crate) fn add(&mut self, message: &impl Message, ledger: &TopicOffsetLedger) {
@@ -258,6 +264,7 @@ impl PollBuilder {
             kafka_ts,
             lag_ms,
         };
+        self.charge += delivery.charge;
         let key = TopicPartition::new(topic.to_string(), partition);
         let generations_version = ledger.generations_version();
         match self.partitions.get_mut(&key) {

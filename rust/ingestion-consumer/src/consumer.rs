@@ -13,11 +13,11 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
+use crate::charge_limit::ChargeLimit;
 use crate::config::{CompletionGranularity, Config, Polling};
 use crate::debug_recorder::{record_if, CommitOffset, DebugEventKind, DebugRecorder};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
-use crate::in_flight_limit::InFlightLimits;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::partition_budget::BudgetLimits;
 use crate::polling::{
@@ -115,7 +115,7 @@ pub struct IngestionConsumerOptions {
     /// The capped strategy's admission cap, in polls.
     pub max_in_flight_batches: usize,
     pub polling: Polling,
-    pub in_flight_limits: InFlightLimits,
+    pub in_flight_limit: ChargeLimit,
     pub group_id: String,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
@@ -169,7 +169,7 @@ impl IngestionConsumer {
             options.polling,
             options.completion_granularity,
             &options.partition_budget,
-            options.in_flight_limits,
+            options.in_flight_limit,
             options.max_in_flight_batches,
         );
         let settlement = settlement::for_granularity(
@@ -245,7 +245,7 @@ impl IngestionConsumer {
             config.consumer_polling_strategy,
             config.consumer_completion_granularity,
             &partition_budget,
-            config.in_flight_limits(),
+            config.in_flight_limit(),
             config.consumer_max_background_tasks,
         );
         let settlement = settlement::for_granularity(

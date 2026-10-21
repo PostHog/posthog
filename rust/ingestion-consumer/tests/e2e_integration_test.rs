@@ -34,11 +34,11 @@ use ingestion_consumer::batcher::packer::PackTargets;
 use ingestion_consumer::batcher::state_machine::RequestBudget;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::BatcherObserver;
+use ingestion_consumer::charge_limit::ChargeLimit;
 use ingestion_consumer::config::{CompletionGranularity, Polling};
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::in_flight_limit::InFlightLimits;
 use ingestion_consumer::partition_budget::BudgetLimits;
 use ingestion_consumer::rebalance::RebalanceContext;
 use ingestion_consumer::routing::RoutingStrategy;
@@ -623,7 +623,7 @@ struct Harness {
     completion_granularity: CompletionGranularity,
     partition_budget: BudgetLimits,
     polling: Polling,
-    in_flight_limits: InFlightLimits,
+    in_flight_limit: ChargeLimit,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -726,7 +726,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -761,7 +761,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -791,7 +791,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -820,7 +820,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -844,7 +844,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -890,7 +890,7 @@ impl Harness {
             commit_interval,
             BudgetLimits::unset(),
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -903,10 +903,10 @@ impl Harness {
         partition_budget: BudgetLimits,
         polling: Polling,
     ) -> Self {
-        let (max_in_flight, in_flight_limits) = match polling {
-            Polling::Capped => (8, InFlightLimits::unset()),
+        let (max_in_flight, in_flight_limit) = match polling {
+            Polling::Capped => (8, ChargeLimit::unset()),
             // One poll slot: the continuous loop must not wait on any poll.
-            Polling::Continuous => (1, InFlightLimits::new(NonZeroU64::new(1_000), None)),
+            Polling::Continuous => (1, ChargeLimit::new(NonZeroU64::new(1_000), None)),
         };
         Self::start_inner(
             topic,
@@ -923,7 +923,7 @@ impl Harness {
             COMMIT_INTERVAL,
             partition_budget,
             polling,
-            in_flight_limits,
+            in_flight_limit,
         )
         .await
     }
@@ -934,7 +934,7 @@ impl Harness {
         partitions: i32,
         worker_count: usize,
         partition_budget: BudgetLimits,
-        in_flight_limits: InFlightLimits,
+        in_flight_limit: ChargeLimit,
     ) -> Self {
         Self::start_inner(
             topic,
@@ -951,7 +951,7 @@ impl Harness {
             COMMIT_INTERVAL,
             partition_budget,
             Polling::Continuous,
-            in_flight_limits,
+            in_flight_limit,
         )
         .await
     }
@@ -979,7 +979,7 @@ impl Harness {
             commit_interval,
             partition_budget,
             Polling::Capped,
-            InFlightLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
@@ -1000,7 +1000,7 @@ impl Harness {
         commit_interval: Duration,
         partition_budget: BudgetLimits,
         polling: Polling,
-        in_flight_limits: InFlightLimits,
+        in_flight_limit: ChargeLimit,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -1058,7 +1058,7 @@ impl Harness {
                 ledger: Arc::clone(&ledger),
                 partition_budget,
                 polling,
-                in_flight_limits,
+                in_flight_limit,
             },
             handle,
         );
@@ -1093,7 +1093,7 @@ impl Harness {
             completion_granularity,
             partition_budget,
             polling,
-            in_flight_limits,
+            in_flight_limit,
         }
     }
 
@@ -1156,7 +1156,7 @@ impl Harness {
                 ledger: Arc::clone(&self.ledger),
                 partition_budget: self.partition_budget,
                 polling: self.polling,
-                in_flight_limits: self.in_flight_limits,
+                in_flight_limit: self.in_flight_limit,
             },
             handle,
         );
@@ -1250,7 +1250,7 @@ impl Harness {
                 ledger: Arc::new(TopicOffsetLedger::new()),
                 partition_budget: self.partition_budget,
                 polling: self.polling,
-                in_flight_limits: self.in_flight_limits,
+                in_flight_limit: self.in_flight_limit,
             },
             handle,
         );
@@ -3036,7 +3036,7 @@ async fn continuous_polling_commits_the_ledger_frontier() {
             1,
             1,
             BudgetLimits::new(NonZeroU64::new(1_000), None, 0.8).expect("a valid budget"),
-            InFlightLimits::new(NonZeroU64::new(1_000), None),
+            ChargeLimit::new(NonZeroU64::new(1_000), None),
         )
         .await,
     )
@@ -3052,31 +3052,25 @@ async fn the_in_flight_limit_stops_reading_until_completions_free_room() {
         1,
         1,
         BudgetLimits::new(NonZeroU64::new(1_000), None, 0.8).expect("a valid budget"),
-        InFlightLimits::new(NonZeroU64::new(5), None),
+        ChargeLimit::new(NonZeroU64::new(5), None),
     )
     .await;
     let p0 = TopicPartition::new(&topic, 0);
     let guard = harness.workers[0].block().await;
-    let producer = make_producer();
+    let backlog: Vec<(&str, usize)> = (0..20).map(|seq| ("user-a", seq)).collect();
 
-    for seq in 0..5usize {
-        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
-    }
+    produce_in_one_transaction(&topic, 0, "tok", &backlog).await;
     wait_until(
         Duration::from_secs(10),
         "the in-flight limit to fill",
-        || harness.ledger.held(&p0).offsets == 5,
+        || harness.ledger.held(&p0).offsets >= 5,
     )
     .await;
-
-    for seq in 5..20usize {
-        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
-    }
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(
         harness.ledger.held(&p0).offsets,
         5,
-        "the consumer reads nothing more at the limit, under the partition budget"
+        "a ready backlog stops at the limit, under the partition budget and the batch size"
     );
 
     drop(guard);
@@ -3872,7 +3866,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             ledger: Arc::new(TopicOffsetLedger::new()),
             partition_budget: BudgetLimits::unset(),
             polling: Polling::Capped,
-            in_flight_limits: InFlightLimits::unset(),
+            in_flight_limit: ChargeLimit::unset(),
         },
         handle,
     );

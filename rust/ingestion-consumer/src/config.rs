@@ -12,8 +12,8 @@ use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
+use crate::charge_limit::ChargeLimit;
 use crate::discovery::DiscoveryMode;
-use crate::in_flight_limit::InFlightLimits;
 use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
@@ -567,8 +567,8 @@ impl Config {
         )
     }
 
-    pub fn in_flight_limits(&self) -> InFlightLimits {
-        InFlightLimits::new(
+    pub fn in_flight_limit(&self) -> ChargeLimit {
+        ChargeLimit::new(
             NonZeroU64::new(self.consumer_in_flight_events),
             NonZeroU64::new(self.consumer_in_flight_bytes),
         )

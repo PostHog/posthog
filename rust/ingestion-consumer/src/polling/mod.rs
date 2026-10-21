@@ -17,9 +17,9 @@ use lifecycle::Handle;
 use tokio::sync::mpsc;
 use tracing::warn;
 
+use crate::charge_limit::ChargeLimit;
 use crate::config::{CompletionGranularity, Polling};
 use crate::debug_recorder::DebugRecorder;
-use crate::in_flight_limit::InFlightLimits;
 use crate::partition_budget::BudgetLimits;
 use crate::settlement::{Commit, Settlement};
 
@@ -95,7 +95,7 @@ impl PollingStrategy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Selected {
     Capped { max_in_flight_polls: usize },
-    Continuous { in_flight: InFlightLimits },
+    Continuous { in_flight: ChargeLimit },
 }
 
 /// Continuous polling needs `group` granularity, because at `poll` a commit
@@ -107,7 +107,7 @@ pub(crate) fn select(
     polling: Polling,
     granularity: CompletionGranularity,
     budget: &BudgetLimits,
-    in_flight: InFlightLimits,
+    in_flight: ChargeLimit,
     max_in_flight_polls: usize,
 ) -> Selected {
     let capped = Selected::Capped {
@@ -232,9 +232,9 @@ mod tests {
             BudgetLimits::unset()
         };
         let in_flight = if case.in_flight_set {
-            InFlightLimits::new(NonZeroU64::new(1_000), None)
+            ChargeLimit::new(NonZeroU64::new(1_000), None)
         } else {
-            InFlightLimits::unset()
+            ChargeLimit::unset()
         };
 
         let selected = select(Polling::Continuous, case.granularity, &budget, in_flight, 4);

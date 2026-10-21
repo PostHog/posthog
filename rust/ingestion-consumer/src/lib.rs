@@ -1,12 +1,12 @@
 pub mod aperture;
 pub mod batcher;
+pub mod charge_limit;
 mod commit_pacer;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;
 pub mod discovery;
 pub mod grpc_transport;
-pub mod in_flight_limit;
 pub mod kafka_stats;
 pub mod ledger_rejection;
 pub mod order_sentinel;

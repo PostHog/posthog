@@ -9,9 +9,10 @@ use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior};
 use tracing::{info, warn};
 
-use super::poll::{InFlightPoll, PartitionDeliveries, PollBuilder};
+use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries, PollBuilder};
 use super::{Collector, LoopParts, RevokedPartition, Step};
-use crate::in_flight_limit::InFlightLimits;
+use crate::charge_limit::ChargeLimit;
+use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::settlement::Settlement;
 
 /// Reads Kafka while it applies completions and commits. A poll is submitted
@@ -26,7 +27,7 @@ pub(crate) struct ContinuousPolling {
     handle: Handle,
     commit_tick: Interval,
     in_flight: InFlight,
-    limits: InFlightLimits,
+    limits: ChargeLimit,
     at_limit: bool,
     poll: Option<PollInProgress>,
     accepting_new_batches: bool,
@@ -49,7 +50,7 @@ enum Woke {
 }
 
 impl ContinuousPolling {
-    pub(crate) fn new(parts: LoopParts, limits: InFlightLimits) -> Self {
+    pub(crate) fn new(parts: LoopParts, limits: ChargeLimit) -> Self {
         let LoopParts {
             collector,
             completions,
@@ -60,7 +61,7 @@ impl ContinuousPolling {
             handle,
             commit_tick,
             group_id,
-            debug_recorder: _,
+            debug_recorder,
         } = parts;
         let mut commit_tick = tokio::time::interval(commit_tick);
         commit_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -72,7 +73,7 @@ impl ContinuousPolling {
             revoked_partitions,
             handle,
             commit_tick,
-            in_flight: InFlight::new(group_id),
+            in_flight: InFlight::new(group_id, debug_recorder),
             limits,
             at_limit: false,
             poll: None,
@@ -106,7 +107,7 @@ impl ContinuousPolling {
                 }
             }
 
-            let reading = self.accepting_new_batches && !self.reached_limit(held);
+            let reading = self.accepting_new_batches && !self.reached_limit(self.pending());
             let deadline = self.poll.as_ref().map(|poll| poll.deadline);
             let batch_timeout = self.collector.batch_timeout();
             let woke = tokio::select! {
@@ -176,11 +177,11 @@ impl ContinuousPolling {
                     }
                 }
                 Woke::Received => {
-                    if self
+                    let full = self
                         .poll
                         .as_ref()
-                        .is_some_and(|poll| self.collector.is_full(&poll.builder))
-                    {
+                        .is_some_and(|poll| self.collector.is_full(&poll.builder));
+                    if full || self.limits.reached(self.pending()) {
                         if let Some(step) = self.take_poll() {
                             return step;
                         }
@@ -200,8 +201,18 @@ impl ContinuousPolling {
         (poll.builder.message_count() > 0).then(|| Step::Submit(poll.builder.finish()))
     }
 
-    fn reached_limit(&mut self, held: Charge) -> bool {
-        let at_limit = self.limits.reached(held);
+    /// The in-flight charge plus the poll in progress, whose messages the
+    /// process holds too.
+    fn pending(&self) -> Charge {
+        let building = self
+            .poll
+            .as_ref()
+            .map_or(Charge::ZERO, |poll| poll.builder.charge());
+        self.in_flight.held() + building
+    }
+
+    fn reached_limit(&mut self, pending: Charge) -> bool {
+        let at_limit = self.limits.reached(pending);
         if at_limit && !self.at_limit {
             counter!("ingestion_consumer_in_flight_limit_reached_total").increment(1);
         }
@@ -231,6 +242,7 @@ impl ContinuousPolling {
 
 /// One partition's share of a submitted poll.
 struct Slice {
+    poll: u64,
     assignment_epoch: u64,
     deliveries: PartitionDeliveries,
     bytes: u64,
@@ -251,15 +263,32 @@ struct InFlight {
     held: Charge,
     latest_processed_ms: HashMap<TopicPartition, i64>,
     group_id: String,
+    next_poll: u64,
+    /// Kept only with a debug recorder, whose UI marks a poll done on its
+    /// `PollCompleted` event.
+    polls: HashMap<u64, PollProgress>,
+    debug_recorder: Option<Arc<DebugRecorder>>,
+}
+
+struct PollProgress {
+    poll_id: String,
+    slices: usize,
+    completed_slices: usize,
+    accepted: u32,
+    dispatched_at: Instant,
+    partitions: Vec<PartitionOffset>,
 }
 
 impl InFlight {
-    fn new(group_id: String) -> Self {
+    fn new(group_id: String, debug_recorder: Option<Arc<DebugRecorder>>) -> Self {
         Self {
             partitions: HashMap::new(),
             held: Charge::ZERO,
             latest_processed_ms: HashMap::new(),
             group_id,
+            next_poll: 0,
+            polls: HashMap::new(),
+            debug_recorder,
         }
     }
 
@@ -274,6 +303,21 @@ impl InFlight {
     }
 
     fn submitted(&mut self, poll: InFlightPoll) {
+        let seq = self.next_poll;
+        self.next_poll += 1;
+        if self.debug_recorder.is_some() {
+            self.polls.insert(
+                seq,
+                PollProgress {
+                    poll_id: poll.poll_id.clone(),
+                    slices: poll.partitions.len(),
+                    completed_slices: 0,
+                    accepted: 0,
+                    dispatched_at: poll.dispatched_at,
+                    partitions: debug_partition_offsets(&poll.partitions),
+                },
+            );
+        }
         for (topic_partition, deliveries) in poll.partitions {
             let bytes = deliveries
                 .charges
@@ -286,6 +330,7 @@ impl InFlight {
                 .entry(topic_partition)
                 .or_default()
                 .push_back(Slice {
+                    poll: seq,
                     assignment_epoch: poll.assignment_epoch,
                     deliveries,
                     bytes,
@@ -345,8 +390,10 @@ impl InFlight {
             if !settleable.is_empty() {
                 settle(topic_partition, slice.deliveries.generation, &settleable)?;
             }
+            let mut finished = None;
             if slice.uncovered() == 0 {
                 let slice = slices.remove(index).expect("the index is in range");
+                finished = Some((slice.poll, slice.deliveries.accepted));
                 self.held.bytes -= slice.bytes;
                 let latest = self
                     .latest_processed_ms
@@ -368,6 +415,9 @@ impl InFlight {
                     self.partitions.remove(&topic_partition);
                 }
             }
+            if let Some((poll, accepted)) = finished {
+                self.slice_finished(poll, Some(accepted));
+            }
             remaining = rest;
         }
         if unmatched > 0 {
@@ -387,6 +437,7 @@ impl InFlight {
     /// messages dropped.
     fn drop_revoked(&mut self, revoked: &[RevokedPartition]) -> u64 {
         let mut stripped: u64 = 0;
+        let mut dropped_polls = Vec::new();
         for revoked in revoked {
             let Some(slices) = self.partitions.get_mut(&revoked.topic_partition) else {
                 continue;
@@ -398,13 +449,43 @@ impl InFlight {
                 stripped += u64::from(slice.deliveries.delivered);
                 self.held.events -= u64::from(slice.uncovered());
                 self.held.bytes -= slice.bytes;
+                dropped_polls.push(slice.poll);
                 false
             });
             if slices.is_empty() {
                 self.partitions.remove(&revoked.topic_partition);
             }
         }
+        for poll in dropped_polls {
+            self.slice_finished(poll, None);
+        }
         stripped
+    }
+
+    /// A poll completes when its last slice is covered or revoked, as long as
+    /// one slice was covered: a poll the revoke emptied completes nothing.
+    fn slice_finished(&mut self, poll: u64, accepted: Option<u32>) {
+        let Some(progress) = self.polls.get_mut(&poll) else {
+            return;
+        };
+        progress.slices -= 1;
+        if let Some(accepted) = accepted {
+            progress.completed_slices += 1;
+            progress.accepted += accepted;
+        }
+        if progress.slices > 0 {
+            return;
+        }
+        let progress = self.polls.remove(&poll).expect("the poll is tracked");
+        if progress.completed_slices == 0 {
+            return;
+        }
+        record_if(&self.debug_recorder, || DebugEventKind::PollCompleted {
+            batch_id: progress.poll_id,
+            accepted: progress.accepted,
+            duration_ms: progress.dispatched_at.elapsed().as_millis() as u64,
+            partitions: progress.partitions,
+        });
     }
 }
 
@@ -491,7 +572,7 @@ mod tests {
 
     #[test]
     fn a_completion_releases_its_events_and_a_covered_slice_its_bytes() {
-        let mut in_flight = InFlight::new("test".into());
+        let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
         assert_eq!(in_flight.held(), charge(4, 40));
 
@@ -512,7 +593,7 @@ mod tests {
 
     #[test]
     fn a_completion_spanning_two_polls_settles_each_under_its_generation() {
-        let mut in_flight = InFlight::new("test".into());
+        let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
         in_flight.submitted(poll(1, 0, 1, 4, 7));
 
@@ -525,7 +606,7 @@ mod tests {
 
     #[test]
     fn a_completion_from_another_epoch_settles_nothing() {
-        let mut in_flight = InFlight::new("test".into());
+        let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(2, 0, 1, 0, 3));
 
         let processed = in_flight
@@ -539,7 +620,7 @@ mod tests {
 
     #[test]
     fn a_redelivered_offset_settles_against_the_replay_once_the_old_slice_is_covered() {
-        let mut in_flight = InFlight::new("test".into());
+        let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(3, 0, 0, 0, 1));
         in_flight.submitted(poll(3, 0, 1, 0, 1));
 
@@ -556,7 +637,7 @@ mod tests {
 
     #[test]
     fn a_completion_a_worker_did_not_accept_in_full_is_an_error() {
-        let mut in_flight = InFlight::new("test".into());
+        let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
         let mut short = completion(1, 0, &[0, 1]);
         short.accepted = 1;
@@ -569,7 +650,7 @@ mod tests {
 
     #[test]
     fn a_revoke_drops_only_the_older_generations_slices_and_releases_them() {
-        let mut in_flight = InFlight::new("test".into());
+        let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
         in_flight.submitted(poll(1, 1, 0, 10, 11));
         in_flight.submitted(poll(2, 0, 1, 0, 1));
@@ -593,6 +674,70 @@ mod tests {
         assert_eq!(
             settled_runs(&mut in_flight, &completion(2, 0, &[0, 1])),
             vec![(0, 1, vec![0, 1])]
+        );
+    }
+
+    fn completed_polls(recorder: &DebugRecorder) -> Vec<(String, u32)> {
+        recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::PollCompleted {
+                    batch_id, accepted, ..
+                } => Some((batch_id, accepted)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn two_partition_poll() -> InFlightPoll {
+        let mut both = poll(1, 0, 0, 0, 1);
+        both.partitions.extend(poll(1, 1, 0, 10, 11).partitions);
+        both
+    }
+
+    #[test]
+    fn a_poll_completes_for_the_debug_ui_once_its_last_slice_is_covered() {
+        let recorder = DebugRecorder::new(100, std::time::Duration::from_secs(60));
+        let mut in_flight = InFlight::new("test".into(), Some(Arc::clone(&recorder)));
+        in_flight.submitted(two_partition_poll());
+
+        settled_runs(&mut in_flight, &completion(1, 0, &[0, 1]));
+        assert!(
+            completed_polls(&recorder).is_empty(),
+            "partition 1 is still in flight"
+        );
+
+        settled_runs(&mut in_flight, &completion(1, 1, &[10, 11]));
+        assert_eq!(
+            completed_polls(&recorder),
+            vec![("poll-1-0-0".to_string(), 4)]
+        );
+    }
+
+    #[test]
+    fn a_revoked_slice_ends_its_poll_without_counting_as_accepted() {
+        let recorder = DebugRecorder::new(100, std::time::Duration::from_secs(60));
+        let mut in_flight = InFlight::new("test".into(), Some(Arc::clone(&recorder)));
+        in_flight.submitted(two_partition_poll());
+        in_flight.submitted(poll(1, 2, 0, 20, 21));
+
+        settled_runs(&mut in_flight, &completion(1, 0, &[0, 1]));
+        in_flight.drop_revoked(&[
+            RevokedPartition {
+                topic_partition: p(1),
+                generation: 1,
+            },
+            RevokedPartition {
+                topic_partition: p(2),
+                generation: 1,
+            },
+        ]);
+
+        assert_eq!(
+            completed_polls(&recorder),
+            vec![("poll-1-0-0".to_string(), 2)],
+            "the poll the revoke emptied completes nothing"
         );
     }
 }

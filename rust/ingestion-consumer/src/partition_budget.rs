@@ -2,31 +2,12 @@ use std::num::NonZeroU64;
 
 use common_kafka_consumer::Charge;
 
-#[derive(Debug, Clone, Copy)]
-struct Threshold {
-    events: Option<u64>,
-    bytes: Option<u64>,
-}
-
-impl Threshold {
-    fn reached(&self, charge: Charge) -> bool {
-        self.events.is_some_and(|limit| charge.events >= limit)
-            || self.bytes.is_some_and(|limit| charge.bytes >= limit)
-    }
-
-    fn scaled(&self, fraction: f64) -> Self {
-        let scale = |limit: u64| ((limit as f64 * fraction) as u64).clamp(1, limit);
-        Self {
-            events: self.events.map(scale),
-            bytes: self.bytes.map(scale),
-        }
-    }
-}
+use crate::charge_limit::ChargeLimit;
 
 #[derive(Debug, Clone, Copy)]
 struct Limits {
-    pause_at: Threshold,
-    resume_at: Threshold,
+    pause_at: ChargeLimit,
+    resume_at: ChargeLimit,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,13 +31,10 @@ impl BudgetLimits {
                 "the low watermark must be above 0 and at most 1, got {low_watermark}"
             ));
         }
-        if events.is_none() && bytes.is_none() {
+        let pause_at = ChargeLimit::new(events, bytes);
+        if !pause_at.is_set() {
             return Ok(Self::unset());
         }
-        let pause_at = Threshold {
-            events: events.map(NonZeroU64::get),
-            bytes: bytes.map(NonZeroU64::get),
-        };
         Ok(Self {
             limits: Some(Limits {
                 pause_at,
