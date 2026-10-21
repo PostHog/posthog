@@ -170,6 +170,7 @@ class TestRouteThreadMessage(TestCase):
                 False,
                 True,
             ),
+            ("a statement", {"text": "Shipped the new export filter today"}, True, None, False, False),
             ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
             ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
             ("the flag is off", {}, False, None, False, False),
