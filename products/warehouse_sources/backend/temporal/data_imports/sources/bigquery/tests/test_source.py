@@ -1200,6 +1200,21 @@ def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
     assert any(key in observed_error for key in non_retryable_errors)
 
 
+def test_non_retryable_errors_match_no_reservation_or_slots_configured():
+    """A project with neither on-demand pricing nor a flat-rate reservation configured for the
+    queried region fails every query identically — retrying can't recover it, the user must
+    change their Google Cloud billing/capacity setup."""
+    observed_error = str(
+        BadRequest(
+            "Cannot run query: project does not have the reservation in the data region or no "
+            "slots are configured; reason: invalid, message: Cannot run query: project does not "
+            "have the reservation in the data region or no slots are configured\n\nLocation: US"
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
 def _run_has_duplicate_primary_keys(side_effect):
     table = mock.MagicMock()
     table.dataset_id = "dataset"

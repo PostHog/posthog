@@ -414,7 +414,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/commercetools/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/tests/test_fanout.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/typing.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/common/schema.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/implementation.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/tests/test_implementation.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/concord/concord.py
@@ -888,8 +887,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pganalyze/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/phyllo/phyllo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/phyllo/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/picqer/picqer.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/picqer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pingdom/pingdom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pingdom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/pinterest_ads.py
@@ -950,7 +947,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/recurly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reddit_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/render/render.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/render/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rentcast/rentcast.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rentcast/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/replicate/replicate.py
@@ -1118,7 +1114,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/telnyx/telnyx.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/tempo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/tenable_vulnerability_management.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/terraform_cloud.py

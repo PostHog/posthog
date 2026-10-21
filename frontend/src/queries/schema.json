@@ -2226,7 +2226,14 @@
             "additionalProperties": {},
             "properties": {
                 "kind": {
-                    "$ref": "#/definitions/InsightNodeKind"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightNodeKind"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantMetricsNodeKind"
+                        }
+                    ]
                 }
             },
             "required": ["kind"],
@@ -4090,6 +4097,10 @@
                 "ai/planning",
                 "ai/task_execution"
             ],
+            "type": "string"
+        },
+        "AssistantMetricsNodeKind": {
+            "enum": ["MetricsQuery", "MetricsHistogramQuery"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -9298,6 +9309,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_checks": {
+                    "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthCheck"
+                    },
+                    "type": "array"
                 },
                 "health_findings": {
                     "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
@@ -25531,6 +25549,38 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureHealthCheck": {
+            "additionalProperties": false,
+            "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
+                    "description": "Stable identifier of the check."
+                },
+                "name": {
+                    "description": "What the check looks at, as the health panel lists it.",
+                    "type": "string"
+                },
+                "reason": {
+                    "description": "Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.",
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "$ref": "#/definitions/ExperimentExposureHealthCheckStatus",
+                    "description": "passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed."
+                }
+            },
+            "required": ["key", "name", "status", "reason"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthCheckKey": {
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthCheckStatus": {
+            "enum": ["passed", "finding", "not_applicable", "not_checked"],
+            "type": "string"
+        },
         "ExperimentExposureHealthFinding": {
             "additionalProperties": false,
             "description": "A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`.",
@@ -25662,6 +25712,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_checks": {
+                    "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthCheck"
+                    },
+                    "type": "array"
                 },
                 "health_findings": {
                     "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
@@ -43084,6 +43141,13 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "health_checks": {
+                            "description": "The result of each check behind `health_findings`, so that a check that did not run is not read as passed.",
+                            "items": {
+                                "$ref": "#/definitions/ExperimentExposureHealthCheck"
+                            },
+                            "type": "array"
                         },
                         "health_findings": {
                             "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",

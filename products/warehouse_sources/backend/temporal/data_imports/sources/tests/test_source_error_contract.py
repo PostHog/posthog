@@ -78,6 +78,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "AppStoreConnect": "no-request",
     "AppleSearchAds": "no-request",
     "Attentive": "no-request",
+    "AzureBlob": "schemas",
     "AzureCostManagement": "no-request",
     "Baserow": "schemas",
     "BigQuery": "driver",
@@ -85,6 +86,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Breezometer": "no-request",
     "CiscoDuo": "no-request",
     "ClickHouse": "schemas",
+    "CloudflareR2": "schemas",
     "Convex": "schemas",
     "CosmosDB": "schemas",
     "Coveralls": "no-request",
@@ -103,6 +105,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Github": "no-request",
     "GoogleAds": "driver",
     "GoogleAnalytics": "database",
+    "GoogleCloudStorage": "schemas",
     "GooglePlayConsole": "no-request",
     "GoogleSearchConsole": "database",
     "GoogleSheets": "schemas",
@@ -191,6 +194,8 @@ ONE_AUTH_STATUS_CLASSIFIED: dict[str, str] = {
     "Rewardful": "401",
     "SharePoint": "401",
     "Shopify": "401",
+    # A 401 means no data for one domain, so the source skips it on purpose.
+    "Similarweb": "403",
     "SpotlerCRM": "403",
     "TMDb": "401",
     "TrunkIo": "401",
@@ -236,19 +241,9 @@ AUTH_CLASSIFIED_ELSEWHERE: dict[str, str] = {
     "UsBea": "error-body",
 }
 
-# Sources whose real 401 and 403 errors the pipeline retries until the retry budget runs out, and then
-# shows as the raw error. Each entry is a defect to fix.
-AUTH_FAILURE_NOT_CLASSIFIED: dict[str, str] = {
-    # The shared OAuth2 token exchange raises `OAuth2AuthRequestError`, and no key matches its
-    # `OAUTH2_PERMANENT_ERROR_MARKER`.
-    "CultureAmp": "oauth2-token",
-    "SigmaComputing": "oauth2-token",
-    "Workday": "oauth2-token",
-    "Zoom": "oauth2-token",
-    # The source raises `Similarweb API returned status 403 for <url>`, and its key expects the
-    # `requests` wording `403 Client Error: Forbidden for url`. A 401 means no data for one domain, on purpose.
-    "Similarweb": "key-mismatch",
-}
+# Sources whose real 401 and 403 errors the pipeline retries until the retry budget runs out.
+# Each entry is a defect to fix.
+AUTH_FAILURE_NOT_CLASSIFIED: dict[str, str] = {}
 
 # Sources whose real error for a transient failure matches a key on purpose. The value is every such failure.
 TRANSIENT_FAILURE_NON_RETRYABLE_ON_PURPOSE: dict[str, frozenset[str]] = {
@@ -260,16 +255,9 @@ TRANSIENT_FAILURE_NON_RETRYABLE_ON_PURPOSE: dict[str, frozenset[str]] = {
     "Singular": frozenset({"429"}),
 }
 
-# Sources whose real error for a transient failure matches a key, so that a short outage at the vendor
-# disables the sync. Each entry is a defect to fix: make the key narrower. The value is every such failure.
-TRANSIENT_FAILURE_CLASSIFIED_NON_RETRYABLE: dict[str, frozenset[str]] = {
-    # The key `AppDynamics OAuth token request failed` also matches the retryable token error.
-    "Appdynamics": frozenset({"429", "500"}),
-    # The key `IP2WHOIS API error` also matches `IP2WHOIS API error (retryable)`.
-    "IP2Whois": frozenset({"429", "500"}),
-    # The key `Marketo authentication failed` also matches a 429 or a 5xx from the identity endpoint.
-    "Marketo": frozenset({"429", "500"}),
-}
+# Sources whose real error for a transient failure matches a key, so that a short outage disables the sync.
+# Each entry is a defect to fix: make the key narrower. The value is every such failure.
+TRANSIENT_FAILURE_CLASSIFIED_NON_RETRYABLE: dict[str, frozenset[str]] = {}
 
 
 @frozen
@@ -468,3 +456,21 @@ def test_transient_failures_stay_retryable(name: str) -> None:
 )
 def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> None:
     assert sorted(allowlist.keys() - set(EXTRACTING_SOURCE_NAMES)) == []
+
+
+@pytest.mark.parametrize(
+    "name,message",
+    [
+        (
+            "Appdynamics",
+            "AppDynamics OAuth token request failed. Check your API client name, client secret, and account name.",
+        ),
+        ("IP2Whois", "IP2WHOIS API error [10000]: Invalid API key."),
+        ("IP2Whois", "IP2WHOIS API error: unexpected status 418"),
+        ("Marketo", "Marketo authentication failed: status=401, body={}"),
+        ("Marketo", "Marketo authentication failed: status=401, path=/rest/v1/leads.json, body={}"),
+        ("Marketo", "Marketo authentication failed: no access token in response ({})"),
+    ],
+)
+def test_narrowed_keys_still_match_permanent_errors(name: str, message: str) -> None:
+    assert error_message_matches(message, ALL_SOURCES[name].get_non_retryable_errors())
