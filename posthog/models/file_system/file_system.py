@@ -16,7 +16,7 @@ from posthog.models.utils import uuid7
 
 SEARCH_TEXT = Lower(Concat(F("path"), Value(" "), F("type"), output_field=TextField()))
 SEARCH_NAME = Lower(
-    Func(F("path"), Value(r"^.*(?<!\\)/"), Value(""), function="regexp_replace", output_field=TextField())
+    Func(F("path"), Value(r"^((?:[^\\/]|\\.)*/)*"), Value(""), function="regexp_replace", output_field=TextField())
 )
 
 
