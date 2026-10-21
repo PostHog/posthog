@@ -1,5 +1,6 @@
 import Redis from 'ioredis'
 import { register } from 'prom-client'
+import { setTimeout as delay } from 'timers/promises'
 
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -10,6 +11,8 @@ import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './idempotency-keys'
+
+const HOUR_MS = 60 * 60 * 1000
 
 describe('IdempotencyKeys', () => {
     // Alerts read this counter, so an outcome that stops being counted silences them.
@@ -73,6 +76,8 @@ describe('IdempotencyKeys', () => {
         try {
             await keys.markQueued(1, key, 'request-a', 'run-1')
             expect(await operations('test', 'mark_queued', 'failed')).toEqual(failedBefore + 1)
+            const inlineAttempts = outage.mock.calls.length
+            await waitForExpect(() => expect(outage.mock.calls.length).toBeGreaterThan(inlineAttempts))
             outage.mockImplementation(useClient)
 
             await waitForExpect(async () =>
@@ -81,6 +86,57 @@ describe('IdempotencyKeys', () => {
                     invocationId: 'run-1',
                 })
             )
+        } finally {
+            outage.mockRestore()
+        }
+    })
+
+    it('keeps the replay window of the run when the store recovers hours later', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const useClient = valkey.useClient
+        const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+        const realNow = Date.now
+        const clock = jest.spyOn(Date, 'now')
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            clock.mockImplementation(() => realNow() + 12 * HOUR_MS)
+            outage.mockImplementation(useClient)
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                })
+            )
+            const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
+                client.ttl(keys['redisKey'](1, key))
+            )
+            expect(ttlSeconds).toBeLessThanOrEqual((12 * HOUR_MS) / 1000)
+        } finally {
+            outage.mockRestore()
+            clock.mockRestore()
+        }
+    })
+
+    it('sends one store call at a time while failed completions wait for the store', async () => {
+        let inFlight = 0
+        let maxInFlight = 0
+        const outage = jest.spyOn(valkey, 'useClient').mockImplementation(async () => {
+            inFlight++
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await delay(50)
+            inFlight--
+            throw new Error('connection lost')
+        })
+        try {
+            await Promise.all(
+                Array.from({ length: 20 }, (_, i) => keys.markQueued(1, `${key}-${i}`, 'request-a', `run-${i}`))
+            )
+            maxInFlight = 0
+            const inlineAttempts = outage.mock.calls.length
+            await waitForExpect(() => expect(outage.mock.calls.length).toBeGreaterThanOrEqual(inlineAttempts + 2))
+
+            expect(maxInFlight).toEqual(1)
         } finally {
             outage.mockRestore()
         }

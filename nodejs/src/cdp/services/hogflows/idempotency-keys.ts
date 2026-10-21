@@ -24,6 +24,8 @@ const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or c
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
 const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000
+// Bounds the memory that an outage under heavy keyed traffic can hold.
+const MAX_PENDING_COMPLETIONS = 10_000
 
 const idempotencyOperationsTotal = new Counter({
     name: 'cdp_hogflow_idempotency_operations_total',
@@ -122,12 +124,18 @@ export type IdempotencyReservation =
 
 type StoredKey = { fingerprint: string; invocationId: string; queued: boolean }
 
+// expiresAt ends the replay window of the run, counted from when it was queued.
+type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
+
 /**
  * Caller-supplied idempotency keys, scoped to a team. A key reserves a run before it is queued, and
  * holds the run's id for 24 hours once it is. A queue failure releases the key, so the caller's
  * retry can queue the run.
  */
 export class IdempotencyKeys {
+    private pendingCompletions = new Map<string, PendingCompletion>()
+    private draining = false
+
     constructor(
         private valkey: RedisV2 | null,
         private scope: string
@@ -193,10 +201,14 @@ export class IdempotencyKeys {
     }
 
     async markQueued(teamId: number, key: string, fingerprint: string, invocationId: string): Promise<void> {
-        const value: StoredKey = { fingerprint, invocationId, queued: true }
+        const completion: PendingCompletion = {
+            redisKey: this.redisKey(teamId, key),
+            value: { fingerprint, invocationId, queued: true },
+            expiresAt: Date.now() + QUEUED_TTL_SECONDS * 1000,
+        }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {
-                await this.writeQueued(teamId, key, value)
+                await this.writeQueued(completion)
                 return
             } catch (error) {
                 logger.error('🔑', 'idempotency key completion failed', {
@@ -207,42 +219,61 @@ export class IdempotencyKeys {
             }
         }
         this.count('mark_queued', 'failed')
-        void this.retryMarkQueued(teamId, key, value)
+        this.retryInBackground(completion)
     }
 
-    private async retryMarkQueued(teamId: number, key: string, value: StoredKey): Promise<void> {
-        // A record after the replay window serves no retry, so the retries stop there.
-        const giveUpAt = Date.now() + QUEUED_TTL_SECONDS * 1000
-        for (
-            let delayMs = MARK_QUEUED_RETRY_FIRST_DELAY_MS;
-            Date.now() < giveUpAt;
-            delayMs = Math.min(delayMs * 2, MARK_QUEUED_RETRY_MAX_DELAY_MS)
-        ) {
-            await delay(delayMs, undefined, { ref: false })
-            const recorded = await this.writeQueued(teamId, key, value).then(
-                () => true,
-                () => false
-            )
-            if (recorded) {
-                return
-            }
+    private retryInBackground(completion: PendingCompletion): void {
+        if (this.pendingCompletions.size >= MAX_PENDING_COMPLETIONS) {
+            logger.error('🔑', 'idempotency key completion dropped, too many waiting for the store', {
+                scope: this.scope,
+            })
+            this.count('mark_queued', 'dropped')
+            return
         }
-        logger.error('🔑', 'idempotency key completion gave up', { scope: this.scope })
+        this.pendingCompletions.set(completion.redisKey, completion)
+        if (!this.draining) {
+            void this.drainPendingCompletions()
+        }
     }
 
-    private async writeQueued(teamId: number, key: string, value: StoredKey): Promise<void> {
+    // One loop per store sends one call at a time, so a long outage does not end in a burst that
+    // starves the reservations of new requests.
+    private async drainPendingCompletions(): Promise<void> {
+        this.draining = true
+        let delayMs = MARK_QUEUED_RETRY_FIRST_DELAY_MS
+        while (this.pendingCompletions.size > 0) {
+            await delay(delayMs, undefined, { ref: false })
+            const drained = await this.writePendingCompletions()
+            delayMs = drained ? MARK_QUEUED_RETRY_FIRST_DELAY_MS : Math.min(delayMs * 2, MARK_QUEUED_RETRY_MAX_DELAY_MS)
+        }
+        this.draining = false
+    }
+
+    private async writePendingCompletions(): Promise<boolean> {
+        for (const completion of this.pendingCompletions.values()) {
+            if (completion.expiresAt <= Date.now()) {
+                // A record after the replay window serves no retry.
+                logger.error('🔑', 'idempotency key completion gave up', { scope: this.scope })
+                this.count('mark_queued', 'expired')
+            } else {
+                try {
+                    await this.writeQueued(completion)
+                } catch {
+                    return false
+                }
+            }
+            this.pendingCompletions.delete(completion.redisKey)
+        }
+        return true
+    }
+
+    private async writeQueued({ redisKey, value, expiresAt }: PendingCompletion): Promise<void> {
+        const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000)
         const written = await this.timed(
             'mark_queued',
             () =>
                 this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
-                    client.eval(
-                        MARK_QUEUED_SCRIPT,
-                        1,
-                        this.redisKey(teamId, key),
-                        JSON.stringify(value),
-                        value.invocationId,
-                        QUEUED_TTL_SECONDS
-                    )
+                    client.eval(MARK_QUEUED_SCRIPT, 1, redisKey, JSON.stringify(value), value.invocationId, ttlSeconds)
                 ) ?? Promise.resolve(null)
         )
         if (written === 0) {
