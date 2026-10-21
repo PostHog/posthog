@@ -13,16 +13,17 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
-use crate::config::{CompletionGranularity, Config};
+use crate::config::{CompletionGranularity, Config, Polling};
 use crate::debug_recorder::{record_if, CommitOffset, DebugEventKind, DebugRecorder};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
+use crate::in_flight_limit::InFlightLimits;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::partition_budget::BudgetLimits;
 use crate::polling::{
-    debug_partition_offsets, debug_partition_spans, BatchStats, CappedPolling, CollectedBatch,
-    Collector, FetchingPartitions, InFlightPoll, LoopParts, PartitionDeliveries, PollLimits,
-    PollingStrategy, RevokedPartition, Step,
+    self, debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, Collector,
+    FetchingPartitions, InFlightPoll, LoopParts, PartitionDeliveries, PollLimits, PollingStrategy,
+    RevokedPartition, Selected, Step,
 };
 use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
 use crate::settlement::{self, Commit, Pause, Settlement};
@@ -111,7 +112,10 @@ pub struct IngestionConsumerOptions {
     /// See `Config::consumer_batch_size_kb`.
     pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
+    /// The capped strategy's admission cap, in polls.
     pub max_in_flight_batches: usize,
+    pub polling: Polling,
+    pub in_flight_limits: InFlightLimits,
     pub group_id: String,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
@@ -134,7 +138,7 @@ pub struct IngestionConsumer {
     batch_size: usize,
     batch_size_bytes: usize,
     batch_timeout: Duration,
-    max_in_flight_batches: usize,
+    polling: Selected,
     commit_tick: Duration,
     handle: Handle,
     group_id: String,
@@ -161,6 +165,13 @@ impl IngestionConsumer {
         handle: Handle,
     ) -> Self {
         let topic_offset_ledger = options.ledger;
+        let polling = polling::select(
+            options.polling,
+            options.completion_granularity,
+            &options.partition_budget,
+            options.in_flight_limits,
+            options.max_in_flight_batches,
+        );
         let settlement = settlement::for_granularity(
             options.completion_granularity,
             Arc::clone(&topic_offset_ledger),
@@ -189,7 +200,7 @@ impl IngestionConsumer {
             batch_size: options.batch_size,
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
-            max_in_flight_batches: options.max_in_flight_batches.max(1),
+            polling,
             commit_tick: commit_tick(options.completion_granularity, options.commit_interval),
             handle,
             group_id: options.group_id,
@@ -227,13 +238,21 @@ impl IngestionConsumer {
             .key_order_sentinel()
             .set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
+        let partition_budget = config
+            .partition_budget()
+            .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
+        let polling = polling::select(
+            config.consumer_polling_strategy,
+            config.consumer_completion_granularity,
+            &partition_budget,
+            config.in_flight_limits(),
+            config.consumer_max_background_tasks,
+        );
         let settlement = settlement::for_granularity(
             config.consumer_completion_granularity,
             Arc::clone(&topic_offset_ledger),
             Duration::from_millis(config.consumer_commit_interval_ms),
-            config
-                .partition_budget()
-                .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?,
+            partition_budget,
         );
         let context = RebalanceContext::new();
         let (revoked_partitions, fetching) = wire_rebalance_hooks(
@@ -255,6 +274,7 @@ impl IngestionConsumer {
             batch_size = config.consumer_batch_size,
             batch_size_kb = config.consumer_batch_size_kb,
             completion_granularity = ?config.consumer_completion_granularity,
+            polling = ?polling,
             "Kafka consumer subscribed"
         );
 
@@ -272,7 +292,7 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
-            max_in_flight_batches: config.consumer_max_background_tasks.max(1),
+            polling,
             commit_tick: commit_tick(
                 config.consumer_completion_granularity,
                 Duration::from_millis(config.consumer_commit_interval_ms),
@@ -348,7 +368,7 @@ impl IngestionConsumer {
             group_id: self.group_id.clone(),
             debug_recorder: self.debug_recorder.clone(),
         };
-        PollingStrategy::Capped(CappedPolling::new(parts, self.max_in_flight_batches))
+        PollingStrategy::new(self.polling, parts)
     }
 
     async fn run(&self, polling: &mut PollingStrategy) {

@@ -13,6 +13,7 @@ use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
+use crate::in_flight_limit::InFlightLimits;
 use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
@@ -33,6 +34,27 @@ impl FromStr for CompletionGranularity {
             "group" => Ok(Self::Group),
             other => Err(format!(
                 "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Polling {
+    #[default]
+    Capped,
+    Continuous,
+}
+
+impl FromStr for Polling {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "capped" => Ok(Self::Capped),
+            "continuous" => Ok(Self::Continuous),
+            other => Err(format!(
+                "unknown consumer polling strategy '{other}' (expected 'capped' or 'continuous')"
             )),
         }
     }
@@ -271,6 +293,23 @@ pub struct Config {
     /// every set axis, before its fetch resumes. Above 0 and at most 1.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", default = "0.8")]
     pub consumer_partition_budget_low_watermark: f64,
+
+    /// `capped` or `continuous`. `continuous` runs only with `group`
+    /// granularity, a partition budget, and an in-flight limit; without all
+    /// three the consumer runs `capped`.
+    #[envconfig(from = "CONSUMER_POLLING_STRATEGY", default = "capped")]
+    pub consumer_polling_strategy: Polling,
+
+    /// Events polled and not yet completed at which the continuous strategy
+    /// stops reading from Kafka. `0` (default) sets no event limit.
+    #[envconfig(from = "CONSUMER_IN_FLIGHT_EVENTS", default = "0")]
+    pub consumer_in_flight_events: u64,
+
+    /// Key-plus-value-plus-header bytes polled and not yet completed at which
+    /// the continuous strategy stops reading from Kafka. `0` (default) sets no
+    /// byte limit.
+    #[envconfig(from = "CONSUMER_IN_FLIGHT_BYTES", default = "0")]
+    pub consumer_in_flight_bytes: u64,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -525,6 +564,13 @@ impl Config {
             NonZeroU64::new(self.consumer_partition_budget_events),
             NonZeroU64::new(self.consumer_partition_budget_bytes),
             self.consumer_partition_budget_low_watermark,
+        )
+    }
+
+    pub fn in_flight_limits(&self) -> InFlightLimits {
+        InFlightLimits::new(
+            NonZeroU64::new(self.consumer_in_flight_events),
+            NonZeroU64::new(self.consumer_in_flight_bytes),
         )
     }
 
