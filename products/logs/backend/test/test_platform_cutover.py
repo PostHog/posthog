@@ -131,7 +131,7 @@ class TestPlatformCutover(APIBaseTest):
         with team_scope(self.team.id):
             copy = platform_testing.copy_of(alert.id)
             platform_testing.start_firing(
-                copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1), delivered_via=DeliveryPath.NATIVE
+                copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1), sent_natively=True
             )
         LogsAlertConfiguration.objects.filter(id=alert.id).update(enabled=False, next_check_at=None)
 

@@ -50,12 +50,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
-from products.alerts_platform.backend.models import (
-    PlatformAlert,
-    PlatformAlertConfiguration,
-    PlatformAlertDeliveryPath,
-    PlatformAlertThread,
-)
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
 def due_q(moment: datetime) -> Q:
@@ -873,8 +868,8 @@ _HANDOVER_FENCE: Final = timedelta(minutes=1)
 def _delivered_firing(team_id: int, configuration: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> bool:
     """Whether any of these instances is inside a firing the platform delivered.
 
-    Delivery stores the path of every firing with a known start, so a firing with no stored path
-    was never sent. A firing with an unknown start stores no path, so it counts as delivered.
+    Every native send claims a thread keyed on the firing's start, so a firing with no claimed
+    thread was never sent. A firing with an unknown start has no key to find, so it counts as sent.
     """
     started: list[PlatformAlert] = []
     for instance in alerts:
@@ -887,11 +882,7 @@ def _delivered_firing(team_id: int, configuration: PlatformAlertConfiguration, a
     delivered = Q()
     for instance in started:
         delivered |= Q(grouping_key=instance.grouping_key, episode_started_at=instance.firing_started_at)
-    return (
-        PlatformAlertDeliveryPath.objects.for_team(team_id)
-        .filter(delivered, configuration_id=str(configuration.id))
-        .exists()
-    )
+    return PlatformAlertThread.objects.for_team(team_id).filter(delivered, configuration=configuration).exists()
 
 
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:

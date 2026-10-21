@@ -27,7 +27,6 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_INSTANCES_CEILING,
     AlertEventKind,
     CheckFailure,
-    DeliveryPath,
     FiringEpisode,
     GroupAdmission,
     Grouping,
@@ -162,7 +161,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 self.configuration.id,
                 team_id=self.team.id,
                 at=self.cutoff,
-                delivered_via=DeliveryPath.NATIVE if delivered else None,
+                sent_natively=delivered,
             )
 
         taken = take_ownership(
