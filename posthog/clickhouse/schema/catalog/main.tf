@@ -464,15 +464,6 @@ module "property_values" {
   ttl        = var.ttl
 }
 
-module "query_log_archive" {
-  source     = "./query_log_archive"
-  node       = var.node
-  database   = var.database
-  deployment = merge(try(var.deployment.families.query_log_archive, {}), { overrides = var.overrides })
-  objects    = var.objects
-  test       = var.test
-}
-
 module "raw_sessions" {
   source     = "./raw_sessions"
   node       = var.node

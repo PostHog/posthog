@@ -88,7 +88,6 @@ module "catalog" {
       "preaggregation_results",
       "precalculated",
       "property_values",
-      "query_log_archive",
       "raw_sessions",
       "session_replay",
       "sessions",
