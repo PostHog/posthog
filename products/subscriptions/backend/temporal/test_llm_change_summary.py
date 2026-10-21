@@ -463,6 +463,7 @@ class TestGenerateChangeSummary:
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_truncated_structured_summary_retries_with_more_tokens(self, mock_get_client: MagicMock) -> None:
         client = mock_get_client.return_value
+        client.with_options.return_value = client
         truncated = _mock_openai_response('{"findings":[', 100, 1500)
         truncated.choices[0].finish_reason = "length"
         complete = _mock_openai_response(
@@ -480,6 +481,7 @@ class TestGenerateChangeSummary:
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_returns_content_with_correct_params(self, slack_formatting, mock_get_client):
         mock_client = mock_get_client.return_value
+        mock_client.with_options.return_value = mock_client
         content = "- Pageviews increased by 50%\n- Signups stable"
         if slack_formatting:
             content = '{"findings":[{"items":[{"kind":"name","text":"Pageviews"},{"kind":"text","text":" increased by "},{"kind":"value","text":"50%"},{"kind":"text","text":" on "},{"kind":"time","text":"Tuesday"}]}]}'

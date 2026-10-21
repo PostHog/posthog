@@ -9,6 +9,7 @@ import re
 from urllib.parse import urlparse
 
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from markdown_it.utils import EnvType
 
 from posthog.api.utils import hostname_in_allowed_url_list
@@ -94,6 +95,57 @@ def _strip_inline_links(markdown: str, additional_allowed_origin: str | None) ->
     return md
 
 
+def _literal_markdown(markdown: str) -> str:
+    fence = "`" * max(3, max((len(run) + 1 for run in re.findall(r"`+", markdown)), default=3))
+    return f"\n{fence}\n{markdown}\n{fence}\n\n"
+
+
+def _is_unsafe_inline(token: Token, additional_allowed_origin: str | None) -> bool:
+    return token.type == "image" or (
+        token.type == "link_open"
+        and not is_allowed_link_url(str(token.attrGet("href") or ""), additional_allowed_origin)
+    )
+
+
+def _validate_parsed_links(markdown: str, additional_allowed_origin: str | None) -> str:
+    parser = MarkdownIt("commonmark", {"html": False})
+    env: EnvType = {}
+    parser.parse(markdown, env)
+    lines = re.findall(r"[^\n]*\n|[^\n]+$", markdown)
+    for reference in [*env.get("references", {}).values(), *env.get("duplicate_refs", [])]:
+        if not is_allowed_link_url(reference["href"], additional_allowed_origin):
+            start, end = reference["map"]
+            lines[start:end] = ["\n"] * (end - start)
+    markdown = "".join(lines)
+    unsafe_ranges = sorted(
+        {
+            tuple(token.map)
+            for token in parser.parse(markdown)
+            if token.map is not None
+            and any(_is_unsafe_inline(child, additional_allowed_origin) for child in token.children or [])
+        }
+    )
+    if not unsafe_ranges:
+        return markdown
+    parts: list[str] = []
+    cursor = 0
+    for start, end in unsafe_ranges:
+        if start < cursor:
+            continue
+        parts.append("".join(lines[cursor:start]))
+        parts.append(_literal_markdown("".join(lines[start:end])))
+        cursor = end
+    parts.append("".join(lines[cursor:]))
+    result = "".join(parts)
+    if any(
+        _is_unsafe_inline(child, additional_allowed_origin)
+        for token in parser.parse(result)
+        for child in token.children or []
+    ):
+        return _literal_markdown(markdown)
+    return result
+
+
 def strip_external_links_markdown(markdown: str, *, additional_allowed_origin: str | None = None) -> str:
     """The extra origin must come from trusted instance configuration, never report content."""
     markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
@@ -115,4 +167,4 @@ def strip_external_links_markdown(markdown: str, *, additional_allowed_origin: s
             parts.append("\n" * (end - start))
         cursor = end
     parts.append(_strip_inline_links("".join(lines[cursor:]), additional_allowed_origin))
-    return "".join(parts)
+    return _validate_parsed_links("".join(parts), additional_allowed_origin)

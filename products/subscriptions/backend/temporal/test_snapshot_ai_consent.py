@@ -1,4 +1,6 @@
 import uuid
+import threading
+from dataclasses import replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -131,8 +133,20 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch, ta
     )
 
     called = {}
+    summary_running = threading.Event()
+    heartbeat_received = threading.Event()
+
+    def on_heartbeat(*details: object) -> None:
+        if summary_running.is_set():
+            heartbeat_received.set()
+
+    env = ActivityEnvironment()
+    env.info = replace(env.info, heartbeat_timeout=timedelta(seconds=1))
+    env.on_heartbeat = on_heartbeat
 
     def fake_generate(previous_states, current_states, **kwargs):
+        summary_running.set()
+        assert heartbeat_received.wait(timeout=5), "No heartbeat while summary generation was active"
         called["ran"] = True
         called["slack_formatting"] = kwargs["slack_formatting"]
         return "- Pageviews is trending up"
@@ -142,12 +156,13 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch, ta
         fake_generate,
     )
 
-    result = await _run(
+    result = await env.run(
+        snapshot_subscription_insights,
         SnapshotInsightsInputs(
             subscription_id=subscription.id,
             team_id=subscription.team_id,
             delivery_id=str(delivery.id),
-        )
+        ),
     )
 
     assert called.get("ran") is True

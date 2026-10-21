@@ -483,6 +483,8 @@ def generate_change_summary(
     )
 
     client = _get_openai_client()
+    if slack_formatting:
+        client = client.with_options(max_retries=1)
 
     instance_region = get_instance_region() or "HOBBY"
     user_tag = f"{instance_region}/subscription-summary-team-{team_id}"

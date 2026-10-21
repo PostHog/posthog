@@ -12,6 +12,7 @@ class TestStripExternalLinks(SimpleTestCase):
     @parameterized.expand(
         [
             ("encoded", "[source]: h&#116;tps://example.com/report", []),
+            ("image_before_reference", "![](https://posthog.com)[source]: h&#116;tps://example.com/report", []),
             (
                 "unicode_line_separator",
                 "\u2028\n\n[source]: h&#116;tps://example.com/report\n[safe]: https://posthog.com/docs",
@@ -63,6 +64,24 @@ class TestStripExternalLinks(SimpleTestCase):
             markdown if allowed else "Report",
         )
         self.assertEqual(strip_external_links_markdown(markdown), "Report")
+
+    @parameterized.expand(
+        [
+            ("[Open [report]](h&#116;tps://example.com/report)", []),
+            ("[Open [report]](https://posthog.com/docs)", ["https://posthog.com/docs"]),
+            ("> [Open [report]](h&#116;tps://example.com/report)", []),
+            ("- [Open [report]](h&#116;tps://example.com/report)", []),
+        ]
+    )
+    def test_nested_link_labels_follow_url_policy(self, markdown: str, expected: list[str]) -> None:
+        filtered = strip_external_links_markdown(markdown)
+        links = [
+            child.attrGet("href")
+            for token in MarkdownIt("commonmark").parse(filtered)
+            for child in token.children or []
+            if child.type == "link_open"
+        ]
+        assert links == expected
 
     @parameterized.expand([("*",), ("**",), ("***",), ("_",), ("__",), ("___",), ("~~",)])
     def test_formatted_url_preserves_emphasis(self, marker: str) -> None:

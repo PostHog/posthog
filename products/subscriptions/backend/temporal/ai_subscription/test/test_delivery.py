@@ -21,6 +21,7 @@ from products.subscriptions.backend.temporal.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MARKDOWN_MESSAGE_LIMIT,
     SLACK_MRKDWN_SECTION_LIMIT,
+    SLACK_TABLE_CHARACTER_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
@@ -276,6 +277,36 @@ _CHART = {"title": "signups by day", "image_url": "https://ph.test/img.png"}
 
 
 class TestSlackMarkdownContinuation:
+    @pytest.mark.parametrize("row_count,cell_size,columns", [(110, 1, 2), (80, 140, 2), (1, 10010, 2), (1, 1, 21)])
+    def test_tables_respect_row_and_character_limits(self, row_count: int, cell_size: int, columns: int) -> None:
+        header = "| " + " | ".join(["Metric", *(["Value"] * (columns - 1))]) + " |\n" + "|---" * columns + "|\n"
+        markdown = header + "".join(
+            "| " + " | ".join([f"Row {index}", *(["x" * cell_size] * (columns - 1))]) + " |\n"
+            for index in range(row_count)
+        )
+        message = _build_message(markdown)
+        messages = [message.blocks, *(reply["blocks"] for reply in message.thread_messages)]
+        parser = MarkdownIt("commonmark").enable("table")
+        for blocks in messages:
+            characters = 0
+            for block in blocks:
+                if block["type"] != "markdown":
+                    continue
+                tokens = parser.parse(block["text"])
+                assert sum(token.type == "th_open" for token in tokens) <= 20
+                rows = 0
+                for token in tokens:
+                    if token.type == "table_open":
+                        rows = 0
+                    elif token.type == "tr_open":
+                        rows += 1
+                        assert rows <= 100
+                    elif token.type == "inline":
+                        characters += len(token.content)
+                assert characters <= 10000
+        rendered = str(messages)
+        assert all(f"Row {index}" in rendered for index in range(row_count))
+
     @pytest.mark.parametrize("underline_every_paragraph", [False, True])
     def test_formatted_report_respects_message_block_limit(self, underline_every_paragraph: bool) -> None:
         paragraphs = [f"## Topic {index}\n\nFinding {index}." for index in range(80)]
@@ -296,6 +327,7 @@ class TestSlackMarkdownContinuation:
     def test_markdown_keeps_its_structure_at_the_message_limit(self, kind: str, overflow: int) -> None:
         limit = SLACK_MARKDOWN_MESSAGE_LIMIT
         if kind in {"table", "wide_row"}:
+            limit = min(limit, SLACK_TABLE_CHARACTER_LIMIT)
             header = "| Metric | Value |\n|---|---|\n"
             first_row = "| First | " + "a" * (limit - len(header) - len("| First |  |\n")) + " |\n"
             report = header + first_row
@@ -318,12 +350,13 @@ class TestSlackMarkdownContinuation:
         message = _build_message(report)
         blocks = [*message.blocks, *(block for reply in message.thread_messages for block in reply["blocks"])]
         chunks = [block["text"] for block in blocks if block["type"] == "markdown"]
-        assert all(len(chunk) <= limit for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_MESSAGE_LIMIT for chunk in chunks)
         if not overflow:
             assert chunks == [report]
             return
 
-        assert len(chunks) > 1
+        if kind != "wide_row":
+            assert len(chunks) > 1
         parser = MarkdownIt("commonmark").enable("table")
         tokens = [parser.parse(chunk) for chunk in chunks]
         if kind == "table":
@@ -494,7 +527,15 @@ class TestBuildAISlackMessage:
         for text, style in [("20%", "bold"), ("Monday", "italic"), ("retired", "strike"), ("legacy", "code")]:
             assert {"type": "text", "text": text, "style": {style: True}} in elements
 
-    @pytest.mark.parametrize("content", ["- Parent\n  - Child", "- Finding\n\n  ```sql\n  SELECT 1\n  ```"])
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "- Parent\n  - Child",
+            "- Finding\n\n  ```sql\n  SELECT 1\n  ```",
+            "- <u>Parent</u>\n  - Child",
+            "- <u>Finding</u>\n\n  ```sql\n  SELECT 1\n  ```",
+        ],
+    )
     def test_complex_findings_keep_native_markdown(self, content: str) -> None:
         markdown = f"## Main result\n\n{content}"
         message = _build_message(markdown)

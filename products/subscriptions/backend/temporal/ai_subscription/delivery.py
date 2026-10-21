@@ -94,6 +94,9 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 SLACK_MRKDWN_SECTION_LIMIT = 2900
 SLACK_MARKDOWN_MESSAGE_LIMIT = 12000
 SLACK_MESSAGE_BLOCK_LIMIT = 50
+SLACK_TABLE_ROW_LIMIT = 100
+SLACK_TABLE_COLUMN_LIMIT = 20
+SLACK_TABLE_CHARACTER_LIMIT = 10000
 SLACK_IMAGE_TITLE_LIMIT = 2000
 
 TEAMS_TEXT_BLOCK_LIMIT = 3000
@@ -147,11 +150,10 @@ def _split_fenced_markdown(content: str, opening: str, closing: str, limit: int)
 
 def _split_slack_markdown(text: str) -> list[str]:
     limit = SLACK_MARKDOWN_MESSAGE_LIMIT
-    if len(text) <= limit:
-        return [text] if text else []
-
     lines = re.findall(r"[^\n]*\n|[^\n]+$", text)
     pieces: list[str] = []
+    table_sizes: dict[str, int] = {}
+    standalone_tables: set[str] = set()
     cursor = 0
     for token in _MARKDOWN_RENDERER.parse(text):
         if token.level or token.map is None or token.map[0] < cursor:
@@ -159,23 +161,37 @@ def _split_slack_markdown(text: str) -> list[str]:
         start, end = token.map
         pieces.extend(_split_text_into_chunks("".join(lines[cursor:start]), limit))
         block = "".join(lines[start:end])
-        if len(block) <= limit:
+        if token.type == "table_open":
+            header = "".join(lines[start : start + 2])
+            rows = lines[start + 2 : end]
+            table_limit = min(limit, SLACK_TABLE_CHARACTER_LIMIT)
+            column_count = sum(child.type == "th_open" for child in _MARKDOWN_RENDERER.parse(header))
+            if (
+                any(len(header) + len(row) > table_limit for row in rows)
+                or len(header) >= table_limit
+                or column_count > SLACK_TABLE_COLUMN_LIMIT
+            ):
+                pieces.extend(_split_fenced_markdown(block, "~~~", "~~~", limit))
+            else:
+                tables: list[str] = []
+                table = header
+                row_count = 1
+                for row in rows:
+                    if len(table) + len(row) > table_limit or row_count == SLACK_TABLE_ROW_LIMIT:
+                        tables.append(table)
+                        table = header
+                        row_count = 1
+                    table += row
+                    row_count += 1
+                tables.append(table)
+                pieces.extend(tables)
+                table_sizes.update({table: len(table) for table in tables})
+                if len(tables) > 1:
+                    standalone_tables.update(tables)
+        elif len(block) <= limit:
             pieces.append(block)
         elif token.type == "fence":
             pieces.extend(_split_fenced_markdown(token.content, token.markup + token.info, token.markup, limit))
-        elif token.type == "table_open":
-            header = "".join(lines[start : start + 2])
-            rows = lines[start + 2 : end]
-            if any(len(header) + len(row) > limit for row in rows) or len(header) >= limit:
-                pieces.extend(_split_fenced_markdown(block, "~~~", "~~~", limit))
-            else:
-                table = header
-                for row in rows:
-                    if len(table) + len(row) > limit:
-                        pieces.append(table)
-                        table = header
-                    table += row
-                pieces.append(table)
         else:
             pieces.extend(_split_text_into_chunks(block, limit))
         cursor = end
@@ -183,12 +199,23 @@ def _split_slack_markdown(text: str) -> list[str]:
 
     chunks: list[str] = []
     current = ""
+    table_characters = 0
     for piece in pieces:
-        if len(current) + len(piece) > limit:
+        if piece in standalone_tables:
+            if current.strip():
+                chunks.append(current)
+            chunks.append(piece)
+            current = ""
+            table_characters = 0
+            continue
+        piece_table_size = table_sizes.get(piece, 0)
+        if len(current) + len(piece) > limit or table_characters + piece_table_size > SLACK_TABLE_CHARACTER_LIMIT:
             if current.strip():
                 chunks.append(current)
             current = ""
+            table_characters = 0
         current += piece
+        table_characters += piece_table_size
     if current.strip():
         chunks.append(current)
     return chunks
@@ -200,12 +227,24 @@ def _slack_markdown_blocks(markdown: str) -> list[dict[str, Any]]:
     lines = re.findall(r"[^\n]*\n|[^\n]+$", markdown)
     blocks: list[dict[str, Any]] = []
     cursor = 0
-    for token in _MARKDOWN_RENDERER.parse(markdown):
+    tokens = _MARKDOWN_RENDERER.parse(markdown)
+    for token in tokens:
         if token.level or token.map is None or token.map[0] < cursor:
             continue
         start, end = token.map
         content = "".join(lines[cursor:end])
-        if token.type in {"paragraph_open", "bullet_list_open", "ordered_list_open"} and "<u>" in content:
+        complex_list = token.type in {"bullet_list_open", "ordered_list_open"} and any(
+            child.level > token.level
+            and child.map is not None
+            and start <= child.map[0] < end
+            and child.type in {"bullet_list_open", "ordered_list_open", "fence", "code_block"}
+            for child in tokens
+        )
+        if (
+            token.type in {"paragraph_open", "bullet_list_open", "ordered_list_open"}
+            and "<u>" in content
+            and not complex_list
+        ):
             content = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"_\1_", content)
             blocks.append(_summary_rich_text(content))
         else:
