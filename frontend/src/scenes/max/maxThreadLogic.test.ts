@@ -1768,17 +1768,15 @@ describe('maxThreadLogic', () => {
         it('replays logs/ then opens SSE for a non-terminal sandbox run, never reconnecting LangGraph', async () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
-            const logsSpy = jest
-                .spyOn(api.tasks.runs, 'getLogPage')
-                .mockResolvedValue({
-                    entries: [],
-                    offset: 0,
-                    count: 0,
-                    preamble: 0,
-                    turnsBefore: 0,
-                    origin: '',
-                    indexed: false,
-                })
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogPage').mockResolvedValue({
+                entries: [],
+                offset: 0,
+                count: 0,
+                preamble: 0,
+                turnsBefore: 0,
+                origin: '',
+                indexed: false,
+            })
             const runSpy = jest
                 .spyOn(tasksApi, 'tasksRunsRetrieve')
                 .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)

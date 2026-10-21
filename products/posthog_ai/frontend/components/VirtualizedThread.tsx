@@ -388,6 +388,7 @@ function Root<T>({
     )
 
     findVirtualIndexForKeyRef.current = findVirtualIndexForKey
+    const holdTopRowRef = useRef<(itemsChanged: boolean) => void>(() => {})
     // Rows put in front of the items, with the last row unchanged: older history loading above the reader.
     const committedEdgeKeysRef = useRef<{ first: unknown; last: unknown } | null>(null)
     const firstItemKey = items.length > 0 ? getItemKey(items[0], 0) : null
@@ -408,6 +409,7 @@ function Root<T>({
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
         paddingEnd: endInset,
+        onChange: () => holdTopRowRef.current(false),
         // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
@@ -661,9 +663,9 @@ function Root<T>({
     const totalSize = virtualizer.getTotalSize()
     const previousItemsRef = useRef(items)
     const prependHoldRef = useRef({ from: 0, until: 0 })
-    useLayoutEffect(() => {
-        const itemsChanged = previousItemsRef.current !== items
-        previousItemsRef.current = items
+    // Also called from the virtualizer's measurement notifications: with direct DOM updates, a row that grows
+    // without changing the rendered range skips React, so the layout effect alone would miss it.
+    holdTopRowRef.current = (itemsChanged: boolean): void => {
         const el = scrollRef.current
         const topRow = topRowRef.current
         // A thread following a live reply belongs to the follow effect; holding a row would pull it back up.
@@ -675,7 +677,7 @@ function Root<T>({
         if (!itemsChanged && !holding) {
             return
         }
-        const index = findVirtualIndexForKey(topRow.key)
+        const index = findVirtualIndexForKeyRef.current(topRow.key)
         const start = index >= 0 ? virtualizer.measurementsCache[index]?.start : undefined
         if (start === undefined || Math.abs(start - topRow.start) <= UNPIN_SLACK) {
             return
@@ -697,7 +699,12 @@ function Root<T>({
             el.scrollTop = target
             noteProgrammaticScroll()
         }
-    }, [items, totalSize, virtualized, virtualizer, findVirtualIndexForKey, noteProgrammaticScroll])
+    }
+    useLayoutEffect(() => {
+        const itemsChanged = previousItemsRef.current !== items
+        previousItemsRef.current = items
+        holdTopRowRef.current(itemsChanged)
+    }, [items, totalSize])
 
     // A thread shorter than its viewport has no scroll to bring the reader near the top, so ask for older
     // rows directly until it fills the viewport or the caller has none left. A reader who scrolled near the

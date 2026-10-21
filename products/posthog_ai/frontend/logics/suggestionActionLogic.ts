@@ -164,11 +164,9 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                     // so the outcome is recorded against the suggestion this accept started from.
                     let outcome: Awaited<ReturnType<typeof acceptSuggestion>>
                     try {
-                        // A chat that loaded only its latest turns reads the full conversation, so the notebook holds
-                        // every turn. The loader keeps the button loading while it reads.
-                        const fullRead = suggestion.kind === 'notebook' ? readFullThread(props.streamKey) : null
-                        const fullThread = fullRead ? await fullRead : null
-                        outcome = await acceptSuggestion({
+                        // The inputs are read before the full-history read: a message sent meanwhile clears the
+                        // suggestion, and the title and the other fields derive from it.
+                        const input = {
                             suggestion,
                             projectId: currentProjectId,
                             userId: values.user?.id,
@@ -179,9 +177,22 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                             direction: values.direction,
                             changePercent: values.changePercent,
                             notebookTitle: values.notebookTitle,
-                            conversationBlocks: fullThread
-                                ? collectConversationBlocks(fullThread.threadItems, fullThread.toolInvocations)
-                                : values.conversationBlocks,
+                            conversationBlocks: values.conversationBlocks,
+                        }
+                        // A chat that loaded only its latest turns reads the full conversation, so the notebook holds
+                        // every turn. The loader keeps the button loading while it reads.
+                        const fullRead = suggestion.kind === 'notebook' ? readFullThread(props.streamKey) : null
+                        const fullThread = fullRead ? await fullRead : null
+                        outcome = await acceptSuggestion({
+                            ...input,
+                            ...(fullThread
+                                ? {
+                                      conversationBlocks: collectConversationBlocks(
+                                          fullThread.threadItems,
+                                          fullThread.toolInvocations
+                                      ),
+                                  }
+                                : {}),
                         })
                     } catch (error) {
                         // posthog-js serializes an Error instance as an empty object.

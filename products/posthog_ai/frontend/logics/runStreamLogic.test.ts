@@ -1354,6 +1354,7 @@ describe('runStreamLogic', () => {
                 'session/update user_message',
                 sessionUpdate({ sessionUpdate: 'user_message', content: { text: wrapped } }),
             ],
+            ['page preamble', notification('_posthog/context_history', { messages: [wrapped] })],
         ])('records replayed context-block lines under the bootstrapped task (%s)', async (_form, frame) => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame] as any)
             jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
@@ -5462,6 +5463,38 @@ describe('runStreamLogic', () => {
                 expect(texts(logic.values.threadItems)).toEqual(['a', 'a', 'b', 'b', 'c', 'd'])
                 expect(logic.values.threadItems.findLast(isHuman)?.id).toEqual(sent)
                 expect(logic.values.olderHistoryState).toEqual('none')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('shows a live answer once when an older page also holds it', async () => {
+            jest.useFakeTimers()
+            try {
+                const started = notification('_posthog/run_started', { runId: 'run-1' })
+                jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) =>
+                    options.before === undefined
+                        ? page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1)
+                        : page([started, turn('a', 'e-1'), reply('a', 'e-2')], 0, 5)
+                )
+                logic.actions.bootstrapRun({
+                    taskId: 'task-1',
+                    runId: 'run-1',
+                    justCreatedRun: true,
+                    pagedHistory: true,
+                })
+                await flushPromises()
+                await MockStream.latest().emitMessage(turn('a', 'e-1'), '101-0')
+                await MockStream.latest().emitMessage(reply('a', 'e-2'), '102-0')
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                await MockStream.latest().emitOpen()
+                logic.actions.loadOlderHistory()
+                await jest.advanceTimersByTimeAsync(0)
+
+                expect(texts(logic.values.threadItems)).toEqual(['a', 'a', 'b', 'b'])
+                const ids = logic.values.threadItems.map((item) => item.id)
+                expect(new Set(ids).size).toEqual(ids.length)
             } finally {
                 jest.useRealTimers()
             }

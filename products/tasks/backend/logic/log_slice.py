@@ -1,7 +1,7 @@
 import json
 import bisect
 import hashlib
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 
 from posthog.dataclasses import frozen
@@ -22,6 +22,9 @@ USER_MESSAGE_METHOD = "_posthog/user_message"
 PROMPT_METHOD = "session/prompt"
 USER_SESSION_UPDATES = frozenset({"user_message_chunk", "user_message"})
 TOOL_SESSION_UPDATES = frozenset({"tool_call", "tool_call_update"})
+CONTEXT_HISTORY_METHOD = "_posthog/context_history"
+CONTEXT_BLOCK_PREFIX = "<posthog_"
+CONTEXT_HISTORY_MAX_BYTES = 256 * 1024
 STATE_MARKERS = (
     *STATE_METHODS,
     *STATE_SESSION_UPDATES,
@@ -59,8 +62,9 @@ class LogPartSummary:
     ``state`` maps each state key to the last entry in the part that set it, as its index in the part and its
     line; ``requests`` holds the part's permission requests the same way, with their ids; ``resolved`` holds
     the request ids the part resolves. ``last_turn_complete`` is the index of its last turn completion, which
-    closes every request before it. ``human`` lists the human messages that the turn rule reads, and ``size``
-    is the byte size of the part's entries.
+    closes every request before it. ``human`` lists the human messages that the turn rule reads, ``context``
+    holds the texts of the user messages that carry context blocks, once each, and ``size`` is the byte size of
+    the part's entries.
     """
 
     count: int
@@ -69,6 +73,7 @@ class LogPartSummary:
     resolved: frozenset[str]
     last_turn_complete: int | None = None
     human: tuple[HumanEntry, ...] = ()
+    context: tuple[str, ...] = ()
     size: int = 0
 
 
@@ -138,13 +143,23 @@ def _human_entry(index: int, line: str) -> HumanEntry | None:
     notification = _notification(line)
     params = notification.get("params")
     human = human_text(_method(notification), params if isinstance(params, dict) else {})
-    if human is None or not is_turn_text(human[0]):
+    if human is None or not is_turn_text(human.text):
         return None
-    return HumanEntry(index=index, text_key=hashlib.sha256(human[0].encode()).hexdigest(), user_message=human[1])
+    return HumanEntry(
+        index=index, text_key=hashlib.sha256(human.text.encode()).hexdigest(), user_message=human.user_message
+    )
 
 
-def _tool_frame(line: str) -> tuple[str, str, str | None] | None:
-    """The kind, the tool call id, and the parent tool call id of a tool call frame."""
+@frozen
+class ToolFrame:
+    """A tool call frame: ``tool_call`` or ``tool_call_update``, its call id, and the call id of its parent."""
+
+    kind: str
+    call_id: str
+    parent: str | None
+
+
+def _tool_frame(line: str) -> ToolFrame | None:
     if '"tool_call' not in line:
         return None
     notification = _notification(line)
@@ -158,7 +173,32 @@ def _tool_frame(line: str) -> tuple[str, str, str | None] | None:
     meta = update.get("_meta")
     claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
     parent = claude_code.get("parentToolCallId") if isinstance(claude_code, dict) else None
-    return str(kind), call_id, parent if isinstance(parent, str) and parent else None
+    return ToolFrame(kind=str(kind), call_id=call_id, parent=parent if isinstance(parent, str) and parent else None)
+
+
+def _context_text(notification: dict) -> str | None:
+    """The text of a user message that starts with context blocks. The client reads the block lines from it to
+    dedupe the context it sends, so a page that starts after the message still knows that context."""
+    method = _method(notification)
+    params = notification.get("params")
+    if not isinstance(params, dict):
+        return None
+    text: object = None
+    if method == USER_MESSAGE_METHOD:
+        content = params.get("content")
+        if isinstance(content, list):
+            text = "".join(
+                block["text"]
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+            )
+        else:
+            text = content
+    elif method == "session/update" and _session_update_type(notification) == "user_message":
+        update = _session_update(notification)
+        content = update.get("content")
+        text = content.get("text") if isinstance(content, dict) else update.get("text")
+    return text if isinstance(text, str) and text.startswith(CONTEXT_BLOCK_PREFIX) else None
 
 
 def _request_id(notification: dict) -> str | None:
@@ -189,12 +229,15 @@ def summarize_log_part(entries: Sequence[str]) -> LogPartSummary:
     resolved: set[str] = set()
     last_turn_complete: int | None = None
     human: list[HumanEntry] = []
+    context: dict[str, None] = {}
     for index, line in enumerate(entries):
         if not any(marker in line for marker in STATE_MARKERS):
             continue
         if (human_entry := _human_entry(index, line)) is not None:
             human.append(human_entry)
         notification = _notification(line)
+        if CONTEXT_BLOCK_PREFIX in line and (text := _context_text(notification)) is not None:
+            context[text] = None
         method = _method(notification)
         if method == PERMISSION_REQUEST and (request_id := _request_id(notification)) is not None:
             requests.append((index, request_id, line))
@@ -211,8 +254,47 @@ def summarize_log_part(entries: Sequence[str]) -> LogPartSummary:
         resolved=frozenset(resolved),
         last_turn_complete=last_turn_complete,
         human=tuple(human),
+        context=tuple(context),
         size=sum(len(line) + 1 for line in entries),
     )
+
+
+def summary_to_json(summary: LogPartSummary) -> str:
+    return json.dumps(
+        {
+            "count": summary.count,
+            "state": {key: [index, line] for key, (index, line) in summary.state.items()},
+            "requests": [list(request) for request in summary.requests],
+            "resolved": sorted(summary.resolved),
+            "last_turn_complete": summary.last_turn_complete,
+            "human": [[entry.index, entry.text_key, entry.user_message] for entry in summary.human],
+            "context": list(summary.context),
+            "size": summary.size,
+        }
+    )
+
+
+def summary_from_json(text: object) -> LogPartSummary | None:
+    """The summary that ``summary_to_json`` wrote, or ``None`` when the value has another shape."""
+    if not isinstance(text, str):
+        return None
+    try:
+        data = json.loads(text)
+        return LogPartSummary(
+            count=int(data["count"]),
+            state={str(key): (int(index), str(line)) for key, (index, line) in data["state"].items()},
+            requests=[(int(index), str(request_id), str(line)) for index, request_id, line in data["requests"]],
+            resolved=frozenset(str(request_id) for request_id in data["resolved"]),
+            last_turn_complete=None if data["last_turn_complete"] is None else int(data["last_turn_complete"]),
+            human=tuple(
+                HumanEntry(index=int(index), text_key=str(text_key), user_message=bool(user_message))
+                for index, text_key, user_message in data["human"]
+            ),
+            context=tuple(str(message) for message in data["context"]),
+            size=int(data["size"]),
+        )
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
 
 
 class _Chain:
@@ -273,13 +355,14 @@ class _Chain:
         """The index ranges ``(first, last]`` where a cut separates a ``_posthog/user_message`` from the later
         ``session/update`` form that ``HumanTurnCounter`` pairs with it, merged and sorted. Each later form spends
         the oldest credit of its text, which pairs the same counts the counter keeps."""
-        credits: defaultdict[str, deque[int]] = defaultdict(deque)
+        credits: defaultdict[str, list[int]] = defaultdict(list)
         spans: list[tuple[int, int]] = []
         for index, entry in self._human:
             if entry.user_message:
                 credits[entry.text_key].append(index)
             elif credits[entry.text_key]:
-                spans.append((credits[entry.text_key].popleft(), index))
+                # The newest credit: an older message whose echo never came leaves a credit the counter never spends.
+                spans.append((credits[entry.text_key].pop(), index))
         merged: list[tuple[int, int]] = []
         for first, last in sorted(spans):
             if merged and first < merged[-1][1]:
@@ -297,7 +380,8 @@ class _Chain:
     def preamble(self, cut: int) -> list[str]:
         """The entries before ``cut`` that still set run state there: the latest entry for each state key (run
         start, SDK session, starting mode, mode, commands, each usage field) and the permission requests that
-        nobody resolved."""
+        nobody resolved. A synthetic ``_posthog/context_history`` entry carries the context-block messages before
+        the cut, newest kept within ``CONTEXT_HISTORY_MAX_BYTES``."""
         summaries = [part.summary for part in self._parts]
         resolved = frozenset().union(*(summary.resolved for summary in summaries))
         # A turn completion closes every request before it, resolved or not.
@@ -311,6 +395,7 @@ class _Chain:
         )
         latest: dict[str, tuple[int, str]] = {}
         requests: list[tuple[int, str]] = []
+        context: dict[str, None] = {}
         for part_index, summary in enumerate(summaries):
             start = self.starts[part_index]
             if start >= cut:
@@ -324,7 +409,21 @@ class _Chain:
                 for index, request_id, line in summary.requests
                 if request_id not in resolved and start + index > closed_before
             ]
-        return [line for _, line in sorted({*latest.values(), *requests})]
+            for message in summary.context:
+                context.pop(message, None)
+                context[message] = None
+        lines = [line for _, line in sorted({*latest.values(), *requests})]
+        messages: list[str] = []
+        size = 0
+        for message in reversed(context):
+            size += len(message)
+            if size > CONTEXT_HISTORY_MAX_BYTES:
+                break
+            messages.insert(0, message)
+        if messages:
+            history = {"method": CONTEXT_HISTORY_METHOD, "params": {"messages": messages}}
+            lines.insert(0, json.dumps({"type": "notification", "notification": history}))
+        return lines
 
 
 def _find_cut(chain: _Chain, end: int, tail_bytes: int) -> int:
@@ -354,15 +453,15 @@ def _find_cut(chain: _Chain, end: int, tail_bytes: int) -> int:
             turn_start = None
         size += len(line) + 1
         if (frame := _tool_frame(line)) is not None:
-            kind, call_id, parent = frame
-            if kind == "tool_call":
-                started.add(call_id)
-                missing.discard(call_id)
-            elif call_id not in started:
-                missing.add(call_id)
-            if parent is not None and parent not in started:
-                missing.add(parent)
-            if kind == "tool_call" and parent is None and tool_cut is None and size >= tail_bytes and safe(index):
+            if frame.kind == "tool_call":
+                started.add(frame.call_id)
+                missing.discard(frame.call_id)
+            elif frame.call_id not in started:
+                missing.add(frame.call_id)
+            if frame.parent is not None and frame.parent not in started:
+                missing.add(frame.parent)
+            top_level_call = frame.kind == "tool_call" and frame.parent is None
+            if top_level_call and tool_cut is None and size >= tail_bytes and safe(index):
                 tool_cut = index
         if size > cap and tool_cut is not None:
             return tool_cut

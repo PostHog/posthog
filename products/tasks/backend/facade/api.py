@@ -117,6 +117,8 @@ from products.tasks.backend.logic.log_slice import (
     slice_log_parts_from,
     slice_log_parts_tail,
     summarize_log_part,
+    summary_from_json,
+    summary_to_json,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
@@ -5276,17 +5278,20 @@ def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]
     size = int(head.get("ContentLength", 0)) if head else 0
     if not size:
         return summarize_log_part(entries())
-    key = f"tasks:log-part-summary:v4:{hashlib.sha256(log_url.encode()).hexdigest()}"
+    # The cache pickles values, so it holds only a JSON string: the object size, then the summary.
+    key = f"tasks:log-part-summary:v5:{hashlib.sha256(log_url.encode()).hexdigest()}"
     try:
         cached = cache.get(key)
     except Exception:
         logger.warning("task_log_part_summary_cache_read_failed", exc_info=True)
         cached = None
-    if isinstance(cached, tuple) and len(cached) == 2 and cached[0] == size and isinstance(cached[1], LogPartSummary):
-        return cached[1]
+    if isinstance(cached, str) and cached.startswith(f"{size}:"):
+        summary_hit = summary_from_json(cached.removeprefix(f"{size}:"))
+        if summary_hit is not None:
+            return summary_hit
     summary = summarize_log_part(entries())
     try:
-        cache.set(key, (size, summary), timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+        cache.set(key, f"{size}:{summary_to_json(summary)}", timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
     except Exception:
         logger.warning("task_log_part_summary_cache_write_failed", exc_info=True)
     return summary

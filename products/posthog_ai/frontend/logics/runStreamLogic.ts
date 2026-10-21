@@ -625,6 +625,16 @@ function isLoadedBacklog(entry: StoredLogEntry, loadedEnd: number | undefined): 
     return index !== undefined && loadedEnd !== undefined && index < loadedEnd
 }
 
+/** The synthetic preamble entry that carries the context-block messages from before a page's cut. */
+const CONTEXT_HISTORY_METHOD = '_posthog/context_history'
+
+function contextHistoryLines(params: Record<string, unknown> | undefined): string[] {
+    const messages = params?.messages
+    return Array.isArray(messages)
+        ? messages.flatMap((message) => (typeof message === 'string' ? contextBlockLinesFromUserMessage(message) : []))
+        : []
+}
+
 /** Entries a page carried in its preamble: state from before the page, not entries at their own position. */
 const historyPreambles = new WeakSet<StoredLogEntry>()
 
@@ -633,15 +643,24 @@ const historyPreambles = new WeakSet<StoredLogEntry>()
  * stays what a read from the page's cut returns. Nothing replays: the latest page already set the current state.
  */
 function prependHistoryPage(log: RunLog, page: StoredLogEntry[]): RunLog {
+    // A stream that started without a history read keeps live entries the page can also hold; the saved copy
+    // at its own position wins.
+    const coverage = new RunEventCoverage(page)
     return appendToRunLog(emptyRunLog(), [
         ...page.map((entry): StoredEntry => ({ entry, source: 'replay' })),
-        ...log.entries.filter(({ entry }) => !historyPreambles.has(entry)),
+        ...log.entries.filter(
+            ({ entry, source }) =>
+                !historyPreambles.has(entry) && !(source === 'live' && !!entry.event_id && coverage.covers(entry))
+        ),
     ])
 }
 
 /** The context-block lines of the user messages in an older page, which the send paths dedupe against. */
 function historyContextLines(entries: StoredLogEntry[]): string[] {
     return entries.flatMap(({ notification }) => {
+        if (notification.method === CONTEXT_HISTORY_METHOD) {
+            return contextHistoryLines(notification.params)
+        }
         if (notification.method === '_posthog/user_message') {
             const content = notification.params?.content
             if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
@@ -4603,6 +4622,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // sent-keys bookkeeping is lost (a reload, another tab, a teammate's session). An
             // unattached optimistic stream has no task id and records nothing — its send path marks
             // sent keys directly.
+            if (method === CONTEXT_HISTORY_METHOD) {
+                const lines = contextHistoryLines(notification.params)
+                if (values.bootstrappedTaskId && lines.length > 0) {
+                    actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                }
+                return
+            }
             if (isPosthogNotification(notification, '_posthog/user_message')) {
                 const content = notification.params?.content
                 if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {

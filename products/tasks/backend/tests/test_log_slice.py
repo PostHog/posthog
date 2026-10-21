@@ -14,6 +14,8 @@ from products.tasks.backend.logic.log_slice import (
     slice_log_parts_tail,
     slice_log_tail,
     summarize_log_part,
+    summary_from_json,
+    summary_to_json,
 )
 
 # The client tests replay these pages, so they run against what this slicer returns.
@@ -139,7 +141,9 @@ class TestSliceLogTail(SimpleTestCase):
     )
     def test_cut_keeps_both_forms_of_a_message_on_one_side(self, _name: str, between: list[str]) -> None:
         queued = [_line("_posthog/user_message", {"content": "second"}), *between, _line("session/prompt")]
-        lines = [*_turn("first", 4, 100), *queued, _user("second"), *_turn("second", 4, 100)[1:]]
+        # An older send of the same text whose echo never came must not hold the cut back to it.
+        unanswered = [_line("_posthog/user_message", {"content": "second"}), *_turn("old", 4, 100)[1:]]
+        lines = [*unanswered, *_turn("first", 4, 100), *queued, _user("second"), *_turn("second", 4, 100)[1:]]
 
         sliced = slice_log_tail(_log(lines), 1000)
 
@@ -147,6 +151,21 @@ class TestSliceLogTail(SimpleTestCase):
         self.assertEqual(sliced.offset, len(lines) - len(window))
         self.assertIn(queued[0], window)
         self.assertIn(_user("second"), window)
+        self.assertGreater(sliced.offset, len(unanswered))
+
+    def test_summary_cache_value_round_trips_as_json(self) -> None:
+        context = "<posthog_untrusted_context>\n- insight abc\n</posthog_untrusted_context>\nwhy"
+        lines = [
+            _line("_posthog/run_started", {"runId": "r"}),
+            _line("_posthog/permission_request", {"requestId": "open"}),
+            _line("_posthog/permission_resolved", {"requestId": "done"}),
+            _line("_posthog/user_message", {"content": context}),
+            *_turn("first", 2, 10),
+        ]
+        summary = summarize_log_part(lines)
+
+        self.assertEqual(summary_from_json(summary_to_json(summary)), summary)
+        self.assertIsNone(summary_from_json('{"count": "x"}'))
 
     def test_counts_turns_before_the_cut_the_way_the_thread_does(self) -> None:
         hidden = _update("user_message_chunk", content={"type": "text", "text": "x", "_meta": {"ui": {"hidden": True}}})
@@ -214,13 +233,16 @@ class TestSliceLogTail(SimpleTestCase):
             _line("_posthog/permission_resolved", {"requestId": "answered"}),
         ]
         closed = [_line("_posthog/permission_request", {"requestId": "closed"}), _line("_posthog/turn_complete")]
-        lines = [*closed, *head, *_turn("first", 4, 100), *_turn("second", 4, 100)]
+        context = "<posthog_untrusted_context>\n- insight abc\n</posthog_untrusted_context>\nwhy"
+        with_context = [_line("_posthog/user_message", {"content": context})]
+        lines = [*closed, *head, *with_context, *_turn("first", 4, 100), *_turn("second", 4, 100)]
 
         sliced = slice_log_tail(_log(lines), 1000)
 
         preamble = [json.loads(line)["notification"] for line in sliced.content.splitlines()[: sliced.preamble]]
+        self.assertEqual(preamble[0], {"method": "_posthog/context_history", "params": {"messages": [context]}})
         self.assertEqual(
-            [(item["method"], item["params"].get("runId") or item["params"].get("requestId")) for item in preamble],
+            [(item["method"], item["params"].get("runId") or item["params"].get("requestId")) for item in preamble[1:]],
             [
                 ("session/new", None),
                 ("_posthog/run_started", "current"),
@@ -239,7 +261,12 @@ class TestSliceLogTail(SimpleTestCase):
 
         def part(index: int) -> LogPart:
             entries = log_entries("".join(f"{line}\n" for line in runs[index]))
-            return LogPart(summary=summarize_log_part(entries), entries=lambda: reads.append(index) or entries)
+
+            def read() -> list[str]:
+                reads.append(index)
+                return entries
+
+            return LogPart(summary=summarize_log_part(entries), entries=read)
 
         sliced = slice_log_parts_tail([part(0), part(1)], 1000)
 
