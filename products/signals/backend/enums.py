@@ -166,6 +166,37 @@ class SignalSourceProduct(StrEnum):
     LANGSMITH = "langsmith"
     SPRIG = "sprig"
     GAINSIGHT_PX = "gainsight_px"
+    # Tier-2 incidents
+    DYNATRACE = "dynatrace"
+    STATUSPAGE = "statuspage"
+    CRONITOR = "cronitor"
+    INSTATUS = "instatus"
+    # Tier-2 trackers
+    ASANA = "asana"
+    MONDAY = "monday"
+    PLANE = "plane"
+    AZURE_DEVOPS = "azure_devops"
+    # Tier-2 support
+    HELPSCOUT = "helpscout"
+    DECAGON = "decagon"
+    VITALLY = "vitally"
+    # Tier-2 feedback and surveys
+    USERSNAP = "usersnap"
+    TYPEFORM = "typeform"
+    QUALTRICS = "qualtrics"
+    SURVEYMONKEY = "surveymonkey"
+    FORMBRICKS = "formbricks"
+    SURVICATE = "survicate"
+    SURVEYSPARROW = "surveysparrow"
+    # Tier-2 security
+    LACEWORK = "lacework"
+    ORCA_SECURITY = "orca_security"
+    TENABLE_VULNERABILITY_MANAGEMENT = "tenable_vulnerability_management"
+    # Tier-2 errors and code review
+    GOOGLE_PLAY_CONSOLE = "google_play_console"
+    AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
+    APPSIGNAL = "appsignal"
+    CURSOR = "cursor"
 
 
 class SignalSourceType(StrEnum):
@@ -292,6 +323,31 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.LANGSMITH: "LangSmith",
     SignalSourceProduct.SPRIG: "Sprig",
     SignalSourceProduct.GAINSIGHT_PX: "Gainsight PX",
+    SignalSourceProduct.DYNATRACE: "Dynatrace",
+    SignalSourceProduct.STATUSPAGE: "Statuspage",
+    SignalSourceProduct.CRONITOR: "Cronitor",
+    SignalSourceProduct.INSTATUS: "Instatus",
+    SignalSourceProduct.ASANA: "Asana",
+    SignalSourceProduct.MONDAY: "monday.com",
+    SignalSourceProduct.PLANE: "Plane",
+    SignalSourceProduct.AZURE_DEVOPS: "Azure DevOps",
+    SignalSourceProduct.HELPSCOUT: "Help Scout",
+    SignalSourceProduct.DECAGON: "Decagon",
+    SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.USERSNAP: "Usersnap",
+    SignalSourceProduct.TYPEFORM: "Typeform",
+    SignalSourceProduct.QUALTRICS: "Qualtrics",
+    SignalSourceProduct.SURVEYMONKEY: "SurveyMonkey",
+    SignalSourceProduct.FORMBRICKS: "Formbricks",
+    SignalSourceProduct.SURVICATE: "Survicate",
+    SignalSourceProduct.SURVEYSPARROW: "SurveySparrow",
+    SignalSourceProduct.LACEWORK: "Lacework",
+    SignalSourceProduct.ORCA_SECURITY: "Orca Security",
+    SignalSourceProduct.TENABLE_VULNERABILITY_MANAGEMENT: "Tenable Vulnerability Management",
+    SignalSourceProduct.GOOGLE_PLAY_CONSOLE: "Google Play Console",
+    SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
+    SignalSourceProduct.APPSIGNAL: "AppSignal",
+    SignalSourceProduct.CURSOR: "Cursor",
 }
 
 
