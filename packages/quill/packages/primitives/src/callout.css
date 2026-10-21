@@ -1,11 +1,26 @@
 @layer components {
     /*
      * Callout extends Item (outline variant + tone). Item supplies the tinted
-     * surface and border through --quill-item-tint / --quill-item-accent.
-     * These rules only adapt Item's list-row defaults to a block of prose.
+     * surface through --quill-item-tint / --quill-item-accent.
+     * These rules adapt Item's list-row defaults to a block of prose.
      * Multi-line callouts pin to the first line through the
      * `has-data-[slot=item-description]:items-start` class in callout.tsx.
      */
+
+    /*
+     * No visible border: the tint alone marks the tone. The 1px border stays
+     * transparent so the box size matches other Items. The selector is
+     * (0,3,0), so it beats Item's `.quill-item[data-tone]` (0,2,0) in any
+     * stylesheet order.
+     */
+    .quill-item.quill-callout[data-slot='callout'] {
+        border-color: transparent;
+    }
+
+    /* The default tone has no tint, so give it a muted surface */
+    .quill-item.quill-callout:not([data-tone]) {
+        background-color: var(--muted);
+    }
 
     .quill-callout__icon {
         color: var(--quill-item-accent, var(--muted-foreground));

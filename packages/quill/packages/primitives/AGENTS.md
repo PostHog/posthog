@@ -797,6 +797,7 @@ A static, inline message that stays in the layout — the quill replacement for 
 ```
 
 Callout tones: default, info, success, warning, destructive. Default size is `sm`.
+A Callout has no visible border: the tone tint marks it, and the default tone uses a muted surface. Do not add a border with `className`.
 Inside a Callout, `ItemDescription` does not clamp and uses the foreground colour, so long prose wraps. With a description, the icon and close button pin to the first line.
 Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
 `LemonBanner` map: `type` info/warning/success → same `tone`, error → `destructive`; `action` → `Button variant="outline"` in `ItemActions`; `onClose` / `dismissKey` → `CalloutClose` + caller state; `icon` → `CalloutIcon` children; `hideIcon` → leave out `CalloutIcon`.
