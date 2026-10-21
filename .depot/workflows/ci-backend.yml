@@ -1901,10 +1901,11 @@ jobs:
             - name: Checkout this PR
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # For same-repo PRs, checkout the actual branch (not the merge commit)
+                  # For same-repo PRs, checkout the PR head commit (not the merge commit)
                   # so upstream/master..HEAD reflects PR files. Fork PRs fall back
-                  # to the default merge commit.
-                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.event_name == 'push' && github.sha || github.ref }}
+                  # to the default merge commit. The SHA, not the branch name, because
+                  # Trunk can delete a trunk-merge/ branch before this step runs.
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.sha || github.event_name == 'push' && github.sha || github.ref }}
                   clean: false
             - name: Install python dependencies for this PR
               run: |
@@ -2471,7 +2472,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.event_name == 'push' && github.sha || github.ref }}
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.sha || github.event_name == 'push' && github.sha || github.ref }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
