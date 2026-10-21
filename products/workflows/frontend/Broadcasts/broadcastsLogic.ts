@@ -226,6 +226,13 @@ export interface broadcastsLogicActions {
     archiveBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
     }
+    broadcastTagsChanged: (
+        id: string,
+        tags: string[]
+    ) => {
+        id: string
+        tags: string[]
+    }
     broadcastTagsSaved: (
         id: string,
         tags: string[] | null
@@ -316,6 +323,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         clearRowDetails: (id: string) => ({ id }),
         setLoadedFilters: (filters: BroadcastsFilters) => ({ filters }),
         saveBroadcastTags: (id: string, tags: string[]) => ({ id, tags }),
+        broadcastTagsChanged: (id: string, tags: string[]) => ({ id, tags }),
         broadcastTagsSaved: (id: string, tags: string[] | null) => ({ id, tags }),
         archiveBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
         restoreBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
@@ -351,7 +359,13 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         broadcasts: [
             { results: [], count: 0 } as PaginatedHogFlowMinimalListApi,
             {
-                // A failed save passes null, which leaves the row showing its stored tags.
+                broadcastTagsChanged: (state, { id, tags }) => ({
+                    ...state,
+                    results: (state.results ?? []).map((broadcast) =>
+                        broadcast.id === id ? { ...broadcast, tags } : broadcast
+                    ),
+                }),
+                // A failed save passes null, which leaves the row as it is until the reload lands.
                 broadcastTagsSaved: (state, { id, tags }) =>
                     tags === null
                         ? state
@@ -531,11 +545,17 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         loadBroadcastsFailure: () => {
             lemonToast.error("Couldn't load broadcasts. Refresh the page to try again.")
         },
-        saveBroadcastTags: async ({ id, tags }) => {
+        saveBroadcastTags: async ({ id, tags }, breakpoint) => {
             const projectId = values.currentProjectId
             if (!projectId) {
                 return
             }
+            // The editor builds each payload from the row's tags, so a second edit made while the first
+            // is in flight would be built from the stored list and drop the first one. Showing the new
+            // tags at once gives that second edit the right starting point.
+            actions.broadcastTagsChanged(id, tags)
+            // One save per tag added or removed, so a burst of clicks is collapsed into a single write.
+            await breakpoint(300)
             try {
                 const response = await hogFlowsBulkUpdateTagsCreate(String(projectId), {
                     ids: [id],
@@ -549,9 +569,16 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 actions.broadcastTagsSaved(id, updated.tags)
                 // A new tag has to reach the project's tag list before the filter can offer it.
                 tagsModel.findMounted()?.actions.loadTags()
+                // The edit can move the row out of a tag filter, and the count with it, so the page is
+                // reloaded rather than left showing a broadcast that no longer matches.
+                if (values.filters.tags.length) {
+                    actions.loadBroadcasts()
+                }
             } catch (error: any) {
                 actions.broadcastTagsSaved(id, null)
                 lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
+                // The row is showing tags that were never stored, so the stored ones are read back.
+                actions.loadBroadcasts()
             }
         },
     })),
