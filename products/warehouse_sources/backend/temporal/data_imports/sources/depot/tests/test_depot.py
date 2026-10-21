@@ -10,14 +10,17 @@ from unittest import mock
 from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     always,
     scripted_network,
+    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
     DEPOT_CI_SERVICE_URL,
+    DepotResumeState,
     depot_source,
     validate_credentials,
 )
@@ -121,6 +124,10 @@ def _fake_session(
     return session
 
 
+def _resume_manager() -> ResumableSourceManager[DepotResumeState]:
+    return ResumableSourceManager(source_inputs(JOB_ATTEMPTS), DepotResumeState)
+
+
 def _batches(response: SourceResponse) -> list[list[dict[str, Any]]]:
     return list(cast(Iterable[list[dict[str, Any]]], response.items()))
 
@@ -128,8 +135,19 @@ def _batches(response: SourceResponse) -> list[list[dict[str, Any]]]:
 def _synced_rows(
     session: mock.MagicMock, created_after: dt.datetime | str | None, endpoint: str = JOB_ATTEMPTS
 ) -> list[dict[str, Any]]:
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-        batches = _batches(depot_source(API_TOKEN, REPOSITORY, created_after, mock.MagicMock(), endpoint=endpoint))
+    with scripted_network([]), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        batches = _batches(
+            depot_source(
+                API_TOKEN,
+                REPOSITORY,
+                created_after,
+                None,
+                _resume_manager(),
+                mock.MagicMock(),
+                mock.MagicMock(),
+                endpoint,
+            )
+        )
     return [row for batch in batches for row in batch]
 
 
@@ -246,6 +264,9 @@ class TestDepotReconciliation:
             (1, 30, False, False, ["recent", "old"], True),
             (1, 30, False, True, ["recent"], False),
             (None, None, True, False, ["recent", "old", "outside"], True),
+            (1, None, False, False, ["recent", "old", "outside"], True),
+            (7, None, True, False, ["recent", "old"], True),
+            (12, None, True, False, ["recent", "old", "outside"], True),
             (1, 1, True, False, [], False),
         ],
     )
@@ -286,8 +307,14 @@ class TestDepotReconciliation:
             job["attempts"].append({"attemptId": f"{job['jobId']}-retry", "attempt": 2})
         session = _fake_session(runs, workflows_by_run=workflows)
 
-        with time_machine.travel(NOW, tick=False), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            response = source.source_for_pipeline(DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY), inputs)
+        with (
+            time_machine.travel(NOW, tick=False),
+            scripted_network([]),
+            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+        ):
+            response = source.source_for_pipeline(
+                DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY), _resume_manager(), inputs
+            )
             assert manager.staged is None
             rows = [row for batch in _batches(response) for row in batch]
 
@@ -299,30 +326,60 @@ class TestDepotReconciliation:
         if expected_runs:
             assert staged.scanned_through == runs[0]["createdAt"]
 
-    def test_incomplete_reconciliation_does_not_advance_the_cursor(self) -> None:
+    @pytest.mark.parametrize("endpoint", [JOB_ATTEMPTS, JOB_METRICS, ARTIFACTS, FAILURE_DIAGNOSES])
+    def test_interrupted_reconciliation_resumes_after_the_last_handed_off_run(self, endpoint: str) -> None:
         source = DepotSource()
         manager = SourceCursorManager(source.cursor_class(), None, source)
         inputs = mock.MagicMock(
-            should_use_incremental_field=False, history_start=None, source_cursor=manager, schema_name=JOB_ATTEMPTS
+            should_use_incremental_field=False, history_start=None, source_cursor=manager, schema_name=endpoint
         )
-        runs = [_run("recent", dt.timedelta(days=2)), _run("old", dt.timedelta(days=14))]
+        runs = [
+            {**_run("recent", dt.timedelta(days=2)), "status": "failed"},
+            {**_run("old", dt.timedelta(days=14)), "status": "failed"},
+        ]
         session = _fake_session(runs)
         post = session.post.side_effect
 
         def interrupted_post(url: str, json: dict[str, Any], timeout: float) -> Response:
-            if url.endswith("/GetWorkflow") and json["workflowId"] == "old-wf":
-                return _response(500, {}, "GetWorkflow")
+            if (
+                json.get("workflowId") == "old-wf"
+                or json.get("jobId") == "old-job"
+                or (json.get("runId") == "old" and "pageToken" in json)
+                or json.get("targetId") == "old"
+            ):
+                return _response(500, {}, url.rsplit("/", 1)[-1])
             return cast(Response, post(url, json=json, timeout=timeout))
 
         session.post.side_effect = interrupted_post
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            response = source.source_for_pipeline(DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY), inputs)
-            batches = cast(Iterator[list[dict[str, Any]]], response.items())
-            assert next(batches)[0]["run_id"] == "recent"
-            assert manager.staged is None
+        config = DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY)
+        with (
+            time_machine.travel(NOW, tick=False),
+            scripted_network([]),
+            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+        ):
+            resume_manager = _resume_manager()
+            batches = cast(
+                Iterator[list[dict[str, Any]]], source.source_for_pipeline(config, resume_manager, inputs).items()
+            )
+            handed_off = []
             with pytest.raises(HTTPError, match="500 Server Error"):
-                list(batches)
+                for batch in batches:
+                    handed_off.extend(batch)
+                    resume_manager.confirm()
+                    resume_manager.commit()
+            assert handed_off and {row["run_id"] for row in handed_off} == {"recent"}
             assert manager.staged is None
+
+            session.post.side_effect = post
+            with time_machine.travel(NOW + dt.timedelta(days=1), tick=False):
+                resumed = source.source_for_pipeline(config, _resume_manager(), inputs)
+                rows = [row for batch in _batches(resumed) for row in batch]
+
+        assert [row["run_id"] for row in rows] == (["old", "old"] if endpoint == ARTIFACTS else ["old"])
+        staged = cast(DepotReconciliationCursor | None, manager.staged)
+        assert staged is not None
+        assert staged.reconciled_at == NOW.isoformat()
+        assert staged.scanned_through == runs[0]["createdAt"]
 
 
 class TestValidateCredentials:
