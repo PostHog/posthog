@@ -1642,26 +1642,34 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
         },
-        // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
-        // reducer); on success reload the artefact so we converge on the server's enriched data, and on
-        // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ content, action }) => {
+        updateReviewers: async ({ content, optimistic, action }) => {
             if (cache.reviewerWriteInFlight) {
                 return
             }
             cache.reviewerWriteInFlight = true
             let saved = false
             try {
-                await signalsReportsReviewersUpdate(String(teamLogic.values.currentTeamId), props.reportId, {
-                    content,
-                    action,
-                })
+                const artefact = await signalsReportsReviewersUpdate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    props.reportId,
+                    {
+                        content: optimistic.map((reviewer) => ({
+                            github_login: reviewer.github_login ?? undefined,
+                            user_uuid: reviewer.user?.uuid ?? reviewer.user_uuid ?? undefined,
+                        })),
+                        targets: content,
+                        action,
+                    }
+                )
                 saved = true
+                actions.loadReportArtefactsSuccess([
+                    ...(values.reportArtefacts ?? []).filter((existing) => existing.id !== artefact.id),
+                    artefact as SignalReportArtefact,
+                ])
                 await asyncActions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {
-                // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
                 cache.reviewerWriteInFlight = false
                 actions.setOptimisticReviewers(null)
             }

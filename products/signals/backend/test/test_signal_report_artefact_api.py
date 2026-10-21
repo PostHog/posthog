@@ -128,6 +128,16 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         ).count()
 
+    @parameterized.expand([False, True])
+    def test_detail_tolerates_legacy_reviewer_data(self, enabled: bool) -> None:
+        report = self._create_report()
+        row = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid), "relevant_commits": None}])
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=enabled):
+            assert not self._assignment(report)["needs_review"]
+            row.content = json.dumps([{"github_login": "valid-reviewer"}, {}])
+            row.save(update_fields=["content"])
+            assert self._assignment(report)["needs_review"]
+
     @parameterized.expand([True, False])
     def test_explicit_targets_preserve_people_missing_from_an_old_client_list(self, enabled: bool) -> None:
         report = self._create_report()

@@ -1,3 +1,4 @@
+import json
 from uuid import UUID
 
 from posthog.test.base import BaseTest
@@ -23,6 +24,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers, sync_suggested_reviewer_index
 
@@ -256,6 +258,63 @@ class TestReviewerRules(BaseTest):
         snapshot = self.rules.read()
         assert snapshot.reviewers == ()
         assert snapshot.corrections.needs_review
+
+    def test_legacy_recovery_resolves_all_logins_once(self) -> None:
+        for user, login in [(self.user, "first-reviewer"), (self.member, "second-reviewer")]:
+            UserSocialAuth.objects.create(user=user, provider="github", uid=login, extra_data={"login": login})
+        lists = [[], ["first-reviewer"], ["first-reviewer", "second-reviewer"], ["second-reviewer"], []]
+        for before, after in zip(lists, lists[1:]):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=self.report,
+                type="suggested_reviewers",
+                actor_kind="user",
+                created_by=self.user,
+                content=json.dumps([{"github_login": login} for login in after]),
+            )
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                user=self.user,
+                scope="SignalReport",
+                item_id=str(self.report.id),
+                activity="suggested_reviewers_changed",
+                detail={"changes": [{"field": "suggested_reviewers", "before": before, "after": after}]},
+            )
+        with patch(
+            "products.signals.backend.reviewer_rules.resolve_org_github_login_to_users",
+            wraps=resolve_org_github_login_to_users,
+        ) as resolve:
+            corrections = self.rules._legacy_corrections(team_id=self.team.id, report_id=str(self.report.id))
+        resolve.assert_called_once_with(self.team.id, {"first-reviewer", "second-reviewer"})
+        assert not corrections.needs_review
+        assert not corrections.pinned
+        assert {entry.user_uuid for entry in corrections.excluded} == {str(self.user.uuid), str(self.member.uuid)}
+
+    @parameterized.expand([None, "old-format"])
+    def test_legacy_commit_evidence_is_normalized(self, commits: object) -> None:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.report,
+            type="suggested_reviewers",
+            content=json.dumps([{"user_uuid": str(self.user.uuid), "relevant_commits": commits}]),
+        )
+        assert self.rules.read().reviewers == (self.me,)
+        self.write(self.other)
+        assert self.rules.read().reviewers == (self.other,)
+
+    @parameterized.expand(["{", "{}", '[{"github_login": "valid-reviewer"}, {}]'])
+    def test_invalid_legacy_reviewers_do_not_look_like_an_empty_assignment(self, content: str) -> None:
+        row = SignalReportArtefact.objects.create(
+            team=self.team, report=self.report, type="suggested_reviewers", content=content
+        )
+        snapshot = self.rules.read()
+        assert snapshot.invalid_reviewers
+        assert snapshot.corrections.needs_review
+        with self.assertRaises(ReviewerWriteError):
+            self.write(self.other)
+        row.refresh_from_db()
+        assert row.content == content
+        assert self.report.artefacts.count() == 1
 
     def test_login_exclusion_still_applies_after_member_resolution(self) -> None:
         UserSocialAuth.objects.create(
