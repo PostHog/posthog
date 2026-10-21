@@ -111,6 +111,55 @@ async function flushFrames(): Promise<void> {
 const TWO_CELLS = '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />'
 
 describe('MarkdownNotebook in Jupyter mode', () => {
+    it.each([
+        ['text to output', false, false],
+        ['output to text', true, false],
+        ['text to output backwards', false, true],
+        ['output to text backwards', true, true],
+    ])('extends a drag across cell boundaries: %s', (_label, startsInOutput, backwards) => {
+        jest.useFakeTimers()
+        const notebook = renderJupyterNotebook(
+            '# Title\n\nBefore text here\n\n<Py code="a = 1" />\n\n<Sql code="select 1" />\n\nAfter text here'
+        )
+        const textBlocks = notebook.container.querySelectorAll('.MarkdownNotebook__text-block')
+        const outputs = notebook.container.querySelectorAll('.MarkdownNotebook__jupyter-output')
+        const first = (startsInOutput ? outputs[0].firstChild! : textBlocks[1]) as HTMLElement
+        const last = (startsInOutput ? textBlocks[2] : outputs[1].firstChild!) as HTMLElement
+        const start = backwards ? last : first
+        const end = backwards ? first : last
+        const startOffset = backwards ? (startsInOutput ? 5 : 3) : startsInOutput ? 2 : 7
+        const endOffset = backwards ? (startsInOutput ? 2 : 7) : startsInOutput ? 5 : 3
+        const caret = document.createRange()
+        caret.setStart(end.firstChild!, endOffset)
+        caret.collapse(true)
+        const caretDocument = document as Document & { caretRangeFromPoint?: () => Range }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        caretDocument.caretRangeFromPoint = () => caret
+        try {
+            fireEvent.mouseDown(start, { button: 0 })
+            act(() => window.getSelection()!.collapse(start.firstChild!, startOffset))
+            fireEvent.mouseMove(document, { buttons: 1, clientX: 10, clientY: 20 })
+            if (!backwards) {
+                act(() => jest.advanceTimersByTime(16))
+            }
+            fireEvent.mouseUp(document)
+            fireEvent(document, new Event('selectionchange'))
+
+            expect(notebook.container.querySelectorAll('.MarkdownNotebook__component-shell--selected')).toHaveLength(2)
+            const clipboardData = { setData: jest.fn() }
+            fireEvent.copy(notebook.container.querySelector('.MarkdownNotebook')!, { clipboardData })
+            expect(clipboardData.setData).toHaveBeenCalledWith(
+                'text/markdown',
+                startsInOutput
+                    ? '<Py code="a = 1" />\n\n<Sql code="select 1" />\n\nAfter'
+                    : 'text here\n\n<Py code="a = 1" />\n\n<Sql code="select 1" />'
+            )
+        } finally {
+            caretDocument.caretRangeFromPoint = originalCaretRangeFromPoint
+            jest.useRealTimers()
+        }
+    })
+
     it.each(['Backspace', 'Delete'])('deletes only the focused discussion thread with %s', (key) => {
         const notebook = renderJupyterNotebook(
             '# Title\n\n<Comment ref="note" replies={[]} />\n\nA <ref id="note">useful</ref> paragraph.\n\nAnother paragraph.'

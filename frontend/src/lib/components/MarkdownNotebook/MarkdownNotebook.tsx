@@ -205,6 +205,7 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
+import { installNotebookTextSelection } from './notebookTextSelection'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -3243,6 +3244,12 @@ function MarkdownNotebookEditor({
     )
 
     useEffect(() => clearFloatingToolbarRevealTimeout, [clearFloatingToolbarRevealTimeout])
+
+    useEffect(() => {
+        if (mode === 'edit' && canvasRef.current) {
+            return installNotebookTextSelection(canvasRef.current)
+        }
+    }, [mode])
 
     const updateSelectedComponentBlocksFromSelection = useCallback((): void => {
         const nextSelectedComponentNodeIds =
