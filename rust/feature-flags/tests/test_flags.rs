@@ -14,9 +14,8 @@ use crate::common::*;
 
 use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
-use feature_flags::flags::flag_models::FeatureFlagRow;
 use feature_flags::utils::test_utils::{
-    insert_config_in_hypercache, insert_flags_for_team_in_redis,
+    insert_active_flags, insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
     setup_redis_client, unparseable_flag_json, unparseable_v1_filters, update_team_in_hypercache,
     TestContext,
@@ -6461,28 +6460,18 @@ async fn it_reports_errors_when_the_postgres_fallback_omits_a_flag_python_publis
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    for (key, filters) in [
-        ("omitted-flag", unparseable_v1_filters()),
-        (
-            "healthy-flag",
-            json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
-        ),
-    ] {
-        context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    team_id: team.id,
-                    key: key.to_string(),
-                    name: Some(String::new()),
-                    filters,
-                    active: true,
-                    evaluation_runtime: Some("all".to_string()),
-                    ..Default::default()
-                }),
-            )
-            .await?;
-    }
+    insert_active_flags(
+        &context,
+        team.id,
+        [
+            ("omitted-flag", unparseable_v1_filters()),
+            (
+                "healthy-flag",
+                json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+        ],
+    )
+    .await;
 
     let server = ServerHandle::for_config(config).await;
     let payload = json!({"token": team.api_token, "distinct_id": "user_distinct_id"}).to_string();

@@ -3,7 +3,7 @@ use crate::{
     flags::{
         feature_flag_list::LenientHypercacheFlagsWrapper,
         flag_definitions_cache::FlagDefinitionsCache,
-        flag_models::{EvaluationMetadata, HypercacheFlagsWrapper, PreparedFlagDefinitions},
+        flag_models::{HypercacheFlagsWrapper, PreparedFlagDefinitions},
     },
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
@@ -284,23 +284,11 @@ impl FlagService {
                     1,
                 );
 
-                let (flags, has_unparseable_flags) =
-                    crate::flags::cache_builder::load_supported_flags(
-                        self.pg_client.clone(),
-                        team_id,
-                    )
-                    .await?;
-                let evaluation_metadata = EvaluationMetadata {
-                    has_unparseable_flags,
-                    ..crate::flags::cache_builder::compute_flag_dependencies_or_single_stage(
-                        team_id, &flags,
-                    )
-                };
-                let wrapper = HypercacheFlagsWrapper {
-                    flags,
-                    cohorts: None,
-                    evaluation_metadata,
-                };
+                let wrapper = crate::flags::cache_builder::build_fallback_wrapper(
+                    self.pg_client.clone(),
+                    team_id,
+                )
+                .await?;
                 Ok((Some(wrapper), CacheSource::Fallback))
             }
         }

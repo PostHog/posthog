@@ -337,17 +337,30 @@ pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
 }
 
 pub async fn insert_v1_v2_and_unsupported_flags(context: &TestContext, team_id: i32) {
-    for (key, filters) in [
-        (
-            "v1-flag",
-            json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
-        ),
-        (
-            "v2-flag",
-            json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
-        ),
-        ("v3-flag", json!({"version": 3})),
-    ] {
+    insert_active_flags(
+        context,
+        team_id,
+        [
+            (
+                "v1-flag",
+                json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                "v2-flag",
+                json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
+            ),
+            ("v3-flag", json!({"version": 3})),
+        ],
+    )
+    .await;
+}
+
+pub async fn insert_active_flags(
+    context: &TestContext,
+    team_id: i32,
+    flags: impl IntoIterator<Item = (&str, Value)>,
+) {
+    for (key, filters) in flags {
         context
             .insert_flag(
                 team_id,

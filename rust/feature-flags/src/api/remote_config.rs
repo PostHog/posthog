@@ -221,7 +221,6 @@ pub async fn remote_config(
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
     // string nulls out too. In practice the payload is always a JSON-encoded string.
-    // `is_falsy` still covers every falsy JSON value, so the behavior matches Python exactly.
     let payload = payload.filter(|v| !is_falsy(v));
 
     // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the

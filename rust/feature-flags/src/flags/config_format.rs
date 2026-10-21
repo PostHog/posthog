@@ -180,24 +180,27 @@ fn classify_undecodable_v1(raw: &RawValue) -> UndecodableDocument {
     let Ok(document) = serde_json::from_str::<Value>(raw.get()) else {
         return UndecodableDocument::UnreadableV1Object;
     };
-    match python_reads_conditions(&document) {
-        Some(()) => UndecodableDocument::UnreadableV1Object,
-        None => UndecodableDocument::MalformedV1Groups,
+    if python_reads_conditions(&document) {
+        UndecodableDocument::UnreadableV1Object
+    } else {
+        UndecodableDocument::MalformedV1Groups
     }
 }
 
 /// Python's builder reads only the conditions of a v1 document, as `references()` in
 /// `products/feature_flags/backend/facade/references.py` does. It iterates `groups or []`
-/// and each group's `properties or []`, and calls `.get` on every element. Returns `None`
+/// and each group's `properties or []`, and calls `.get` on every element. Returns false
 /// where that read raises.
-fn python_reads_conditions(document: &Value) -> Option<()> {
-    for group in python_list(document.get("groups"))? {
-        let properties = python_list(group.as_object()?.get("properties"))?;
-        if !properties.iter().all(Value::is_object) {
-            return None;
-        }
-    }
-    Some(())
+fn python_reads_conditions(document: &Value) -> bool {
+    let Some(groups) = python_list(document.get("groups")) else {
+        return false;
+    };
+    groups.iter().all(|group| {
+        group
+            .as_object()
+            .and_then(|group| python_list(group.get("properties")))
+            .is_some_and(|properties| properties.iter().all(Value::is_object))
+    })
 }
 
 /// The elements Python iterates in `value or []`. Returns `None` for a truthy value that is

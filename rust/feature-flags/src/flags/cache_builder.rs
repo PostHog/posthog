@@ -51,7 +51,7 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let (mut flags, _) = load_supported_flags(pg_reader.clone(), team_id).await?;
+    let mut flags = load_supported_flags(pg_reader.clone(), team_id).await?;
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -75,17 +75,36 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
-/// The team's rows minus those this cache cannot carry; the PostgreSQL fallback loads here too.
-/// The `bool` is true when it omitted a row that Python's builder can read, as
-/// `omit_unsupported_flags` describes.
-pub(crate) async fn load_supported_flags(
+/// The team's rows minus those this cache cannot carry.
+async fn load_supported_flags(
     pg_reader: PostgresReader,
     team_id: TeamId,
-) -> Result<(Vec<FeatureFlag>, bool), FlagError> {
+) -> Result<Vec<FeatureFlag>, FlagError> {
     let (mut flags, undecodable) =
         FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
-    let omitted_unreadable_v1 = omit_unsupported_flags(team_id, &mut flags, &undecodable);
-    Ok((flags, omitted_unreadable_v1))
+    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    Ok(flags)
+}
+
+/// The flags the service evaluates when the hypercache has no entry for the team. It omits
+/// the same rows as the cache. Its metadata sets `has_unparseable_flags` when it omitted a row
+/// that Python's builder publishes, so the response reports the missing flag.
+pub(crate) async fn build_fallback_wrapper(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<HypercacheFlagsWrapper, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    let has_unparseable_flags = omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    let evaluation_metadata = EvaluationMetadata {
+        has_unparseable_flags,
+        ..compute_flag_dependencies_or_single_stage(team_id, &flags)
+    };
+    Ok(HypercacheFlagsWrapper {
+        flags,
+        cohorts: None,
+        evaluation_metadata,
+    })
 }
 
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
@@ -121,9 +140,6 @@ fn omit_unsupported_flags(
     if unsupported.is_empty() {
         return false;
     }
-    let omitted_unreadable_v1 = unsupported
-        .iter()
-        .any(|id| undecodable.get(id) == Some(&UndecodableDocument::UnreadableV1Object));
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
     for flag in flags.iter() {
         for dependency_id in extract_direct_flag_dependency_ids(flag) {
@@ -150,7 +166,9 @@ fn omit_unsupported_flags(
         "Omitted flags the service cache cannot carry"
     );
     flags.retain(|flag| !excluded.contains(&flag.id));
-    omitted_unreadable_v1
+    unsupported
+        .iter()
+        .any(|id| undecodable.get(id) == Some(&UndecodableDocument::UnreadableV1Object))
 }
 
 /// Keep the flags worth caching: evaluable ones, plus unevaluable ones that another
@@ -1237,11 +1255,10 @@ mod tests {
         let wrapper = build_flags_cache(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to build flags cache");
-        let (_, omitted_unreadable_v1) =
-            load_supported_flags(context.non_persons_reader.clone(), team.id)
-                .await
-                .expect("Failed to load flags");
-        assert!(!omitted_unreadable_v1);
+        let fallback = build_fallback_wrapper(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to load flags");
+        assert!(!fallback.evaluation_metadata.has_unparseable_flags);
 
         let rows = fixture["flags"].as_array().unwrap();
         let published: HashMap<i32, &FeatureFlag> =
