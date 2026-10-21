@@ -5,7 +5,8 @@ use etcd_client::{Compare, CompareOp, DeleteOptions, Txn, TxnOp, WatchStream};
 use super::{count_call, PersonhogStore, StoreKey};
 use crate::error::Result;
 use crate::types::{
-    ChangelogConfig, Generation, MigrationPhase, MigrationRequest, MigrationState, SealAck,
+    ChangelogConfig, DrainReport, Generation, MigrationPhase, MigrationRequest, MigrationState,
+    SealAck,
 };
 
 impl PersonhogStore {
@@ -295,21 +296,85 @@ impl PersonhogStore {
         topic: &str,
     ) -> Result<bool> {
         count_call("retire_changelog_topic");
-        let mut config = config.clone();
-        let before = config.draining.len();
-        config.draining.retain(|g| g.topic != topic);
-        if config.draining.len() == before {
+        self.retire_generation(config, mod_revision, topic, false)
+            .await
+    }
+
+    /// The coordinator's retire: as `retire_changelog_topic`, from a config it
+    /// already read, and only while no saga exists.
+    pub async fn retire_drained_generation(
+        &self,
+        config: &ChangelogConfig,
+        mod_revision: i64,
+        topic: &str,
+    ) -> Result<bool> {
+        count_call("retire_drained_generation");
+        self.retire_generation(config, mod_revision, topic, true)
+            .await
+    }
+
+    /// One transaction drops the generation and its drain reports.
+    async fn retire_generation(
+        &self,
+        config: &ChangelogConfig,
+        mod_revision: i64,
+        topic: &str,
+        require_no_saga: bool,
+    ) -> Result<bool> {
+        let mut retired = config.clone();
+        retired.draining.retain(|g| g.topic != topic);
+        if retired.draining.len() == config.draining.len() {
             return Ok(false);
         }
         let key = self.key(StoreKey::ChangelogConfig);
-        let txn = Txn::new()
-            .when(vec![Compare::mod_revision(
-                key.clone(),
+        let mut guards = vec![Compare::mod_revision(
+            key.clone(),
+            CompareOp::Equal,
+            mod_revision,
+        )];
+        if require_no_saga {
+            guards.push(Compare::create_revision(
+                self.key(StoreKey::Migration),
                 CompareOp::Equal,
-                mod_revision,
-            )])
-            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+                0,
+            ));
+        }
+        let txn = Txn::new().when(guards).and_then(vec![
+            TxnOp::put(key, serde_json::to_vec(&retired)?, None),
+            TxnOp::delete(
+                self.key(StoreKey::DrainReportsForTopic(topic)),
+                Some(DeleteOptions::new().with_prefix()),
+            ),
+        ]);
         Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn put_drain_report(&self, report: &DrainReport) -> Result<()> {
+        count_call("put_drain_report");
+        let key = self.key(StoreKey::DrainReport {
+            topic: &report.topic,
+            group: &report.group,
+        });
+        Ok(self.inner.put(&key, report, None).await?)
+    }
+
+    pub async fn list_drain_reports(&self) -> Result<Vec<DrainReport>> {
+        count_call("list_drain_reports");
+        let key = self.key(StoreKey::DrainReportsPrefix);
+        Ok(self.inner.list(&key).await?)
+    }
+
+    pub async fn delete_drain_reports_for(&self, topic: &str) -> Result<()> {
+        count_call("delete_drain_reports_for");
+        let key = self.key(StoreKey::DrainReportsForTopic(topic));
+        self.inner.delete_prefix(&key).await?;
+        Ok(())
+    }
+
+    pub async fn watch_drain_reports_from(&self, start_revision: i64) -> Result<WatchStream> {
+        count_call("watch_drain_reports_from");
+        let key = self.key(StoreKey::DrainReportsPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
     }
 
     /// Write a request, refused while another request or a saga exists.

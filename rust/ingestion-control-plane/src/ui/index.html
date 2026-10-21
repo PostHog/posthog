@@ -1594,11 +1594,11 @@
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ topic: g.topic }),
-            }, `Retire ${g.topic}?\n\nEvery gating group has read it to the end. It leaves the config; delete the topic in Terraform afterwards.`);
+            }, `Retire ${g.topic} now?\n\nEvery gating group has read it to the end. The coordinator retires it on its own once each group reports the drain. Retiring now skips that wait. Delete the topic in Terraform afterwards.`);
             body.append(el("div", { class: "row", style: "margin-top: 6px" },
               el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)}) draining`),
               groups.map((d) => el("span", { class: `pill ${d.error ? "bad" : isDrained(d) ? "good" : "warn"}`, title: d.error || "" },
-                `${d.group}: ${fmtInt(d.drained_partitions)}/${fmtInt(d.partitions)}`)),
+                `${d.group}: ${fmtInt(d.drained_partitions)}/${fmtInt(d.partitions)}${d.reported ? " · reported" : ""}`)),
               retire));
           }
           if (view.history.length > 0) {
