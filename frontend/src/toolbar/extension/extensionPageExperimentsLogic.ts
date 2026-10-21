@@ -42,7 +42,6 @@ export interface extensionPageExperimentsLogicValues {
     isExperimentFormSubmitting: boolean // experimentsTabLogic
     removeVariantAvailable: boolean | undefined // experimentsTabLogic
     selectedElementType: ElementSelectorType // experimentsTabLogic
-    selectedExperimentId: number | 'new' | 'web' | null // experimentsTabLogic
     selectedVariant: string // experimentsTabLogic
     posthog: PostHog | null // toolbarConfigLogic
     experimentFormDraft: ExperimentFormDraft
@@ -122,7 +121,7 @@ export interface extensionPageExperimentsLogicMeta {
             experimentFormDraft: ExperimentFormDraft,
             formRevision: number,
             selectedVariant: string,
-            selectedElementType: string,
+            selectedElementType: ElementSelectorType,
             inspectingElement: number | null,
             addVariantAvailable: boolean | undefined,
             removeVariantAvailable: boolean | undefined,
@@ -147,7 +146,6 @@ export const extensionPageExperimentsLogic = kea<extensionPageExperimentsLogicTy
             ['sortedExperiments', 'allExperimentsLoading'],
             experimentsTabLogic,
             [
-                'selectedExperimentId',
                 'experimentForm',
                 'selectedVariant',
                 'selectedElementType',
@@ -231,7 +229,8 @@ export const extensionPageExperimentsLogic = kea<extensionPageExperimentsLogicTy
                 s.allExperimentsLoading,
                 s.experimentsList,
                 s.posthog,
-                s.selectedExperimentId,
+                // kea-typegen drops the 'new' literal when it copies a connected value's type, so read the selector.
+                experimentsTabLogic.selectors.selectedExperimentId,
                 s.experimentFormDraft,
                 s.formRevision,
                 s.selectedVariant,
