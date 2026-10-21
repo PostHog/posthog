@@ -58,7 +58,7 @@ class TrustPilotSource(ResumableSource[TrustPilotSourceConfig, TrustpilotResumeC
             name=ExternalDataSourceType.TRUSTPILOT,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Trustpilot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Trustpilot API key and secret to sync your business unit, service reviews and product reviews into the PostHog data warehouse.
 
 Create an API application in your Trustpilot Business account to get the key (client ID) and secret (client secret). See the [Trustpilot developer docs](https://developers.trustpilot.com/) for details. Set the business unit to your website domain as it appears on your Trustpilot profile, or to your business unit ID.""",

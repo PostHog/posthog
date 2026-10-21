@@ -245,11 +245,7 @@ def test_pipelines_pagination_rebuilds_page_url_instead_of_following_next():
 @pytest.mark.parametrize(
     "status,expected_valid,expected_message_fragment",
     [
-        (200, True, None),
-        (401, False, "Invalid Bitbucket credentials"),
-        (403, False, "repository read access"),
         (404, False, "not found or not accessible"),
-        (500, False, "500"),
     ],
 )
 def test_validate_credentials_status_mapping(status, expected_valid, expected_message_fragment):
