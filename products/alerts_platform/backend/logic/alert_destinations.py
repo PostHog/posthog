@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import AlertDestinationDelivery
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+from products.workflows.backend.facade.api import workflow_exists
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -44,7 +45,7 @@ def create_alert_destinations(
 ) -> tuple[StoredAlertDestination, ...]:
     """Adds the destinations to one configuration, all or none."""
     for destination in destinations:
-        _validate(destination)
+        _validate(team_id, destination)
     with transaction.atomic():
         # Locked, so two adds of the same destination cannot both pass the duplicate check.
         configuration = (
@@ -107,7 +108,7 @@ def _receiver(data: AlertDestinationData) -> dict[str, object]:
     return {key: value for key, value in data.items() if key not in _DISPLAY_ONLY_FIELDS}
 
 
-def _validate(destination: NewAlertDestination) -> None:
+def _validate(team_id: int, destination: NewAlertDestination) -> None:
     destination_type = destination.data.get("type")
     if destination_type not in DestinationType.values:
         raise AlertDestinationValidationError("This destination type is not supported.", field="type")
@@ -121,6 +122,8 @@ def _validate(destination: NewAlertDestination) -> None:
     if destination.delivery == AlertDestinationDelivery.WORKFLOW:
         if destination.hog_flow_id is None:
             raise AlertDestinationValidationError("A workflow destination needs its workflow.", field="hog_flow_id")
+        if not workflow_exists(team_id=team_id, workflow_id=destination.hog_flow_id):
+            raise AlertDestinationValidationError("This workflow does not exist.", field="hog_flow_id")
         return
     if destination.hog_flow_id is not None:
         raise AlertDestinationValidationError("Only a workflow destination has a workflow.", field="hog_flow_id")

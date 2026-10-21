@@ -1,5 +1,5 @@
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -7,6 +7,8 @@ from posthog.test.base import BaseTest
 from django.db import connection
 
 from parameterized import parameterized
+
+from posthog.models import Team
 
 from products.alerts_platform.backend.facade.api import (
     create_alert_destinations,
@@ -23,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import AlertDestinationDelivery
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": WEBHOOK_URL})
@@ -47,7 +50,7 @@ class TestAlertDestinations(BaseTest):
         )
 
     def test_a_destination_reads_back_as_written_and_its_address_is_encrypted_at_rest(self) -> None:
-        flow_id = uuid4()
+        flow_id = UUID(create_workflow_for_test(team_id=self.team.id).id)
         legacy_id = uuid4()
         created = self._create(
             NewAlertDestination(data=WEBHOOK, event_kinds=FIRING, legacy_hog_function_ids=(legacy_id,)),
@@ -72,6 +75,11 @@ class TestAlertDestinations(BaseTest):
     @parameterized.expand(
         [
             ("workflow_without_its_flow", {"delivery": AlertDestinationDelivery.WORKFLOW}, "hog_flow_id"),
+            (
+                "workflow_of_another_team",
+                {"delivery": AlertDestinationDelivery.WORKFLOW, "hog_flow_id": "other_team"},
+                "hog_flow_id",
+            ),
             ("native_with_a_flow", {"hog_flow_id": uuid4()}, "hog_flow_id"),
             ("no_event", {"event_kinds": ()}, "event_kinds"),
             ("check_event", {"event_kinds": (AlertEventKind.CHECK,)}, "event_kinds"),
@@ -82,11 +90,15 @@ class TestAlertDestinations(BaseTest):
             ),
             ("unknown_type", {"data": {"type": "opsgenie"}}, "type"),
             ("webhook_without_its_url", {"data": {"type": DestinationType.WEBHOOK}}, "config"),
+            ("webhook_url_not_text", {"data": {"type": DestinationType.WEBHOOK, "webhook_url": 123}}, "config"),
         ]
     )
     def test_a_refused_destination_writes_nothing_of_its_batch(
         self, _name: str, override: dict[str, Any], field: str
     ) -> None:
+        if override.get("hog_flow_id") == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="other")
+            override = {**override, "hog_flow_id": UUID(create_workflow_for_test(team_id=other_team.id).id)}
         valid = NewAlertDestination(data=WEBHOOK, event_kinds=FIRING)
         refused = NewAlertDestination(**{"data": WEBHOOK, "event_kinds": FIRING, **override})
 

@@ -1680,7 +1680,11 @@ layer = "modules"
 
 [[modules]]
 path = "products.alerts_platform"
-depends_on = ["posthog", "products.access_control", "products.notifications"]
+depends_on = [
+    "posthog", "products.access_control", "products.notifications",
+    # Facade-only: a workflow destination checks that its workflow belongs to the alert's team.
+    "products.workflows",
+]
 layer = "modules"
 
 [[interfaces]]
