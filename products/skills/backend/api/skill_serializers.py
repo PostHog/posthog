@@ -12,6 +12,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
+from ..activity_logging import log_skill_activity
 from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import MAX_SKILL_CATEGORY_LENGTH, LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
@@ -832,6 +833,9 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         for f in files
                     ]
                 )
+            log_skill_activity(
+                team=team, user=request.user, item_id=str(skill.pk), skill_name=skill.name, activity="created"
+            )
             # `is not None`, not truthiness: an explicit empty list means "create with no owners"
             # and must not fall through to the creator-owns default (matching the update path).
             if owner_uuids is not None:
@@ -842,7 +846,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         {"owners": f"User '{err.user_uuid}' is not a member of this project."},
                         code="invalid_owner",
                     )
-                set_skill_owners(team, skill.name, owner_users)
+                set_skill_owners(team, skill.name, owner_users, acting_user=request.user)
             else:
                 # Creator owns by default — durable, not reconstructed from version history.
                 seed_skill_owner(team, skill.name, request.user)
