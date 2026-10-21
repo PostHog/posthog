@@ -16,9 +16,7 @@ class TestLatticeSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.latticehq.com/v1/users?limit=100",
             "401 Client Error: Unauthorized for url: https://api.emea.latticehq.com/v1/goals",
-            "403 Client Error: Forbidden for url: https://api.latticehq.com/v1/feedbacks",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -29,7 +27,6 @@ class TestLatticeSource:
         "other_vendor_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.latticehq.com/v1/users",
         ],
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):

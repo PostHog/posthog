@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 import requests
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.settings import (
+    EARNINGS_ENDPOINT,
+    EARNINGS_FIRST_YEAR,
     GUMROAD_BASE_URL,
     GUMROAD_ENDPOINTS,
     INCREMENTAL_START_PARAM,
@@ -148,6 +151,34 @@ def _make_source_response(
     )
 
 
+def _earnings_rows(access_token: str) -> Iterator[dict[str, Any]]:
+    """Yield one annual earnings summary per tax year, newest first.
+
+    `/v2/earnings` takes a required `year` and answers 404 outside the seller's available years,
+    which run from the account's creation year through the previous calendar year. Walk back from
+    the current year and stop at the first 404 below that range.
+    """
+    current_year = datetime.now(UTC).year
+    found_year = False
+    with make_tracked_session(redact_values=(access_token,), capture=False, allow_redirects=False) as session:
+        for year in range(current_year, EARNINGS_FIRST_YEAR - 1, -1):
+            response = session.get(
+                f"{GUMROAD_BASE_URL}/v2/earnings",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                params={"year": str(year)},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            if response.status_code == 404:
+                # The current year is never available, and last year can still be unavailable while
+                # Gumroad's clock is behind UTC on New Year's Day.
+                if found_year or year < current_year - 1:
+                    return
+                continue
+            response.raise_for_status()
+            found_year = True
+            yield {key: value for key, value in response.json().items() if key != "success"}
+
+
 def gumroad_source(
     access_token: str,
     endpoint: str,
@@ -159,6 +190,9 @@ def gumroad_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = GUMROAD_ENDPOINTS[endpoint]
+
+    if endpoint == EARNINGS_ENDPOINT:
+        return _make_source_response(endpoint_config, lambda: _earnings_rows(access_token))
 
     if endpoint_config.fanout:
         parent_config = GUMROAD_ENDPOINTS[endpoint_config.fanout.parent_name]

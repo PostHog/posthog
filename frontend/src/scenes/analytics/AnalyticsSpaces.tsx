@@ -17,6 +17,7 @@ import {
     ItemMedia,
     ItemTitle,
     Skeleton,
+    Spinner,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -136,8 +137,8 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
 }
 
 function AnalyticsSpacesContent(): JSX.Element {
-    const { spaces, visibleSpaces, spacesLoading, spacesFailed, search } = useValues(analyticsSpacesLogic)
-    const { loadSpaces, setSearch } = useActions(analyticsSpacesLogic)
+    const { spaces, visibleSpaces, spacesLoading, spacesFailed, search, pagination } = useValues(analyticsSpacesLogic)
+    const { refreshSpaces, loadMore, setSearch } = useActions(analyticsSpacesLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
 
     const newSpaceButton = (
@@ -168,18 +169,18 @@ function AnalyticsSpacesContent(): JSX.Element {
                             <EmptyDescription>Try again, and if it keeps happening contact support.</EmptyDescription>
                         </EmptyHeader>
                         <EmptyContent>
-                            <Button variant="outline" loading={spacesLoading} onClick={() => loadSpaces()}>
+                            <Button variant="outline" loading={spacesLoading} onClick={() => refreshSpaces()}>
                                 Try again
                             </Button>
                         </EmptyContent>
                     </Empty>
-                ) : spacesLoading && !spaces.length ? (
+                ) : spacesLoading && !spaces.length && !search ? (
                     <div className="flex flex-col gap-2" aria-busy>
                         {Array.from({ length: 4 }, (_, index) => (
                             <Skeleton key={index} className="h-16" />
                         ))}
                     </div>
-                ) : !spaces.length ? (
+                ) : !spaces.length && !search && !pagination.hasMore ? (
                     <Empty>
                         <EmptyHeader>
                             <EmptyTitle>No collections yet</EmptyTitle>
@@ -198,13 +199,15 @@ function AnalyticsSpacesContent(): JSX.Element {
                             placeholder="Search collections"
                             dataAttr="analytics-spaces-search"
                         />
-                        {visibleSpaces.length ? (
+                        {spacesLoading && !visibleSpaces.length && <Spinner aria-label="Loading collections" />}
+                        {visibleSpaces.length > 0 && (
                             <ItemGroup className="flex flex-col gap-2 pb-8">
                                 {visibleSpaces.map((space) => (
                                     <SpaceRow key={space.path} space={space} />
                                 ))}
                             </ItemGroup>
-                        ) : (
+                        )}
+                        {!visibleSpaces.length && !pagination.hasMore && !spacesLoading && (
                             <Empty>
                                 <EmptyHeader>
                                     <EmptyMedia variant="icon">
@@ -223,6 +226,16 @@ function AnalyticsSpacesContent(): JSX.Element {
                                     </Button>
                                 </EmptyContent>
                             </Empty>
+                        )}
+                        {pagination.hasMore && (
+                            <Button
+                                variant="outline"
+                                loading={spacesLoading}
+                                onClick={() => loadMore()}
+                                data-attr="analytics-spaces-load-more"
+                            >
+                                Load more
+                            </Button>
                         )}
                     </>
                 )}
