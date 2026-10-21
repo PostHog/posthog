@@ -30,7 +30,7 @@ export interface PieChartProps<Meta = unknown> {
 export interface PieChartConfig<Meta = unknown> {
     /** 0 = pie (default), 0.5 = donut. Clamped to [0, 0.95]. */
     innerRadiusRatio?: number
-    /** Show the slice value above the slice. Default true for a pie, false for a donut, whose `centerLabel` carries the number. */
+    /** Show the slice value above the slice (per Chart.js parity). Default true. */
     showValueOnSlice?: boolean
     /** Show the breakdown label above the slice. Default false. */
     showLabelOnSlice?: boolean

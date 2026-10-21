@@ -1,4 +1,4 @@
-// Types of `TimeSeriesComboChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, TrendLineConfig, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelsProps, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelsMode, ValueLabelContext.
+// Types of `TimeSeriesComboChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, TrendLineConfig, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelContext.
 // Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': TimeSeriesComboChart, TimeSeriesComboChartProps, TimeSeriesComboChartConfig, ComboChartConfig.
@@ -39,8 +39,6 @@ export interface TimeSeriesComboChartConfig {
     xAxis?: XAxisConfig
     /** Single object for a standard left axis; array for dual left+right axes. */
     yAxis?: YAxisConfig | YAxisConfig[]
-    /** Pin the primary value scale, overriding its automatic data and goal-line extent. */
-    valueDomain?: ComboChartConfig['valueDomain']
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
@@ -53,8 +51,6 @@ export interface TimeSeriesComboChartConfig {
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
-    /** Inner gap between bar bands as a fraction of their slot. */
-    bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
@@ -77,8 +73,6 @@ export interface TimeSeriesComboChartConfig {
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
  *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
-    /** Gap between bar bands (0–1, default 0.2). Zero also removes within-group spacing. */
-    bandPadding?: number
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to

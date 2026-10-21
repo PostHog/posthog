@@ -1,4 +1,4 @@
-// Types of `TimeSeriesLineChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, TrendLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, LabelRange, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelsProps, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelsMode, ValueLabelContext.
+// Types of `TimeSeriesLineChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, TrendLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, LabelRange, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelContext.
 // Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': TimeSeriesLineChart, TimeSeriesLineChartProps, TimeSeriesLineChartConfig, LineChartConfig, ConfidenceIntervalConfig, MovingAverageConfig.
@@ -37,7 +37,6 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
 }
 
 export interface TimeSeriesLineChartConfig {
-    valueDomain?: LineChartConfig['valueDomain']
     /** Reserve space for custom overlays; unspecified sides keep their computed margins. */
     margins?: LineChartConfig['margins']
     xAxis?: XAxisConfig

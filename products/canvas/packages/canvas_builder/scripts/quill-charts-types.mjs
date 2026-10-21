@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +10,21 @@ const repoRoot = path.resolve(builderDirectory, '../../../..')
 // The builder installs without dev dependencies, so borrow the frontend workspace's TypeScript.
 const ts = createRequire(path.join(repoRoot, 'frontend/package.json'))('typescript')
 
-const packageDirectory = path.join(builderDirectory, 'node_modules/@posthog/quill-charts')
+const pinnedVersion = JSON.parse(readFileSync(path.join(builderDirectory, 'manifest.json'), 'utf8')).dependencies[
+    '@posthog/quill-charts'
+].version
+// Read the published package, not node_modules: a local quill-charts build can overwrite node_modules without changing its version.
+const downloadDirectory = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'quill-charts-types-')))
+execFileSync('npm', ['pack', `@posthog/quill-charts@${pinnedVersion}`, '--pack-destination', downloadDirectory], {
+    stdio: ['ignore', 'ignore', 'inherit'],
+})
+execFileSync('tar', [
+    '-xzf',
+    path.join(downloadDirectory, `posthog-quill-charts-${pinnedVersion}.tgz`),
+    '-C',
+    downloadDirectory,
+])
+const packageDirectory = path.join(downloadDirectory, 'package')
 const outputDirectory = path.join(
     repoRoot,
     'products/canvas/skills/building-react-quill-canvases/references/quill-charts'
@@ -159,3 +174,4 @@ writeFileSync(
     JSON.stringify({ package: '@posthog/quill-charts', version })
 )
 execFileSync(path.join(repoRoot, 'node_modules/.bin/oxfmt'), [outputDirectory], { cwd: repoRoot, stdio: 'ignore' })
+rmSync(downloadDirectory, { recursive: true, force: true })
