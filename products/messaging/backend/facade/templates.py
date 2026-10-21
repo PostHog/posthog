@@ -36,6 +36,7 @@ class MessageTemplateRow:
     deleted: bool
     transactional_hog_flow_id: UUID | None
     draft_content: dict[str, Any] | None
+    sensitive: bool
 
 
 def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
@@ -52,6 +53,7 @@ def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
         deleted=row.deleted,
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         draft_content=row.draft_content,
+        sensitive=row.sensitive,
     )
 
 

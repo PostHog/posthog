@@ -49,8 +49,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
-    PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
+    personal_api_key_modes_to_try,
 )
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -335,7 +335,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         modes_tried = 0
 
         with tracer.start_as_current_span("posthog.auth.personal_api_key.db_lookup") as db_span:
-            for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+            for mode, iterations in personal_api_key_modes_to_try(personal_api_key):
                 modes_tried += 1
                 secure_value = hash_key_value(
                     personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations

@@ -29,6 +29,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -322,6 +323,14 @@ const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 // terminate the quoted phrase or start the address part, plus control characters.
 function sanitizeFromName(name: string): string {
     return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+}
+
+// A display name can come from Liquid output, so it may hold quotes, backslashes or line breaks.
+// Escape it as an RFC 5322 quoted string and drop control characters, which also stops a templated
+// name from injecting a header.
+export function formatMailbox(name: string | undefined, email: string): string {
+    const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
+    return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -725,7 +734,8 @@ export class EmailService {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: params.to.email,
-                    $email_subject: params.subject,
+                    // A sensitive template's subject can carry a login code, so its events leave it out.
+                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -1033,8 +1043,8 @@ export class EmailService {
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
-            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            from: formatMailbox(from.name, from.email),
+            to: formatMailbox(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
@@ -1108,9 +1118,9 @@ export class EmailService {
             : {}
 
         const sendEmailParams: SendEmailCommandInput = {
-            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            FromEmailAddress: formatMailbox(from.name, from.email),
             Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+                ToAddresses: [formatMailbox(params.to.name, params.to.email)],
             },
             Content: {
                 Simple: {
@@ -1127,7 +1137,12 @@ export class EmailService {
             ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
-            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
+            EmailTags: [
+                { Name: 'ph_id', Value: shortTrackingCode },
+                ...(result.invocation.hogFunction?.metadata?.sensitive === true
+                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
+                    : []),
+            ],
             FeedbackForwardingEmailAddress: from.email,
         }
 

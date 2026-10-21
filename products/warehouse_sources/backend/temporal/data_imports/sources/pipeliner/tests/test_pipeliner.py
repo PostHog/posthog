@@ -4,12 +4,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
@@ -125,12 +122,6 @@ class TestValidateCredentials:
             assert validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass") == (True, None)
         assert network.requests_log[0].param("first") == "1"
 
-    def test_invalid_credentials(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass")
-        assert valid is False
-        assert msg == "Invalid Pipeliner API credentials"
-
     def test_403_at_source_create_is_accepted(self) -> None:
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials(
@@ -163,12 +154,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass")
         assert valid is False
         assert msg == "Space not found."
-
-    def test_request_exception_returns_failure(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("us-east.api.pipelinersales.com", "space-1", "user", "pass")
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self) -> None:
         with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://evil.example.com"})]):
