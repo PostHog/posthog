@@ -17,7 +17,7 @@ export function SuggestionsBanner({ icon, message }: SuggestionsBannerProps): JS
 
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
-            <span className="group/colorful-product-icons colorful-product-icons-true flex shrink-0 text-lg">
+            <span className="group/colorful-product-icons colorful-product-icons-true flex shrink-0 translate-y-px text-lg">
                 {icon}
             </span>
             <span className="min-w-0 flex-1 text-sm">{message}</span>
