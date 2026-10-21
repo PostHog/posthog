@@ -43,6 +43,8 @@ from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
 from posthog.temporal.data_modeling.metrics import (
+    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
+    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
 )
@@ -440,6 +442,12 @@ async def create_worker(
             zip(
                 DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        histogram_bucket_overrides |= dict(
+            zip(
+                DATA_MODELING_DURATION_HISTOGRAM_METRICS,
+                itertools.repeat(DATA_MODELING_DURATION_HISTOGRAM_BUCKETS),
             )
         )
     if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
