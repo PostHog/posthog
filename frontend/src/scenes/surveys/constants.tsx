@@ -21,8 +21,6 @@ import { QuickSurveyContext, QuickSurveyType } from './quick-create/types'
 
 export const SURVEY_PAGE_SIZE = 100
 
-export const LINK_PAGE_SIZE = 100
-
 // Max recurring-survey iterations. Mirrors MAX_ITERATION_COUNT in products/surveys/backend/models.py,
 // which caps the generated iteration windows (and the API enforces the same limit).
 export const MAX_ITERATION_COUNT = 500
@@ -57,6 +55,18 @@ export const SURVEY_RATING_SCALE = {
 } as const
 
 export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
+
+// Leading page sentinel: the confirmation message trails at questions.length, so the intro sits at -1 and question indices never shift.
+export const INTRO_SCREEN_PAGE_INDEX = -1
+
+export const INTRO_SCREEN_TEXT_FIELDS = [
+    'introScreenHeader',
+    'introScreenDescription',
+    'introScreenButtonText',
+] as const
+
+export const INTRO_SCREEN_DEFAULT_BUTTON_TEXT = 'Get started'
+export const BACK_BUTTON_DEFAULT_TEXT = 'Back'
 
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {

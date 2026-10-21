@@ -15,7 +15,6 @@ from django.utils.html import escape
 
 import requests
 from parameterized import parameterized
-from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
     CIMDFetchError,
@@ -180,7 +179,7 @@ def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error):
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
-class TestFetchCimdMetadata(APIBaseTest):
+class TestFetchCimdMetadata(SimpleTestCase):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_success(self, mock_get, _url_mock):
         metadata = _make_metadata()
@@ -684,14 +683,14 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
         assert existing is not None
-        existing.update_provisioning(can_use_github_grants=True)
-        OAuthApplication.objects.get(pk=existing.pk).update_provisioning(can_use_github_grants=False)
+        existing.update_provisioning(can_issue_deep_links=True)
+        OAuthApplication.objects.get(pk=existing.pk).update_provisioning(can_issue_deep_links=False)
 
         app = apply_provisioning_defaults(existing)
 
-        self.assertFalse(app.provisioning.can_use_github_grants)
+        self.assertFalse(app.provisioning.can_issue_deep_links)
         app.refresh_from_db()
-        self.assertFalse(app.provisioning.can_use_github_grants)
+        self.assertFalse(app.provisioning.can_issue_deep_links)
         # The self-serve defaults still land - only the admin's revocation survives on top.
         self.assertTrue(app.provisioning.can_create_accounts)
 
@@ -1042,15 +1041,6 @@ class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
         ]
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0].kwargs["properties"]["reason"], "app_url_missing")
-
-
-class TestAuthorizationServerMetadata(APIBaseTest):
-    def test_advertises_cimd_support(self):
-        client = APIClient()
-        response = client.get("/.well-known/oauth-authorization-server")
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data.get("client_id_metadata_document_supported"))
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})

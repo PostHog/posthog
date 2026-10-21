@@ -174,6 +174,8 @@ export interface ThreadItem {
     toolCallId?: string
     /** For `error` items, and for `status` items whose status is a `*_failed` phase. */
     errorMessage?: string
+    /** For `status` items that carry a notice to show as-is, such as an extension's warning. */
+    message?: string
     /**
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a
      * raw error line (`error`, the default). Drives the copy/styling branch in the renderer.
@@ -283,3 +285,93 @@ export interface PermissionRequestRecord {
      */
     questions?: AgentQuestion[]
 }
+
+export const SCOUT_CADENCES = ['daily', 'weekly'] as const
+export type ScoutSuggestionCadence = (typeof SCOUT_CADENCES)[number]
+
+export const SCOUT_MODES = ['report', 'watch', 'investigate', 'digest'] as const
+export type ScoutSuggestionMode = (typeof SCOUT_MODES)[number]
+
+export const ALERT_DIRECTIONS = ['decrease', 'increase'] as const
+export type AlertSuggestionDirection = (typeof ALERT_DIRECTIONS)[number]
+
+export interface ScoutSuggestionDraft {
+    mode: ScoutSuggestionMode
+    displayName: string
+    description: string
+    body: string
+    cadence: ScoutSuggestionCadence
+}
+
+export interface IncidentOutline {
+    timeline: string
+    cause: string
+    fix: string
+}
+
+export interface NotebookSuggestionDraft {
+    title: string
+    summary: string
+    /** Present when the notebook is laid out as an incident write-up rather than the conversation as is. */
+    incident: IncidentOutline | null
+}
+
+export interface SuggestedInsightRef {
+    insightShortId: string
+    insightId: number | null
+    insightName: string
+}
+
+export interface AlertSuggestionDraft extends SuggestedInsightRef {
+    direction: AlertSuggestionDirection
+    changePercent: number
+}
+
+export interface SubscriptionSuggestionDraft extends SuggestedInsightRef {
+    cadence: ScoutSuggestionCadence
+}
+
+export interface ErrorAlertSuggestionDraft {
+    issueId: string
+    issueName: string
+}
+
+interface TurnSuggestionBase {
+    turnIndex: number
+    intent: string
+    confidence: number
+    title: string
+    description: string
+}
+
+export interface ScoutTurnSuggestion extends TurnSuggestionBase {
+    kind: 'scout'
+    scout: ScoutSuggestionDraft
+}
+
+export interface NotebookTurnSuggestion extends TurnSuggestionBase {
+    kind: 'notebook'
+    notebook: NotebookSuggestionDraft
+}
+
+export interface AlertTurnSuggestion extends TurnSuggestionBase {
+    kind: 'alert'
+    alert: AlertSuggestionDraft
+}
+
+export interface SubscriptionTurnSuggestion extends TurnSuggestionBase {
+    kind: 'subscription'
+    subscription: SubscriptionSuggestionDraft
+}
+
+export interface ErrorAlertTurnSuggestion extends TurnSuggestionBase {
+    kind: 'error_alert'
+    errorAlert: ErrorAlertSuggestionDraft
+}
+
+export type TurnSuggestion =
+    | ScoutTurnSuggestion
+    | NotebookTurnSuggestion
+    | AlertTurnSuggestion
+    | SubscriptionTurnSuggestion
+    | ErrorAlertTurnSuggestion

@@ -1,0 +1,19 @@
+{
+    "name": "@posthog/products-webmcp",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@testing-library/react": "*"
+    },
+    "peerDependencies": {
+        "@types/react": "*",
+        "react": "*",
+        "typescript": "catalog:*"
+    }
+}

@@ -1,18 +1,25 @@
 import { cn } from 'lib/utils/css-classes'
 
-import { TimelineRowData } from '../types'
+import type { TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { TimelineAxis } from './TimelineAxis'
 import { TIMELINE_COLUMNS, TimelineRow } from './TimelineRow'
 import { timelineTicks } from './timelineTicks'
 
 export interface TraceTimelineProps {
-    rows: TimelineRowData[]
+    rows: TraceTimelineRowApi[]
     totalMs: number
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
+    onPrefetchNode: (id: string) => void
 }
 
-export function TraceTimeline({ rows, totalMs, selectedNodeId, onSelectNode }: TraceTimelineProps): JSX.Element {
+export function TraceTimeline({
+    rows,
+    totalMs,
+    selectedNodeId,
+    onSelectNode,
+    onPrefetchNode,
+}: TraceTimelineProps): JSX.Element {
     if (rows.length === 0) {
         return <p className="m-0 text-secondary">This trace has no timed steps.</p>
     }
@@ -31,6 +38,7 @@ export function TraceTimeline({ rows, totalMs, selectedNodeId, onSelectNode }: T
                     ticks={ticks}
                     isSelected={row.id === selectedNodeId}
                     onSelect={() => onSelectNode(row.id)}
+                    onPrefetch={() => onPrefetchNode(row.id)}
                 />
             ))}
         </div>

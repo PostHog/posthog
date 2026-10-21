@@ -15,8 +15,18 @@ class ArtifactNotFoundError(Exception):
     pass
 
 
+class QuarantineLiftRequestNotFoundError(Exception):
+    pass
+
+
 class GitHubIntegrationNotFoundError(Exception):
     """Team does not have a GitHub integration configured."""
+
+    pass
+
+
+class LiftCommitUnknownError(Exception):
+    """GitHub cannot name the default branch head, so a quarantine lift cannot be scoped to a commit."""
 
     pass
 

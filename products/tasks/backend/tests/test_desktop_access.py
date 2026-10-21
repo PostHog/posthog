@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -84,6 +86,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(decision.allowed, expected_allowed)
         self.assertEqual(decision.reason, expected_reason)
 
+    @override_settings(DESKTOP_SIGNUP_CUTOFF="2000-01-01T00:00:00+00:00")
     @patch("products.tasks.backend.access._get_funding_status")
     def test_override_grants_access_before_funding_resolution(self, mock_funding) -> None:
         self.mock_feature_flag.side_effect = [True]
@@ -92,6 +95,40 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertTrue(decision.allowed)
         mock_funding.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("joined_before_cutoff", "2026-10-02T00:00:00+00:00", "2026-10-01T23:59:59+00:00", True, True),
+            ("joined_at_cutoff", "2026-10-02T00:00:00+00:00", "2026-10-02T00:00:00+00:00", True, False),
+            ("naive_cutoff_reads_as_utc", "2026-10-02T00:00:00", "2026-10-02T00:00:01+00:00", True, False),
+            ("cutoff_unset", "", "2026-10-03T00:00:00+00:00", True, True),
+            ("gate_flag_off", "2026-10-02T00:00:00+00:00", "2026-10-03T00:00:00+00:00", False, True),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_signup_cutoff_blocks_new_users_without_a_reason(
+        self,
+        _name: str,
+        cutoff: str,
+        date_joined: str,
+        gate_flag_enabled: bool,
+        expected_allowed: bool,
+        mock_funding,
+    ) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        self.mock_feature_flag.side_effect = lambda key, *_args, **_kwargs: (
+            gate_flag_enabled if key == "posthog-desktop-signup-gate" else False
+        )
+        self.user.date_joined = datetime.fromisoformat(date_joined)
+        self.user.save(update_fields=["date_joined"])
+
+        with override_settings(DESKTOP_SIGNUP_CUTOFF=cutoff):
+            response = self.client.get(f"/api/projects/{self.team.id}/desktop/access/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"allowed": expected_allowed, "reason": None})
 
     @parameterized.expand(
         [
@@ -185,11 +222,12 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(response.data["code"], "desktop_access_unavailable")
 
     @parameterized.expand([(None,), ("control",), ("false",)])
-    def test_indeterminate_override_flag_fails_closed(self, flag_value) -> None:
-        self.mock_feature_flag.side_effect = [flag_value]
-
-        with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.organization)
+    @override_settings(DESKTOP_SIGNUP_CUTOFF="2000-01-01T00:00:00+00:00")
+    def test_indeterminate_flags_fail_closed(self, flag_value) -> None:
+        for flag_values in ([flag_value], [False, flag_value]):
+            self.mock_feature_flag.side_effect = flag_values
+            with self.assertRaises(DesktopAccessResolutionError):
+                get_desktop_access_decision(self.user, self.organization)
 
     @patch(
         "products.tasks.backend.access._get_funding_status",

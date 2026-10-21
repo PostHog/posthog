@@ -90,7 +90,9 @@ When all partitions have reported, Django stamps the cohort ready, and feature f
   Reconcile re-emits from the state the processor holds, so it repairs lost output, not lost state.
   [Processor runtime](processor-runtime.md#delivery-semantics) lists each path's guarantee.
 - **The processor runs as a single pod.**
-  Its state lives in a local RocksDB store that never moves between pods, so a second replica would corrupt state without any error.
+  Each pod owns a fixed share of the partitions, and keeps their state in a local RocksDB store.
+  More pods need a reshard, as [ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) describes.
+  With checkpoints enabled, a reshard keeps the history of every slice.
 - **Most of the pipeline is off by default.**
   The processor writes to a shadow output topic unless configured otherwise, and seed apply, reconcile, cascades, durable restore, the seeder's completion driver and Django's finalizer each have their own switch.
   The pages name the switch where each behavior is described.
@@ -151,7 +153,7 @@ Each page states the setup its example needs, and the details differ where a pag
 | Sweep                | The periodic pass that applies eviction deadlines                                                                 |
 | Tombstone            | A forwarding address from a merged-away person to the survivor                                                    |
 | Cascade              | Recomposing cohorts that reference a cohort whose membership flipped                                              |
-| Tenure               | The time one worker owns a partition, from assignment to the next revoke or restart                               |
+| Tenure               | The time one worker owns a partition, from boot to the next restart                                               |
 | Run                  | One backfill of one kind, for one cohort or a whole team                                                          |
 | Participation        | One cohort's membership in a run, with its pinned definition and outcome                                          |
 | Pinning              | Freezing the definition a run replays                                                                             |

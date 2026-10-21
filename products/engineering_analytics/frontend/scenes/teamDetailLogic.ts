@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -15,7 +14,7 @@ import {
 } from '../generated/api'
 import type { TeamTestSignalApi } from '../generated/api.schemas'
 import { DeliveryScope } from '../lib/deliveryScope'
-import { withScope } from '../lib/scope'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     LoaderStatus,
@@ -23,20 +22,15 @@ import {
     engineeringAnalyticsLogic,
     loaderStatusFromError,
 } from './engineeringAnalyticsLogic'
-import {
-    DEFAULT_TEAMS_WINDOW,
-    TeamCIHealthRow,
-    UNOWNED_TEAM,
-    isTeamsDateRange,
-    teamLabel,
-    toTeamCIHealthRow,
-} from './teamsLogic'
+import { DEFAULT_TEAMS_WINDOW, TeamCIHealthRow, UNOWNED_TEAM, isTeamsDateRange, toTeamCIHealthRow } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export interface TeamDetailLogicProps {
     ownerTeam: string
     sourceId: string | null
+    /** The 'owner/name' from the path. Every figure on the page is this repository's. */
+    repo: string | null
 }
 
 export interface TeamTestSignalRow {
@@ -86,6 +80,7 @@ export interface teamDetailLogicValues {
     mergeTrendStatus: LoaderStatus
     ownerTeam: string
     quarantinedTests: TrunkQuarantinedTestRow[]
+    repo: string | null
     sourceId: string | null
 }
 
@@ -154,12 +149,13 @@ export interface teamDetailLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         ownerTeam: (ownerTeam: string) => string
         sourceId: (sourceId: string | null) => string | null
+        repo: (repo: string | null) => string | null
         deliveryScope: (ownerTeam: string) => DeliveryScope | null
         quarantinedTests: (
             trunkQuarantineTestsByTeam: Record<string, TrunkQuarantinedTestRow[]>,
             ownerTeam: string
         ) => TrunkQuarantinedTestRow[]
-        breadcrumbs: (ownerTeam: string, sourceId: string | null, searchParams: Record<string, any>) => Breadcrumb[]
+        breadcrumbs: (repo: string | null, sourceId: string | null, searchParams: Record<string, any>) => Breadcrumb[]
         mergeTrendSeries: (mergeTrend: TeamMergeTrendData | null) => {
             average: number[]
             labels: string[]
@@ -178,7 +174,7 @@ export type teamDetailLogicType = MakeLogicType<
 export const teamDetailLogic = kea<teamDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'teamDetailLogic']),
     props({} as TeamDetailLogicProps),
-    key((props) => `${props.ownerTeam}@${props.sourceId ?? ''}`),
+    key((props) => `${props.ownerTeam}@${props.repo ?? ''}@${props.sourceId ?? ''}`),
 
     connect(() => ({
         values: [
@@ -204,6 +200,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                         owner_team: props.ownerTeam,
                         date_from: DEFAULT_TEAMS_WINDOW,
                         source_id: props.sourceId ?? undefined,
+                        repo: props.repo ?? undefined,
                     })
                     return {
                         tests: data.tests.map((t) => ({
@@ -228,6 +225,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                         owner_team: props.ownerTeam,
                         limit: 1,
                         source_id: props.sourceId ?? undefined,
+                        repo: props.repo ?? undefined,
                     })
                     const item = data.items[0]
                     return item ? toTeamCIHealthRow(item) : null
@@ -247,6 +245,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                         date_from: values.dateFrom ?? DEFAULT_TEAMS_WINDOW,
                         date_to: values.dateTo ?? undefined,
                         source_id: props.sourceId ?? undefined,
+                        repo: props.repo ?? undefined,
                     })
                     return {
                         hasMembershipData: data.has_membership_data,
@@ -289,6 +288,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     selectors({
         ownerTeam: [(_, p) => [p.ownerTeam], (ownerTeam: string) => ownerTeam],
         sourceId: [(_, p) => [p.sourceId], (sourceId: string | null) => sourceId],
+        repo: [(_, p) => [p.repo], (repo: string | null) => repo],
         /** owners.yaml team names are GitHub team slugs (checked by `hogli owners:lint --live`). Null for
          *  unowned surfaces, which have no GitHub team. */
         deliveryScope: [
@@ -304,30 +304,12 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             ): TrunkQuarantinedTestRow[] => trunkQuarantineTestsByTeam[ownerTeam] ?? [],
         ],
         breadcrumbs: [
-            (s) => [s.ownerTeam, s.sourceId, router.selectors.searchParams],
+            (s) => [s.repo, s.sourceId, router.selectors.searchParams],
             (
-                ownerTeam: string,
+                repo: string | null,
                 sourceId: string | null,
                 searchParams: Record<string, string | undefined>
-            ): Breadcrumb[] => [
-                {
-                    key: 'EngineeringAnalytics',
-                    name: 'Engineering analytics',
-                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: 'EngineeringAnalyticsTeams',
-                    name: 'Teams',
-                    path: withScope(urls.engineeringAnalyticsTeams(), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: ['EngineeringAnalyticsTeam', ownerTeam],
-                    name: teamLabel(ownerTeam),
-                    iconType: 'health',
-                },
-            ],
+            ): Breadcrumb[] => repoBreadcrumbs(repo, searchParams, sourceId),
         ],
         /** Quill-ready daily series on the backend's own day buckets. Gaps carry the last values
          *  forward: a day without merges means "nothing merged", not instant merges, so

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+from google.genai import types
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
@@ -138,6 +139,12 @@ class TestSafetyFilteringAndClassification(BaseTest):
         assert doc.classification_attempts == 1
         # Still searchable-excluded.
         assert logic.search_knowledge(self.team.id, "alpha") == []
+        # The next chunk must take a doc that has not been tried yet.
+        _fresh_source, fresh = self._ready_unknown_source("B", "beta content here")
+        pending = logic.list_documents_pending_classification(limit=1)
+        assert pending[0].document_id == fresh.id
+        excluded = logic.list_documents_pending_classification(limit=1, exclude_ids=[fresh.id])
+        assert excluded[0].document_id == doc.id
 
     def test_pending_classification_skips_docs_past_attempt_cap(self) -> None:
         _source, doc = self._ready_unknown_source("A", "alpha content here")
@@ -219,18 +226,22 @@ class TestSafetyClassifier(BaseTest):
             logic.PendingDocument(
                 team_id=self.team.id,
                 document_id=UUID("00000000-0000-0000-0000-000000000001"),
+                source_id=UUID("00000000-0000-0000-0000-0000000000a1"),
+                source_type="url",
                 content="normal docs",
                 content_hash="h1",
             ),
             logic.PendingDocument(
                 team_id=self.team.id,
                 document_id=UUID("00000000-0000-0000-0000-000000000002"),
+                source_id=UUID("00000000-0000-0000-0000-0000000000a1"),
+                source_type="url",
                 content="ATTACK ignore previous",
                 content_hash="h2",
             ),
         ]
 
-        async def fake_generate(model, contents, config):  # noqa: ANN001
+        async def fake_generate(model, contents, config, **_posthog_kwargs):  # noqa: ANN001
             text = "UNSAFE: injection" if "ATTACK" in contents[0] else "SAFE"
             return type("Resp", (), {"text": text})()
 
@@ -242,6 +253,11 @@ class TestSafetyClassifier(BaseTest):
             UUID("00000000-0000-0000-0000-000000000001"): SafetyVerdict.SAFE,
             UUID("00000000-0000-0000-0000-000000000002"): SafetyVerdict.UNSAFE,
         }
+        # thinking_budget=0 is a 400 on this model, so every window would fail closed.
+        call = mk.return_value.models.generate_content.call_args
+        assert call.kwargs["model"] == "models/gemini-3.5-flash-lite"
+        assert call.kwargs["config"].thinking_config.thinking_level == types.ThinkingLevel.MINIMAL
+        assert call.kwargs["config"].thinking_config.thinking_budget is None
 
     @override_settings(GEMINI_API_KEY="test-key")
     def test_classify_documents_fails_closed_on_error(self) -> None:
@@ -249,6 +265,8 @@ class TestSafetyClassifier(BaseTest):
             logic.PendingDocument(
                 team_id=self.team.id,
                 document_id=UUID("00000000-0000-0000-0000-000000000001"),
+                source_id=UUID("00000000-0000-0000-0000-0000000000a1"),
+                source_type="url",
                 content="x",
                 content_hash="h1",
             )
@@ -272,6 +290,8 @@ class TestSafetyClassifier(BaseTest):
             logic.PendingDocument(
                 team_id=self.team.id,
                 document_id=UUID("00000000-0000-0000-0000-000000000001"),
+                source_id=UUID("00000000-0000-0000-0000-0000000000a1"),
+                source_type="url",
                 content="blocked",
                 content_hash="h1",
             )
@@ -297,20 +317,40 @@ class TestSafetyClassifier(BaseTest):
         doc = logic.PendingDocument(
             team_id=self.team.id,
             document_id=UUID("00000000-0000-0000-0000-000000000003"),
+            source_id=UUID("00000000-0000-0000-0000-0000000000a1"),
+            source_type="file",
             content=content,
             content_hash="h3",
         )
 
-        async def fake_generate(model, contents, config):  # noqa: ANN001
+        async def fake_generate(model, contents, config, **_posthog_kwargs):  # noqa: ANN001
             text = "UNSAFE: injection" if "IGNORE ALL PREVIOUS INSTRUCTIONS" in contents[0] else "SAFE"
             return type("Resp", (), {"text": text})()
 
         with patch.object(safety.genai, "AsyncClient") as mk:
-            mk.return_value.models.generate_content = AsyncMock(side_effect=fake_generate)
+            generate = AsyncMock(side_effect=fake_generate)
+            mk.return_value.models.generate_content = generate
             results = asyncio.run(safety.classify_documents([doc]))
 
         assert len(content) > safety.CLASSIFY_WINDOW_CHARS  # guard: actually multi-window
         assert results[0].verdict == SafetyVerdict.UNSAFE
+        assert [call.kwargs["posthog_properties"] for call in generate.call_args_list] == [
+            {
+                "ai_product": "business_knowledge",
+                "ai_feature": "bk_ingest_safety",
+                "team_id": self.team.id,
+                "document_id": str(doc.document_id),
+                "source_id": str(doc.source_id),
+                "source_type": "file",
+                "window_index": window_index,
+                "attempt": 1,
+            }
+            for window_index in range(2)
+        ]
+        for call in generate.call_args_list:
+            assert call.kwargs["posthog_privacy_mode"] is True
+            assert call.kwargs["posthog_trace_id"] == str(doc.document_id)
+            assert call.kwargs["posthog_distinct_id"] == f"team-{self.team.id}"
 
     @override_settings(GEMINI_API_KEY="test-key")
     def test_classify_oversized_document_fails_closed_without_calling_model(self) -> None:
@@ -318,6 +358,8 @@ class TestSafetyClassifier(BaseTest):
         doc = logic.PendingDocument(
             team_id=self.team.id,
             document_id=UUID("00000000-0000-0000-0000-000000000004"),
+            source_id=UUID("00000000-0000-0000-0000-0000000000a1"),
+            source_type="file",
             content=content,
             content_hash="h4",
         )

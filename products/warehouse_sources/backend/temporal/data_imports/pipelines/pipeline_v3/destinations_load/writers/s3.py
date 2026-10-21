@@ -22,14 +22,14 @@ Credentials, the client and its config come from batch exports' S3 destination:
   roles, and `request_checksum_calculation="when_required"`. That last one is why R2, GCS and
   MinIO accept our uploads at all: they reject AWS's newer checksum headers.
 
-What is not taken from there is the upload itself. `ConcurrentS3Consumer` times every part
-through `ExecutionTimeRecorder`, which resolves a Temporal metric meter and raises outside an
-activity. Delivery runs in the Postgres-queue load worker, not in an activity, so the parts are
-uploaded here instead, keeping their `RequestTimeout` retry behavior.
+What is not taken from there is the upload itself. `ConcurrentS3Consumer` counts exported rows
+and bytes through Temporal activity metrics, which raise outside an activity. Delivery runs in the
+Postgres-queue load worker, not in an activity, so the parts are uploaded here instead, keeping
+their `RequestTimeout` retry behavior.
 
-Bytes are streamed a record batch at a time through `ParquetStreamTransformer`, whose
-`write_record_batch` and `finish_parquet_file` are pure. Collecting the whole staged batch
-first would hold ~200 MiB of Arrow plus two copies of its parquet, per destination.
+Bytes are streamed a row group at a time through `ParquetStreamTransformer.iter`, which holds
+at most one row group of record batches. Collecting the whole staged batch first would hold
+~200 MiB of Arrow plus two copies of its parquet, per destination.
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ import json
 import asyncio
 import datetime as dt
 import functools
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -57,7 +57,9 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
+    InvalidCredentialsError,
     PolicyStatement,
+    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
     s3_client,
@@ -68,6 +70,10 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
+)
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -77,6 +83,44 @@ logger = structlog.get_logger(__name__)
 
 ParquetCompression = Literal["gzip", "brotli", "lz4", "zstd", "snappy", "none"]
 DEFAULT_COMPRESSION: ParquetCompression = "zstd"
+
+CREDENTIALS_DETAIL = "S3 authentication failed. Check the access key ID and secret, then run the sync again."
+BUCKET_DETAIL = (
+    "The S3 bucket does not exist or is in another region. Check the bucket name and region, then run the sync again."
+)
+PERMISSIONS_DETAIL = (
+    "S3 denied access to the bucket path. Grant s3:PutObject and s3:AbortMultipartUpload on the bucket path, "
+    "then run the sync again."
+)
+ROLE_DETAIL = (
+    "PostHog cannot assume the role. Check the role ARN and the trust policy with the external ID, "
+    "then run the sync again."
+)
+INVALID_PARAMS_DETAIL = (
+    "The destination's S3 configuration is invalid. Check the bucket name, region and prefix, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, InvalidCredentialsError):
+        return ROLE_DETAIL
+    if isinstance(err, botocore.exceptions.ParamValidationError):
+        # Raised by botocore itself, before any request reaches S3, so a retry sends the exact
+        # same invalid parameters and fails identically every time.
+        return INVALID_PARAMS_DETAIL
+    if not isinstance(err, botocore.exceptions.ClientError):
+        return None
+    if err.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500:
+        return None
+    code = err.response.get("Error", {}).get("Code")
+    if code in ("InvalidAccessKeyId", "SignatureDoesNotMatch"):
+        return CREDENTIALS_DETAIL
+    if code == "NoSuchBucket":
+        return BUCKET_DETAIL
+    if code in ("AccessDenied", "AccessDeniedException"):
+        return ROLE_DETAIL if err.operation_name == "AssumeRole" else PERMISSIONS_DETAIL
+    return None
+
 
 # The destination's `config` is an unvalidated JSONField, so whatever a user puts in it reaches
 # pyarrow directly. Anything outside this set fails mid-write, several hundred MiB in.
@@ -96,10 +140,6 @@ EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFF
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
 
 
-class S3DestinationConfigurationError(ValueError):
-    """The destination's config cannot produce a valid S3 write."""
-
-
 @dataclass(frozen=False, kw_only=True)
 class _WriteStats:
     """What the parquet stream produced, read back after the upload has drained it."""
@@ -111,29 +151,24 @@ class _WriteStats:
 async def _parquet_byte_stream(
     batches: AsyncIterator[pa.RecordBatch], compression: str | None, stats: _WriteStats
 ) -> AsyncIterator[bytes]:
-    """Yield the parquet encoding of `batches`, one record batch at a time.
+    """Yield the parquet encoding of `batches` as one file, one row group at a time.
 
-    `write_record_batch` returns only the bytes the writer produced for that batch and resets
-    its buffer, so nothing accumulates. The pyarrow write runs in a thread to keep the event
-    loop free for the upload it is feeding.
+    The transformer holds record batches until they fill a row group, so at most one row group
+    of Arrow data is in memory. A batch that later grows a column is projected back onto the
+    first schema, because one parquet file has one schema.
     """
-    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True)
+    # Delivery runs outside a Temporal activity, where there is no metric meter to record to.
+    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True, record_metrics=False)
 
+    async for chunk in transformer.iter(_count_rows(batches, stats)):
+        stats.parquet_bytes += len(chunk.data)
+        yield chunk.data
+
+
+async def _count_rows(batches: AsyncIterator[pa.RecordBatch], stats: _WriteStats) -> AsyncIterator[pa.RecordBatch]:
     async for record_batch in batches:
-        # No-op after the first batch. A batch that later grows a column is projected back onto
-        # the first schema, because one parquet file has one schema.
-        transformer.schema = record_batch.schema
-
-        chunk = await asyncio.to_thread(transformer.write_record_batch, record_batch)
         stats.rows += record_batch.num_rows
-        stats.parquet_bytes += len(chunk)
-        if chunk:
-            yield chunk
-
-    footer = await asyncio.to_thread(transformer.finish_parquet_file)
-    stats.parquet_bytes += len(footer)
-    if footer:
-        yield footer
+        yield record_batch
 
 
 async def _chain(head: pa.RecordBatch, rest: AsyncIterator[pa.RecordBatch]) -> AsyncIterator[pa.RecordBatch]:
@@ -253,7 +288,7 @@ class S3DestinationWriter:
     def __init__(self, ctx: DestinationRunContext) -> None:
         self._ctx = ctx
         config = ctx.config or {}
-        self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip("/")
+        self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
         self._prefix: str = (config.get("prefix") or "").strip("/")
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
@@ -270,19 +305,21 @@ class S3DestinationWriter:
         name = self._ctx.destination_name
 
         if not self._bucket:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no bucket. Add a bucket to the destination, then run the sync again."
+            raise DestinationConfigurationError(
+                name, "The destination has no bucket. Add a bucket to the destination, then run the sync again."
             )
         if not self._region:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no region. Set the region the bucket is in, for example 'us-east-1', "
-                "then run the sync again."
+            raise DestinationConfigurationError(
+                name,
+                "The destination has no region. Set the region the bucket is in, for example 'us-east-1', "
+                "then run the sync again.",
             )
         if self._compression not in SUPPORTED_COMPRESSIONS:
             supported = ", ".join(sorted(SUPPORTED_COMPRESSIONS))
-            raise S3DestinationConfigurationError(
-                f"Destination {name} uses the compression '{self._compression}', which parquet files cannot use. "
-                f"Pick one of: {supported}."
+            raise DestinationConfigurationError(
+                name,
+                f"The destination uses the compression '{self._compression}', which parquet files cannot use. "
+                f"Pick one of: {supported}.",
             )
 
     # --- keys -------------------------------------------------------------------------
@@ -299,6 +336,16 @@ class S3DestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[S3Client]:
         """Their client, entered so its aiohttp session is closed on the way out.
@@ -306,9 +353,12 @@ class S3DestinationWriter:
         A writer is built per batch, so a client left open here leaks a session per batch.
         """
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        except S3IntegrationNotFoundError as error:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from error
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None
@@ -370,6 +420,12 @@ class S3DestinationWriter:
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
         first = await anext(batches, None)
         if first is None:
             # No record batches at all. An empty object is not a readable parquet file, so
@@ -397,6 +453,10 @@ class S3DestinationWriter:
         return None if self._compression == "none" else self._compression
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._finalize_run(ctx)
+
+    async def _finalize_run(self, ctx: DestinationRunContext) -> None:
         """Write a manifest, which is how a reader tells a finished run from an abandoned one.
 
         It carries no file list. `finalize_run` runs on a writer that may have written none of

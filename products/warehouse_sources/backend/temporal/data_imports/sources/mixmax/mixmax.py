@@ -16,9 +16,11 @@ Rate limits: 120 requests / 60s per user+IP, `429` with `Retry-After`. The frame
 """
 
 import dataclasses
-from typing import Any, Optional
-from urllib.parse import urlencode
+from collections.abc import Iterable
+from typing import Any, Optional, cast
+from urllib.parse import quote, urlencode
 
+import structlog
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,21 +28,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
+    OffsetPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import (
     MIXMAX_ENDPOINTS,
+    PAGE_SIZE,
+    PARENT_ID_PARAM_FIELD,
     MixmaxEndpointConfig,
 )
 
+logger = structlog.get_logger(__name__)
+
 MIXMAX_BASE_URL = "https://api.mixmax.com/v1"
-# Docs default the page size to 50 and cap it around 300; 100 keeps request volume low against the
-# 120 req/min ceiling without risking a rejected oversized page.
-PAGE_SIZE = 100
 
 
 @dataclasses.dataclass
@@ -104,6 +116,83 @@ class MixmaxCursorPaginator(BaseNextUrlPaginator):
             self._has_next_page = False
 
 
+class MixmaxOffsetPaginator(OffsetPaginator):
+    """Limit/offset paging for plain-array children, stopped at the API's offset ceiling."""
+
+    def __init__(self, limit: int, maximum_offset: int | None) -> None:
+        super().__init__(limit=limit, maximum_offset=maximum_offset, total_path=None)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        hit_cap = self.maximum_offset is not None and self.offset >= self.maximum_offset
+        if hit_cap and data is not None and len(data) == self.limit:
+            # Rows past the ceiling are unreachable without a search query, so this table is truncated.
+            logger.warning(
+                "mixmax_offset_cap_reached",
+                url=response.url,
+                maximum_offset=self.maximum_offset,
+            )
+
+
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": MIXMAX_BASE_URL,
+        # Auth (the `X-API-Token` header) goes through the framework auth config so its value is
+        # redacted from logs and error messages; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Token", "location": "header"},
+    }
+
+
+def _with_encoded_parent_id(row: dict[str, Any]) -> dict[str, Any]:
+    row[PARENT_ID_PARAM_FIELD] = quote(str(row["_id"]), safe="")
+    return row
+
+
+def _child_endpoint_extra(config: MixmaxEndpointConfig) -> Endpoint:
+    if config.child_page_size is not None:
+        # The body is a plain array, so it needs no selector.
+        return {
+            "paginator": MixmaxOffsetPaginator(limit=config.child_page_size, maximum_offset=config.child_max_offset)
+        }
+    # Child responses are a single `{results: [...]}` page, capped server-side.
+    return {"paginator": SinglePagePaginator(), "data_selector": "results"}
+
+
+def _fanout_source(
+    api_key: str, endpoint: str, config: MixmaxEndpointConfig, team_id: int, job_id: str
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = MIXMAX_ENDPOINTS[config.fanout.parent_name]
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=MIXMAX_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # The parent page size rides in `fanout.parent_params`; the child page size rides in its paginator.
+            page_size_param=None,
+            parent_endpoint_extra={"paginator": MixmaxCursorPaginator(parent_config.path), "data_selector": "results"},
+            child_endpoint_extra=_child_endpoint_extra(config),
+            parent_data_map=_with_encoded_parent_id,
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: dependent_resource,
+        primary_keys=config.primary_keys,
+        # Child rows follow the parent's newest-first order.
+        sort_mode="desc",
+    )
+
+
 def mixmax_source(
     api_key: str,
     endpoint: str,
@@ -114,17 +203,14 @@ def mixmax_source(
 ) -> SourceResponse:
     config: MixmaxEndpointConfig = MIXMAX_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(api_key, endpoint, config, team_id, job_id)
+
     # Single-object `/…/me` endpoints take no pagination params; collections carry the page limit.
     params: dict[str, Any] = {} if config.single_object else {"limit": PAGE_SIZE}
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": MIXMAX_BASE_URL,
-            # Auth (the `X-API-Token` header) goes through the framework auth config so its value is
-            # redacted from logs and error messages; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Token", "location": "header"},
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [
             {

@@ -9,6 +9,7 @@ import {
     checkExpiredEntry,
     checkScheduledEntry,
     latestCheckExplanations,
+    monitoringPeriodLabel,
     reportChecksMeta,
     splitReportCheckRows,
 } from './reportCheckPresentation'
@@ -28,6 +29,7 @@ function makeCheck(overrides: Partial<SignalReportCheckApi> = {}): SignalReportC
         expires_at: '2026-10-27T09:00:00Z',
         last_run_at: null,
         last_outcome: null,
+        last_outcome_reason: null,
         dispatched_at: null,
         consecutive_errors: 0,
         created_at: '2026-09-20T09:00:00Z',
@@ -48,6 +50,16 @@ function rowFor(
 }
 
 describe('reportCheckPresentation', () => {
+    it.each([
+        [0, '0 minutes'],
+        [1, '1 minute'],
+        [1441, '1 day 1 minute'],
+        [1501, '1 day 1 hour 1 minute'],
+        [20160, '14 days'],
+    ])('preserves the full Monitoring period of %s minutes', (minutes, label) => {
+        expect(monitoringPeriodLabel(Number(minutes))).toBe(label)
+    })
+
     describe('buildReportCheckRows', () => {
         // The section exists so a reader can tell a scheduled check from a waiting one from a check
         // that never ran. A wrong mapping here puts the wrong verdict word on the row.
@@ -57,6 +69,12 @@ describe('reportCheckPresentation', () => {
                 { status: 'pending' },
                 'Waiting',
                 'Starts 7 days after this report is resolved · Error tracking runs it',
+            ],
+            [
+                'a pending metric check names its minimum wait',
+                { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
+                'Waiting',
+                'At least 1 day after this report is resolved',
             ],
             [
                 'a scheduled check leads with its run date and its lane',
@@ -91,6 +109,23 @@ describe('reportCheckPresentation', () => {
                 { status: 'errored', last_run_at: '2026-09-27T09:00:00Z', consecutive_errors: 3 },
                 "Couldn't measure",
                 'Gave up after 3 tries · Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
+                'an inconclusive check reads apart from errored and says why in plain words',
+                {
+                    status: 'inconclusive',
+                    last_run_at: '2026-09-27T09:00:00Z',
+                    last_outcome: 'inconclusive',
+                    last_outcome_reason: 'needs_manual_verification',
+                },
+                'Inconclusive',
+                'Needs a person to verify · Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
+                'an open check waiting on data says why it looks again',
+                { last_outcome: 'inconclusive', last_outcome_reason: 'awaiting_data', soak_minutes: null },
+                'Runs Sep 27',
+                'Not enough data yet, looks again · 1 run',
             ],
             [
                 'a check that expired before its first run says so',
@@ -249,7 +284,7 @@ describe('reportCheckPresentation', () => {
                     })
                 ).toEqual({
                     tag: { label: 'Waiting for resolve', type: 'muted' },
-                    detail: `Starts ${label} after this report is resolved`,
+                    detail: `At least ${label} after this report is resolved · Waits for a full query window`,
                 })
             }
         )
@@ -265,6 +300,9 @@ describe('reportCheckPresentation', () => {
         it('names which path stopped a check, and falls back when the reason is unknown', () => {
             expect(checkCancelledEntry({ reason: 'replaced_by_research' }).detail).toEqual(
                 'Replaced when research re-ran on this report and wrote a new check'
+            )
+            expect(checkCancelledEntry({ reason: 'replaced_by_request' }).detail).toEqual(
+                'Replaced on request by a revised check'
             )
             expect(checkCancelledEntry({}).detail).toEqual('Stopped before it could settle')
         })

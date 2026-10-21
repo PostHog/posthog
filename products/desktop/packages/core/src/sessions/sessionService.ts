@@ -25,6 +25,7 @@ import {
   type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
+  classifyPromptFailure,
   customModelMeta,
   type ExecutionMode,
   flattenSelectOptions,
@@ -3417,9 +3418,26 @@ export class SessionService {
     }
 
     if (!session?.taskId || !tally.agentText) return;
-    const references = extractPostHogObjectReferences(tally.agentText);
+    void this.registerTurnReferences(
+      session.taskId,
+      taskRunId,
+      tally.agentText,
+      `turn-${tally.startedAtTs}`,
+    );
+  }
+
+  private async registerTurnReferences(
+    taskId: string,
+    taskRunId: string,
+    agentText: string,
+    sourceMessageId: string,
+  ): Promise<void> {
+    const auth = await this.getCloudCommandAuth().catch(() => null);
+    const references = extractPostHogObjectReferences(
+      agentText,
+      auth ? { appUrl: auth.apiHost, projectId: auth.teamId } : null,
+    );
     if (references.length === 0) return;
-    const sourceMessageId = `turn-${tally.startedAtTs}`;
     const inputs: PostHogObjectReferenceInput[] = references.map(
       (reference) => ({
         name: reference.label,
@@ -3428,7 +3446,7 @@ export class SessionService {
         source_message_id: sourceMessageId,
       }),
     );
-    this.registerPostHogReferences(session.taskId, taskRunId, inputs);
+    this.registerPostHogReferences(taskId, taskRunId, inputs);
   }
 
   // References enter the pending map before the attempt and leave it only on
@@ -4729,6 +4747,11 @@ export class SessionService {
           "The AI provider could not complete the request. Your session is unaffected, so please send the message again.",
           { cause: error },
         );
+      }
+
+      const failure = classifyPromptFailure(error, errorDetails);
+      if (failure.kind === "request_rejected") {
+        throw new Error(failure.message, { cause: error });
       }
 
       throw error;

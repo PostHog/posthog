@@ -10,14 +10,12 @@ from django.conf import settings
 import httpx
 import httpx_sse
 import structlog
-import posthoganalytics
 from temporalio import activity
 
 from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG
 from products.tasks.backend.logic.services.connection_token import create_stream_read_token
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
@@ -26,7 +24,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import TaskRun as TaskRunModel
 
-from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
+from ee.hogai.sandbox import is_background_turn_complete, is_turn_complete, turn_complete_trace_id
 
 # Reuse the ACP event helpers, signal dispatcher, and SSE reconnect tuning from relay_sandbox_events
 # so the two relays derive/emit signals and drive their SSE transport from identical logic.
@@ -48,6 +46,7 @@ logger = structlog.get_logger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30
 # Terminal SSE frame name emitted when the run's stream is complete (matches the stream endpoints).
 STREAM_END_EVENT_NAME = "stream-end"
+BACKGROUND_TURN_OPENERS = frozenset({"_posthog/task_notification", "_posthog/background_turn_started"})
 
 
 class SlackAgentDesignSignalEmitter:
@@ -55,7 +54,8 @@ class SlackAgentDesignSignalEmitter:
     ``SlackAgentDesignRelayWorkflow`` on the parent ``ProcessTaskWorkflow``.
 
     Stateful per run: a turn is bracketed from the first ``session/update`` after a user
-    ``session/prompt`` until the turn-complete notification, and tool-call ids are de-duplicated
+    ``session/prompt`` or a background task notification until the turn-complete or
+    background-turn-complete notification, and tool-call ids are de-duplicated
     for the lifetime of the run (the set is not cleared between turns). The inline fan-out in
     ``relay_sandbox_events._relay_loop`` shares this bracketing but still opens on any
     ``session/update`` — it needs the same prompt gate to stop trailing updates opening phantom turns.
@@ -93,7 +93,15 @@ class SlackAgentDesignSignalEmitter:
                 self._turn_message_id = _prompt_message_id(event_data)
             return []
 
-        if is_turn_complete(event_data):
+        # A finished background task makes the agent start a turn without a user prompt. The Claude
+        # adapter reports the task notification, and the Codex adapter reports the turn start.
+        if _event_method(event_data) in BACKGROUND_TURN_OPENERS:
+            if not self._turn_active:
+                self._awaiting_turn = True
+                self._turn_message_id = None
+            return []
+
+        if is_turn_complete(event_data) or is_background_turn_complete(event_data):
             if self._turn_active:
                 self._turn_active = False
                 # The trace id rides the signal because this event is the only place it
@@ -137,9 +145,8 @@ def _agent_proxy_base_url() -> str | None:
 
     Prefer the in-cluster URL (skips the ingress/CDN round-trip, and exists on envs without a
     public proxy FQDN), then the public URL the browser uses, then the ingest URL. The ingest URL
-    is the single local opt-in — ``_is_sandbox_event_ingest_enabled`` keys off it and mprocs runs
-    the proxy on :8003 — and the proxy serves ingest and stream on the same host, so it doubles as
-    a read base locally.
+    is the single local opt-in for the proxy (mprocs runs it on :8003), and the proxy serves
+    ingest and stream on the same host, so it doubles as a read base locally.
     """
     return (
         settings.TASKS_AGENT_PROXY_INTERNAL_URL
@@ -163,31 +170,6 @@ def _resume_position() -> tuple[str | None, bool]:
     return last_event_id, turn_active
 
 
-def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
-    """Whether the read-via-proxy flag (``tasks-stream-via-proxy``) is on for this run.
-
-    Mirrors the UI's ``resolve_stream_base_url`` and event_ingest's push gate so the relay reads
-    the proxy leg only when the browser would too — a runtime kill-switch for both. Fails closed.
-    """
-    user = task_run.task.created_by
-    if user is None:
-        return False
-    organization_id = str(task_run.team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                STREAM_VIA_PROXY_FEATURE_FLAG,
-                user.distinct_id or f"user_{user.id}",
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
-
-
 @activity.defn
 @close_db_connections
 async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> None:
@@ -208,25 +190,18 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
         logger.warning("relay_agent_design_signals_handle_init_failed", run_id=input.run_id, error=str(e))
         return
 
-    # Read the live proxy leg only when a proxy is configured AND the read-via-proxy flag is on for
-    # the run — the same decision the task UI makes. Otherwise tail the Django-side Redis stream.
+    # Read the live proxy leg when a proxy is configured. Otherwise tail the Django-side Redis stream.
     base_url = _agent_proxy_base_url()
-    task_run: TaskRunModel | None = None
-    stream_via_proxy = False
-    if base_url:
-        task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
-        # feature_enabled can block on a cold flag cache — off the event loop, this is an async activity.
-        stream_via_proxy = await asyncio.to_thread(_stream_via_proxy_enabled, task_run)
 
     logger.info(
         "relay_agent_design_signals_started",
         run_id=input.run_id,
-        leg="proxy" if stream_via_proxy else "redis",
+        leg="proxy" if base_url else "redis",
         base_url=base_url,
-        stream_via_proxy=stream_via_proxy,
     )
 
-    if base_url and stream_via_proxy and task_run is not None:
+    if base_url:
+        task_run = await TaskRunModel.objects.select_related("task").aget(id=input.run_id)
         await _relay_from_agent_proxy(base_url, task_run, input, workflow_handle)
         return
     # The Redis leg reads from 0 with a fresh emitter — no resume, so no turn to carry over.

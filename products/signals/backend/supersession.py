@@ -11,6 +11,7 @@ import structlog
 from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -234,7 +235,9 @@ def verify_target(team_id: int, target: ImplementationTarget, *, check_sha: bool
     tasks = tasks_facade.get_tasks_by_ids([target.task_id], [team_id])
     if not tasks or (tasks[0].repository or "").lower() != parsed.repository.lower():
         return None
-    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+    )
     if github is None:
         raise TargetVerificationUnavailable("GitHub integration unavailable")
     pr = github.get_pull_request(parsed.repository, parsed.number)
@@ -282,7 +285,9 @@ def _target_already_closed(team_id: int, target: ImplementationTarget) -> bool:
 
     parsed = GitHubIntegrationBase.parse_pull_request_url(target.pr_url)
     assert parsed is not None
-    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
+    )
     current = github.get_pull_request(parsed.repository, parsed.number) if github else {}
     if not current.get("success"):
         raise RuntimeError("Could not verify predecessor state")
@@ -408,7 +413,13 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
         run = tasks_facade.get_task_run(content.run_id, team_id)
         claim = get_active_claim(team_id=team_id, report_id=report.id)
         if (
-            report.status in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+            report.status
+            in {
+                SignalReport.Status.DELETED,
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.MONITORING,
+            }
             or not claim
             or claim.claim_id != replacement.claim_id
             or claim.actor_task_id != replacement.task_id

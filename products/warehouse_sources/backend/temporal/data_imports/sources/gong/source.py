@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
+    codebase_detection = detect(env=("^GONG_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
 
@@ -64,6 +67,10 @@ To also sync these tables, additionally grant the scope listed next to each:
 - `trackers` (keyword tracker definitions): `api:settings:trackers:read`
 - `answered_scorecards` (scorecard reviews of calls): `api:stats:scorecards`
 - `interaction_stats` (daily talk ratio, patience, and other conversation metrics per user): `api:stats:interaction`
+- `daily_activity` (calls each user hosted, attended, listened to, shared, and gave feedback on, per day): `api:stats:user-actions:detailed`
+- `call_outcomes` (the call outcome values defined for your company): `api:call-outcomes:read`
+- `library_folders` and `library_folder_calls` (public call library folders and the calls in them): `api:library:read`
+- `flows` (Gong Engage flows): `api:flows:read`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",

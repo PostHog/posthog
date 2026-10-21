@@ -11,8 +11,10 @@ and response serialization. Business logic lives in ``backend/logic``:
 """
 
 import re
+import builtins
 import dataclasses
-from typing import cast
+from typing import Literal, cast
+from uuid import UUID
 
 from django.db.models import Count, F, Prefetch
 from django.shortcuts import get_object_or_404
@@ -58,6 +60,13 @@ from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
+    allowed_saved_query_ids,
+    blocked_lineage_node_id,
+    describe_dependents,
+)
+from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.models import DataModelingJob
 from products.endpoints.backend.facade.api import (
     REWRITE_CONTRACT,
@@ -92,6 +101,13 @@ from products.endpoints.backend.presentation.throttles import (
     EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
 )
+
+
+class EndpointDependentsValidationError(serializers.ValidationError):
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail, code="has_dependents")
+        if node_id:
+            self.extra = {"node_id": node_id}
 
 
 class MaterializationPreviewRequestSerializer(serializers.Serializer):
@@ -335,7 +351,7 @@ class EndpointViewSet(
     def _with_materialization_job_prefetches(queryset):
         latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
         latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
-        return queryset.select_related("saved_query").prefetch_related(
+        return queryset.select_related("saved_query", "team").prefetch_related(
             Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
             Prefetch(
                 "saved_query__datamodelingjob_set",
@@ -544,7 +560,10 @@ class EndpointViewSet(
             data, self.team, cast(User, request.user), endpoint=endpoint, version_number=version_number
         )
 
-        outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)
+        try:
+            outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)
+        except HasDependentsError as error:
+            raise self._dependents_error(endpoint.name, error, action="turn off materialization for")
 
         # When targeting a specific version, return version data; otherwise return endpoint data
         if outcome.version_targeted and outcome.target_version is not None:
@@ -560,8 +579,97 @@ class EndpointViewSet(
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = self._get_endpoint_with_object_access(name)
-        EndpointCrudService(self.team, request).destroy(endpoint)
+        try:
+            EndpointCrudService(self.team, request).destroy(endpoint)
+        except HasDependentsError as error:
+            raise self._dependents_error(error.view_name, error)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _dependents_error(
+        self,
+        subject_name: str,
+        error: HasDependentsError,
+        *,
+        action: Literal["delete", "turn off materialization for"] = "delete",
+    ) -> EndpointDependentsValidationError:
+        visible = self._visible_dependents(error.dependents)
+        can_read_lineage = self.user_access_control.check_access_level_for_resource(
+            "warehouse_view", required_level="viewer"
+        )
+        return EndpointDependentsValidationError(
+            describe_dependents(
+                subject_name,
+                visible,
+                any_hidden=len(visible) < len(error.dependents),
+                action=action,
+            ),
+            node_id=blocked_lineage_node_id(visible, error.fallback_node_id) if can_read_lineage else None,
+        )
+
+    def _visible_dependents(self, dependents: tuple[Dependent, ...]) -> builtins.list[Dependent]:
+        endpoint_dependents = [dependent for dependent in dependents if dependent.kind == "endpoint"]
+        endpoint_saved_query_ids = [
+            dependent.saved_query_id for dependent in endpoint_dependents if dependent.saved_query_id is not None
+        ]
+        endpoint_names = [dependent.name for dependent in endpoint_dependents if dependent.saved_query_id is None]
+        endpoint_versions = EndpointVersion.objects.filter(
+            endpoint__team=self.team,
+            saved_query_id__in=endpoint_saved_query_ids,
+        ).select_related("endpoint")
+        endpoints = {
+            endpoint.id: endpoint
+            for endpoint in [
+                *(version.endpoint for version in endpoint_versions),
+                *Endpoint.objects.filter(team=self.team, name__in=endpoint_names, deleted=False),
+            ]
+        }
+        self.user_access_control.preload_object_access_controls(list(endpoints.values()))
+        readable_endpoint_ids = {
+            str(endpoint.id)
+            for endpoint in endpoints.values()
+            if self.user_access_control.check_access_level_for_object(endpoint, "viewer")
+        }
+        endpoint_ids_by_saved_query = {
+            str(version.saved_query_id): str(version.endpoint_id) for version in endpoint_versions
+        }
+        endpoint_ids_by_name = {endpoint.name: str(endpoint.id) for endpoint in endpoints.values()}
+
+        saved_query_ids = [
+            UUID(dependent.saved_query_id)
+            for dependent in dependents
+            if dependent.kind not in {"endpoint", "metric"} and dependent.saved_query_id is not None
+        ]
+        readable_saved_query_ids = {
+            str(saved_query_id)
+            for saved_query_id in allowed_saved_query_ids(
+                self.team_id,
+                self.user_access_control,
+                ids=saved_query_ids,
+            )
+        }
+        metrics_readable = self.user_access_control.check_access_level_for_resource(
+            "data_catalog", required_level="viewer"
+        )
+
+        return [
+            dependent
+            for dependent in dependents
+            if (
+                (
+                    dependent.kind == "endpoint"
+                    and (
+                        endpoint_ids_by_saved_query.get(dependent.saved_query_id or "")
+                        or endpoint_ids_by_name.get(dependent.name)
+                    )
+                    in readable_endpoint_ids
+                )
+                or (dependent.kind == "metric" and metrics_readable)
+                or (
+                    dependent.kind not in {"endpoint", "metric"}
+                    and dependent.saved_query_id in readable_saved_query_ids
+                )
+            )
+        ]
 
     # ------------------------------------------------------------------
     # Execution

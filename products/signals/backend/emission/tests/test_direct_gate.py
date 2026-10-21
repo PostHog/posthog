@@ -21,6 +21,7 @@ def _make_llm_response(verdict: str) -> MagicMock:
     response = MagicMock()
     response.content = [block]
     response.stop_reason = "end_turn"
+    response._request_id = None
     return response
 
 

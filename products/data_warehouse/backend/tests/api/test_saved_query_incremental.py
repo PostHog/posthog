@@ -1,15 +1,19 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.saved_query.incremental_config import (
     CHECK_INCREMENTAL_MAX_QUERY_LENGTH,
     CheckIncrementalThrottle,
 )
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import DataWarehouseSavedQueryViewSet
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 GROUPED = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
+TIMESTAMP_COLUMN = {"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}}
 
 
 class TestSavedQueryIncremental(APIBaseTest):
@@ -30,16 +34,38 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert saved_query.incremental_config == {**CONFIG, "lookback_seconds": 0}
         assert response.json()["incremental"]["incremental_key"] == "day"
 
-    def test_an_ineligible_query_is_rejected_with_the_reason(self):
+    @parameterized.expand(
+        [
+            (
+                "unique_key_misses_a_grouping_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                "GROUP BY",
+            ),
+            (
+                "limit_inside_a_materialized_view_it_reads",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM recent_events GROUP BY day",
+                "LIMIT",
+            ),
+        ]
+    )
+    def test_an_ineligible_query_is_rejected_with_the_reason(self, _name: str, query: str, expected: str):
         """The 400 has to name the construct, or the user has no way to fix it."""
-        response = self._create(
-            query="SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
-            incremental=CONFIG,
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="recent_events",
+            query={"kind": "HogQLQuery", "query": "SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 100"},
+            columns=TIMESTAMP_COLUMN,
+            is_materialized=True,
+            table=DataWarehouseTable.objects.create(
+                team=self.team, name="recent_events_tbl", format="Delta", columns=TIMESTAMP_COLUMN
+            ),
         )
+
+        response = self._create(query=query, incremental=CONFIG)
 
         assert response.status_code == 400
         assert response.json()["attr"] == "incremental"
-        assert "GROUP BY" in response.json()["detail"]
+        assert expected in response.json()["detail"]
 
     def test_a_disabled_config_skips_the_eligibility_check(self):
         """Turning it off must never be blocked by why it could not be turned on."""

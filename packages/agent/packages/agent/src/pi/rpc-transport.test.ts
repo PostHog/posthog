@@ -15,6 +15,15 @@ function response(command: RpcCommand, data?: unknown): RpcResponse {
 describe("RemotePiRpcClient", () => {
   it("uses Pi's native methods to encode commands over an injected transport", async () => {
     const request = vi.fn(async (command: RpcCommand) => {
+      if (command.type === "prompt") {
+        return response(command, { disposition: "started" });
+      }
+      if (command.type === "steer") {
+        return response(command, { disposition: "queued" });
+      }
+      if (command.type === "follow_up") {
+        return response(command, { disposition: "handled" });
+      }
       if (command.type === "compact") {
         return response(command, {
           summary: "summary",
@@ -37,23 +46,48 @@ describe("RemotePiRpcClient", () => {
     });
     const client = new RemotePiRpcClient({ request });
 
+    const prompt = await client.prompt("continue", undefined, "steer");
+    const steer = await client.steer("focus here");
+    const followUp = await client.followUp("then do this");
     const compaction = await client.compact("retain decisions");
     const thinkingLevels = await client.getAvailableThinkingLevels();
     const stats = await client.getSessionStats();
 
     expect(request).toHaveBeenNthCalledWith(1, {
       id: expect.any(String),
-      type: "compact",
-      customInstructions: "retain decisions",
+      type: "prompt",
+      message: "continue",
+      images: undefined,
+      streamingBehavior: "steer",
     });
     expect(request).toHaveBeenNthCalledWith(2, {
       id: expect.any(String),
-      type: "get_available_thinking_levels",
+      type: "steer",
+      message: "focus here",
+      images: undefined,
     });
     expect(request).toHaveBeenNthCalledWith(3, {
       id: expect.any(String),
+      type: "follow_up",
+      message: "then do this",
+      images: undefined,
+    });
+    expect(request).toHaveBeenNthCalledWith(4, {
+      id: expect.any(String),
+      type: "compact",
+      customInstructions: "retain decisions",
+    });
+    expect(request).toHaveBeenNthCalledWith(5, {
+      id: expect.any(String),
+      type: "get_available_thinking_levels",
+    });
+    expect(request).toHaveBeenNthCalledWith(6, {
+      id: expect.any(String),
       type: "get_session_stats",
     });
+    expect(prompt).toBe("started");
+    expect(steer).toBe("queued");
+    expect(followUp).toBe("handled");
     expect(compaction.summary).toBe("summary");
     expect(thinkingLevels).toEqual(["off", "high", "xhigh"]);
     expect(stats).toMatchObject({ tokens: { total: 120 }, cost: 0.01 });

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -32,7 +34,11 @@ class SurveyContext:
     async def aget_survey(self) -> Survey | None:
         """Fetch the survey from the database using async."""
         try:
-            return await Survey.objects.select_related("linked_flag").aget(id=self._survey_id, team=self._team)
+            survey_uuid = UUID(self._survey_id)
+        except ValueError:
+            return None
+        try:
+            return await Survey.objects.select_related("linked_flag").aget(id=survey_uuid, team=self._team)
         except Survey.DoesNotExist:
             return None
 
@@ -42,12 +48,13 @@ class SurveyContext:
         @database_sync_to_async
         def _get_count() -> int:
             query = HogQLQuery(
-                query=f"""
+                query="""
                 SELECT count() as count
                 FROM events
                 WHERE event = 'survey sent'
-                AND properties.$survey_id = '{self._survey_id}'
-                """
+                AND properties.$survey_id = {survey_id}
+                """,
+                values={"survey_id": self._survey_id},
             )
             runner = get_query_runner(query, self._team, user=self._user)
             result = runner.calculate()
@@ -133,6 +140,15 @@ class SurveyContext:
 
         return "\n".join(lines)
 
+    def format_schedule(self, survey: Survey) -> str:
+        if survey.schedule == Survey.Schedule.ALWAYS:
+            return "always (every time the display conditions are met)"
+        if survey.schedule == Survey.Schedule.RECURRING:
+            if survey.iteration_count and survey.iteration_frequency_days:
+                return f"recurring (up to {survey.iteration_count} times, every {survey.iteration_frequency_days} days)"
+            return "recurring"
+        return "once"
+
     def _get_status(self, survey: Survey) -> str:
         """Determine the survey status."""
         if survey.archived:
@@ -161,6 +177,7 @@ class SurveyContext:
             survey_name=survey_name,
             survey_type=survey.type,
             survey_status=status,
+            survey_schedule=self.format_schedule(survey),
             survey_description=survey.description or "No description provided.",
             questions=self.format_questions(survey),
             targeting=self.format_targeting(survey),

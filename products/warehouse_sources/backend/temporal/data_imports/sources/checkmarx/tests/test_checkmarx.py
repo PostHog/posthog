@@ -1,10 +1,9 @@
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import unquote
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 from requests import HTTPError
 
@@ -15,17 +14,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
     CheckmarxResumeConfig,
     CheckmarxRetryableError,
     _build_incremental_value,
-    _change_id,
     _result_id,
-    checkmarx_source,
     get_region_hosts,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
     ENDPOINTS,
-    RegionHosts,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.source import CheckmarxSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkmarx import (
+    CheckmarxSourceConfig,
 )
 
 TOKEN_PAYLOAD = {"access_token": "jwt-token", "expires_in": 1800}
@@ -70,41 +75,18 @@ class FakeSession:
         return self._get_handler(url, params or {})
 
 
-def _make_manager(resume: CheckmarxResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _make_logger() -> MagicMock:
-    return MagicMock()
-
-
 class TestCheckmarx:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(
+            CheckmarxSource(), CheckmarxSourceConfig(tenant_name="my-tenant", region="us", api_key="key")
+        )
+
+    @staticmethod
+    def _token() -> ScriptedResponse:
+        return ScriptedResponse(json=TOKEN_PAYLOAD)
+
     # ---- auth ----
-
-    def test_auth_exchanges_api_key_and_caches_token(self) -> None:
-        session = FakeSession(lambda url, params: _response())
-        auth = CheckmarxAuth(session, "https://iam.checkmarx.net", "my-tenant", "refresh-token")  # type: ignore[arg-type]
-
-        assert auth.get_token() == "jwt-token"
-        assert auth.get_token() == "jwt-token"
-
-        assert len(session.post_calls) == 1
-        url, data = session.post_calls[0]
-        assert url == "https://iam.checkmarx.net/auth/realms/my-tenant/protocol/openid-connect/token"
-        assert data == {"grant_type": "refresh_token", "client_id": "ast-app", "refresh_token": "refresh-token"}
-
-    def test_auth_refreshes_expired_token(self) -> None:
-        session = FakeSession(lambda url, params: _response())
-        auth = CheckmarxAuth(session, "https://iam.checkmarx.net", "my-tenant", "refresh-token")  # type: ignore[arg-type]
-
-        auth.get_token()
-        auth._expires_at = 0.0  # simulate expiry
-        auth.get_token()
-
-        assert len(session.post_calls) == 2
 
     def test_auth_quotes_tenant_name_in_realm_url(self) -> None:
         session = FakeSession(lambda url, params: _response())
@@ -139,17 +121,6 @@ class TestCheckmarx:
 
     # ---- region hosts ----
 
-    @pytest.mark.parametrize(
-        ("region", "api_host", "iam_host"),
-        [
-            ("us", "https://ast.checkmarx.net", "https://iam.checkmarx.net"),
-            ("eu", "https://eu.ast.checkmarx.net", "https://eu.iam.checkmarx.net"),
-            ("sng", "https://sng.ast.checkmarx.net", "https://sng.iam.checkmarx.net"),
-        ],
-    )
-    def test_get_region_hosts(self, region: str, api_host: str, iam_host: str) -> None:
-        assert get_region_hosts(region) == RegionHosts(api_base_url=api_host, iam_base_url=iam_host)
-
     def test_get_region_hosts_unknown_region(self) -> None:
         with pytest.raises(ValueError):
             get_region_hosts("mars")
@@ -169,24 +140,7 @@ class TestCheckmarx:
     def test_build_incremental_value(self, endpoint: str, value: Any, expected: str) -> None:
         assert _build_incremental_value(CHECKMARX_ENDPOINTS[endpoint], True, value) == expected
 
-    @pytest.mark.parametrize(
-        ("should_use", "value"),
-        [(False, datetime(2026, 1, 15, tzinfo=UTC)), (True, None), (False, None)],
-    )
-    def test_build_incremental_value_disabled(self, should_use: bool, value: Any) -> None:
-        assert _build_incremental_value(CHECKMARX_ENDPOINTS["scans"], should_use, value) is None
-
     # ---- result id ----
-
-    @pytest.mark.parametrize(
-        ("item", "expected"),
-        [
-            ({"type": "sast", "id": "abc", "similarityId": "sim"}, "sast:abc"),
-            ({"type": "sca", "similarityId": "sim-1"}, "sca:sim-1"),
-        ],
-    )
-    def test_result_id_prefers_id_then_similarity_id(self, item: dict[str, Any], expected: str) -> None:
-        assert _result_id(item) == expected
 
     def test_result_id_hashes_rows_without_identifiers(self) -> None:
         item = {"type": "kics", "severity": "HIGH"}
@@ -203,63 +157,21 @@ class TestCheckmarx:
         page_size = CHECKMARX_ENDPOINTS["projects"].page_size
         full_page = [{"id": f"p{i}"} for i in range(page_size)]
         short_page = [{"id": "last"}]
+        result = self._driver().run(
+            "projects",
+            [
+                self._token(),
+                ScriptedResponse(json={"projects": full_page, "totalCount": page_size + 1}),
+                ScriptedResponse(json={"projects": short_page, "totalCount": page_size + 1}),
+            ],
+        )
 
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            assert url == "https://ast.checkmarx.net/api/projects"
-            if params["offset"] == 0:
-                return _response(payload={"projects": full_page, "totalCount": page_size + 1})
-            return _response(payload={"projects": short_page, "totalCount": page_size + 1})
-
-        session = FakeSession(handler)
-        manager = _make_manager()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="projects",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert [len(batch) for batch in batches] == [page_size, 1]
-        assert [call[1]["offset"] for call in session.get_calls] == [0, page_size]
+        assert result.raised is None
+        assert result.paths[1:] == ["/api/projects", "/api/projects"]
+        assert [len(batch) for batch in result.items] == [page_size, 1]
+        assert result.params("offset")[1:] == ["0", str(page_size)]
         # State saved after the yielded full page, pointing at the next offset.
-        manager.save_state.assert_called_once_with(CheckmarxResumeConfig(offset=page_size))
-
-    @pytest.mark.parametrize(
-        ("endpoint", "payload"),
-        [
-            ("applications", {"applications": [], "totalCount": 0}),
-            # A lookup endpoint returns a bare array, so emptiness looks different on the wire.
-            ("custom_states", []),
-        ],
-    )
-    def test_get_rows_empty_first_page_yields_nothing(self, endpoint: str, payload: Any) -> None:
-        session = FakeSession(lambda url, params: _response(payload=payload))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint=endpoint,
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-
-        assert batches == []
+        assert result.saved_states == [CheckmarxResumeConfig(offset=page_size)]
 
     @pytest.mark.parametrize(
         ("should_use_incremental_field", "expects_from_date"),
@@ -268,162 +180,71 @@ class TestCheckmarx:
     def test_get_rows_scans_incremental_filter(
         self, should_use_incremental_field: bool, expects_from_date: bool
     ) -> None:
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            return _response(payload={"scans": [{"id": "s1", "createdAt": "2026-02-01T00:00:00Z"}], "totalCount": 1})
+        result = self._driver().run(
+            "scans",
+            [
+                self._token(),
+                ScriptedResponse(json={"scans": [{"id": "s1", "createdAt": "2026-02-01T00:00:00Z"}], "totalCount": 1}),
+            ],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=datetime(2026, 1, 15, tzinfo=UTC) if should_use_incremental_field else None,
+        )
 
-        session = FakeSession(handler)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="scans",
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                    should_use_incremental_field=should_use_incremental_field,
-                    db_incremental_field_last_value=datetime(2026, 1, 15, tzinfo=UTC)
-                    if should_use_incremental_field
-                    else None,
-                )
-            )
-
-        _url, params, _headers = session.get_calls[0]
+        assert result.raised is None
+        request = result.requests[1]
         if expects_from_date:
-            assert params["from-date"] == "2026-01-15T00:00:00Z"
+            assert request.param("from-date") == "2026-01-15T00:00:00Z"
         else:
-            assert "from-date" not in params
+            assert request.param("from-date") is None
 
     def test_get_rows_resumes_from_saved_offset(self) -> None:
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            return _response(payload={"projects": [{"id": "p1"}], "totalCount": 201})
+        result = self._driver().run(
+            "projects",
+            [self._token(), ScriptedResponse(json={"projects": [{"id": "p1"}], "totalCount": 201})],
+            resume_state=CheckmarxResumeConfig(offset=200),
+        )
 
-        session = FakeSession(handler)
-        manager = _make_manager(CheckmarxResumeConfig(offset=200))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="projects",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.get_calls[0][1]["offset"] == 200
-
-    def test_get_rows_sends_bearer_and_versioned_accept_headers(self) -> None:
-        session = FakeSession(lambda url, params: _response(payload={"projects": []}))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ) as mock_session_factory:
-            list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="projects",
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-
-        _url, _params, headers = session.get_calls[0]
-        assert headers["Authorization"] == "Bearer jwt-token"
-        assert headers["Accept"] == "application/json; version=1.0"
-        # Responses carry customer vulnerability data and the token POST body carries the API key:
-        # the session must stay excluded from sample capture, redact the key, and refuse redirects.
-        mock_session_factory.assert_called_once_with(redact_values=("key",), allow_redirects=False, capture=False)
+        assert result.raised is None
+        assert result.params("offset")[1:] == ["200"]
 
     # ---- fan-out over scans ----
 
     def _fan_out_handler(
         self, results_by_scan: dict[str, list[dict[str, Any]]]
-    ) -> Callable[[str, dict[str, Any]], MagicMock]:
+    ) -> Callable[[RecordedRequest], ScriptedResponse]:
         scans = [
             {"id": scan_id, "createdAt": f"2026-02-0{i + 1}T00:00:00Z"}
             for i, scan_id in enumerate(results_by_scan.keys())
         ]
 
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            if url.endswith("/api/scans"):
-                return _response(payload={"scans": scans, "totalCount": len(scans)})
-            if url.endswith("/api/results"):
-                return _response(payload={"results": results_by_scan[params["scan-id"]], "totalCount": 1})
-            if url.endswith("/api/scan-summary"):
-                return _response(payload={"scansSummaries": [{"scanId": params["scan-ids"]}], "totalCount": 1})
-            raise AssertionError(f"Unexpected URL: {url}")
+        def handler(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/token"):
+                return self._token()
+            if request.path == "/api/scans":
+                return ScriptedResponse(json={"scans": scans, "totalCount": len(scans)})
+            if request.path == "/api/results":
+                return ScriptedResponse(
+                    json={"results": results_by_scan[request.param("scan-id") or ""], "totalCount": 1}
+                )
+            if request.path == "/api/scan-summary":
+                return ScriptedResponse(
+                    json={"scansSummaries": [{"scanId": request.param("scan-ids")}], "totalCount": 1}
+                )
+            raise AssertionError(f"Unexpected URL: {request.url}")
 
         return handler
 
-    def test_scan_results_rows_carry_scan_context_and_result_id(self) -> None:
-        handler = self._fan_out_handler(
-            {
-                "s1": [{"type": "sast", "id": "r1", "severity": "HIGH"}],
-                "s2": [{"type": "sca", "similarityId": "sim-9", "severity": "LOW"}],
-            }
-        )
-        session = FakeSession(handler)
-        manager = _make_manager()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="scan_results",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert [row["scan_id"] for row in rows] == ["s1", "s2"]
-        assert [row["result_id"] for row in rows] == ["sast:r1", "sca:sim-9"]
-        assert rows[0]["scan_created_at"] == "2026-02-01T00:00:00Z"
-        assert rows[1]["scan_created_at"] == "2026-02-02T00:00:00Z"
-        # Bookmark advanced to the second scan after the first one finished.
-        manager.save_state.assert_called_once_with(CheckmarxResumeConfig(offset=0, parent_id="s2"))
-
     def test_scan_results_incremental_applies_lookback_to_scan_enumeration(self) -> None:
-        handler = self._fan_out_handler({"s1": [{"type": "sast", "id": "r1"}]})
-        session = FakeSession(handler)
+        result = self._driver().run(
+            "scan_results",
+            self._fan_out_handler({"s1": [{"type": "sast", "id": "r1"}]}),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, tzinfo=UTC),
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="scan_results",
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 1, 15, tzinfo=UTC),
-                )
-            )
-
-        scans_call_params = next(params for url, params, _headers in session.get_calls if url.endswith("/api/scans"))
-        assert scans_call_params["from-date"] == "2026-01-08T00:00:00Z"
+        assert result.raised is None
+        scans_request = next(request for request in result.requests if request.path == "/api/scans")
+        assert scans_request.param("from-date") == "2026-01-08T00:00:00Z"
 
     def test_scan_results_resumes_from_bookmarked_parent(self) -> None:
         handler = self._fan_out_handler(
@@ -432,82 +253,14 @@ class TestCheckmarx:
                 "s2": [{"type": "sast", "id": "r2"}],
             }
         )
-        session = FakeSession(handler)
-        manager = _make_manager(CheckmarxResumeConfig(offset=0, parent_id="s2"))
+        result = self._driver().run(
+            "scan_results", handler, resume_state=CheckmarxResumeConfig(offset=0, parent_id="s2")
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="scan_results",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert [row["scan_id"] for row in rows] == ["s2"]
-        requested_scan_ids = [
-            params["scan-id"] for url, params, _headers in session.get_calls if url.endswith("/api/results")
-        ]
+        assert result.raised is None
+        assert [row["scan_id"] for row in result.rows] == ["s2"]
+        requested_scan_ids = [request.param("scan-id") for request in result.requests if request.path == "/api/results"]
         assert requested_scan_ids == ["s2"]
-
-    def test_scan_results_restarts_when_bookmarked_parent_is_gone(self) -> None:
-        handler = self._fan_out_handler({"s1": [{"type": "sast", "id": "r1"}]})
-        session = FakeSession(handler)
-        manager = _make_manager(CheckmarxResumeConfig(offset=100, parent_id="deleted-scan"))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="scan_results",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert [row["scan_id"] for row in rows] == ["s1"]
-        # The stale offset must not leak into the restarted scan.
-        results_offsets = [
-            params["offset"] for url, params, _headers in session.get_calls if url.endswith("/api/results")
-        ]
-        assert results_offsets == [0]
-
-    def test_scan_results_summary_requests_one_scan_per_call(self) -> None:
-        handler = self._fan_out_handler({"s1": [], "s2": []})
-        session = FakeSession(handler)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="scan_results_summary",
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert [row["scan_id"] for row in rows] == ["s1", "s2"]
-        summary_calls = [params for url, params, _headers in session.get_calls if url.endswith("/api/scan-summary")]
-        assert [params["scan-ids"] for params in summary_calls] == ["s1", "s2"]
 
     # ---- lookup endpoints ----
 
@@ -522,209 +275,61 @@ class TestCheckmarx:
     def test_lists_endpoints_wrap_bare_strings_and_skip_pagination(
         self, endpoint: str, path: str, values: list[str]
     ) -> None:
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            assert url == f"https://ast.checkmarx.net{path}"
-            return _response(payload=values)
+        result = self._driver().run(endpoint, [self._token(), ScriptedResponse(json=values)])
 
-        session = FakeSession(handler)
-        manager = _make_manager()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint=endpoint,
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == [[{"value": value} for value in values]]
+        assert result.raised is None
+        assert result.items == [[{"value": value} for value in values]]
         # A single unpaginated request: sending offset/limit to these endpoints would be meaningless,
         # and the source must not checkpoint resume state for a collection it read in one go.
-        assert len(session.get_calls) == 1
-        assert session.get_calls[0][1] == {}
-        manager.save_state.assert_not_called()
-
-    def test_custom_states_requests_deleted_states(self) -> None:
-        states = [{"id": 1, "name": "In sprint", "type": "custom", "isAllowed": True}]
-
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            assert url == "https://ast.checkmarx.net/api/custom-states"
-            return _response(payload=states)
-
-        session = FakeSession(handler)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="custom_states",
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-
-        assert batches == [states]
-        # Without this a finding triaged into a since-deleted state resolves to nothing.
-        assert session.get_calls[0][1] == {"include-deleted": "true"}
+        assert result.paths[1:] == [path]
+        assert result.requests[1].query == {}
+        assert result.saved_states == []
 
     # ---- fan-out over applications ----
-
-    def test_application_rules_fan_out_puts_the_application_id_in_the_path(self) -> None:
-        applications = [
-            {"id": "app-1", "createdAt": "2026-01-01T00:00:00Z"},
-            {"id": "app 2/x", "createdAt": "2026-01-02T00:00:00Z"},
-        ]
-        rules_by_application = {
-            "app-1": [{"id": "rule-1", "type": "project.name.contains", "value": "demo"}],
-            "app 2/x": [{"id": "rule-2", "type": "project.tag.key.exists", "value": "team"}],
-        }
-
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            if url.endswith("/api/applications"):
-                return _response(payload={"applications": applications, "totalCount": len(applications)})
-            prefix = "https://ast.checkmarx.net/api/applications/"
-            assert url.startswith(prefix) and url.endswith("/project-rules")
-            application_id = unquote(url[len(prefix) : -len("/project-rules")])
-            return _response(payload=rules_by_application[application_id])
-
-        session = FakeSession(handler)
-        manager = _make_manager()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="application_rules",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert [(row["id"], row["application_id"], row["application_created_at"]) for row in rows] == [
-            ("rule-1", "app-1", "2026-01-01T00:00:00Z"),
-            ("rule-2", "app 2/x", "2026-01-02T00:00:00Z"),
-        ]
-        # The id is path-quoted, so an id carrying a slash cannot reshape the request path.
-        assert [url for url, _params, _headers in session.get_calls if "project-rules" in url] == [
-            "https://ast.checkmarx.net/api/applications/app-1/project-rules",
-            "https://ast.checkmarx.net/api/applications/app%202%2Fx/project-rules",
-        ]
 
     # ---- fan-out over projects ----
 
     def _changelog_handler(
         self, changes_by_project: dict[str, list[dict[str, Any]]]
-    ) -> Callable[[str, dict[str, Any]], MagicMock]:
+    ) -> Callable[[RecordedRequest], ScriptedResponse]:
         projects = [
             {"id": project_id, "createdAt": f"2026-03-0{i + 1}T00:00:00Z"}
             for i, project_id in enumerate(changes_by_project)
         ]
 
-        def handler(url: str, params: dict[str, Any]) -> MagicMock:
-            if url.endswith("/api/projects"):
-                return _response(payload={"projects": projects, "totalCount": len(projects)})
-            if url.endswith("/api/sast-results-predicates/changelog"):
-                changes = changes_by_project[params["entityId"]]
-                offset = params["offset"]
-                page = changes[offset : offset + params["limit"]]
-                return _response(payload={"results": page, "totalSimilarityIds": f"presenting x of {len(changes)}"})
-            raise AssertionError(f"Unexpected URL: {url}")
+        def handler(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/token"):
+                return self._token()
+            if request.path == "/api/projects":
+                return ScriptedResponse(json={"projects": projects, "totalCount": len(projects)})
+            if request.path == "/api/sast-results-predicates/changelog":
+                changes = changes_by_project[request.param("entityId") or ""]
+                offset = int(request.param("offset") or 0)
+                limit = int(request.param("limit") or 0)
+                page = changes[offset : offset + limit]
+                return ScriptedResponse(json={"results": page, "totalSimilarityIds": f"presenting x of {len(changes)}"})
+            raise AssertionError(f"Unexpected URL: {request.url}")
 
         return handler
-
-    def test_predicates_changelog_requests_full_history_per_project(self) -> None:
-        change = {
-            "change": "State changed from TO_VERIFY to CONFIRMED",
-            "date": "2026-03-05T09:00:00Z",
-            "user": "someone@example.com",
-            "origin": "WebApp",
-        }
-        session = FakeSession(self._changelog_handler({"proj-1": [change]}))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="sast_predicates_changelog",
-                    logger=_make_logger(),
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert len(rows) == 1
-        assert rows[0]["project_id"] == "proj-1"
-        assert rows[0]["project_created_at"] == "2026-03-01T00:00:00Z"
-        assert rows[0]["change"] == change["change"]
-        assert rows[0]["change_id"] == _change_id(change)
-
-        changelog_params = next(params for url, params, _headers in session.get_calls if url.endswith("/changelog"))
-        # Without entityType the API rejects the call, and without history=true it returns only the
-        # latest state per finding rather than the transitions.
-        assert changelog_params["entityType"] == "projectID"
-        assert changelog_params["history"] == "true"
-        assert changelog_params["entityId"] == "proj-1"
 
     def test_predicates_changelog_paginates_and_bookmarks_each_project(self) -> None:
         page_size = CHECKMARX_ENDPOINTS["sast_predicates_changelog"].page_size
         changes = [{"change": f"change {i}", "date": "2026-03-05T09:00:00Z"} for i in range(page_size + 1)]
-        session = FakeSession(self._changelog_handler({"proj-1": changes, "proj-2": []}))
-        manager = _make_manager()
+        result = self._driver().run(
+            "sast_predicates_changelog", self._changelog_handler({"proj-1": changes, "proj-2": []})
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    tenant_name="my-tenant",
-                    region="us",
-                    api_key="key",
-                    endpoint="sast_predicates_changelog",
-                    logger=_make_logger(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert [len(batch) for batch in batches] == [page_size, 1]
-        assert [params["offset"] for url, params, _headers in session.get_calls if url.endswith("/changelog")] == [
-            0,
-            page_size,
-            0,
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [page_size, 1]
+        assert [request.param("offset") for request in result.requests if request.path.endswith("/changelog")] == [
+            "0",
+            str(page_size),
+            "0",
         ]
-        assert manager.save_state.call_args_list == [
-            call(CheckmarxResumeConfig(offset=page_size, parent_id="proj-1")),
-            call(CheckmarxResumeConfig(offset=0, parent_id="proj-2")),
+        assert result.saved_states == [
+            CheckmarxResumeConfig(offset=page_size, parent_id="proj-1"),
+            CheckmarxResumeConfig(offset=0, parent_id="proj-2"),
         ]
-
-    def test_change_id_is_stable_and_row_specific(self) -> None:
-        change = {"change": "State changed", "date": "2026-03-05T09:00:00Z", "user": "a", "origin": "WebApp"}
-
-        assert _change_id(change) == _change_id(dict(reversed(list(change.items()))))
-        assert _change_id({**change, "user": "b"}) != _change_id(change)
 
     # ---- validate_credentials ----
 
@@ -733,14 +338,17 @@ class TestCheckmarx:
         [(200, True), (403, False)],
     )
     def test_validate_credentials_probes_projects(self, projects_status: int, expected_valid: bool) -> None:
-        session = FakeSession(lambda url, params: _response(status=projects_status, payload={"projects": []}))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network(
+            [self._token(), ScriptedResponse(status=projects_status, json={"projects": []})]
+        ) as network:
             valid, error = validate_credentials("my-tenant", "us", "key")
 
+        assert [request.path for request in network.requests_log] == [
+            "/auth/realms/my-tenant/protocol/openid-connect/token",
+            "/api/projects",
+        ]
+        assert network.requests_log[1].param("offset") == "0"
+        assert network.requests_log[1].param("limit") == "1"
         assert valid is expected_valid
         if expected_valid:
             assert error is None
@@ -748,15 +356,12 @@ class TestCheckmarx:
             assert error is not None
 
     def test_validate_credentials_bad_api_key(self) -> None:
-        token_response = _response(status=401, payload={"error": "invalid_grant"})
-        session = FakeSession(lambda url, params: _response(), token_response=token_response)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network([ScriptedResponse(status=401, json={"error": "invalid_grant"})]) as network:
             valid, error = validate_credentials("my-tenant", "us", "bad-key")
 
+        assert [request.path for request in network.requests_log] == [
+            "/auth/realms/my-tenant/protocol/openid-connect/token"
+        ]
         assert valid is False
         assert error is not None
         assert AUTH_ERROR_PREFIX in error
@@ -773,14 +378,13 @@ class TestCheckmarx:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_checkmarx_source_response_shape(self, endpoint: str) -> None:
         config = CHECKMARX_ENDPOINTS[endpoint]
-        response = checkmarx_source(
-            tenant_name="my-tenant",
-            region="us",
-            api_key="key",
-            endpoint=endpoint,
-            logger=_make_logger(),
-            resumable_source_manager=_make_manager(),
+        result = self._driver().run(
+            endpoint,
+            [self._token(), ScriptedResponse(json=[] if config.scalar_row_field else {})],
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

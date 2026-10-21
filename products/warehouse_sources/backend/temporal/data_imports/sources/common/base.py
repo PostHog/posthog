@@ -1,19 +1,21 @@
 import datetime
+import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
@@ -32,6 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    is_unreachable_vendor_error,
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
@@ -115,6 +121,36 @@ def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
     return any(pattern.lower() in error_msg_lower for pattern in patterns)
 
 
+CredentialProbe = TypeVar("CredentialProbe", bound=Callable[..., tuple[bool, str | None]])
+
+_GUARDED_PROBE = "_reports_unreachable_vendor"
+
+
+def _report_unreachable_vendor(probe: CredentialProbe) -> CredentialProbe:
+    """Wrap a `validate_credentials` override so that an unreachable vendor gives `(False, message)`.
+
+    The API calls the probe while a person creates or edits a source. A raised transport error there
+    shows them a message that blames their credentials. Every other error still raises."""
+
+    @functools.wraps(probe)
+    def guarded(self: "_BaseSource[Any]", *args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        try:
+            return probe(self, *args, **kwargs)
+        except Exception as error:
+            if not is_unreachable_vendor_error(error):
+                raise
+            # The class name only: a transport error message can repeat a URL that holds a credential.
+            logger.warning(
+                "validate_credentials could not reach the vendor",
+                source_type=str(self.source_type),
+                error_class=type(error).__name__,
+            )
+        return False, unreachable_vendor_message(self._vendor_label())
+
+    setattr(guarded, _GUARDED_PROBE, True)
+    return cast(CredentialProbe, guarded)
+
+
 @dataclasses.dataclass(frozen=True)
 class VersionDeprecation:
     """Deprecation metadata for a single supported version of a source's vendor API."""
@@ -172,6 +208,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
 
+    # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
+    # may no longer match after an upstream rename.
+    uses_stable_schema_resource_ids: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -195,6 +235,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
+    # How the wizard tells that a codebase uses this source. Every released source sets it, and
+    # `tests/test_codebase_detection.py` fails for one that does not.
+    codebase_detection: Detection | NotDetectable | None = None
+
+    # Makes the wizard send users to the app's new-source form even when every field could be typed in
+    # a terminal. Sources whose fields need OAuth, a file upload or an account picker go there anyway.
+    setup_requires_ui: bool = False
+
     def history_lookback_for_schema(
         self, schema_name: str, config: ConfigType | None = None
     ) -> datetime.timedelta | None:
@@ -206,6 +254,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         when the config could not be read, and an override must still answer in that case.
         """
         return self.history_lookback
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple["RowFilterColumn", ...] | None:
+        """The columns a row filter on one schema may use, or None for every column of the table.
+
+        Override in a source whose API filters on a fixed set of fields. An empty tuple means the
+        schema accepts no row filter. Only read when `supports_row_filters` is True.
+        """
+        return None
 
     @property
     @abstractmethod
@@ -384,14 +440,35 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
 
+    def serialize_config(self, config: ConfigType) -> dict[str, Any]:
+        """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
+        return config.to_dict()
+
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Every override gets the guard, so a new source cannot forget it.
+        probe = cls.__dict__.get("validate_credentials")
+        if callable(probe) and not getattr(probe, _GUARDED_PROBE, False):
+            cls.validate_credentials = _report_unreachable_vendor(probe)  # type: ignore[method-assign]
+
+    def _vendor_label(self) -> str:
+        # The label is for a message only, so a source config that cannot build must not hide the result.
+        try:
+            return self.get_source_config.label or str(self.source_type.value)
+        except Exception:
+            return "the vendor"
 
     def validate_credentials(
         self, config: ConfigType, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message.
+
+        Every override runs inside a guard that turns an unreachable vendor (a dropped connection, a
+        timeout, a server error) into `(False, message)`, so an override can let those errors raise.
 
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
@@ -431,6 +508,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        """Whether a ``validate_credentials`` message means only that the host could not be reached
+        over the network. The update serializer may then save the change with a warning for a team
+        that uses internal hosts, because the API can lack a network path that the workers have. A
+        message that reports rejected credentials or a rejected config must return ``False``.
+        Default: no message qualifies."""
+        return False
+
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
     ) -> list[str]:
@@ -439,6 +524,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
+
+    # Feature flag a team must have before the API lets it discover tables for or create a source of
+    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
+    # not be reachable through the API without the flag sets this as well.
+    requires_team_feature_flag: str | None = None
 
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
@@ -503,7 +593,6 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         """Whether this source's resume mechanism covers a run of this shape.

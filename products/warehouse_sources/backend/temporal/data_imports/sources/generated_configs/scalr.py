@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class ScalrSourceConfig(config.Config):
-    pass
+    host: str
+    account_id: str
+    api_token: str

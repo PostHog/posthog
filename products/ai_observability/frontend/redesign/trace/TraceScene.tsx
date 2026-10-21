@@ -25,10 +25,11 @@ interface ReadyActions {
     selectAndShowSpans: (id: string) => void
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
+    prefetchNode: (id: string) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
-    if (!values.header || !values.summary) {
+    if (!values.summary) {
         return null
     }
     return {
@@ -39,6 +40,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         tree: values.tree,
         selectedNodeId: values.selectedNodeId,
         onSelectNode: actions.selectNode,
+        onPrefetchNode: actions.prefetchNode,
         onSelectFromView: actions.selectAndShowSpans,
         detail: values.detailData
             ? {
@@ -54,8 +56,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
 }
 
 export function TraceScene(): JSX.Element {
-    const { traceId, query } = useValues(aiObservabilityTraceLogic)
-    const logic = traceViewAdapterLogic({ traceId, query })
+    const { traceId, dateRange } = useValues(aiObservabilityTraceLogic)
+    const logic = traceViewAdapterLogic({ traceId, timestampHint: dateRange?.dateFrom ?? null })
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
         status,

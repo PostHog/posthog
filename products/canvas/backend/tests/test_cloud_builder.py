@@ -288,7 +288,10 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
         self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
         self.assertNotIn("ph-canvas-comment-outline", runtime)
-        self.assertIn('type:"comment-activate"', runtime)
+        self.assertIn(
+            'type:"comment-activate",id:item.id,rect:{top:rect.top,right:rect.right,bottom:rect.bottom,left:rect.left}',
+            runtime,
+        )
         self.assertIn("event.preventDefault();event.stopPropagation()", runtime)
         self.assertIn("if(!items.length||timer)return", runtime)
         self.assertNotIn("clearTimeout(timer);timer=setTimeout(()=>render(items),100)", runtime)

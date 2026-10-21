@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useActions, useValues } from 'kea'
 import { HttpResponse } from 'msw'
 import { ReactNode, useEffect } from 'react'
@@ -11,7 +12,6 @@ import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
-import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
 
 import type {
@@ -20,6 +20,9 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { expect, userEvent } from 'storybook/test'
+
+import { taskCommentContextsLogic } from '../../logics/taskCommentContextsLogic'
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TaskRunTab } from './taskRunArtifacts'
@@ -116,8 +119,10 @@ const SUMMARY_HTML = `<!doctype html>
   <div class="step"><span>Details</span><div class="track"><div class="bar" style="width: 35%"></div></div><span class="value">35%</span></div>
   <div class="step"><span>Trial started</span><div class="track"><div class="bar" style="width: 30%"></div></div><span class="value">30%</span></div>
   <div class="note">The plan picker step drops from 62% to 44% against the week before.</div>
+  <button id="preview-action">Run chart action</button>
   <img src="https://example.com/html-pixel.png" alt="" width="1" height="1" />
 </main>
+<script>document.getElementById('preview-action').addEventListener('click', function () { this.textContent = 'Chart action ran' })</script>
 </body>
 </html>`
 
@@ -203,7 +208,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey',
+    objectKind: string,
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -231,20 +236,9 @@ const OBJECT_REFERENCES = [
     objectReference('phref_experiment', 'Plan picker layout test', 'experiment', '12', '2026-09-28T18:09:00Z'),
     objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
     objectReference('phref_survey', 'Plan picker feedback', 'survey', 'survey-plan-picker', '2026-09-28T18:07:00Z'),
+    // No kind called `note` has a page, so this reference shows the card.
+    objectReference('phref_note', 'Pricing notes', 'note', 'pricing-notes', '2026-09-28T18:06:00Z'),
 ]
-
-const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
-
-// The live insight embed loads the saved insight, then runs its query.
-const OBJECT_MOCKS = {
-    get: {
-        '/api/environments/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
-        '/api/projects/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
-    },
-    post: {
-        '/api/environments/:team_id/query/': { results: CITED_INSIGHT.result },
-    },
-}
 
 const VIDEO_ARTIFACT: TaskRunArtifactResponseApi = {
     id: 'artifact-walkthrough',
@@ -377,7 +371,7 @@ const RUN_LOGS = [
 /** With `resumed`, the files sit on an earlier run and the latest run has none, as after a resume. */
 function taskMocks(
     artifacts: TaskRunArtifactResponseApi[],
-    { resumed = false }: { resumed?: boolean } = {}
+    { resumed = false, logs = RUN_LOGS }: { resumed?: boolean; logs?: string } = {}
 ): {
     get: Record<string, MockSignature>
     post: Record<string, MockSignature>
@@ -403,9 +397,13 @@ function taskMocks(
             },
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: run,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${EARLIER_RUN_ID}/`]: earlierRun,
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(RUN_LOGS),
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(logs),
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/artifact-chart/download/`]: () =>
                 new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/:artifact_id/preview/`]: {
+                url: `data:text/html;charset=utf-8,${encodeURIComponent(SUMMARY_HTML)}`,
+                scripts_available: true,
+            },
             '/api/projects/:team_id/task_channels/': [],
             '/api/projects/:team_id/integrations/': { results: [] },
             '/api/environments/:team_id/conversations/': { results: [], next: null },
@@ -534,8 +532,7 @@ export const Video: Story = {
 }
 
 function objectMocks(): ReturnType<typeof taskMocks> {
-    const mocks = taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
-    return { get: { ...mocks.get, ...OBJECT_MOCKS.get }, post: { ...mocks.post, ...OBJECT_MOCKS.post } }
+    return taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
 }
 
 export const PostHogObjects: Story = {
@@ -543,9 +540,9 @@ export const PostHogObjects: Story = {
     render: () => <StoryPage fileName="phref_trial_funnel" />,
 }
 
-export const PostHogObjectWithoutEmbed: Story = {
+export const PostHogObjectWithoutPage: Story = {
     parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_survey" />,
+    render: () => <StoryPage fileName="phref_note" />,
 }
 
 export const Versions: Story = {
@@ -559,6 +556,39 @@ export const OlderVersion: Story = {
 }
 
 export const ConversationTab: Story = { render: () => <StoryPage tab="conversation" /> }
+
+const COMMENT_CHAT_LOGS = [
+    RUN_LOGS,
+    logLine(
+        {
+            sessionUpdate: 'user_message_chunk',
+            content: {
+                type: 'text',
+                text: '<comment_context label="trial-funnel-report.md &quot;Most people leave at the plan step&quot;">\n- **Artifact** trial-funnel-report.md\n\n&gt; Most people leave at the plan step\n</comment_context>\nAdd the numbers for each plan here.',
+            },
+        },
+        '2026-09-28T18:25:00Z'
+    ),
+].join('\n')
+
+function CommentsAddedToChatPage(): JSX.Element {
+    const { addCommentToChat } = useActions(taskCommentContextsLogic({ taskId: TASK_ID }))
+    useEffect(() => {
+        addCommentToChat(
+            {
+                label: 'trial-starts-by-step.svg (region)',
+                body: '- **Artifact** trial-starts-by-step.svg\n- **Region** left 21%, top 20%, width 4%, height 4%',
+            },
+            'This bar looks too tall next to the others.'
+        )
+    }, [addCommentToChat])
+    return <StoryPage tab="conversation" />
+}
+
+export const CommentsAddedToChat: Story = {
+    parameters: { msw: { mocks: taskMocks(ARTIFACTS, { logs: COMMENT_CHAT_LOGS }) } },
+    render: () => <CommentsAddedToChatPage />,
+}
 
 export const NoArtifacts: Story = {
     parameters: { msw: { mocks: taskMocks([]) } },
@@ -642,14 +672,13 @@ function livingMocks(): ReturnType<typeof taskMocks> {
     return {
         get: {
             ...mocks.get,
-            ...OBJECT_MOCKS.get,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/`]: {
                 artifacts: LIVING_DOCUMENTS,
             },
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/doc-trial-chart/versions/:version/`]:
                 () => new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
         },
-        post: { ...mocks.post, ...OBJECT_MOCKS.post },
+        post: mocks.post,
     }
 }
 
@@ -850,4 +879,40 @@ export const MarkdownComments: Story = {
 export const ImageCommentPins: Story = {
     parameters: { msw: { mocks: commentMocks() } },
     render: () => <StoryPage fileName="trial-starts-by-step.svg" commentsOpen />,
+}
+
+export const MarkdownCommentThread: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
+    play: async ({ canvasElement }) => {
+        const highlight = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>(
+                    '[data-attr="task-artifact-comment-highlight"]'
+                )
+                expect(element).not.toBeNull()
+                return element!
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(highlight)
+    },
+}
+
+export const ImageCommentThread: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName="trial-starts-by-step.svg" />,
+    play: async ({ canvasElement }) => {
+        const pin = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>(
+                    '[data-attr="task-artifact-comment-pin-marker"]'
+                )
+                expect(element).not.toBeNull()
+                return element!
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(pin)
+    },
 }

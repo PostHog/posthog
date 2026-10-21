@@ -5,7 +5,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { HogDebug } from 'scenes/debug/HogDebug'
-import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -17,9 +16,10 @@ import {
     AnyResponseType,
     DashboardFilter,
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLVariable,
     InsightVizNode,
+    MetricsQuery,
     Node,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -45,6 +45,11 @@ import {
     isWebVitalsQuery,
 } from '../utils'
 
+const MarketingAnalyticsOverview = lazyWithRetry(() =>
+    import('scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview').then(
+        (m) => ({ default: m.MarketingAnalyticsOverview })
+    )
+)
 const WebVitals = lazyWithRetry(() =>
     import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
 )
@@ -143,7 +148,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             <DataTableVisualization
                 attachTo={props.attachTo}
                 query={query}
-                setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
+                setQuery={setQuery as unknown as (query: VisualizationNode) => void}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 context={queryContext}
@@ -151,6 +156,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
                 inSharedMode={inSharedMode}
                 editMode={!!editMode}
+                filtersOverride={filtersOverride}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -189,6 +195,9 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                embedded={embedded}
+                editMode={!!editMode && !readOnly}
+                setQuery={setQuery as unknown as (query: MetricsQuery) => void}
             />
         )
     } else if (isMetricsHistogramQuery(query)) {
@@ -198,6 +207,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                embedded={embedded}
             />
         )
     } else if (isEndpointsUsageOverviewQuery(query)) {
@@ -230,13 +240,15 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isMarketingAnalyticsAggregatedQuery(query)) {
         component = (
-            <MarketingAnalyticsOverview
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-                uniqueKey={uniqueKey}
-            />
+            <Suspense fallback={<Spinner />}>
+                <MarketingAnalyticsOverview
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                    uniqueKey={uniqueKey}
+                />
+            </Suspense>
         )
     } else if (isWebVitalsQuery(query)) {
         component = (

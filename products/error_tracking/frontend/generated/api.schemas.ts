@@ -259,6 +259,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -724,7 +725,7 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 /**
- * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.
  */
 export type ErrorTrackingExternalReferenceCreateApiConfig = { [key: string]: string }
 
@@ -744,7 +745,7 @@ export interface ErrorTrackingExternalReferenceCreateApi {
     readonly title: string
     /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
-    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
     config: ErrorTrackingExternalReferenceCreateApiConfig
     /** ID of the error tracking issue to link the reference to. */
     issue: string
@@ -1210,6 +1211,43 @@ export interface ErrorTrackingImpactApi {
     sessions?: number
 }
 
+/**
+ * * `new` - New
+ * * `increasing` - Increasing
+ * * `decreasing` - Decreasing
+ * * `stable` - Stable
+ */
+export type IssueTrendDirectionEnumApi = (typeof IssueTrendDirectionEnumApi)[keyof typeof IssueTrendDirectionEnumApi]
+
+export const IssueTrendDirectionEnumApi = {
+    New: 'new',
+    Increasing: 'increasing',
+    Decreasing: 'decreasing',
+    Stable: 'stable',
+} as const
+
+export interface ErrorTrackingIssueTrendApi {
+    /** Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means a change of at least 25%. 'new' means the issue first occurred in the second half, counting merged fingerprints. 'stable' means a smaller change.
+     *
+     * * `new` - New
+     * * `increasing` - Increasing
+     * * `decreasing` - Decreasing
+     * * `stable` - Stable */
+    direction: IssueTrendDirectionEnumApi
+    /** Occurrences in the second half of dateRange. */
+    current_occurrences: number
+    /** Occurrences in the first half of dateRange. */
+    previous_occurrences: number
+    /** Percent change from the first half to the second half. Absent when the first half has no occurrences. */
+    change_percent?: number
+    /** Start of the first half. */
+    previous_from: string
+    /** End of the first half. */
+    previous_to: string
+    /** Start of the second half. The second half ends at the end of dateRange. */
+    current_from: string
+}
+
 export interface ErrorTrackingBreakdownValueApi {
     /** Property value. */
     value: string
@@ -1301,8 +1339,12 @@ export interface ErrorTrackingIssueDetailApi {
     top_in_app_frame?: ErrorTrackingTopFrameApi
     /** Latest release metadata. */
     latest_release?: ErrorTrackingLatestReleaseApi
+    /** Release metadata from the issue's first event, found near first_seen and not limited by dateRange. Compare it with latest_release to see which release introduced the issue. Absent when the first event has no release metadata. */
+    first_release?: ErrorTrackingLatestReleaseApi
     /** Compact impact counts. */
     impact?: ErrorTrackingImpactApi
+    /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */
+    trend?: ErrorTrackingIssueTrendApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
@@ -1576,6 +1618,7 @@ export interface ErrorTrackingAssigneeApi {
  * * `occurrences` - occurrences
  * * `users` - users
  * * `sessions` - sessions
+ * * `severity` - severity
  */
 export type ErrorTrackingIssueOrderByEnumApi =
     (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
@@ -1586,6 +1629,7 @@ export const ErrorTrackingIssueOrderByEnumApi = {
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 export interface ErrorTrackingIssuesListQueryRequestApi {
@@ -1617,7 +1661,8 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      * * `first_seen` - first_seen
      * * `occurrences` - occurrences
      * * `users` - users
-     * * `sessions` - sessions */
+     * * `sessions` - sessions
+     * * `severity` - severity */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
      *
@@ -1644,7 +1689,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     /** Filter by SDK/library value from event $lib, for example posthog-js. */
     library?: string | string[]
     /**
-     * Filter by exact release ID, version, or git commit ID captured in $exception_releases.
+     * Filter by exact release ID, version, or git commit ID captured in $exception_release.
      * @maxLength 500
      */
     release?: string
@@ -2273,6 +2318,10 @@ export interface ErrorTrackingSymbolSetBulkDeleteApi {
 export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
 
 export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
+    /** Optional ID from the corresponding bulk start request for upload analytics. */
+    upload_attempt_id?: string
+    /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+    upload_run_id?: string
     /** Map of symbol set ID to uploaded content hash. */
     content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
 }
@@ -2284,6 +2333,10 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     force?: boolean
     /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
     skip_on_conflict?: boolean
+    /** Optional ID used to correlate upload analytics across start and finish requests. */
+    upload_attempt_id?: string
+    /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+    upload_run_id?: string
     /** Legacy list of symbol set references to upload, all associated with `release_id`. */
     chunk_ids?: string[]
     /**

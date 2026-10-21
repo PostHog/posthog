@@ -196,6 +196,18 @@ export const MODELS: readonly CatalogModel[] = [
         costSummary: 'Input $0.13 · Output $0.26 per 1M tokens',
     },
     {
+        id: 'deepseek-ai/deepseek-v4.1-flash-1017-fast',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: [],
+        label: 'DeepSeek V4.1 Flash Fast',
+        cost: {
+            inputPerMtok: 0.6,
+            outputPerMtok: 2.4,
+        },
+        costMultiplier: '≈0.27×',
+        costSummary: 'Input $0.60 · Output $2.40 per 1M tokens',
+    },
+    {
         id: 'claude-opus-4-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high'],
@@ -455,8 +467,8 @@ export const MODELS: readonly CatalogModel[] = [
 
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
-    claude: 'claude-sonnet-5',
-    codex: 'gpt-5',
+    claude: 'claude-sonnet-5-5',
+    codex: 'gpt-6.1-sol',
 }
 
 export interface CapabilityNotch {

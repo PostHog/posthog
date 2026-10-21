@@ -4,14 +4,18 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
-import { ScoreDefinitionVersionButton } from '../scoreDefinitions/ScoreDefinitionVersionButton'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
 import { OfflineScorerHistoryTable } from './OfflineScorerHistoryTable'
@@ -54,7 +58,6 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
         changePage,
         loadOfflineHistoryPrimaryPage,
         loadOfflineHistoryComparisonPage,
-        reloadOfflineHistoryDefinition,
     } = useActions(logic)
 
     const toggleRun = (key: string): void => {
@@ -85,17 +88,25 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                 ) : !definition ? (
                     <Spinner />
                 ) : (
-                    <div className="space-y-4 min-w-0">
+                    <div className="space-y-4 min-w-0 @container/scorer-history">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center flex-wrap gap-2">
                                 <LemonTag>{definition.kind}</LemonTag>
                                 {definition.archived && <LemonTag type="warning">Archived</LemonTag>}
                                 <span className="text-muted">{definition.description}</span>
                             </div>
-                            <ScoreDefinitionVersionButton
-                                definition={definition}
-                                onSuccess={reloadOfflineHistoryDefinition}
-                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    to={urls.aiObservabilityScorer(definition.id)}
+                                    data-attr="offline-history-edit-scorer"
+                                >
+                                    Edit scorer
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                         <div className="flex flex-wrap gap-2 items-end">
                             <div>
@@ -124,6 +135,36 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                         { value: 'not_specified', label: 'Not specified' },
                                     ]}
                                 />
+                            </div>
+                            <div>
+                                <LemonLabel>Tags</LemonLabel>
+                                <ResourceTagFilter filters={filters} onChange={setFilters} />
+                            </div>
+                            <div data-attr="offline-history-author-filter">
+                                <LemonLabel>Author</LemonLabel>
+                                <MemberSelect
+                                    value={filters.created_by ?? null}
+                                    size="medium"
+                                    defaultLabel="Any author"
+                                    extraOptions={[
+                                        {
+                                            label: 'No author',
+                                            onClick: () =>
+                                                setFilters({ created_by: undefined, created_by_is_null: true }),
+                                        },
+                                    ]}
+                                    onChange={(user) =>
+                                        setFilters({ created_by: user?.id, created_by_is_null: undefined })
+                                    }
+                                >
+                                    {filters.created_by_is_null
+                                        ? () => (
+                                              <LemonButton type="secondary" size="medium">
+                                                  No author
+                                              </LemonButton>
+                                          )
+                                        : undefined}
+                                </MemberSelect>
                             </div>
                             <div>
                                 <LemonLabel>Version</LemonLabel>

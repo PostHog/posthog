@@ -11,6 +11,7 @@ function setup(options: { activated?: boolean; onDataRequest?: () => Promise<unk
     posted: HostToCanvasMessage[]
     onDataRequest: jest.Mock
     onNavigate: jest.Mock
+    onCommentActivate: jest.Mock
     openExternal: jest.Mock
     onExternalOpenBlocked: jest.Mock
     clock: { now: number }
@@ -18,18 +19,19 @@ function setup(options: { activated?: boolean; onDataRequest?: () => Promise<unk
     const posted: HostToCanvasMessage[] = []
     const onDataRequest = jest.fn(options.onDataRequest ?? (async () => ({ ok: true })))
     const onNavigate = jest.fn()
+    const onCommentActivate = jest.fn()
     const openExternal = jest.fn()
     const onExternalOpenBlocked = jest.fn()
     const clock = { now: 10_000 }
     const route = createCanvasHostMessageRouter({
         post: (message) => posted.push(message),
-        callbacks: () => ({ onDataRequest, onNavigate }),
+        callbacks: () => ({ onDataRequest, onNavigate, onCommentActivate }),
         hasUserActivation: () => options.activated ?? false,
         openExternal,
         onExternalOpenBlocked,
         now: () => clock.now,
     })
-    return { route, posted, onDataRequest, onNavigate, openExternal, onExternalOpenBlocked, clock }
+    return { route, posted, onDataRequest, onNavigate, onCommentActivate, openExternal, onExternalOpenBlocked, clock }
 }
 
 const dataRequest = (method: string, payload: unknown = {}): CanvasToHostMessage =>
@@ -136,6 +138,23 @@ describe('createCanvasHostMessageRouter', () => {
         await route({ channel: 'posthog-canvas', type: 'navigate', nav } as CanvasToHostMessage)
 
         expect(onNavigate).toHaveBeenCalledTimes(forwarded ? 1 : 0)
+    })
+
+    test.each([
+        ['with the clicked line', { top: 10, right: 90, bottom: 30, left: 20 }],
+        ['from a build that reports no line', undefined],
+    ])('comment-activate %s reaches the host', async (_, rect) => {
+        const { route, onCommentActivate } = setup()
+        const message = canvasToHostMessageSchema.parse({
+            channel: 'posthog-canvas',
+            type: 'comment-activate',
+            id: 'thread-1',
+            ...(rect ? { rect } : {}),
+        })
+
+        await route(message)
+
+        expect(onCommentActivate).toHaveBeenCalledWith('thread-1', rect ?? null)
     })
 
     test('open-external needs a gesture and is throttled', async () => {

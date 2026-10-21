@@ -7,7 +7,7 @@ from django.db.models import Prefetch, QuerySet
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from social_django.models import UserSocialAuth
 
 from posthog.api.organization_member import OrganizationMemberSerializer
@@ -17,6 +17,7 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 from products.access_control.backend.models.role import Role, RoleMembership
 
@@ -145,6 +146,11 @@ class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, views
         context["visible_membership_ids"] = self.visible_membership_ids
         context["visible_user_ids"] = self.visible_user_ids
         return context
+
+    def perform_destroy(self, instance: Role) -> None:
+        if not access_control_api.can_delete_role(role_id=instance.id, user_id=cast(User, self.request.user).id):
+            raise PermissionDenied("This role has rules in a project where access control is managed with Terraform.")
+        super().perform_destroy(instance)
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):

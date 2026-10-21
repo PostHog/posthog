@@ -27,8 +27,10 @@ from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
+from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend import role_sla
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -41,7 +43,9 @@ from products.conversations.backend.facade.types import (
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     PublicHumanReplies as PublicHumanReplies,
     ResolvedTicketRevision as ResolvedTicketRevision,
+    RoleSlaBreach as RoleSlaBreach,
     SupportChannel as SupportChannel,
+    SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
 )
@@ -58,7 +62,10 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
-from products.conversations.backend.support_slack import get_support_slack_bot_token
+from products.conversations.backend.support_slack import (
+    get_support_slack_bot_token,
+    supporthog_lacks_custom_identity_scope,
+)
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured as SupportSlackNotConfigured,
@@ -105,6 +112,14 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+class SupportSenderIdentityUnavailable(Exception):
+    """This SupportHog install can't post under a name and avatar other than the bot's own.
+
+    Slack only grants scopes at install time, so an install authorized before
+    ``chat:write.customize`` was requested needs an admin to reconnect.
+    """
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:
@@ -305,9 +320,61 @@ def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> li
     return [SupportChannel(id=c["id"], name=c["name"], is_member=c["is_member"]) for c in channels]
 
 
-def post_support_message(team_id: int, channel_id: str, text: str) -> str:
+def _message_identity_kwargs(team: Team, sender: SupportSlackSender | None) -> dict[str, Any]:
+    """``chat.postMessage`` overrides for the name and avatar a message appears under."""
+    if sender is not None:
+        # The bot icon next to a person's name would contradict it, so it is not a fallback.
+        return {"username": sender.name, **({"icon_url": sender.icon_url} if sender.icon_url else {})}
+
+    kwargs: dict[str, Any] = {}
+    support_settings = team.conversations_settings or {}
+    if bot_display_name := support_settings.get("slack_bot_display_name"):
+        kwargs["username"] = bot_display_name
+    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
+        kwargs["icon_url"] = bot_icon_url
+    return kwargs
+
+
+def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender | None:
+    """The Slack name and avatar of the workspace member with this email, or ``None`` when
+    the email matches no Slack user.
+
+    Lets a caller post as a teammate's profile rather than the bot's; the message is still
+    a bot message, Slack only renders it under that name and avatar.
+
+    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected, and
+    :class:`SupportSenderIdentityUnavailable` when the install can't post under a custom
+    identity at all — resolving a profile it could never post under only produces messages
+    Slack rejects one channel at a time.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        client = get_slack_client(team)
+    except (Team.DoesNotExist, ValueError):
+        raise SupportSlackNotConfigured()
+
+    if supporthog_lacks_custom_identity_scope(team):
+        raise SupportSenderIdentityUnavailable()
+
+    profile = resolve_slack_profile_by_email(client, email, workspace=client.workspace_id)
+    if not profile or not profile.get("name"):
+        return None
+    return SupportSlackSender(name=str(profile["name"]), icon_url=str(profile.get("avatar") or ""))
+
+
+def post_support_message(
+    team_id: int,
+    channel_id: str,
+    text: str,
+    *,
+    sender: SupportSlackSender | None = None,
+) -> str:
     """Post ``text`` to a Slack channel as the SupportHog bot, applying the team's
     configured bot display name and icon. Returns the posted message's Slack ts.
+
+    ``sender`` overrides that identity for this message only — Slack renders it under the
+    given name and avatar (needs the ``chat:write.customize`` scope), which is how a
+    message can look like it comes from a teammate instead of the bot.
 
     Raises :class:`SupportSlackNotConfigured` when the bot isn't connected and
     :class:`SupportMessageSendError` when the post fails.
@@ -318,12 +385,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     except (Team.DoesNotExist, ValueError):
         raise SupportSlackNotConfigured()
 
-    message_kwargs: dict[str, Any] = {}
-    support_settings = team.conversations_settings or {}
-    if bot_display_name := support_settings.get("slack_bot_display_name"):
-        message_kwargs["username"] = bot_display_name
-    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
-        message_kwargs["icon_url"] = bot_icon_url
+    message_kwargs = _message_identity_kwargs(team, sender)
 
     try:
         response = client.chat_postMessage(channel=channel_id, text=text, **message_kwargs)
@@ -741,6 +803,8 @@ def list_email_threads_for_account_matching(
     team_id: int,
     *,
     thread_ids: list[str] | None = None,
+    participant_emails: list[str] | None = None,
+    participant_domains: list[str] | None = None,
     after_id: str | None = None,
     limit: int = 100,
 ) -> list[EmailThreadForAccountMatching]:
@@ -750,6 +814,11 @@ def list_email_threads_for_account_matching(
     )
     if thread_ids is not None:
         threads = threads.filter(id__in=thread_ids)
+    if participant_emails is not None or participant_domains is not None:
+        matching_participants = Q(email__in=participant_emails or [])
+        for domain in participant_domains or []:
+            matching_participants |= Q(email__endswith=f"@{domain}")
+        threads = threads.filter(Exists(participants.filter(matching_participants, thread_id=OuterRef("id"))))
     if after_id is not None:
         threads = threads.filter(id__gt=after_id)
 
@@ -799,22 +868,62 @@ def list_email_threads_for_account_matching(
     return matching_threads
 
 
+def _validate_match_source(link: EmailThreadAccountLinkInput) -> None:
+    if link.match_source not in EmailThreadAccountMatchSource.values:
+        raise ValueError(f"Unknown email account match source: {link.match_source}")
+
+
 @transaction.atomic
-def replace_email_thread_account_links(
+def create_email_thread_account_links(
     team_id: int,
     thread_id: str,
     links: list[EmailThreadAccountLinkInput],
 ) -> None:
     thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    linked_account_ids = set(
+        EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).values_list("account_id", flat=True)
+    )
     links_by_account_id = {link.account_id: link for link in links}
-    EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).exclude(
-        account_id__in=links_by_account_id
-    ).delete()
+    for link in links_by_account_id.values():
+        _validate_match_source(link)
+    EmailThreadAccountLink.objects.for_team(team_id).bulk_create(
+        [
+            EmailThreadAccountLink(
+                team_id=team_id,
+                thread=thread,
+                account_id=account_id,
+                account_external_id=link.account_external_id,
+                match_source=link.match_source,
+            )
+            for account_id, link in links_by_account_id.items()
+            if account_id not in linked_account_ids
+        ]
+    )
 
-    valid_sources = set(EmailThreadAccountMatchSource.values)
+
+@transaction.atomic
+def replace_email_thread_account_links(
+    team_id: int,
+    thread_id: str,
+    links: list[EmailThreadAccountLinkInput],
+    *,
+    match_sources: list[str] | None = None,
+) -> None:
+    thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    links_by_account_id = {link.account_id: link for link in links}
+    existing_links = EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread)
+    preserved_account_ids: set[str] = set()
+    if match_sources is not None:
+        preserved_account_ids = set(
+            existing_links.exclude(match_source__in=match_sources).values_list("account_id", flat=True)
+        )
+        existing_links = existing_links.filter(match_source__in=match_sources)
+    existing_links.exclude(account_id__in=links_by_account_id).delete()
+
     for account_id, link in links_by_account_id.items():
-        if link.match_source not in valid_sources:
-            raise ValueError(f"Unknown email account match source: {link.match_source}")
+        _validate_match_source(link)
+        if account_id in preserved_account_ids:
+            continue
         EmailThreadAccountLink.objects.for_team(team_id).update_or_create(
             team_id=team_id,
             thread=thread,
@@ -938,6 +1047,12 @@ def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
         if isinstance(email, str) and isinstance(name, str):
             addresses.append(EmailThreadAddress(name=name, email=email))
     return addresses
+
+
+def list_role_sla_breaches(
+    team_id: int, user_id: int, *, due_after: datetime, due_before: datetime
+) -> list[RoleSlaBreach]:
+    return role_sla.list_role_sla_breaches(team_id, user_id, due_after=due_after, due_before=due_before)
 
 
 def list_account_email_thread_messages(

@@ -7,7 +7,7 @@ appears once instead of at every reading call site."""
 
 import uuid
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.db.models import Q
 
@@ -90,19 +90,26 @@ def scanner_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: It
     return q
 
 
-def snapshot_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: Iterable[int] = ()) -> Q:
-    """`scanner_experiment_scope_q` for observation rows, over the frozen `scanner_snapshot`."""
+_OBSERVATION_PREFIXES = ("", "observation__")
+
+
+def snapshot_experiment_scope_q(
+    *, unrestricted: bool = False, experiment_ids: Iterable[int] = (), prefix: Literal["", "observation__"] = ""
+) -> Q:
+    """`scanner_experiment_scope_q` for observation rows, over the frozen `scanner_snapshot`. `prefix` reaches the
+    observation through a relation, such as `observation__` from a label."""
+    if prefix not in _OBSERVATION_PREFIXES:
+        raise ValueError(f"unsupported observation prefix {prefix!r}")
+    targeting = f"{prefix}scanner_snapshot__experiment_targeting__experiment_id"
+    config = f"{prefix}scanner_snapshot__scanner_config__experiment_id"
     q = Q()
     if unrestricted:
-        q |= Q(
-            scanner_snapshot__experiment_targeting__experiment_id__isnull=True,
-            scanner_snapshot__scanner_config__experiment_id__isnull=True,
-        )
+        # nosemgrep: orm-field-injection (both paths are fixed strings; prefix is allowlisted above)
+        q |= Q(**{f"{targeting}__isnull": True, f"{config}__isnull": True})
     ids = list(experiment_ids)
     if ids:
-        q |= Q(scanner_snapshot__experiment_targeting__experiment_id__in=ids) | Q(
-            scanner_snapshot__scanner_config__experiment_id__in=ids
-        )
+        # nosemgrep: orm-field-injection (both paths are fixed strings; prefix is allowlisted above)
+        q |= Q(**{f"{targeting}__in": ids}) | Q(**{f"{config}__in": ids})
     return q
 
 
@@ -124,6 +131,18 @@ def accessible_observations(
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one,
     # whichever snapshot store names it.
     return observations.filter(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=accessible))
+
+
+def can_read_observation(access: UserAccessControl, team_id: int, observation: "ReplayObservation") -> bool:
+    """`accessible_observations` for one loaded row, read off its snapshot: no query for an untargeted scan,
+    and one targeted lookup otherwise, instead of every accessible experiment in the project."""
+    snapshot = observation.scanner_snapshot or {}
+    experiment_ids = {
+        experiment_id
+        for store in ("experiment_targeting", "scanner_config")
+        if (experiment_id := (snapshot.get(store) or {}).get("experiment_id")) is not None
+    }
+    return not experiment_ids or bool(_accessible_experiment_ids(access, team_id, experiment_ids) & experiment_ids)
 
 
 def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) -> list[uuid.UUID]:

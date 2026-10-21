@@ -60,7 +60,7 @@ IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_
 NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
-@dataclass
+@dataclass(frozen=False)
 class EmitSignalInputs:
     team_id: int
     source_product: str
@@ -74,6 +74,7 @@ class EmitSignalInputs:
     # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
     # present; not required by any source.
     remediation: Optional[dict] = None
+    signal_id: str | None = None
 
 
 @dataclass

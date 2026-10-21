@@ -127,9 +127,13 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
         due_for_retry = Q(data__has_key=ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY) & Q(
             **{f"data__{ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY}__lte": attempt_cutoff}
         )
+        # Excluding data__work_email=False instead would also drop every record without the key,
+        # for the same missing-key NULL reason as above.
+        not_work_email = Q(data__contains={"work_email": False})
         attempt_eligible = {
             str(record.organization_id): record.data.get(ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY)
             for record in OrganizationEnrichment.objects.filter(data__icp_fit_status__in=list(SWEEPABLE_STATUSES))
+            .exclude(not_work_email)
             .filter(never_attempted | due_for_retry)
             .only("organization_id", "data")
         }
@@ -361,13 +365,14 @@ class IcpReenrichmentSweepWorkflow(PostHogWorkflow):
                 failed += 1
 
         summary = SweepRunSummary(selected=len(candidates), attempted=attempted, matched=matched, failed=failed)
+        # Keep this call until no execution that recorded this patch through workflow.patched() can
+        # replay, including closed executions inside namespace retention. Their replays fail without it.
+        workflow.deprecate_patch("icp-sweep-run-summary-2026-08")
         # Keep analytics I/O in an activity so workflow replay remains deterministic.
-        # Patched so an execution recorded before this activity existed still replays.
-        if workflow.patched("icp-sweep-run-summary-2026-08"):
-            await workflow.execute_activity(
-                report_sweep_run_activity,
-                summary,
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+        await workflow.execute_activity(
+            report_sweep_run_activity,
+            summary,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
         return dataclasses.asdict(summary)

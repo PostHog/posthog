@@ -18,12 +18,13 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
     _stuck_key,
 )
 
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.backfills import (
     MAX_BACKFILL_WINDOW_DAYS,
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -70,7 +71,7 @@ from products.replay_vision.backend.temporal.constants import (
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
-from products.replay_vision.backend.tests.helpers import seed_scanner_spend
+from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -143,6 +144,15 @@ class TestBackfillQuotaCommitment:
 
         assert spend_projection(org_id).backfills_committed_credits == 60 * 5
         assert compute_quota_snapshot(org_id).projected_monthly_credits == 60 * 5
+
+    def test_free_only_backfill_commits_only_the_free_credits_left(self) -> None:
+        scanner = _make_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(free_only=True)
+        org_id = scanner.team.organization_id
+        seed_scanner_spend(scanner, FREE_TIER_MONTHLY_CREDITS - 100)
+        _make_backfill(scanner, total_count=100, credits_per_observation=5)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert spend_projection(org_id).backfills_committed_credits == 100
 
     def test_paused_backfill_still_counts_as_committed(self) -> None:
         scanner = _make_scanner()
@@ -689,6 +699,34 @@ class TestBackfillsApi(APIBaseTest):
         # The quote has to describe the window actually walked, or it counts sessions the walk skips.
         assert mock_query.call_args.kwargs["window_end"] == window_end
 
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_an_ended_experiments_window_stops_at_its_end(self, mock_query: MagicMock) -> None:
+        # Ending an experiment leaves its flag on, so exposed users keep producing matching sessions.
+        # A backfill of the experiment's own run is fine after the end; paying for that afterlife is not.
+        mock_query.return_value.count.return_value = 3
+        experiment = create_experiment(self.team, "ended-flag", launched=True, variants=["control", "test"])
+        ended_at = timezone.now() - dt.timedelta(days=3)
+        experiment.end_date = ended_at
+        experiment.save()
+        self.scanner.scanner_type = ScannerType.EXPERIMENT
+        self.scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        self.scanner.save()
+
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+
+        assert response.status_code == 200, response.json()
+        window_end = dt.datetime.fromisoformat(response.json()["window_end"])
+        assert window_end == ended_at
+        assert mock_query.call_args.kwargs["window_end"] == window_end
+
+        after_the_end = {
+            "window_start": (ended_at + dt.timedelta(days=1)).isoformat(),
+            "window_end": timezone.now().isoformat(),
+        }
+        response = self.client.post(f"{self.base_url}/estimate/", after_the_end, format="json")
+        assert response.status_code == 400
+        assert "ended before the start of the range" in response.json()["detail"]
+
     def test_window_entirely_inside_the_settle_horizon_is_rejected(self) -> None:
         body = {
             "window_start": (timezone.now() - dt.timedelta(minutes=5)).isoformat(),
@@ -750,6 +788,30 @@ class TestBackfillsApi(APIBaseTest):
         running = backfill
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
+
+    @patch("products.replay_vision.backend.temporal.schedule.a_resume_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_create_and_resume_refuse_without_ai_consent(
+        self, mock_query: MagicMock, mock_upsert: AsyncMock, mock_resume: AsyncMock
+    ) -> None:
+        mock_query.return_value.count.return_value = 1
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        paused = _make_backfill(self.scanner, status=BackfillStatus.PAUSED_QUOTA)
+
+        create = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": 10**6}, format="json"
+        )
+        resume = self.client.post(f"{self.base_url}/{paused.id}/resume/")
+
+        assert (create.status_code, resume.status_code) == (400, 400), (create.json(), resume.json())
+        assert create.json()["code"] == resume.json()["code"] == "ai_data_processing_not_approved"
+        paused.refresh_from_db()
+        assert paused.status == BackfillStatus.PAUSED_QUOTA
+        assert ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).count() == 1
+        mock_upsert.assert_not_awaited()
+        mock_resume.assert_not_awaited()
 
     def test_enumerating_actions_are_throttled_and_cheap_ones_are_not(self) -> None:
         # The global burst/sustained throttles extend PersonalApiKeyRateThrottle, which gates on

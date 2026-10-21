@@ -85,7 +85,9 @@ export function DecisionPlaygroundScene(): JSX.Element {
         return receivedFeatureFlags || featureFlagsTimedOut ? (
             <NotFound object="page" />
         ) : (
-            <Spinner className="text-3xl mx-auto my-8" />
+            <div className="flex justify-center my-8">
+                <Spinner className="text-3xl" />
+            </div>
         )
     }
 

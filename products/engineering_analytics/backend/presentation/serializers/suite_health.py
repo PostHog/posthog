@@ -15,7 +15,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
 )
-from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer, ci_engine_field
+from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
 
 class FlakyTestItemSerializer(DataclassSerializer):
@@ -162,11 +162,10 @@ class FlakyTestListSerializer(DataclassSerializer):
 
 
 class BrokenTestRowSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
-
     class Meta:
         dataclass = BrokenTestRow
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "fingerprint": {
                 "help_text": "Stable identity of this distinct failure: the failing test's node id plus a "
                 "normalized error signature, so the same failure across runs groups into one row.",

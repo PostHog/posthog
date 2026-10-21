@@ -93,6 +93,9 @@ pub const PROJECTION_KEYS: &str = "seeder_projection_keys";
 /// and `team_id` (counter). Only `materialized` saves ClickHouse reads; `properties_blob` saves the
 /// transfer and evaluation of rows no condition matches.
 pub const SCAN_ROW_FILTER: &str = "seeder_scan_row_filter_total";
+/// Behavioral chunks by where the scan reads `properties` from, labelled by `source`
+/// (`whole`/`empty`/`columns`/`rebuilt_*`) and `team_id` (counter).
+pub const SCAN_PROPERTIES_SOURCE: &str = "seeder_scan_properties_source_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";
 pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";
@@ -166,6 +169,8 @@ pub const RECONCILE_COHORTS_PARTIAL: &str = "seeder_reconcile_cohorts_partial_to
 /// Cohort participations short of their markers with the pinned shape unchanged — the retryable
 /// half of the split — labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_SHORTFALL: &str = "seeder_reconcile_cohorts_shortfall_total";
+/// Participations superseded by a withheld marker, labelled by `kind` and `reason` (counter).
+pub const RECONCILE_COHORTS_WITHHELD: &str = "seeder_reconcile_cohorts_withheld_total";
 /// Runs that settled without a single marker — the shape a processor that cannot decode the
 /// tile's kind produces — labelled by the run's `kind` (counter).
 pub const RECONCILE_ZERO_MARKER_RUNS: &str = "seeder_reconcile_zero_marker_runs_total";

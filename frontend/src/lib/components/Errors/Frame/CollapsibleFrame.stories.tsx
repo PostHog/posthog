@@ -5,7 +5,12 @@ import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
-import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext, ErrorTrackingStackFrameRecord } from '../types'
+import {
+    ErrorEventProperties,
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameContext,
+    ErrorTrackingStackFrameRecord,
+} from '../types'
 import { CollapsibleFrame, CollapsibleFrameProps } from './CollapsibleFrame'
 
 const frameContext: ErrorTrackingStackFrameContext = {
@@ -86,15 +91,17 @@ function Wrapper({
     record,
     recordLoading = false,
     initialExpanded = false,
+    properties = eventProperties,
 }: {
     frame: ErrorTrackingStackFrame
     record?: ErrorTrackingStackFrameRecord
     recordLoading?: boolean
     initialExpanded?: boolean
+    properties?: ErrorEventProperties
 }): JSX.Element {
     const [expanded, setExpanded] = useState(initialExpanded)
     return (
-        <BindLogic logic={errorPropertiesLogic} props={{ properties: eventProperties, id: 'story' }}>
+        <BindLogic logic={errorPropertiesLogic} props={{ properties, id: 'story' }}>
             <div className="max-w-2xl border rounded">
                 <CollapsibleFrame
                     frame={frame}
@@ -211,6 +218,37 @@ const rustRecord: ErrorTrackingStackFrameRecord = {
 
 export function RustFrameWithContext(): JSX.Element {
     return <Wrapper frame={rustFrame} record={rustRecord} initialExpanded />
+}
+
+export function PythonFrameWithoutVariables(): JSX.Element {
+    const frame: ErrorTrackingStackFrame = {
+        ...baseFrame,
+        raw_id: 'python-1',
+        mangled_name: 'load_frame_contexts',
+        resolved_name: 'load_frame_contexts',
+        source: 'app/frame_loader.py',
+        lang: 'python',
+    }
+
+    const record: ErrorTrackingStackFrameRecord = {
+        ...baseRecord,
+        raw_id: frame.raw_id,
+        contents: frame,
+        context: {
+            before: [{ number: 10, line: 'def load_frame_contexts(policy):' }],
+            line: { number: 11, line: '    return load_frames(policy)' },
+            after: [{ number: 12, line: '' }],
+        },
+    }
+
+    return (
+        <Wrapper
+            frame={frame}
+            record={record}
+            initialExpanded
+            properties={{ ...eventProperties, $lib: 'posthog-python' }}
+        />
+    )
 }
 
 export function NoContext(): JSX.Element {

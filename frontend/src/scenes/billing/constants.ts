@@ -57,6 +57,7 @@ export const SPEND_TYPES = [
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
     { label: 'Logs 30-day retention (MB)', value: 'logs_retention_30d_mb_in_period' },
+    { label: 'Logs retention (MB-days)', value: 'logs_retention_mb_days_in_period' },
 ] as const
 
 export const USAGE_ONLY_TYPES = [
@@ -76,10 +77,6 @@ export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.va
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
 // in sync with billing_end_date of data_pipelines in billing plans config
 export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
-
-// Date when billing for realtime destinations and batch exports begins (day after data pipelines cutoff),
-// in sync with billing_start_date of realtime_destinations and batch_exports in billing plans config
-export const REALTIME_DESTINATIONS_BILLING_START_DATE = '2025-09-11'
 
 /** The label billing gives the series that folds the projects beyond the cap; a count follows it. */
 export const FOLDED_SERIES_LABEL = 'All other projects'

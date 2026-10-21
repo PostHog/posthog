@@ -43,7 +43,7 @@ import {
 
 import { DEFAULT_STEP_LIMIT } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
-import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
+import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/legacyFilters'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -366,8 +366,6 @@ export function cleanFilters(
                 : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
-            funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
-            funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
             ...(filters.aggregation_group_type_index != null
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }

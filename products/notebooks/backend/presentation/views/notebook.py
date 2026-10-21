@@ -1,7 +1,7 @@
 import math
 import hashlib
 from collections import Counter
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -106,7 +106,6 @@ from products.notebooks.backend.facade.widgets import (
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
-    is_notebook_widget_enabled,
     list_widget_versions,
     publish_reusable_widget,
     read_widget_frame,
@@ -157,6 +156,7 @@ from products.notebooks.backend.sql_v2 import (
     SQLV2PageError,
     fetch_sql_v2_page,
     interrupt_sql_v2_run,
+    introspect_in_kernel,
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
@@ -165,7 +165,11 @@ from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, fini
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
     NotebookComputeOptionsResponseSerializer,
+    NotebookKernelCompleteRequestSerializer,
+    NotebookKernelCompleteResponseSerializer,
     NotebookKernelConfigResponseSerializer,
+    NotebookKernelInspectRequestSerializer,
+    NotebookKernelInspectResponseSerializer,
     NotebookKernelStatusResponseSerializer,
     NotebookRunInterruptResponseSerializer,
     NotebookRunStartRequestSerializer,
@@ -744,7 +748,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
         # enough — a notebook editor whose query access is denied must not read data through it.
-        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # Mirrors products/subscriptions/backend/presentation/views.py: the query:read scope gates tokens, this gates sessions
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
@@ -813,7 +817,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def widget_snapshot_create(self, request: Request, **kwargs) -> Response:
         self._require_query_access()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         serializer = WidgetSnapshotRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -839,7 +843,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_snapshot_publish(self, request: Request, **kwargs) -> Response:
         self._require_query_access()
         user = self._current_user()
-        if user is None or not is_notebook_widget_enabled(user):
+        if user is None:
             raise Http404()
         serializer = WidgetSnapshotPublishSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -862,7 +866,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         required_scopes=["notebook:read", "query:read"],
     )
     def widget_snapshot_retrieve(self, request: Request, snapshot_id: str, **kwargs) -> Response:
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         self._require_query_access()
         service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
@@ -891,7 +895,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttle_classes=[WidgetFrameBurstThrottle, WidgetFrameSustainedThrottle],
     )
     def widget_snapshot_frame(self, request: Request, snapshot_id: str, frame_name: str, **kwargs) -> Response:
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         self._require_query_access()
         query = WidgetFrameQuerySerializer(data=request.query_params)
@@ -940,8 +944,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to generate a widget.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = WidgetGenerateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
@@ -995,8 +997,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to cancel widget generation.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = WidgetCancelRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1030,7 +1030,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_status(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         try:
             result = get_widget_status(notebook=self.get_object(), node_id=node_id)
@@ -1069,8 +1069,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to make a widget reusable.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = ReusableWidgetPublishRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
@@ -1121,8 +1119,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to add a reusable widget.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = ReusableWidgetAttachRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1173,8 +1169,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to fork a reusable widget.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = ReusableWidgetForkRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1208,7 +1202,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_versions(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -1251,7 +1245,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         query = WidgetSourceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -1296,8 +1290,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to restore a widget version.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = WidgetRevertRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1334,7 +1326,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_pin(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         serializer = WidgetPinRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1396,7 +1388,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         query = WidgetFrameQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         self._require_query_access()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         try:
             result = read_widget_frame(
@@ -1832,6 +1824,58 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         }
         return Response(NotebookComputeOptionsResponseSerializer(options_payload).data)
 
+    @extend_schema(
+        request=NotebookKernelCompleteRequestSerializer,
+        responses={200: NotebookKernelCompleteResponseSerializer},
+        description=(
+            "Completions for the cursor position in a Python cell, from the notebook's running kernel. "
+            "Returns no matches when no kernel is running or the kernel is busy, and never starts one."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/complete", detail=True, required_scopes=["notebook:write", "query:read"])
+    def kernel_complete(self, request: Request, **kwargs):
+        serializer = NotebookKernelCompleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cursor_pos = serializer.validated_data["cursor_pos"]
+        result = self._introspect_kernel("complete", serializer.validated_data) or {}
+        return Response(
+            NotebookKernelCompleteResponseSerializer(
+                {
+                    "matches": result.get("matches") or [],
+                    "cursor_start": result.get("cursor_start", cursor_pos),
+                    "cursor_end": result.get("cursor_end", cursor_pos),
+                }
+            ).data
+        )
+
+    @extend_schema(
+        request=NotebookKernelInspectRequestSerializer,
+        responses={200: NotebookKernelInspectResponseSerializer},
+        description=(
+            "The signature and docstring of the name at the cursor in a Python cell, from the notebook's "
+            "running kernel. Returns found=false when no kernel is running or the kernel is busy."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/inspect", detail=True, required_scopes=["notebook:write", "query:read"])
+    def kernel_inspect(self, request: Request, **kwargs):
+        serializer = NotebookKernelInspectRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = self._introspect_kernel("inspect", serializer.validated_data) or {}
+        return Response(
+            NotebookKernelInspectResponseSerializer(
+                {"found": bool(result.get("found")), "text": result.get("text") or ""}
+            ).data
+        )
+
+    def _introspect_kernel(self, route: Literal["complete", "inspect"], payload: dict) -> dict | None:
+        # Completion evaluates attribute access in the user's kernel, so it takes the access a run takes.
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+        return introspect_in_kernel(notebook, user, route, payload)
+
     @action(methods=["POST"], url_path="kernel/execute", detail=True)
     def kernel_execute(self, request: Request, **kwargs):
         serializer = NotebookKernelExecuteSerializer(data=request.data)
@@ -1927,7 +1971,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
             "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
-            "Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel."
+            "Python notebooks enable all run types. HogQL runs without a connection or kernel are always available."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
@@ -1935,8 +1979,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
         full_compute_enabled = settings.DEBUG or is_sql_v2_enabled(user)
-        if not full_compute_enabled and not is_notebook_widget_enabled(user):
-            raise Http404()
 
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2023,8 +2065,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookRunStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         include_prepared_insights = serializer.validated_data["include_prepared_insights"]
-        if include_prepared_insights and not is_notebook_widget_enabled(user):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -2215,7 +2255,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
         # The node short-polls this durable read to learn when its run finishes. One indexed
-        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
+        # query, no held connection — resilient to reloads/remounts.
         user = self._current_user()
         if run_id is None:
             raise Http404()
@@ -2269,7 +2309,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         required_scopes=["notebook:read", "query:read"],
     )
     def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
-        # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
+        # A page fetch is not a run: a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
         user = self._current_user()
         if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:

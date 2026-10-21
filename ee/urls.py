@@ -25,7 +25,7 @@ from ee.api.vercel import vercel_connect, vercel_sso
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, organization_billing, subscription
+from .api import authentication, billing, conversation, core_memory, organization_billing, project_billing
 from .api.scim import views as scim_views
 
 
@@ -36,32 +36,21 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import hands_free, max_tools
+    from ee.api import max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     organizations_router.register(
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
+    projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
-
-    project_subscriptions_router = projects_router.register(
-        r"subscriptions", subscription.SubscriptionViewSet, "project_subscriptions", ["team_id"]
-    )
-    project_subscriptions_router.register(
-        r"deliveries",
-        subscription.SubscriptionDeliveryViewSet,
-        "project_subscription_deliveries",
-        ["team_id", "subscription_id"],
-    )
 
     projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
 
     projects_router.register(r"core_memory", core_memory.MaxCoreMemoryViewSet, "project_core_memory", ["team_id"])
 
     projects_router.register(r"max_tools", max_tools.MaxToolsViewSet, "project_max_tools", ["team_id"])
-
-    projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
@@ -79,6 +68,7 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
+    from posthog.admin.admins.events_retention_admin import events_retention_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
@@ -110,6 +100,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/distinct-id-usage/",
             admin.site.admin_view(distinct_id_usage_view),
             name="distinct-id-usage",
+        ),
+        path(
+            "admin/events-retention/",
+            admin.site.admin_view(events_retention_view),
+            name="events-retention",
         ),
         path(
             "admin/tophog/",

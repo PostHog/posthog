@@ -222,7 +222,8 @@ Once the report is delivered, ask the user whether they want the findings fixed.
 - Run any adjacent existing tests for the affected module to catch regressions.
 - Report back which findings were fixed, which tests pass, and anything that needs follow-up.
 
-Do not start fixing without explicit approval — the user may want to triage, file tickets, or fix in a separate branch.
+Do not start fixing without explicit approval — the user may want to triage or file tickets first.
+Route each approved fix and its reproducer test to `PostHog/posthog` by default. Fix a weakness introduced only by an open public PR in that PR. Use `PostHog/posthog-private` only for a critical or high finding that team-security agrees needs an embargo; medium and low findings always go public with a neutral description. See [Routing security fixes](../../security.md#routing-security-fixes).
 
 ## Output format
 

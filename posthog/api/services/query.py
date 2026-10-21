@@ -64,6 +64,7 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
+    unwrapped_source,
 )
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
@@ -116,6 +117,7 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
             and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
             and query.variables is None
             and not query.debug
+            and not query.includeOutputTypes
         )
     return common and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
 
@@ -682,7 +684,7 @@ def process_query_model(
     if hasattr(query, "source") and isinstance(query.source, BaseModel):
         return process_query_model(
             team,
-            query.source,
+            unwrapped_source(query, query.source),
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,

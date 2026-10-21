@@ -275,6 +275,21 @@ describe('ui-apps', () => {
             if (!queryResultsConfig.render_ui) {
                 throw new Error('Expected query results to configure render-ui dispatch')
             }
+            const storyConfig = resolveCustomApp({
+                type: 'custom',
+                app_name: 'Chart Walkthrough',
+                description: 'A walkthrough of a chart',
+                render_ui: {
+                    component_import: '../components/InsightStory',
+                    view_component: 'InsightStory',
+                    view_prop: 'data',
+                    data_type: 'InsightStoryData',
+                    link_prop: 'openLink',
+                },
+            })
+            if (!storyConfig.render_ui) {
+                throw new Error('Expected the walkthrough to configure render-ui dispatch')
+            }
 
             const code = generateDispatchModule([
                 {
@@ -292,6 +307,11 @@ describe('ui-apps', () => {
                     config: { ...queryResultsConfig, render_ui: queryResultsConfig.render_ui },
                 },
                 {
+                    appKey: 'insight-story',
+                    type: 'custom',
+                    config: { ...storyConfig, render_ui: storyConfig.render_ui },
+                },
+                {
                     appKey: 'survey-list',
                     type: 'list',
                     config: resolveListApp(
@@ -305,6 +325,9 @@ describe('ui-apps', () => {
             expect(code).toContain("'survey': ({ data }) => <SurveyView survey={data as SurveyData} />")
             expect(code).toContain("import { Component } from '../components/Component'")
             expect(code).toContain("'query-results': ({ data }) => <Component data={data} />")
+            expect(code).toContain(
+                "'insight-story': ({ data, openLink }) => <InsightStory data={data as InsightStoryData} openLink={openLink} />"
+            )
             expect(code).toContain(
                 "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
             )

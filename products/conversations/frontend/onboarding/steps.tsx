@@ -1,4 +1,4 @@
-import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 // Support has no product-specific onboarding screen worth showing: enabling the product and

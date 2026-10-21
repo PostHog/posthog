@@ -181,12 +181,18 @@ class _Recorder:
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
+        checks_snapshot: dict[str, str] | None = None,
+        selected_repository: str | None = "owner/repo",
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
         self.research_choice = research_choice
         self.research_metrics = research_metrics
+        self.checks_snapshot = checks_snapshot
+        self.checks_summary: str | None = None
+        self.checks_monitoring_enabled = False
+        self.selected_repository = selected_repository
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -195,6 +201,7 @@ class _Recorder:
         self.safety_checks = 0
         self.repo_selections = 0
         self.researches = 0
+        self.spend_publications = 0
         self.reverts = 0
         self.resets = 0
         self.failures = 0
@@ -230,6 +237,8 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
 
     assert decoded.metrics is None
     assert decoded.charts is None
+    assert decoded.checks_snapshot is None
+    assert decoded.checks_monitoring_enabled is False
 
 
 async def _run_summary_workflow(recorder: _Recorder) -> None:
@@ -261,7 +270,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
         recorder.repo_selections += 1
-        return RepoSelectionResult(repository="owner/repo", reason="selected")
+        return RepoSelectionResult(repository=recorder.selected_repository, reason="no repository matched")
 
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
@@ -275,6 +284,9 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             already_addressed=False,
             repository="owner/repo",
             metrics=recorder.research_metrics,
+            checks_snapshot=recorder.checks_snapshot,
+            checks_monitoring_enabled=recorder.checks_monitoring_enabled,
+            checks_summary=recorder.checks_summary,
         )
 
     @activity.defn(name="mark_report_pending_input_activity")
@@ -289,6 +301,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="publish_report_completed_activity")
     async def fake_publish(input: PublishReportCompletedInput) -> None:
         return None
+
+    @activity.defn(name="publish_report_spend_activity")
+    async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
+        recorder.spend_publications += 1
 
     @activity.defn(name="revert_report_to_candidate_activity")
     async def fake_revert(input: RevertReportToCandidateInput) -> None:
@@ -322,6 +338,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_mark_pending,
                 fake_mark_ready,
                 fake_publish,
+                fake_publish_spend,
                 fake_revert,
                 fake_reset,
                 fake_failed,
@@ -370,6 +387,7 @@ async def test_open_gates_let_the_run_flow_through():
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
     assert recorder.researches == 1
+    assert recorder.spend_publications == 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
 
@@ -384,13 +402,36 @@ async def test_open_gates_let_the_run_flow_through():
 )
 async def test_metric_payload_reaches_the_report_transition(choice, target):
     metrics = [{"metric_id": "affected-users", "kind": "affected_users", "value": 12}]
-    recorder = _Recorder(research_choice=choice, research_metrics=metrics)
+    snapshot = {"check-1": "2026-10-02T12:00:00+00:00"}
+    recorder = _Recorder(research_choice=choice, research_metrics=metrics, checks_snapshot=snapshot)
+    recorder.checks_summary = "Expected impact matches the reconciled checks."
+    recorder.checks_monitoring_enabled = True
 
     await _run_summary_workflow(recorder)
 
     inputs = recorder.pending_inputs if target == "pending" else recorder.ready_inputs
     assert len(inputs) == 1
     assert inputs[0].metrics == metrics
+    assert inputs[0].checks_snapshot == snapshot
+    assert inputs[0].checks_monitoring_enabled is True
+    assert inputs[0].checks_summary == recorder.checks_summary
+
+
+@pytest.mark.asyncio
+async def test_no_repository_keeps_report_content_and_logs_the_blocker():
+    recorder = _Recorder(selected_repository=None)
+
+    await _run_summary_workflow(recorder)
+
+    assert recorder.researches == 0
+    assert len(recorder.pending_inputs) == 1
+    pending = recorder.pending_inputs[0]
+    assert pending.keep_existing_content is True
+    assert pending.title == "Repository selection required"
+    assert pending.summary == "Could not automatically select a repository: no repository matched"
+    assert pending.suggested_prompts is None
+    assert pending.pending_reason == "repo_selection_required"
+    assert pending.note == "Could not automatically select a repository: no repository matched"
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +445,7 @@ async def test_empty_first_fetch_is_retried_and_run_proceeds():
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 3
     assert recorder.researches == 1
+    assert recorder.spend_publications == 1
     assert recorder.failures == 0
     assert recorder.assigned_signal_checks == 0
 
