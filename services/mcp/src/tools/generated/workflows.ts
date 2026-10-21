@@ -138,7 +138,7 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 const result = await context.api.request<Schemas.HogFlow>({
                     method: 'POST',
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
-                    body,
+                    body: await transformRequestBody(hooks_workflowsCreate, context, params, body),
                 })
                 return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
             }
@@ -864,7 +864,7 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
                 const result = await context.api.request<Schemas.HogFlowUpdate>({
                     method: 'PATCH',
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-                    body,
+                    body: await transformRequestBody(hooks_workflowsUpdate, context, params, body),
                 })
                 return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
             }
