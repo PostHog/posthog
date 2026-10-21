@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::utils::test_utils::unparseable_flag_json;
 use crate::{
     api::errors::{simplify_serde_error, FlagError},
     flags::{
@@ -39,8 +40,7 @@ pub fn v2_filters_referencing(
     filters
 }
 
-/// A hypercache payload in which only flag 2 fails to deserialize. Its property
-/// filter has no `"type"` key, and `PropertyFilter` requires one. Flag 3 depends on flag 2.
+/// A hypercache payload in which only flag 2 fails to deserialize. Flag 3 depends on flag 2.
 /// Flag 1 starts in `flags_with_missing_deps` so that a test sees whether a kept flag stays marked.
 pub fn payload_with_unparseable_flag(team_id: TeamId) -> serde_json::Value {
     serde_json::json!({
@@ -53,21 +53,7 @@ pub fn payload_with_unparseable_flag(team_id: TeamId) -> serde_json::Value {
                 "deleted": false,
                 "filters": { "groups": [] }
             },
-            {
-                "id": 2,
-                "key": "malformed_flag",
-                "team_id": team_id,
-                "active": true,
-                "deleted": false,
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [{ "key": "email", "value": "a@example.com" }],
-                            "rollout_percentage": 100
-                        }
-                    ]
-                }
-            },
+            unparseable_flag_json(2, "malformed_flag", team_id),
             {
                 "id": 3,
                 "key": "dependent_flag",

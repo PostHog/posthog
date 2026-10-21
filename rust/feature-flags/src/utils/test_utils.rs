@@ -106,6 +106,22 @@ pub async fn insert_new_team_in_redis(
     Ok(team)
 }
 
+/// A cached flag that the serving read cannot deserialize. Its property filter has no
+/// `"type"` key, and `PropertyFilter` requires one.
+pub fn unparseable_flag_json(id: i32, key: &str, team_id: i32) -> Value {
+    json!({
+        "id": id,
+        "key": key,
+        "team_id": team_id,
+        "active": true,
+        "deleted": false,
+        "filters": {"groups": [{
+            "properties": [{"key": "email", "value": "a@example.com"}],
+            "rollout_percentage": 100
+        }]}
+    })
+}
+
 /// Write flags to the hypercache key for `team_id` in Redis.
 /// Auto-generates single-stage `evaluation_metadata` with no transitive-dependency
 /// information (all flags in one stage, `transitive_deps[id] = []` for each flag).

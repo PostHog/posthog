@@ -17,7 +17,7 @@ use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
     insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, update_team_in_hypercache, TestContext,
+    setup_redis_client, unparseable_flag_json, update_team_in_hypercache, TestContext,
 };
 
 pub mod common;
@@ -6407,11 +6407,13 @@ async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Resul
 }
 
 #[rstest]
-#[case::no_flag_left(false)]
-#[case::only_inactive_flags_left(true)]
+#[case::no_flag_left(None, &[])]
+#[case::only_an_inactive_flag_left(Some(false), &[])]
+#[case::a_healthy_flag_left(Some(true), &["other-flag"])]
 #[tokio::test]
-async fn it_reports_errors_when_a_skipped_flag_leaves_nothing_to_evaluate(
-    #[case] with_inactive_flag: bool,
+async fn it_reports_errors_when_the_serving_read_skips_a_flag(
+    #[case] other_flag_active: Option<bool>,
+    #[case] expected_keys: &[&str],
 ) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
@@ -6420,23 +6422,12 @@ async fn it_reports_errors_when_a_skipped_flag_leaves_nothing_to_evaluate(
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    // `PropertyFilter` requires a `type` key, so the serving read skips this flag.
-    let mut flags = vec![json!({
-        "id": 1,
-        "key": "malformed-flag",
-        "active": true,
-        "deleted": false,
-        "team_id": team.id,
-        "filters": {"groups": [{
-            "properties": [{"key": "email", "value": "user@example.com"}],
-            "rollout_percentage": 100
-        }]}
-    })];
-    if with_inactive_flag {
+    let mut flags = vec![unparseable_flag_json(1, "malformed-flag", team.id)];
+    if let Some(active) = other_flag_active {
         flags.push(json!({
             "id": 2,
-            "key": "inactive-flag",
-            "active": false,
+            "key": "other-flag",
+            "active": active,
             "deleted": false,
             "team_id": team.id,
             "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}
@@ -6451,7 +6442,9 @@ async fn it_reports_errors_when_a_skipped_flag_leaves_nothing_to_evaluate(
     assert_eq!(res.status(), StatusCode::OK);
     let body = res.json::<FlagsResponse>().await?;
     assert!(body.errors_while_computing_flags);
-    assert!(body.flags.is_empty());
+    let mut keys: Vec<&str> = body.flags.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, expected_keys);
 
     Ok(())
 }
