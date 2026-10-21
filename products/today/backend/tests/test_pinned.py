@@ -120,7 +120,7 @@ class TestPinnedNumbers(BaseTest):
         key_metrics: list[KeyMetric] | Exception | None,
         resolved: list[tuple[str, str | None]],
     ) -> None:
-        def series(**kwargs: Any) -> InsightSeries:
+        def series(**kwargs: Any) -> InsightSeries | None:
             if kwargs["short_id"] == "cold" and not kwargs.get("blocking"):
                 return None
             if kwargs["short_id"] == "broken":
