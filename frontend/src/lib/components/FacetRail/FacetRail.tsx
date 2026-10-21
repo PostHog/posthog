@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, useMemo, useRef } from 'react'
+import { Fragment, ReactNode, useMemo, useRef } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
@@ -15,20 +15,28 @@ import { FacetGroupItem, facetsByGroup, filterFacetsByName } from './facetGroups
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
 
+interface AddFacetGroupTypes {
+    attribute: TaxonomicFilterGroupType
+    resourceAttribute: TaxonomicFilterGroupType
+}
+
 export interface FacetRailProps<T extends FacetGroupItem> {
-    product: CustomFacetsProduct
+    /** Omit, with `addFacetGroupTypes`, for a product without custom facets: the rail then hides the add button. */
+    product?: CustomFacetsProduct
     facets: T[]
     /** Renders one facet. A facet that the name search hides still renders, so its logic stays mounted. */
     renderFacet: (facet: T, hidden: boolean) => JSX.Element
     facetNameSearch: string
     onFacetNameSearchChange: (value: string) => void
     onCollapsedChange: (collapsed: boolean) => void
-    addFacetGroupTypes: { attribute: TaxonomicFilterGroupType; resourceAttribute: TaxonomicFilterGroupType }
+    addFacetGroupTypes?: AddFacetGroupTypes
     /** Persisted width keys. Frozen: a change resets every user's saved rail width. */
     resizerLogicKey: string
     resizerPersistPrefix: string
     /** Prefix for the rail's data-attrs, e.g. `logs-facet-rail`. Frozen: autocapture and tests select on them. */
     dataAttrPrefix: string
+    /** Shown above the facets, such as an error when the facet list itself failed to load. */
+    notice?: ReactNode
 }
 
 /** Resizable left-hand facet rail: a facet-name search, an add-custom-facet button, and the grouped facets. */
@@ -43,10 +51,9 @@ export function FacetRail<T extends FacetGroupItem>({
     resizerLogicKey,
     resizerPersistPrefix,
     dataAttrPrefix,
+    notice,
 }: FacetRailProps<T>): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
-    const { addCustomFacet } = useActions(customFacetsLogic({ product }))
-    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic({ product }))
 
     const resizerLogicProps: ResizerLogicProps = useMemo(
         () => ({
@@ -87,26 +94,16 @@ export function FacetRail<T extends FacetGroupItem>({
                     onChange={onFacetNameSearchChange}
                     data-attr={`${dataAttrPrefix}-search`}
                 />
-                {customFacetsEnabled && (
-                    <TaxonomicStringPopover
-                        groupType={addFacetGroupTypes.attribute}
-                        groupTypes={[addFacetGroupTypes.attribute, addFacetGroupTypes.resourceAttribute]}
-                        placeholder={null}
-                        size="small"
-                        icon={<IconPlus />}
-                        tooltip="Add custom facet"
-                        disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
-                        data-attr={`${dataAttrPrefix}-add`}
-                        onChange={(value, groupType) =>
-                            addCustomFacet(
-                                value,
-                                groupType === addFacetGroupTypes.resourceAttribute ? 'resourceAttribute' : 'attribute'
-                            )
-                        }
+                {product && addFacetGroupTypes && (
+                    <AddCustomFacetButton
+                        product={product}
+                        groupTypes={addFacetGroupTypes}
+                        dataAttrPrefix={dataAttrPrefix}
                     />
                 )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                {notice}
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (
                     <div className="px-1 text-xs text-muted">No matching facets</div>
                 )}
@@ -125,5 +122,36 @@ export function FacetRail<T extends FacetGroupItem>({
             </div>
             <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
         </div>
+    )
+}
+
+function AddCustomFacetButton({
+    product,
+    groupTypes,
+    dataAttrPrefix,
+}: {
+    product: CustomFacetsProduct
+    groupTypes: AddFacetGroupTypes
+    dataAttrPrefix: string
+}): JSX.Element | null {
+    const { addCustomFacet } = useActions(customFacetsLogic({ product }))
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic({ product }))
+    if (!customFacetsEnabled) {
+        return null
+    }
+    return (
+        <TaxonomicStringPopover
+            groupType={groupTypes.attribute}
+            groupTypes={[groupTypes.attribute, groupTypes.resourceAttribute]}
+            placeholder={null}
+            size="small"
+            icon={<IconPlus />}
+            tooltip="Add custom facet"
+            disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
+            data-attr={`${dataAttrPrefix}-add`}
+            onChange={(value, groupType) =>
+                addCustomFacet(value, groupType === groupTypes.resourceAttribute ? 'resourceAttribute' : 'attribute')
+            }
+        />
     )
 }
