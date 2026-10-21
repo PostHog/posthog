@@ -24,6 +24,7 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
+        # source_runner is cached with the user it was built for, so drop it to rebuild under the new user's access control.
         self.__dict__.pop("source_runner", None)
 
     @cached_property
