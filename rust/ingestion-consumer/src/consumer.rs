@@ -967,7 +967,11 @@ impl IngestionConsumer {
 
     fn pause_partition(&self, topic_partition: &TopicPartition) {
         let tpl = partition_list(topic_partition);
-        match self.consumer.pause(&tpl).and_then(|()| partition_error(&tpl)) {
+        match self
+            .consumer
+            .pause(&tpl)
+            .and_then(|()| partition_error(&tpl))
+        {
             Ok(()) => self.fetching.paused(topic_partition),
             Err(err) => error!(
                 topic = %topic_partition.topic,
@@ -980,7 +984,11 @@ impl IngestionConsumer {
 
     fn resume_partition(&self, topic_partition: &TopicPartition) {
         let tpl = partition_list(topic_partition);
-        match self.consumer.resume(&tpl).and_then(|()| partition_error(&tpl)) {
+        match self
+            .consumer
+            .resume(&tpl)
+            .and_then(|()| partition_error(&tpl))
+        {
             Ok(()) => self.fetching.resumed(topic_partition),
             Err(err) => error!(
                 topic = %topic_partition.topic,

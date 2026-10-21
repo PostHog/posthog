@@ -46,7 +46,9 @@ fn topic_partitions(tpl: &TopicPartitionList) -> Vec<TopicPartition> {
 /// librdkafka's pause and resume return success when they cannot change a
 /// partition. They set the error on that partition's list element.
 pub(crate) fn partition_error(tpl: &TopicPartitionList) -> KafkaResult<()> {
-    tpl.elements().iter().try_for_each(|element| element.error())
+    tpl.elements()
+        .iter()
+        .try_for_each(|element| element.error())
 }
 
 fn partition_names(partitions: &[TopicPartition]) -> Vec<String> {
