@@ -81,9 +81,10 @@ DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # attempt left looks fresh to every one of those retries.
 BUSY_RETRY_DELAY = dt.timedelta(seconds=20)
 # A delivery run that recorded TRANSITION_EVENTS_PATCH and not NO_TRANSITION_EVENTS_PATCH still
-# schedules the emit activity, so its replay matches its history. Delete that branch, both patches
-# and the activity once no such run can be open: under five minutes per part after the
-# deploy that added NO_TRANSITION_EVENTS_PATCH.
+# schedules the emit activity, so its replay matches its history. Once no such run can be open
+# (under five minutes per part after the deploy that added NO_TRANSITION_EVENTS_PATCH), delete
+# that branch, TRANSITION_EVENTS_PATCH and the activity. Replace the check with
+# `workflow.deprecate_patch(NO_TRANSITION_EVENTS_PATCH)`: every newer run carries that marker.
 TRANSITION_EVENTS_PATCH = "alerts-platform-transition-events"
 NO_TRANSITION_EVENTS_PATCH = "alerts-platform-no-transition-events"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
