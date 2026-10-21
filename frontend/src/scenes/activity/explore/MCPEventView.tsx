@@ -82,6 +82,7 @@ const MCP_PROPERTY_ORDER: readonly string[] = [
     '$mcp_conversation_id',
     '$mcp_mode',
     '$mcp_source',
+    '$mcp_interface',
     '$mcp_transport',
     // Client
     '$mcp_client_name',
@@ -101,6 +102,12 @@ const MCP_PROPERTY_ORDER: readonly string[] = [
     '$mcp_project_uuid',
     '$mcp_region',
 ]
+
+// `$mcp_interface` wire values are frozen SDK output; only the display label changes here.
+const MCP_INTERFACE_LABELS: Record<string, string> = {
+    mcp: 'MCP',
+    webmcp: 'WebMCP',
+}
 
 const orderIndex = (key: string): number => {
     // Accept both `$mcp_*` and the older un-prefixed `mcp_*` form.
@@ -231,12 +238,17 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
     const llmModel = mcpProps['$mcp_llm_model']
     const llmModelSource = mcpProps['$mcp_llm_model_source']
     const serverName = mcpProps['$mcp_server_name']
+    const rawInterface = mcpProps['$mcp_interface']
+    const interfaceLabel = rawInterface ? (MCP_INTERFACE_LABELS[String(rawInterface)] ?? String(rawInterface)) : null
+    // WebMCP tools run in a web page, so the SDK stamps the page's hostname as the server name.
+    const isWebMCP = rawInterface === 'webmcp'
     const intent = mcpProps['$mcp_intent']
     const intentSource = mcpProps['$mcp_intent_source']
     const hasSummaryStat =
         hasErrorStatus ||
         Boolean(displayName && displayKind) ||
         (durationMs !== undefined && durationMs !== null) ||
+        Boolean(interfaceLabel) ||
         Boolean(clientName) ||
         Boolean(llmModel) ||
         Boolean(serverName) ||
@@ -301,13 +313,14 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
                     {durationMs !== undefined && durationMs !== null ? (
                         <Stat label="Duration">{String(durationMs)} ms</Stat>
                     ) : null}
+                    {interfaceLabel ? <Stat label="Interface">{interfaceLabel}</Stat> : null}
                     {clientName ? <Stat label="Client">{String(clientName)}</Stat> : null}
                     {llmModel ? (
                         <Stat label={llmModelSource ? `Model (${String(llmModelSource).replace(/_/g, ' ')})` : 'Model'}>
                             {String(llmModel)}
                         </Stat>
                     ) : null}
-                    {serverName ? <Stat label="Server">{String(serverName)}</Stat> : null}
+                    {serverName ? <Stat label={isWebMCP ? 'Site' : 'Server'}>{String(serverName)}</Stat> : null}
                     {intent ? (
                         <div className="basis-full">
                             <Stat
