@@ -102,7 +102,11 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.feature_flags import get_model_access_error, pi_cloud_runtime_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    pi_cloud_runtime_enabled,
+    run_stream_presence_gated,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -351,6 +355,7 @@ __all__ = [
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
+    "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
     "record_run_failure_cause",
@@ -5179,6 +5184,30 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if log_urls is None:
         return None
     return read_task_run_log_content(log_urls)
+
+
+def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        TASK_RUN_STREAM_WATCHED_TIMEOUT,
+        get_task_run_stream_key,
+        get_task_run_stream_watched_key,
+    )
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        get_tasks_stream_redis_sync,
+        run_uses_dedicated_stream,
+    )
+
+    info = get_task_run_stream_info(run_id, task_id, team_id)
+    if info is None or info.is_terminal or not run_stream_presence_gated(info.state):
+        return
+    try:
+        get_tasks_stream_redis_sync(run_uses_dedicated_stream(info.state)).set(
+            get_task_run_stream_watched_key(get_task_run_stream_key(str(info.id))),
+            "1",
+            ex=TASK_RUN_STREAM_WATCHED_TIMEOUT,
+        )
+    except Exception:
+        logger.warning("task_run_stream_mark_watched_failed run_id=%s", info.id, exc_info=True)
 
 
 def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
