@@ -68,6 +68,7 @@ from posthog.hogql_queries.query_runner import (
     QueryRunner,
     get_query_runner_or_none,
     query_node_modifiers,
+    source_with_wrapper_modifiers,
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import native_events_async_enabled, native_events_cluster_ineligibility
@@ -744,13 +745,9 @@ def process_query_model(
 
     # This query doesn't run via query runner
     if hasattr(query, "source") and isinstance(query.source, BaseModel):
-        source = query.source
-        if getattr(query, "modifiers", None) is not None:
-            # The wrapper's own modifiers take precedence over its source's, as they do for a wrapper with a runner.
-            source = source.model_copy(update={"modifiers": query_node_modifiers(query)})
         return process_query_model(
             team,
-            source,
+            source_with_wrapper_modifiers(query, query.source),
             modifiers=modifiers,
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
