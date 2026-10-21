@@ -21,14 +21,14 @@ from urllib.parse import urlsplit
 from posthog.dataclasses import frozen
 
 # Bump on any change to the filters, the caps, the sampling or the rendered layout, so summaries stay comparable.
-RENDER_VERSION = 3
+RENDER_VERSION = 4
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
 CHARS_PER_TOKEN = 4
 
-# Rows read per person before any filter, newest first. They bound query and memory cost for very
-# active people; the filters and caps below work on what is left.
+# Rows read per person, newest first. They bound query and memory cost for very active people. The
+# query applies the noise filters before this limit, so bulk agent writes cannot fill it.
 MAX_TASKS_PER_PERSON = 200
 MAX_ACTIVITY_ROWS_PER_PERSON = 1000
 
@@ -59,7 +59,7 @@ TASKS_HEADER = "Tasks the person gave to PostHog AI or the Slack agent ([tags] g
 ACTIVITY_HEADER = "Things the person created or changed in PostHog (agent: why their coding agent did it):"
 
 # Helper tasks that a task spawns for itself, such as repository selection, carry the parent's origin.
-SANDBOX_PROMPT_TITLE = re.compile(r"^\[sandbox_prompt:")
+SANDBOX_PROMPT_TITLE_PREFIX = "[sandbox_prompt:"
 # Titles a button or a workflow writes, with only an id changing. Each collapses to one line with a count.
 TEMPLATED_TASK_TITLES: tuple[re.Pattern[str], ...] = (re.compile(r"^Fix failing CI checks in PR #\d+$"),)
 _TEMPLATE_ID = re.compile(r"#\d+")
@@ -223,7 +223,7 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str]) -> list[Unit]:
     templated: dict[str, list[datetime.datetime]] = {}
     for task in tasks:
         title = task.title.strip()
-        if SANDBOX_PROMPT_TITLE.match(title):
+        if title.startswith(SANDBOX_PROMPT_TITLE_PREFIX):
             drops[Drop.SANDBOX_PROMPT_TASK] += 1
             continue
         if (label := _templated_label(title)) is not None:
