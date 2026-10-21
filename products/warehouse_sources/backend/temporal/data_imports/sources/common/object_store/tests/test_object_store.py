@@ -66,6 +66,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.incremental import (
     FileSelection,
+    listing_digest,
+    plan_mirror,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     JSONL_CHUNK_ROWS,
@@ -76,6 +78,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     iter_table,
     validate_store_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
 MODIFIED_AT = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
 LOGGER = structlog.get_logger()
@@ -818,6 +821,53 @@ class TestFileSelection:
         ]
 
         assert {row["_file_name"] for row in rows} == {"settled.csv"}
+
+    @parameterized.expand(
+        [
+            ("an_unchanged_listing_reads_and_deletes_nothing", [("a.csv", 0, 10), ("b.csv", 1, 10)], None),
+            (
+                "a_deleted_file_loses_its_rows",
+                [("b.csv", 1, 10)],
+                (["b.csv"], {"b.csv"}, {"b.csv"}),
+            ),
+            (
+                "a_shrunk_file_replaces_its_rows",
+                [("a.csv", 0, 10), ("b.csv", 2, 4)],
+                (["b.csv"], {"b.csv"}, {"a.csv", "b.csv"}),
+            ),
+            (
+                "a_renamed_file_moves_its_rows",
+                [("renamed.csv", 2, 10), ("b.csv", 1, 10)],
+                (["b.csv", "renamed.csv"], {"b.csv", "renamed.csv"}, {"b.csv", "renamed.csv"}),
+            ),
+        ]
+    )
+    def test_a_mirrored_read_replaces_the_changed_files_and_drops_the_deleted_ones(
+        self,
+        _name: str,
+        listing: list[tuple[str, int, int]],
+        expected: tuple[list[str], set[str], set[str]] | None,
+    ) -> None:
+        def files(entries: list[tuple[str, int, int]]) -> list[StoredObject]:
+            return [
+                StoredObject(path=path, size=size, modified_at=MODIFIED_AT + timedelta(minutes=minutes))
+                for path, minutes, size in entries
+            ]
+
+        last_sync = listing_digest(files([("a.csv", 0, 10), ("b.csv", 1, 10)]))
+        selection = FileSelection(mode="changed", watermark=MODIFIED_AT + timedelta(minutes=1))
+
+        plan = plan_mirror(files(listing), selection, last_sync)
+
+        assert len(plan.digest) == 64
+        if expected is None:
+            assert (plan.files, plan.replace_scope) == ([], None)
+            return
+        read, replaced, retained = expected
+        assert [stored.path for stored in plan.files] == read
+        assert plan.replace_scope == ReplaceScope(
+            column="_file_name", replaced=frozenset(replaced), retained=frozenset(retained)
+        )
 
     def test_row_numbers_continue_across_the_chunks_of_one_file(self) -> None:
         rows = JSONL_CHUNK_ROWS + 3
