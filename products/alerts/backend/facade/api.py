@@ -171,6 +171,13 @@ def snooze_alert_from_slack(
             state_fields = apply_snooze(locked_alert)
             locked_alert.snoozed_until = snoozed_until
             locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
+            if locked_alert.platform_owned:
+                # The platform's copy mutes delivery, so it takes the snooze under the same lock.
+                from products.alerts.backend.platform_ownership import (  # noqa: PLC0415 - platform_ownership reaches this module back
+                    on_updated,
+                )
+
+                on_updated(locked_alert, snooze_changed=True)
             AlertCheck.objects.create(
                 alert_configuration=locked_alert,
                 calculated_value=None,

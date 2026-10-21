@@ -14,6 +14,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
 
+from products.alerts.backend.facade.api import snooze_alert_from_slack
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
@@ -183,6 +184,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             "absolute",
             "absolute",
         )
+
+    def test_a_snooze_from_slack_mutes_the_platform_copy(self) -> None:
+        outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")
+
+        assert outcome == "snoozed"
+        self.alert.refresh_from_db()
+        assert self.alert.snoozed_until is not None
+        assert self._copy().snooze_until == self.alert.snoozed_until
 
     def test_an_edit_the_platform_cannot_run_is_refused_on_both_rows(self) -> None:
         # Real-time passes the insight API's own checks on this insight, so only the platform refuses it.
