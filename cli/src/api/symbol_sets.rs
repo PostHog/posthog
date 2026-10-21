@@ -173,6 +173,8 @@ struct BulkUploadRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     upload_attempt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_run_id: Option<String>,
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
     force: bool,
@@ -201,6 +203,7 @@ struct HashedUpload<'a> {
 struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
     upload_attempt_id: String,
+    upload_run_id: String,
 }
 
 /// Upload symbol sets with optional retry on release_id_mismatch error.
@@ -252,8 +255,11 @@ pub fn upload_with_retry_and_concurrency(
         },
         Err(e) => return (summary, Err(e)),
     };
+    // A release-ID retry belongs to the same CLI run, but starts new batch attempts.
+    let upload_run_id = uuid::Uuid::now_v7().to_string();
     let res = upload_inner(
         &input_sets,
+        &upload_run_id,
         batch_size,
         force,
         skip_on_conflict,
@@ -279,6 +285,7 @@ pub fn upload_with_retry_and_concurrency(
                 .collect();
             let res = upload_inner(
                 &sets_without_release,
+                &upload_run_id,
                 batch_size,
                 force,
                 skip_on_conflict,
@@ -333,6 +340,7 @@ impl UploadTransport {
 
 fn upload_inner(
     input_sets: &[SymbolSetUpload],
+    upload_run_id: &str,
     batch_size: usize,
     force: bool,
     skip_on_conflict: bool,
@@ -385,7 +393,13 @@ fn upload_inner(
     for (i, batch) in to_upload.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         let upload_attempt_id = uuid::Uuid::now_v7().to_string();
-        let start_response = start_upload(batch, force, skip_on_conflict, &upload_attempt_id)?;
+        let start_response = start_upload(
+            batch,
+            force,
+            skip_on_conflict,
+            &upload_attempt_id,
+            upload_run_id,
+        )?;
 
         let id_map: HashMap<&str, HashedUpload> = batch
             .iter()
@@ -422,7 +436,7 @@ fn upload_inner(
         }
         let uploaded = content_hashes.len();
 
-        finish_upload(content_hashes, &upload_attempt_id)?;
+        finish_upload(content_hashes, &upload_attempt_id, upload_run_id)?;
         summary.uploaded += uploaded;
     }
 
@@ -481,6 +495,7 @@ fn bulk_upload_request(
 ) -> BulkUploadRequest {
     BulkUploadRequest {
         upload_attempt_id: None,
+        upload_run_id: None,
         symbol_sets: batch
             .iter()
             .map(|hashed| CreateSymbolSetRequest {
@@ -550,10 +565,12 @@ fn start_upload(
     force: bool,
     skip_on_conflict: bool,
     upload_attempt_id: &str,
+    upload_run_id: &str,
 ) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
     let request = BulkUploadRequest {
         upload_attempt_id: Some(upload_attempt_id.to_string()),
+        upload_run_id: Some(upload_run_id.to_string()),
         ..bulk_upload_request(batch, force, skip_on_conflict)
     };
 
@@ -698,11 +715,13 @@ fn upload_to_s3(
 fn finish_upload(
     content_hashes: HashMap<String, String>,
     upload_attempt_id: &str,
+    upload_run_id: &str,
 ) -> Result<(), UploadError> {
     let client = &context().client;
     let request = BulkUploadFinishRequest {
         content_hashes,
         upload_attempt_id: upload_attempt_id.to_string(),
+        upload_run_id: upload_run_id.to_string(),
     };
 
     retry(retry_policy(500, 2, 3), |_| {
@@ -1079,30 +1098,36 @@ mod tests {
     }
 
     #[test]
-    fn upload_attempt_id_is_sent_with_start_and_finish_but_not_check() {
+    fn upload_ids_correlate_batches_and_finishes_but_not_checks() {
         let check = bulk_upload_request(&[], false, false);
-        assert!(serde_json::to_value(&check)
-            .unwrap()
-            .get("upload_attempt_id")
-            .is_none());
+        let check_json = serde_json::to_value(&check).unwrap();
+        assert!(check_json.get("upload_attempt_id").is_none());
+        assert!(check_json.get("upload_run_id").is_none());
 
-        let upload_attempt_id = uuid::Uuid::now_v7().to_string();
-        let start = BulkUploadRequest {
-            upload_attempt_id: Some(upload_attempt_id.clone()),
-            ..check
-        };
-        let finish = BulkUploadFinishRequest {
-            content_hashes: HashMap::new(),
-            upload_attempt_id: upload_attempt_id.clone(),
-        };
-        assert_eq!(
-            serde_json::to_value(&start).unwrap()["upload_attempt_id"],
-            upload_attempt_id
-        );
-        assert_eq!(
-            serde_json::to_value(&finish).unwrap()["upload_attempt_id"],
-            upload_attempt_id
-        );
+        let upload_run_id = uuid::Uuid::now_v7().to_string();
+        let attempt_ids = [
+            uuid::Uuid::now_v7().to_string(),
+            uuid::Uuid::now_v7().to_string(),
+        ];
+        assert_ne!(attempt_ids[0], attempt_ids[1]);
+        for upload_attempt_id in attempt_ids {
+            let start = BulkUploadRequest {
+                upload_attempt_id: Some(upload_attempt_id.clone()),
+                upload_run_id: Some(upload_run_id.clone()),
+                ..check.clone()
+            };
+            let finish = BulkUploadFinishRequest {
+                content_hashes: HashMap::new(),
+                upload_attempt_id: upload_attempt_id.clone(),
+                upload_run_id: upload_run_id.clone(),
+            };
+            let start_json = serde_json::to_value(&start).unwrap();
+            let finish_json = serde_json::to_value(&finish).unwrap();
+            assert_eq!(start_json["upload_attempt_id"], upload_attempt_id);
+            assert_eq!(finish_json["upload_attempt_id"], upload_attempt_id);
+            assert_eq!(start_json["upload_run_id"], upload_run_id);
+            assert_eq!(finish_json["upload_run_id"], upload_run_id);
+        }
     }
 
     #[test]
@@ -1307,6 +1332,7 @@ mod tests {
         let err = finish_upload(
             HashMap::from([("symbol-set-id".to_string(), "content-hash".to_string())]),
             "test-attempt",
+            "test-run",
         )
         .unwrap_err();
         let UploadError::Other(err) = err else {

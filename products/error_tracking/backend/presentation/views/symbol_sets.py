@@ -104,6 +104,10 @@ class ErrorTrackingSymbolSetBulkStartUploadSerializer(ErrorTrackingSymbolSetBulk
         required=False,
         help_text="Optional ID used to correlate upload analytics across start and finish requests.",
     )
+    upload_run_id = serializers.UUIDField(
+        required=False,
+        help_text="Optional ID shared by every batch in one CLI upload run, including release-ID retries.",
+    )
     chunk_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -160,6 +164,10 @@ class ErrorTrackingSymbolSetBulkFinishUploadSerializer(serializers.Serializer):
     upload_attempt_id = serializers.UUIDField(
         required=False,
         help_text="Optional ID from the corresponding bulk start request for upload analytics.",
+    )
+    upload_run_id = serializers.UUIDField(
+        required=False,
+        help_text="Optional ID shared by every batch in one CLI upload run, including release-ID retries.",
     )
     content_hashes = serializers.DictField(
         child=serializers.CharField(),
@@ -459,6 +467,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                     if "upload_attempt_id" in upload_data
                     else {}
                 ),
+                **({"upload_run_id": str(upload_data["upload_run_id"])} if "upload_run_id" in upload_data else {}),
             },
             groups=groups(self.team.organization, self.team),
         )
@@ -476,9 +485,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         finish_data = {"content_hashes": content_hashes}
         if "upload_attempt_id" in request.data:
             finish_data["upload_attempt_id"] = request.data["upload_attempt_id"]
+        if "upload_run_id" in request.data:
+            finish_data["upload_run_id"] = request.data["upload_run_id"]
         finish_serializer = ErrorTrackingSymbolSetBulkFinishUploadSerializer(data=finish_data)
         finish_serializer.is_valid(raise_exception=True)
         upload_attempt_id = finish_serializer.validated_data.get("upload_attempt_id")
+        upload_run_id = finish_serializer.validated_data.get("upload_run_id")
 
         if len(content_hashes) == 0:
             # This can happen if someone re-runs an upload against a directory that's already been
@@ -486,13 +498,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             # we can early exit here.
             return Response({"success": True}, status=status.HTTP_201_CREATED)
 
-        symbol_sets_facade.bulk_finish_upload(
-            self.team,
-            content_hashes,
-            analytics_props={
-                **get_request_analytics_properties(request),
-                **({"upload_attempt_id": str(upload_attempt_id)} if upload_attempt_id else {}),
-            },
-        )
+        analytics_props = get_request_analytics_properties(request)
+        if upload_attempt_id:
+            analytics_props["upload_attempt_id"] = str(upload_attempt_id)
+        if upload_run_id:
+            analytics_props["upload_run_id"] = str(upload_run_id)
+        symbol_sets_facade.bulk_finish_upload(self.team, content_hashes, analytics_props=analytics_props)
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)

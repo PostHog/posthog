@@ -42228,6 +42228,8 @@ export namespace Schemas {
     export interface ErrorTrackingSymbolSetBulkFinishUpload {
       /** Optional ID from the corresponding bulk start request for upload analytics. */
       upload_attempt_id?: string;
+      /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+      upload_run_id?: string;
       /** Map of symbol set ID to uploaded content hash. */
       content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
     }
@@ -42241,6 +42243,8 @@ export namespace Schemas {
       skip_on_conflict?: boolean;
       /** Optional ID used to correlate upload analytics across start and finish requests. */
       upload_attempt_id?: string;
+      /** Optional ID shared by every batch in one CLI upload run, including release-ID retries. */
+      upload_run_id?: string;
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**
