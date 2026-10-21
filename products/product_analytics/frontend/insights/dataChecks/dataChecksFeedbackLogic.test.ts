@@ -1,4 +1,4 @@
-import posthog, { Survey, SurveyQuestionType, SurveyType } from 'posthog-js'
+import posthog, { CaptureResult, Survey, SurveyQuestionType, SurveyType } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -57,7 +57,9 @@ describe('dataChecksFeedbackLogic', () => {
             callback([], {})
             return () => {}
         })
-        jest.mocked(posthog.capture).mockClear()
+        jest.mocked(posthog.capture)
+            .mockReset()
+            .mockReturnValue({} as CaptureResult)
     })
 
     it.each([
@@ -92,15 +94,35 @@ describe('dataChecksFeedbackLogic', () => {
         ])
     })
 
-    it.each(['rate', 'dismiss'] as const)('stops asking after the person chooses to %s', (choice) => {
+    it('keeps the note box open when a flag reload drops the rated survey', () => {
         const logic = mountWithSurveys([survey])
-        if (choice === 'rate') {
-            logic.actions.rate(DATA_CHECKS_FEEDBACK_RATINGS.USEFUL)
-        } else {
-            logic.actions.dismiss()
-        }
-        logic.unmount()
+        logic.actions.rate(DATA_CHECKS_FEEDBACK_RATINGS.USEFUL)
 
-        expect(mountWithSurveys([survey]).values.visible).toBe(false)
+        posthog.getActiveMatchingSurveys = jest.fn((callback) => callback([]))
+        jest.mocked(posthog.onFeatureFlags).mock.lastCall![0]([], {})
+
+        expect(logic.values.visible).toBe(true)
     })
+
+    it.each([
+        { choice: 'rate', accepted: true, asksAgain: false },
+        { choice: 'rate', accepted: false, asksAgain: true },
+        { choice: 'dismiss', accepted: true, asksAgain: false },
+    ] as const)(
+        'after $choice with capture accepted $accepted, asks again: $asksAgain',
+        ({ choice, accepted, asksAgain }) => {
+            if (!accepted) {
+                jest.mocked(posthog.capture).mockReturnValue(undefined)
+            }
+            const logic = mountWithSurveys([survey])
+            if (choice === 'rate') {
+                logic.actions.rate(DATA_CHECKS_FEEDBACK_RATINGS.USEFUL)
+            } else {
+                logic.actions.dismiss()
+            }
+            logic.unmount()
+
+            expect(mountWithSurveys([survey]).values.visible).toBe(asksAgain)
+        }
+    )
 })

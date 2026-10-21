@@ -13,6 +13,8 @@ import {
 } from 'kea'
 import posthog, { Survey } from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { uuid } from 'lib/utils/dom'
 import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
@@ -50,6 +52,12 @@ export interface dataChecksFeedbackLogicActions {
         rating: DataChecksFeedbackRating
         submissionId: string
     }
+    rateFailure: () => {
+        value: true
+    }
+    rateSuccess: () => {
+        value: true
+    }
     reportShown: () => {
         value: true
     }
@@ -60,6 +68,9 @@ export interface dataChecksFeedbackLogicActions {
         survey: Survey | null
     }
     submitNote: () => {
+        value: true
+    }
+    submitNoteSuccess: () => {
         value: true
     }
 }
@@ -88,22 +99,25 @@ export const dataChecksFeedbackLogic: LogicWrapper<dataChecksFeedbackLogicType> 
         setSurvey: (survey: Survey | null) => ({ survey }),
         reportShown: true,
         rate: (rating: DataChecksFeedbackRating) => ({ rating, submissionId: uuid() }),
+        rateSuccess: true,
+        rateFailure: true,
         setNote: (note: string) => ({ note }),
         submitNote: true,
+        submitNoteSuccess: true,
         dismiss: true,
     }),
     reducers(({ props }) => ({
         survey: [null as Survey | null, { setSurvey: (_, { survey }) => survey }],
         shownReported: [false, { reportShown: () => true }],
-        rating: [null as DataChecksFeedbackRating | null, { rate: (_, { rating }) => rating }],
+        rating: [null as DataChecksFeedbackRating | null, { rate: (_, { rating }) => rating, rateFailure: () => null }],
         submissionId: ['', { rate: (_, { submissionId }) => submissionId }],
         note: ['', { setNote: (_, { note }) => note }],
-        noteSent: [false, { submitNote: () => true }],
+        noteSent: [false, { submitNoteSuccess: () => true }],
         // pinned: localStorage key, renaming it asks everyone again
         finished: [
             false,
             { persist: true, storageKey: `insight-data-checks-feedback-finished:${props.userId}` },
-            { rate: () => true, dismiss: () => true },
+            { rateSuccess: () => true, dismiss: () => true },
         ],
     })),
     selectors({
@@ -119,40 +133,54 @@ export const dataChecksFeedbackLogic: LogicWrapper<dataChecksFeedbackLogicType> 
             }),
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         reportShown: () => {
             posthog.capture(SurveyEventName.SHOWN, values.surveyProperties)
         },
         rate: ({ rating, submissionId }) => {
             const [ratingQuestion] = values.survey?.questions ?? []
-            posthog.capture(SurveyEventName.SENT, {
+            const sent = posthog.capture(SurveyEventName.SENT, {
                 ...values.surveyProperties,
                 [SurveyEventProperties.SURVEY_SUBMISSION_ID]: submissionId,
                 [SurveyEventProperties.SURVEY_COMPLETED]: false,
                 ...(ratingQuestion?.id ? { [getSurveyIdBasedResponseKey(ratingQuestion.id)]: rating } : {}),
             })
+            if (sent) {
+                actions.rateSuccess()
+            } else {
+                actions.rateFailure()
+                lemonToast.error('Could not send your feedback. Try again.')
+            }
         },
         submitNote: () => {
             const [ratingQuestion, noteQuestion] = values.survey?.questions ?? []
             const note = values.note.trim()
-            posthog.capture(SurveyEventName.SENT, {
+            const sent = posthog.capture(SurveyEventName.SENT, {
                 ...values.surveyProperties,
                 [SurveyEventProperties.SURVEY_SUBMISSION_ID]: values.submissionId,
                 [SurveyEventProperties.SURVEY_COMPLETED]: true,
                 ...(ratingQuestion?.id ? { [getSurveyIdBasedResponseKey(ratingQuestion.id)]: values.rating } : {}),
                 ...(noteQuestion?.id && note ? { [getSurveyIdBasedResponseKey(noteQuestion.id)]: note } : {}),
             })
+            if (sent) {
+                actions.submitNoteSuccess()
+            } else {
+                lemonToast.error('Could not send your feedback. Try again.')
+            }
         },
         dismiss: () => {
             posthog.capture(SurveyEventName.DISMISSED, values.surveyProperties)
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
         // The survey links to a feature flag, so it can only match once both surveys and flags have loaded.
+        // A sent rating marks the survey as answered, so keep it after the rating while the person writes a note.
         const findSurvey = (): void => {
-            posthog.getActiveMatchingSurveys((surveys) =>
-                actions.setSurvey(surveys.find(({ id }) => id === DATA_CHECKS_FEEDBACK_SURVEY_ID) ?? null)
-            )
+            posthog.getActiveMatchingSurveys((surveys) => {
+                if (values.rating === null) {
+                    actions.setSurvey(surveys.find(({ id }) => id === DATA_CHECKS_FEEDBACK_SURVEY_ID) ?? null)
+                }
+            })
         }
         cache.disposables.add(() => posthog.onSurveysLoaded(findSurvey), 'surveysLoaded')
         cache.disposables.add(() => posthog.onFeatureFlags(findSurvey), 'flagsLoaded')
