@@ -39,6 +39,34 @@ describe('metrics facets', () => {
             expect(cleared).toEqual(EMPTY)
         })
 
+        it.each(['service.name', 'service_name'])(
+            'reads and replaces a %s chip from the filter bar on the service facet',
+            (chipKey) => {
+                const fromFilterBar = group([
+                    {
+                        key: chipKey,
+                        type: PropertyFilterType.MetricAttribute,
+                        operator: PropertyOperator.Exact,
+                        value: ['checkout'],
+                    },
+                ])
+                expect(metricFacetSelection(fromFilterBar, 'service_name')).toEqual({
+                    included: ['checkout'],
+                    excluded: [],
+                })
+
+                const excluded = cycleMetricFacetFilter(fromFilterBar, 'service_name', 'checkout')
+                expect((excluded.values[0] as UniversalFiltersGroup).values).toEqual([
+                    {
+                        key: 'service_name',
+                        type: PropertyFilterType.MetricAttribute,
+                        operator: PropertyOperator.IsNot,
+                        value: ['checkout'],
+                    },
+                ])
+            }
+        )
+
         it('adds a second value to the same include filter', () => {
             const next = cycleMetricFacetFilter(cycleMetricFacetFilter(EMPTY, 'env', 'prod'), 'env', 'dev')
             expect(metricFacetSelection(next, 'env')).toEqual({ included: ['prod', 'dev'], excluded: [] })

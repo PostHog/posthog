@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, useMemo, useRef } from 'react'
+import { Fragment, ReactNode, useMemo, useRef } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
@@ -35,6 +35,8 @@ export interface FacetRailProps<T extends FacetGroupItem> {
     resizerPersistPrefix: string
     /** Prefix for the rail's data-attrs, e.g. `logs-facet-rail`. Frozen: autocapture and tests select on them. */
     dataAttrPrefix: string
+    /** Shown above the facets, such as an error when the facet list itself failed to load. */
+    notice?: ReactNode
 }
 
 /** Resizable left-hand facet rail: a facet-name search, an add-custom-facet button, and the grouped facets. */
@@ -49,6 +51,7 @@ export function FacetRail<T extends FacetGroupItem>({
     resizerLogicKey,
     resizerPersistPrefix,
     dataAttrPrefix,
+    notice,
 }: FacetRailProps<T>): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
 
@@ -100,6 +103,7 @@ export function FacetRail<T extends FacetGroupItem>({
                 )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                {notice}
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (
                     <div className="px-1 text-xs text-muted">No matching facets</div>
                 )}

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { FacetRail } from 'lib/components/FacetRail/FacetRail'
 
@@ -11,14 +11,35 @@ import { RailFacet } from './RailFacet'
 
 /** The metrics viewer's facet rail: the service and every attribute the active metric carries. */
 export function MetricsFacetRail(): JSX.Element | null {
-    const { visibleFacets, facetNameSearch, railCollapsed } = useValues(metricsFacetRailLogic)
-    const { setFacetNameSearch, setRailCollapsed } = useActions(metricsFacetRailLogic)
+    const {
+        visibleFacets,
+        facetNameSearch,
+        railCollapsed,
+        attributeKeysFailed,
+        attributeKeysLoading,
+        loadedAttributeKeysScope,
+        attributeKeysScope,
+    } = useValues(metricsFacetRailLogic)
+    const { setFacetNameSearch, setRailCollapsed, retryAttributeKeys } = useActions(metricsFacetRailLogic)
 
     if (railCollapsed) {
         return null
     }
     return (
         <FacetRail
+            notice={
+                attributeKeysFailed &&
+                !attributeKeysLoading && (
+                    <div className="px-1 pb-2 text-xs text-secondary" data-attr="metrics-facet-rail-keys-error">
+                        {loadedAttributeKeysScope === attributeKeysScope
+                            ? "Couldn't refresh this metric's attributes."
+                            : "Couldn't load this metric's attributes."}{' '}
+                        <Link onClick={retryAttributeKeys} data-attr="metrics-facet-rail-keys-retry">
+                            Retry
+                        </Link>
+                    </div>
+                )
+            }
             facets={visibleFacets}
             renderFacet={(facet, hidden) => <RailFacet facet={facet} hidden={hidden} />}
             facetNameSearch={facetNameSearch}

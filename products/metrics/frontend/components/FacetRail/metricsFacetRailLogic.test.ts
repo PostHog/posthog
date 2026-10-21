@@ -111,4 +111,82 @@ describe('metricsFacetRailLogic', () => {
         expect(values.values.facetValues).toEqual([{ value: 'prod', label: 'prod', count: 3 }])
         values.unmount()
     })
+
+    it('skips the values request when the facet collapses during the debounce', async () => {
+        viewer.actions.setMetricName('http_requests')
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        const [expanded] = logic.values.visibleFacets
+        const values = metricsFacetValuesLogic({ facet: expanded })
+        values.mount()
+
+        logic.actions.toggleFacetCollapsed(expanded.key)
+        await expectLogic(values).toDispatchActions(['loadFacetValuesSuccess'])
+
+        expect(metricsAttributeValuesRetrieve).not.toHaveBeenCalled()
+        values.unmount()
+    })
+
+    it('shows only the service facet until the keys for a new metric arrive', async () => {
+        viewer.actions.setMetricName('http_requests')
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        let releaseKeys: (response: {
+            results: { name: string; value_count: number }[]
+            count: number
+        }) => void = () => {}
+        jest.mocked(metricsAttributesRetrieve).mockReturnValueOnce(
+            new Promise((resolve) => {
+                releaseKeys = resolve
+            })
+        )
+
+        viewer.actions.setMetricName('queue_depth')
+        expect(logic.values.visibleFacets.map((facet) => facet.attributeKey)).toEqual(['service_name'])
+
+        releaseKeys({ results: [{ name: 'queue', value_count: 1 }], count: 1 })
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        expect(logic.values.visibleFacets.map((facet) => facet.attributeKey)).toEqual(['service_name', 'queue'])
+    })
+
+    it('reports a failed attribute-key load and retries it', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockRejectedValueOnce(new Error('timeout'))
+        viewer.actions.setMetricName('http_requests')
+
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysFailure']).toMatchValues({
+            attributeKeysFailed: true,
+        })
+        expect(logic.values.visibleFacets.map((facet) => facet.attributeKey)).toEqual(['service_name'])
+
+        logic.actions.retryAttributeKeys()
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess']).toMatchValues({
+            attributeKeysFailed: false,
+        })
+        expect(logic.values.visibleFacets).toHaveLength(KEYS.length + 1)
+    })
+
+    it('reloads the keys and the expanded facet values on each auto-refresh tick', async () => {
+        viewer.actions.setMetricName('http_requests')
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        const expanded = logic.values.visibleFacets[0]
+        const collapsed = logic.values.visibleFacets[DEFAULT_EXPANDED_FACETS]
+        const expandedValues = metricsFacetValuesLogic({ facet: expanded })
+        const collapsedValues = metricsFacetValuesLogic({ facet: collapsed })
+        expandedValues.mount()
+        collapsedValues.mount()
+        await expectLogic(expandedValues).toDispatchActions(['loadFacetValuesSuccess'])
+        jest.mocked(metricsAttributesRetrieve).mockClear()
+        jest.mocked(metricsAttributeValuesRetrieve).mockClear()
+
+        viewer.actions.liveRefreshTick()
+        // The facets stay on screen while the refresh runs.
+        expect(logic.values.visibleFacets).toHaveLength(KEYS.length + 1)
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        await expectLogic(expandedValues).toDispatchActions(['loadFacetValuesSuccess'])
+
+        expect(metricsAttributesRetrieve).toHaveBeenCalledTimes(1)
+        expect(jest.mocked(metricsAttributeValuesRetrieve).mock.calls.map((call) => call[1].key)).toEqual([
+            expanded.attributeKey,
+        ])
+        expandedValues.unmount()
+        collapsedValues.unmount()
+    })
 })

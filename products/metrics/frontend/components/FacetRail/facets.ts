@@ -51,11 +51,13 @@ function innerFilters(group: UniversalFiltersGroup): MetricFacetFilter[] {
 }
 
 // The rail owns the `exact` and `is_not` chips on its key. Other chips on the same key, such as a
-// regex, stay as the filter bar wrote them.
+// regex, stay as the filter bar wrote them. The service facet owns chips on both service spellings,
+// so a `service.name` chip from the filter bar does not stay beside a contradicting rail chip.
 function isRailFilter(filter: MetricFacetFilter, attributeKey: string): boolean {
+    const sameKey = SERVICE_KEYS.has(attributeKey) ? SERVICE_KEYS.has(filter.key) : filter.key === attributeKey
     return (
         filter.type === PropertyFilterType.MetricAttribute &&
-        filter.key === attributeKey &&
+        sameKey &&
         (filter.operator === PropertyOperator.Exact || filter.operator === PropertyOperator.IsNot)
     )
 }
