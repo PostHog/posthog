@@ -12202,10 +12202,10 @@ Today (3): `assets`, `scans`, `vulnerabilities`
 
 Diffed against: <https://developer.tenable.com/reference/exports-assets-request-export>
 
-- [ ] `plugins (GET /plugins/plugin)` — lookup resolving the plugin_id carried on every synced vulnerability finding to name, family, CVE, CVSS and VPR (high)
-- [ ] `scan history (GET /scans/{scan_id}/history)` — each individual run of a scan with status and timing; the scans table alone has no run-level history (high)
-- [ ] `compliance findings export (POST /compliance/export + status/chunks)` — audit/compliance results, the second half of Tenable's findings data alongside vulnerabilities (high)
-- [ ] `tag values (GET /tags/values)` — lookup table for the asset tags used to slice every asset and vulnerability report (high)
+- [x] `plugins (GET /plugins/plugin)` — lookup resolving the plugin_id carried on every synced vulnerability finding to name, family, CVE, CVSS and VPR (high)
+- [x] `scan history (GET /scans/{scan_id}/history)` — each individual run of a scan with status and timing; the scans table alone has no run-level history (high)
+- [x] `compliance findings export (POST /compliance/export + status/chunks)` — audit/compliance results, the second half of Tenable's findings data alongside vulnerabilities (high)
+- [x] `tag values (GET /tags/values)` — lookup table for the asset tags used to slice every asset and vulnerability report (high)
 - [ ] `tag categories (GET /tags/categories)` — parent dimension for tag values, needed to group tags into category/value pairs (medium)
 - [ ] `plugin families (GET /plugins/families)` — grouping dimension for plugins, standard breakdown axis in vulnerability reporting (medium)
 - [ ] `networks (GET /networks)` — lookup resolving the network_id on assets and scanners (medium)
