@@ -284,7 +284,8 @@ function BoxPlotInner<Meta = unknown>({
                 })
                 drawBoxes(ctx, boxes, {
                     color: s.color,
-                    fillColor: dimColor(s.color, 0.45),
+                    fillColor: dimColor(s.color, 0.18),
+                    lowerFillColor: dimColor(s.color, 0.4),
                     meanFillColor: theme.backgroundColor ?? dimColor(s.color, 0.5),
                     meanRadius,
                     whiskerCapRatio,

@@ -1311,8 +1311,10 @@ export function drawHighlightPoint(
 export interface DrawBoxOptions {
     /** Series base color — used for the box outline, whisker, median, and mean stroke. */
     color: string
-    /** Box fill at the p75 edge — typically the series color at reduced alpha. It fades out toward p25. */
+    /** Box fill from the median to p75 — typically the series color at reduced alpha. */
     fillColor: string
+    /** Box fill from p25 to the median. Defaults to `fillColor`. */
+    lowerFillColor?: string
     /** Optional explicit median stroke color. Defaults to `color`. */
     medianColor?: string
     /** Optional mean marker fill. Defaults to `fillColor`. */
@@ -1349,6 +1351,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     const {
         color,
         fillColor,
+        lowerFillColor = fillColor,
         medianColor = color,
         meanFillColor = fillColor,
         meanRadius = 3,
@@ -1401,25 +1404,25 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     }
     ctx.stroke()
 
-    // 3. Rounded boxes (p25 → p75) with a soft glow, then a gradient fill that fades from the
-    //    p75 edge toward p25, then the outline. The gradient is per box, so each box is its own path.
+    // 3. Rounded boxes (p25 → p75), two-tone: each half is filled inside the rounded clip, split
+    //    at the median. Each box is its own path because of the clip. A horizontal box has p25 at
+    //    `top`, so the two shades swap.
+    const [topFill, bottomFill] = horizontal ? [lowerFillColor, fillColor] : [fillColor, lowerFillColor]
     ctx.strokeStyle = color
     for (const box of boxes) {
         const boxHeight = Math.max(0, box.bottom - box.top)
         if (boxHeight <= 0 || box.width <= 0) {
             continue
         }
+        const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
         ctx.beginPath()
         traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
-        const gradient = ctx.createLinearGradient(0, box.top, 0, box.bottom)
-        gradient.addColorStop(0, fillColor)
-        gradient.addColorStop(1, dimColor(fillColor, 0.08))
         ctx.save()
-        ctx.shadowColor = dimColor(color, 0.35)
-        ctx.shadowBlur = 12
-        ctx.shadowOffsetY = 3
-        ctx.fillStyle = gradient
-        ctx.fill()
+        ctx.clip()
+        ctx.fillStyle = topFill
+        ctx.fillRect(box.x, box.top, box.width, medianClamped - box.top)
+        ctx.fillStyle = bottomFill
+        ctx.fillRect(box.x, medianClamped, box.width, box.bottom - medianClamped)
         ctx.restore()
         ctx.stroke()
     }
