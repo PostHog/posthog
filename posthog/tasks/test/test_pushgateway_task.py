@@ -8,7 +8,7 @@ from celery.exceptions import Ignore, Reject, Retry, SoftTimeLimitExceeded
 from prometheus_client import CollectorRegistry, Gauge
 from pytest_django import Settings
 
-from posthog.tasks.utils import PushGatewayTask
+from posthog.tasks.utils import FAILURE_PUSH_TIMEOUT_SECONDS, PushGatewayTask
 
 TASK_GAUGE = "sample_task_rows_processed"
 
@@ -81,7 +81,7 @@ class TestPushGatewayTask:
 
         assert exc_info.value is error
         registry = _pushed_registry(pushadd_to_gateway)
-        assert pushadd_to_gateway.call_args.kwargs["timeout"] == 5
+        assert pushadd_to_gateway.call_args.kwargs["timeout"] == FAILURE_PUSH_TIMEOUT_SECONDS
         assert registry.get_sample_value("posthog_celery_sample_task_success") == 0
         assert registry.get_sample_value("posthog_celery_sample_task_duration_seconds") == run_duration
         assert registry.get_sample_value(TASK_GAUGE) is None
