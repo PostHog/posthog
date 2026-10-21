@@ -58,8 +58,12 @@ class _MissingSymbolsRule:
 # CLI would inject a chunk ID into that file and upload its map. This also counts third-party
 # scripts that will never have a source map, because a single frame cannot tell them apart.
 MISSING_SYMBOLS_RULES: tuple[_MissingSymbolsRule, ...] = (
+    # Cymbal looks up the chunk before it checks the column. A frame with no column has no position
+    # to map, so an upload only passes it through unresolved.
     _MissingSymbolsRule(
-        reason=MissingSymbolsReason.CHUNK_NOT_UPLOADED, prefixes=("No sourcemap uploaded for chunk id: ",)
+        reason=MissingSymbolsReason.CHUNK_NOT_UPLOADED,
+        prefixes=("No sourcemap uploaded for chunk id: ",),
+        condition=Q(contents__has_key="column"),
     ),
     _MissingSymbolsRule(
         reason=MissingSymbolsReason.NO_SOURCE_MAP_LINKED, prefixes=("Could not find sourcemap for source url: ",)
@@ -117,12 +121,13 @@ MISSING_SYMBOLS = Q(resolved=False) & functools.reduce(operator.or_, (rule.query
 # missing it. Python frames and unminified JavaScript resolve without symbols, so they stay out. A
 # resolved frame that kept a failure text resolved without symbols, even when it links to the failed set.
 # A JavaScript frame that cymbal resolved through the URL fallback has no symbol set link, because
-# cymbal stores that set under the URL and looks it up under the chunk ID. It has a line from the
-# source map, and a frame resolved without location information has none.
+# cymbal stores that set under the URL and looks it up under the chunk ID. It has a column from the
+# source map. A Node.js frame that cymbal passed through keeps its line but has no column, and a
+# frame without location information has neither.
 NEEDS_SYMBOLS = (
     Q(resolved=True)
     & ~Q(contents__has_key="resolve_failure")
-    & (Q(symbol_set__isnull=False) | Q(contents__lang="javascript", contents__has_key="line"))
+    & (Q(symbol_set__isnull=False) | Q(contents__lang="javascript", contents__has_key="column"))
 ) | MISSING_SYMBOLS
 
 # Each platform is scored on its own, so good coverage on one platform cannot hide missing symbols on another.

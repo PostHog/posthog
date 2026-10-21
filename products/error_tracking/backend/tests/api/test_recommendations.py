@@ -75,7 +75,9 @@ class _StackFrameFactory:
         return frame
 
     def _make_missing_symbols_frame(self, **kwargs) -> ErrorTrackingStackFrame:
-        return self._make_frame(contents={"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d"}, **kwargs)
+        return self._make_frame(
+            contents={"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d", "column": 4321}, **kwargs
+        )
 
 
 class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
@@ -314,8 +316,9 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
             self._make_frame(resolved=True, with_symbol_set=True)
         for _ in range(2):
             self._make_missing_symbols_frame()
-        self._make_frame(contents={"line": 12}, resolved=True)
+        self._make_frame(contents={"line": 12, "column": 4321}, resolved=True)
         self._make_frame(contents={"lang": "python"}, resolved=True)
+        self._make_frame(contents={"line": 12}, resolved=True)
         self._make_frame(resolved=True)
         self._make_frame(
             contents={"resolve_failure": "Could not find sourcemap for source url: https://example.com/app.js"},
@@ -332,7 +335,11 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("chunk_id_without_upload", {"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d"}, True),
+            (
+                "chunk_id_without_upload",
+                {"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d", "column": 4321},
+                True,
+            ),
             (
                 "script_without_source_map",
                 {"resolve_failure": "Could not find sourcemap for source url: https://example.com/app.js"},
@@ -416,6 +423,11 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
             (
                 "hermes_frame_without_column",
                 {"resolve_failure": "No chunk id sent with frame", "source": "native"},
+                False,
+            ),
+            (
+                "chunk_id_without_upload_or_column",
+                {"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d", "source": "index.android.bundle"},
                 False,
             ),
             (
@@ -744,7 +756,9 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                 organization_member_id=self.organization_membership.id,
             ),
         )
-        frame = self._make_frame(contents={"resolve_failure": CHUNK_NOT_UPLOADED, "source": "/assets/app.js"})
+        frame = self._make_frame(
+            contents={"resolve_failure": CHUNK_NOT_UPLOADED, "source": "/assets/app.js", "column": 4321}
+        )
         self._issue("Cannot read properties of undefined", "fp-type-error")
         self._exception("fp-type-error", "Cannot read properties of undefined", [frame])
 
