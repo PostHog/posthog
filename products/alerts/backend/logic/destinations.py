@@ -458,7 +458,9 @@ def produce_alert_internal_event(
     properties: dict[str, Any],
     timestamp: datetime | None = None,
     uuid: str | None = None,
+    alert_id: str | None = None,
 ) -> ProduceResult | None:
+    """`alert_id` names the alert in a failure report, for an event that carries it under another property."""
     try:
         return produce_internal_event(
             team_id=team_id,
@@ -472,7 +474,7 @@ def produce_alert_internal_event(
         )
     except Exception as error:
         context = {
-            "alert_id": properties.get("alert_id"),
+            "alert_id": alert_id or properties.get("alert_id"),
             "event_name": event_name,
             "feature": "alerts",
             "team_id": team_id,
@@ -528,6 +530,7 @@ def emit_alert_internal_events(
                 properties=event.properties,
                 timestamp=event.timestamp,
                 uuid=event.uuid,
+                alert_id=alert_id,
             ),
         )
         for event in events
