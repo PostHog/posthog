@@ -73,9 +73,21 @@ impl Follower {
         F: Fn(String) -> Fut,
         Fut: Future<Output = Result<bool, String>>,
     {
-        let wanted = self.select_topic(changelog, drained).await?;
-        subscription.set_draining(wanted != changelog.topic);
+        let wanted = self.select_topic(changelog, &drained).await?;
         let subscribed = subscription.topic();
+        // A generation can leave the config before this group drains it, when
+        // retire stops waiting on the group; finish reading it before moving on.
+        if subscribed != wanted
+            && subscribed != changelog.topic
+            && !self.drained.contains(&subscribed)
+        {
+            if !drained(subscribed.clone()).await? {
+                subscription.set_draining(true);
+                return Ok(None);
+            }
+            self.drained.insert(subscribed.clone());
+        }
+        subscription.set_draining(wanted != changelog.topic);
         if wanted == subscribed {
             return Ok(None);
         }
@@ -148,5 +160,63 @@ pub async fn follow_changelog<S, F, Fut, M>(
         _ = cancel.cancelled() => {}
         _ = watch => {}
         _ = follow => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+
+    use super::*;
+
+    struct Subscription {
+        topic: Mutex<String>,
+        draining: AtomicBool,
+    }
+
+    impl ChangelogSubscription for Subscription {
+        fn topic(&self) -> String {
+            self.topic.lock().unwrap().clone()
+        }
+
+        fn resubscribe(&self, topic: &str) -> Result<(), String> {
+            *self.topic.lock().unwrap() = topic.to_string();
+            Ok(())
+        }
+
+        fn set_draining(&self, draining: bool) {
+            self.draining.store(draining, Ordering::SeqCst);
+        }
+
+        fn is_draining(&self) -> bool {
+            self.draining.load(Ordering::SeqCst)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_generation_retired_before_the_group_drained_it_is_read_to_the_end() {
+        let subscription = Subscription {
+            topic: Mutex::new("old".to_string()),
+            draining: AtomicBool::new(true),
+        };
+        let live = ChangelogConfig::new("new", 8);
+        let mut follower = Follower::default();
+
+        let moved = follower
+            .follow_once(&subscription, &live, |_| async { Ok(false) })
+            .await
+            .unwrap();
+        assert_eq!(moved, None);
+        assert_eq!(subscription.topic(), "old");
+        assert!(subscription.is_draining());
+
+        let moved = follower
+            .follow_once(&subscription, &live, |_| async { Ok(true) })
+            .await
+            .unwrap();
+        assert_eq!(moved, Some("old".to_string()));
+        assert_eq!(subscription.topic(), "new");
+        assert!(!subscription.is_draining());
     }
 }
