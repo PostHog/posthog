@@ -8,10 +8,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { BillingProductV2Type } from '~/types'
 
 import { InboxUsageStatus, inboxUsageLogic } from '../../logics/inboxUsageLogic'
+import { selfDrivingTrialLogic } from '../../logics/selfDrivingTrialLogic'
+import { SelfDrivingTrialUsage } from './SelfDrivingTrialUsage'
 
 // Usage-bar fill colour by status. Main-app semantic Tailwind classes (not quill `--*` tokens —
 // those only resolve inside `[data-quill]` subtrees).
@@ -139,6 +142,8 @@ function EditLimitModal(): JSX.Element {
  * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
+    const { currentTeamId } = useValues(teamLogic)
+    const { trial } = useValues(selfDrivingTrialLogic({ teamId: currentTeamId! }))
     const {
         product,
         isLoading,
@@ -156,6 +161,10 @@ export function InboxUsageWidget(): JSX.Element | null {
         percentage,
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
+
+    if (trial?.enabled && trial.grant_status !== 'not_claimed') {
+        return <SelfDrivingTrialUsage />
+    }
 
     // The server-truth pause (quotaLimited) can lead the widget's own usage math (billing data
     // lags), so the raise-the-limit affordances escalate on either signal.
