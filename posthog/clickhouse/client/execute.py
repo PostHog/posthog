@@ -432,10 +432,16 @@ def sync_execute(
     # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
     is_api_key_auth = is_api_key_access_method(tags.access_method)
 
-    # When someone uses an API key, always put their query to the offline cluster
-    # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
-        workload = Workload.OFFLINE
+    if workload == Workload.DEFAULT:
+        # When someone uses an API key, always put their query to the offline cluster
+        if is_api_key_auth:
+            workload = Workload.OFFLINE
+        # Cache warming runs on the online cluster
+        elif tags.kind == "celery" and tags.feature == Feature.CACHE_WARMUP:
+            workload = Workload.ONLINE
+        # Execute all other celery tasks not directly set to be online on the offline cluster
+        elif tags.kind == "celery":
+            workload = Workload.OFFLINE
 
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
