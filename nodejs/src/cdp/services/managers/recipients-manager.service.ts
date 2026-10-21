@@ -41,8 +41,12 @@ export type RecipientManagerRecipient = {
     updated_at: string
 }
 
+// Longer than replication lag normally gets, and short enough that few lookups move off the replica.
+const PRIMARY_READ_WINDOW_MS = 60_000
+
 export class RecipientsManagerService {
     private lazyLoader: LazyLoader<RecipientManagerRecipient>
+    private primaryReadsUntil = new Map<string, number>()
 
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
@@ -55,9 +59,31 @@ export class RecipientsManagerService {
         this.lazyLoader.clear()
     }
 
-    /** Make the next lookup of this recipient read the database, for example right after their preferences change. */
+    /**
+     * Make the next lookups of this recipient read the primary database, right after their preferences change.
+     * A replica can lag behind that write, and a lookup through it would cache the old preferences again.
+     */
     public markForRefresh(args: RecipientGetArgs): void {
-        this.lazyLoader.markForRefresh(toKey(args))
+        const key = toKey(args)
+        this.primaryReadsUntil.set(key, Date.now() + PRIMARY_READ_WINDOW_MS)
+        this.lazyLoader.markForRefresh(key)
+    }
+
+    private readsFromPrimary(ids: string[]): boolean {
+        const now = Date.now()
+        let primary = false
+        for (const id of ids) {
+            const until = this.primaryReadsUntil.get(id)
+            if (until === undefined) {
+                continue
+            }
+            if (until > now) {
+                primary = true
+            } else {
+                this.primaryReadsUntil.delete(id)
+            }
+        }
+        return primary
     }
 
     public async get(args: RecipientGetArgs): Promise<RecipientManagerRecipient | null> {
@@ -155,7 +181,7 @@ export class RecipientsManagerService {
         const params = recipientArgs.flatMap((recipient) => [recipient.teamId, recipient.identifier])
 
         const response = await this.postgres.query<MessageRecipientPreferenceRow>(
-            PostgresUse.COMMON_READ,
+            this.readsFromPrimary(ids) ? PostgresUse.COMMON_WRITE : PostgresUse.COMMON_READ,
             queryString,
             params,
             'fetchCDPRecipients'

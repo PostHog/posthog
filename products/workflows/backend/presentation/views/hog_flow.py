@@ -1718,18 +1718,16 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict:
                 raise serializers.ValidationError({"inputs": {"category_id": "Choose a message category."}})
             return
-        # Someone already passed these checks for a category the saved workflow names, so other editors can keep
-        # saving the workflow.
-        if category_id in (self.context.get("stored_opt_out_category_ids") or set()):
-            return
         get_team = self.context.get("get_team")
         if get_team is None:
             return
         team = get_team()
         user = getattr(self.context.get("request"), "user", None)
         # Same resource-level check as the opt-out list API: access to one workflow isn't access to the team's list.
+        # Someone already passed it for a category the saved workflow names, so other editors can keep saving.
         if (
-            user is not None
+            category_id not in (self.context.get("stored_opt_out_category_ids") or set())
+            and user is not None
             and user.is_authenticated
             and not isinstance(user, SyntheticUser)
             and not UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")

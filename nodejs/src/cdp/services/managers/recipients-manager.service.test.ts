@@ -262,6 +262,20 @@ describe('RecipientsManager', () => {
             expect(result2?.id).toBe(id)
         })
 
+        it('reads a recipient marked for refresh from the primary', async () => {
+            await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
+            const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
+            await manager.get(args)
+            const querySpy = jest.spyOn(hub.postgres, 'query')
+
+            manager.markForRefresh(args)
+            await manager.get(args)
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(querySpy.mock.calls[0][0]).toBe(PostgresUse.COMMON_WRITE)
+            querySpy.mockRestore()
+        })
+
         it('should clear cache', async () => {
             const id = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }

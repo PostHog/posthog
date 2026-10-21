@@ -8560,3 +8560,33 @@ class TestOptOutOfMessagesActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "edit access to all workflows" in str(response.json()), response.json()
+
+    @parameterized.expand([("deleted", {"deleted": True}), ("made_transactional", {"category_type": "transactional"})])
+    def test_enabling_rechecks_a_category_the_draft_already_saved(self, _name: str, change: dict) -> None:
+        category_id = create_message_category_for_test(team_id=self.team.id, key="updates", name="Updates")
+        step = {
+            "id": "opt_out",
+            "name": "opt_out",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-opt-out-of-messages",
+                "inputs": {
+                    "category_id": {"value": str(category_id)},
+                    "identifier": {"value": "{person.properties.email}"},
+                },
+            },
+        }
+        flow = HogFlow.objects.create(
+            team=self.team, name="Unsubscribe", trigger=_TRIGGER["config"], actions=[_TRIGGER, step], edges=[]
+        )
+        update_category(self.team.id, category_id, change)
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {"status": "active"},
+                format="json",
+                headers={"X-PostHog-Client": "mcp"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
