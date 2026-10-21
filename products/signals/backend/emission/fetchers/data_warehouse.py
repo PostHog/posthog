@@ -86,10 +86,12 @@ def data_warehouse_record_fetcher(
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
+    order_sql = f"ORDER BY {config.order_by}" if config.order_by else ""
     query = f"""
         SELECT {fields_sql}
         FROM {escape_table_name(table_name)}
         WHERE {where_sql}
+        {order_sql}
         LIMIT {config.max_records}
     """
     logger.info(
