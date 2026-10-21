@@ -5618,12 +5618,12 @@ Today (12): `data_sources`, `dimensions`, `environments`, `experiments`, `fact_m
 
 Diffed against: <https://docs.growthbook.io/openapi.yaml>
 
-- [ ] `Experiment results (GET /v1/experiments/results; GET /v1/experiments/{id}/results)` — analyze measured lift, uncertainty, sample sizes, and variation performance beyond experiment metadata and result summaries (high)
-- [ ] `Teams (GET /v1/teams)` — resolve team IDs on synced members and compare experiment ownership across named teams (high)
-- [ ] `Namespaces (GET /v1/namespaces)` — resolve namespace references in feature rules and explain mutually exclusive experiment allocation (high)
+- [x] `Experiment results (GET /v1/experiments/results; GET /v1/experiments/{id}/results)` — analyze measured lift, uncertainty, sample sizes, and variation performance beyond experiment metadata and result summaries (high). Added as `experiment_results` from the list endpoint, which returns each experiment's latest snapshot; the per-experiment endpoint is only needed for older phases or dimension breakdowns
+- [x] `Teams (GET /v1/teams)` — resolve team IDs on synced members and compare experiment ownership across named teams (high)
+- [x] `Namespaces (GET /v1/namespaces)` — resolve namespace references in feature rules and explain mutually exclusive experiment allocation (high)
 - [ ] `Feature revisions (GET /v2/feature-revisions; GET /v1/revisions)` — track feature rule changes, approval state, and rollout history instead of keeping only current feature definitions (medium)
 - [ ] `Contextual Bandits (GET /v1/contextual-bandits; GET /v1/contextual-bandits/{id}/results)` — compare adaptive allocation and measured rewards across contexts and optimization strategies (medium)
-- [ ] `Holdouts (GET /v1/holdouts)` — identify persistent control groups and explain long-term exposure differences across experiments (medium)
+- [x] `Holdouts (GET /v1/holdouts)` — identify persistent control groups and explain long-term exposure differences across experiments (medium)
 - [ ] `Saved-group revisions (GET /v1/saved-groups-revisions)` — track targeting group changes and explain changes in experiment eligibility over time (medium)
 - [ ] `Reports (GET /v1/reports)` — bring saved analysis definitions and reporting context into portfolio comparisons (medium)
 
