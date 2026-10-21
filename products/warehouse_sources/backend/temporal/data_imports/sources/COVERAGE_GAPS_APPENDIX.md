@@ -5471,9 +5471,9 @@ Today (26): `anomalies`, `anr_rate`, `anr_rate_by_api_level`, `anr_rate_by_devic
 
 Diffed against: <https://playdeveloperreporting.googleapis.com/$discovery/rest?version=v1beta1>
 
-- [ ] `Release filter options (GET /v1beta1/apps/{app}:fetchReleaseFilterOptions)` — resolve versionCode values in synced metrics to release names and distribution tracks (high)
-- [ ] `Anonymous RSS and swap memory usage (POST /v1beta1/apps/{app}/anonRssAndSwapMemoryUsageMetricSet:query)` — track app memory pressure and connect memory consumption with crashes and low-memory kills (medium)
-- [ ] `Bitmap memory usage (POST /v1beta1/apps/{app}/bitmapMemoryUsageMetricSet:query)` — identify bitmap memory regressions by app version and device characteristics (medium)
+- [x] `Release filter options (GET /v1beta1/apps/{app}:fetchReleaseFilterOptions)` — resolve versionCode values in synced metrics to release names and distribution tracks (high)
+- [x] `Anonymous RSS and swap memory usage (POST /v1beta1/apps/{app}/anonRssAndSwapMemoryUsageMetricSet:query)` — track app memory pressure and connect memory consumption with crashes and low-memory kills (medium)
+- [x] `Bitmap memory usage (POST /v1beta1/apps/{app}/bitmapMemoryUsageMetricSet:query)` — identify bitmap memory regressions by app version and device characteristics (medium)
 
 Note: Parsed every resource and method in Google's official v1beta1 discovery document. The static catalog covers existing rate metrics, errors, apps, and anomalies, but omits two memory datasets and release metadata. Metric queries use POST for read operations; all three additions need app fan-out. Commerce, reviews, and store sales belong to separate APIs and were outside this Reporting API comparison.
 
