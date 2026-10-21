@@ -297,13 +297,21 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     # Retried individually, not via `with_internal_db_retries` on the whole function, because the
     # LLM call further down is expensive and must not be repeated for a blip reaching our own database.
-    team = retry_internal_db_operation(
-        lambda: (
-            Team.objects.select_related("organization")
-            .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
-            .get(id=team_id)
+    # The team can also be legitimately gone by the time this fire-and-forget child workflow runs
+    # (deleted between the post-import gate check and now) — not a bug, so skip rather than let
+    # DoesNotExist reach the activity's except block and error tracking. No analytics event here:
+    # emit_completed needs the team this lookup just failed to find.
+    try:
+        team = retry_internal_db_operation(
+            lambda: (
+                Team.objects.select_related("organization")
+                .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+                .get(id=team_id)
+            )
         )
-    )
+    except Team.DoesNotExist:
+        log.info("warehouse_enrichment.skipped", reason="team_deleted")
+        return {"status": "skipped", "reason": "team_deleted"}
 
     # Context accumulated as we learn it; shared by the "started" and "completed" analytics events.
     event_props: dict[str, Any] = {"schema_id": str(schema_id)}
