@@ -167,6 +167,11 @@ class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, API
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         insert_intent_embedding(self.team.pk, "only", "only one", at=NOW - timedelta(days=1))
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [HourlyCalls(hour=NOW - timedelta(days=1), hash="only", tool="query-trends", calls=1, sessions=1)],
+            now=NOW,
+        )
 
         outcome = pipeline.run_refit(self.team, now=NOW)
 
@@ -204,3 +209,28 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         start = pipeline.sync_window_start(self.team, now=NOW)
 
         assert start == NOW - pipeline.MAX_SYNC_CATCH_UP
+
+
+class TestFitSampleWindow(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_sample_follows_calls_in_the_window_not_embedding_time(self) -> None:
+        insert_intent_embedding(self.team.pk, "old-but-hot", "old but hot", at=NOW - timedelta(days=20), calls=1)
+        insert_intent_embedding(self.team.pk, "fresh-but-cold", "fresh but cold", at=NOW - timedelta(days=1), calls=99)
+        insert_intent_embedding(self.team.pk, "expired", "expired", at=NOW - timedelta(days=40), calls=1)
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [
+                HourlyCalls(
+                    hour=NOW - timedelta(days=2), hash="old-but-hot", tool="query-trends", calls=40, sessions=3
+                ),
+                HourlyCalls(hour=NOW - timedelta(days=2), hash="expired", tool="query-trends", calls=5, sessions=1),
+                HourlyCalls(
+                    hour=NOW - timedelta(days=12), hash="fresh-but-cold", tool="query-trends", calls=7, sessions=1
+                ),
+            ],
+            now=NOW,
+        )
+
+        sample = pipeline.fetch_fit_sample(self.team, since=NOW - timedelta(days=7), until=NOW)
+
+        assert sample.hashes == ["old-but-hot"]
+        assert sample.weights.tolist() == [40.0]

@@ -29,6 +29,7 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_MODEL,
     EMBEDDING_PRODUCT,
+    EMBEDDING_RETENTION_DAYS,
     FIT_LOOKBACK_DAYS,
     FIT_SAMPLE_SIZE,
     MIN_INTENTS_FOR_FIT,
@@ -152,16 +153,27 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     )
 
 
+# The sample is drawn from intents *called* in the window (the hourly rollup), not from intents
+# *embedded* in the window: an intent embedded three weeks ago but called every day must still
+# shape the topics. Weights are the calls in the window for the same reason.
 _FIT_SAMPLE_SQL = """
-SELECT document_id, embedding, content, JSONExtractUInt(metadata, 'calls') AS calls
-FROM document_embeddings
-WHERE model_name = {model}
-  AND product = {product}
-  AND document_type = {document_type}
-  AND timestamp >= {since}
-  AND timestamp < {until}
-ORDER BY cityHash64(concat(document_id, {salt}))
-LIMIT 1 BY document_id
+SELECT e.document_id AS document_id, e.embedding AS embedding, e.content AS content, c.calls AS calls
+FROM (
+    SELECT intent_hash, sum(calls) AS calls
+    FROM mcp_intent_calls_hourly
+    WHERE hour >= {since} AND hour < {until}
+    GROUP BY intent_hash
+) AS c
+INNER JOIN (
+    SELECT document_id, argMax(embedding, inserted_at) AS embedding, argMax(content, inserted_at) AS content
+    FROM document_embeddings
+    WHERE model_name = {model}
+      AND product = {product}
+      AND document_type = {document_type}
+      AND timestamp >= {retention_start}
+    GROUP BY document_id
+) AS e ON c.intent_hash = e.document_id
+ORDER BY cityHash64(concat(e.document_id, {salt}))
 LIMIT {limit}
 """
 
@@ -184,6 +196,7 @@ def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int
             "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
             "since": ast.Constant(value=since),
             "until": ast.Constant(value=until),
+            "retention_start": ast.Constant(value=until - timedelta(days=EMBEDDING_RETENTION_DAYS)),
             "salt": ast.Constant(value=until.strftime("%Y%m%d")),
             "limit": ast.Constant(value=limit),
         },
