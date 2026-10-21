@@ -18,6 +18,7 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.models import Team
 
+from products.signals.backend.constants import SIGNALS_EMBEDDING_MODELS
 from products.signals.backend.models import SignalSpend
 from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_PRODUCT,
@@ -105,7 +106,7 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     rows = []
     version = int(timezone.now().timestamp())
-    for model in EmbeddingModelName:
+    for model in SIGNALS_EMBEDDING_MODELS:
         row = _read_embedding(team, signal.signal_id, model)
         if row is None:
             raise RuntimeError("Signal embedding is not yet visible in ClickHouse")
@@ -145,7 +146,7 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
 def confirm_signal_spend_metadata(publication: SignalSpendPublication) -> bool:
     team = Team.objects.get(id=publication.signal.team_id)
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
-    for model in EmbeddingModelName:
+    for model in SIGNALS_EMBEDDING_MODELS:
         row = _read_embedding(team, publication.signal.signal_id, model)
         if (
             row is None
