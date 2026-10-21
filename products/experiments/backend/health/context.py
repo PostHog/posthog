@@ -3,6 +3,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from django.conf import settings
+
 from posthog.schema import MultipleVariantHandling
 
 from posthog.dataclasses import frozen
@@ -10,7 +12,9 @@ from posthog.dataclasses import frozen
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant, reachable_conditions
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode, has_active_flags
 
 
 @frozen
@@ -220,6 +224,12 @@ class HealthContext:
     is_paused: bool
     archived: bool
     flag: FlagState | None
+    # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
+    # record the calls of this organization's flags.
+    flag_called: bool | None
+    # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
+    # it is read only for a draft whose flag has no recorded call.
+    team_has_active_flag: bool | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
     primary_metric_count: int
@@ -348,6 +358,25 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
     )
 
 
+def _flag_called(experiment: Experiment) -> bool | None:
+    # django-stubs types the id as int, but an unsaved instance can carry None.
+    feature_flag_id: int | None = experiment.feature_flag_id
+    if feature_flag_id is None:
+        return None
+    if experiment.feature_flag.last_called_at is not None:
+        return True
+    # The task that sets `last_called_at` reads `$feature_flag_called` from the events table, unless it is set to
+    # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
+    # for the teams in its allowlist, which this side can't read. Their flags keep no `last_called_at` however often
+    # they are called.
+    if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
+        get_organization_flag_evaluations_mode(experiment.team.organization_id)
+        == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+    ):
+        return None
+    return False
+
+
 def _configured_baseline_variant_key(stats_config: object) -> str | None:
     # An empty key counts as unset, as in `get_baseline_variant_key`.
     key = stats_config.get("baseline_variant_key") if isinstance(stats_config, dict) else None
@@ -361,6 +390,7 @@ def load_health_context(
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
 ) -> HealthContext:
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
+    flag_called = _flag_called(experiment)
     return HealthContext(
         is_launched=experiment.is_launched,
         is_running=experiment.is_running,
@@ -368,6 +398,10 @@ def load_health_context(
         is_paused=experiment.is_paused,
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
+        flag_called=flag_called,
+        team_has_active_flag=(
+            has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
+        ),
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),

@@ -190,6 +190,11 @@ class TestEvaluate(TestCase):
                 {Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED, Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.PASSED},
             ),
             (
+                "flag_traffic_is_left_to_zero_exposures_after_launch",
+                {"flag_called": False},
+                {Key.NEW_FLAG_NO_TRAFFIC: Status.NOT_APPLICABLE},
+            ),
+            (
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},

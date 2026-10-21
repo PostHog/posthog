@@ -34,6 +34,13 @@ class UserTaskSummary:
     tags: tuple[str, ...]
 
 
+@frozen
+class UserTaskTime:
+    team_id: int
+    user_id: int
+    created_at: datetime.datetime
+
+
 def _tags(value: object) -> tuple[str, ...]:
     return tuple(tag for tag in value if isinstance(tag, str)) if isinstance(value, list) else ()
 
@@ -99,3 +106,30 @@ def list_user_task_summaries(
             )
         )
     return summaries
+
+
+def list_user_task_times(
+    *,
+    team_ids: Collection[int],
+    start: datetime.datetime,
+    end: datetime.datetime,
+    origin_products: Collection[str],
+) -> list[UserTaskTime]:
+    """The creator and creation time of every non-deleted task in these teams, in [start, end).
+
+    One query for all users, so a caller can count new tasks per person without a query per person.
+    Tasks with no creator are left out.
+    """
+    if not team_ids or not origin_products:
+        return []
+    rows = Task.objects.filter(
+        team_id__in=list(team_ids),
+        created_by_id__isnull=False,
+        origin_product__in=list(origin_products),
+        created_at__gte=start,
+        created_at__lt=end,
+        deleted=False,
+    ).values_list("team_id", "created_by_id", "created_at")
+    return [
+        UserTaskTime(team_id=team_id, user_id=user_id, created_at=created_at) for team_id, user_id, created_at in rows
+    ]
