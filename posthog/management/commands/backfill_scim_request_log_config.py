@@ -27,8 +27,7 @@ from django.db.models import OuterRef, Subquery
 import structlog
 
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
-
-from ee.models.scim_request_log import SCIMRequestLog
+from posthog.models.scim_request_log import SCIMRequestLog
 
 logger = structlog.get_logger(__name__)
 
