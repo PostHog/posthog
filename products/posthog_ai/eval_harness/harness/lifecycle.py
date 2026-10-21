@@ -189,7 +189,11 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                validate_eval_env(
+                    self.options.agent_runtime,
+                    kinds=kinds,
+                    engine_env=self._engine.required_env(no_send_logs=all(suite.no_send_logs for suite in suites)),
+                )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,
