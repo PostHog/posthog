@@ -8,6 +8,7 @@ use thiserror::Error;
 use tracing::Level;
 
 use crate::v1::analytics::constants::DEFAULT_RETRY_AFTER_SECS;
+use crate::v1::analytics::lenient::FieldTypeError;
 use crate::v1::constants::{CAPTURE_V1_ERROR_METRIC, CAPTURE_V1_UNKNOWN_PATH};
 use crate::v1::context::RequestContext;
 
@@ -19,43 +20,62 @@ pub struct ErrorResponse {
 }
 
 #[derive(Debug)]
-pub struct ParseFailure {
-    /// Can quote request values, so it never goes into a response.
-    message: String,
-    category: Category,
-    line: usize,
-    column: usize,
+pub enum ParseFailure {
+    Json {
+        /// Can quote request values, so it never goes into a response.
+        message: String,
+        category: Category,
+        line: usize,
+        column: usize,
+    },
+    Field(FieldTypeError),
 }
 
 impl ParseFailure {
     fn description(&self) -> String {
-        let what = match self.category {
-            Category::Syntax => "invalid JSON",
-            Category::Data => "wrong JSON type or value",
-            Category::Eof => "unexpected end of JSON",
-            Category::Io => "unreadable body",
-        };
-        format!(
-            "Failed to parse request body: {what} at line {}, column {}.",
-            self.line, self.column
-        )
+        match self {
+            Self::Json {
+                category,
+                line,
+                column,
+                ..
+            } => {
+                let what = match category {
+                    Category::Syntax => "invalid JSON",
+                    Category::Data => "wrong JSON type or value",
+                    Category::Eof => "unexpected end of JSON",
+                    Category::Io => "unreadable body",
+                };
+                format!("Failed to parse request body: {what} at line {line}, column {column}.")
+            }
+            Self::Field(field) => format!("Failed to parse request body: {field}."),
+        }
     }
 }
 
 impl std::fmt::Display for ParseFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        match self {
+            Self::Json { message, .. } => f.write_str(message),
+            Self::Field(field) => field.fmt(f),
+        }
     }
 }
 
 impl From<serde_json::Error> for ParseFailure {
     fn from(e: serde_json::Error) -> Self {
-        Self {
+        Self::Json {
             message: e.to_string(),
             category: e.classify(),
             line: e.line(),
             column: e.column(),
         }
+    }
+}
+
+impl From<FieldTypeError> for ParseFailure {
+    fn from(e: FieldTypeError) -> Self {
+        Self::Field(e)
     }
 }
 
@@ -259,6 +279,20 @@ impl Error {
     pub(crate) fn stat_error(&self, ctx: Option<&RequestContext>) {
         let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
+        // Field type errors add bounded `field` and `kind` labels; sums by the shared labels are unchanged.
+        if let Self::RequestParsingError(ParseFailure::Field(field)) = self {
+            counter!(
+                CAPTURE_V1_ERROR_METRIC,
+                "error" => self.tag(),
+                "level" => self.level_tag(),
+                "path" => path,
+                "status_code" => status,
+                "field" => field.field,
+                "kind" => field.kind.as_str(),
+            )
+            .increment(1);
+            return;
+        }
         counter!(
             CAPTURE_V1_ERROR_METRIC,
             "error" => self.tag(),
@@ -415,6 +449,7 @@ impl IntoResponse for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v1::analytics::lenient::JsonKind;
     use axum::body::to_bytes;
     use axum::http::header::RETRY_AFTER;
     use rstest::rstest;
@@ -549,5 +584,72 @@ mod tests {
         let body = response_body(resp).await;
         assert_eq!(body["error"], expected_tag);
         assert_eq!(body["error_description"], expected_description);
+    }
+
+    fn error_metric_labels(err: &Error) -> Vec<(String, String)> {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        err.stat_error(None);
+
+        let mut series: Vec<_> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, ..)| key.key().name() == CAPTURE_V1_ERROR_METRIC)
+            .collect();
+        assert_eq!(series.len(), 1);
+        let (key, _, _, value) = series.remove(0);
+        assert_eq!(value, DebugValue::Counter(1));
+        let mut labels: Vec<_> = key
+            .key()
+            .labels()
+            .map(|l| (l.key().to_owned(), l.value().to_owned()))
+            .collect();
+        labels.sort();
+        labels
+    }
+
+    #[rstest]
+    #[case::field_type_error(
+        Error::RequestParsingError(ParseFailure::Field(FieldTypeError {
+            index: Some(3),
+            field: "distinct_id",
+            kind: JsonKind::Number,
+        })),
+        &[("field", "distinct_id"), ("kind", "number")]
+    )]
+    #[case::missing_field(
+        Error::RequestParsingError(ParseFailure::Field(FieldTypeError {
+            index: None,
+            field: "created_at",
+            kind: JsonKind::Missing,
+        })),
+        &[("field", "created_at"), ("kind", "missing")]
+    )]
+    #[case::corrupt_json(
+        Error::from(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
+        &[]
+    )]
+    fn parse_error_metric_adds_field_labels_only_for_field_errors(
+        #[case] err: Error,
+        #[case] extra: &[(&str, &str)],
+    ) {
+        let labels = error_metric_labels(&err);
+
+        let mut expected: Vec<(String, String)> = [
+            ("error", "request_parsing_error"),
+            ("level", err.level_tag()),
+            ("path", CAPTURE_V1_UNKNOWN_PATH),
+            ("status_code", "400"),
+        ]
+        .iter()
+        .chain(extra)
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        expected.sort();
+        assert_eq!(labels, expected);
     }
 }

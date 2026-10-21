@@ -6,6 +6,7 @@ use axum_client_ip::InsecureClientIp;
 
 use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATHS};
 use super::context::Context;
+use super::lenient::LenientBatch;
 use super::types::Batch;
 use tracing::Level;
 
@@ -86,11 +87,17 @@ pub async fn handle_request(
     metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
         .record(payload.len() as f64);
 
-    let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
-        let err = v1::Error::from(e);
-        log_stat_error!(err, &context);
-        err
-    })?;
+    let batch: Batch = serde_json::from_slice::<LenientBatch>(&payload)
+        .map_err(v1::Error::from)
+        .and_then(|lenient| {
+            lenient
+                .into_batch()
+                .map_err(|e| v1::Error::RequestParsingError(e.into()))
+        })
+        .map_err(|err| {
+            log_stat_error!(err, &context);
+            err
+        })?;
 
     metrics::histogram!(CAPTURE_V1_EVENT_BATCH_SIZE).record(batch.batch.len() as f64);
 
@@ -336,7 +343,15 @@ mod tests {
     )]
     #[case::wrong_type_distinct_id(
         r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e","uuid":"019a0000-0000-7000-8000-000000000001","distinct_id":12345678901234567890123,"timestamp":"2026-03-19T14:30:00Z"}]}"#,
-        "Failed to parse request body: wrong JSON type or value at line 1, column 142."
+        "Failed to parse request body: batch[0].distinct_id must be a string, got number."
+    )]
+    #[case::missing_event_name_in_later_event(
+        r#"{"created_at":"2026-03-19T14:30:00Z","batch":[{"event":"e","uuid":"019a0000-0000-7000-8000-000000000001","distinct_id":"d","timestamp":"2026-03-19T14:30:00Z"},{"uuid":"019a0000-0000-7000-8000-000000000002","distinct_id":"alice@example.com","timestamp":"2026-03-19T14:30:00Z"}]}"#,
+        "Failed to parse request body: batch[1].event is missing."
+    )]
+    #[case::wrong_type_created_at(
+        r#"{"created_at":{"secret":"alice@example.com"},"batch":[]}"#,
+        "Failed to parse request body: created_at must be a string, got object."
     )]
     #[case::wrong_type_batch(
         r#"{"created_at":"2026-03-19T14:30:00Z","batch":"alice@example.com"}"#,
@@ -347,7 +362,7 @@ mod tests {
         "Failed to parse request body: unexpected end of JSON at line 1, column 58."
     )]
     #[tokio::test]
-    async fn unparseable_body_reports_position_without_content(
+    async fn unparseable_body_describes_the_problem_without_content(
         #[case] body: &str,
         #[case] expected_description: &str,
     ) {
@@ -361,19 +376,20 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let json = response_json(resp).await;
-        assert_eq!(json["error"], "request_parsing_error");
-        assert_eq!(json["error_description"], expected_description);
         let raw = json.to_string();
         for value in [
             "alice@example.com",
             "12345678901234567890123",
             "1.2345678901234568e22",
+            "secret",
         ] {
             assert!(
                 !raw.contains(value),
                 "response echoes request content: {raw}"
             );
         }
+        assert_eq!(json["error"], "request_parsing_error");
+        assert_eq!(json["error_description"], expected_description);
     }
 
     #[tokio::test]
