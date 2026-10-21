@@ -1,27 +1,63 @@
 # Conversion recommendations in Marketing analytics
 
 Conversion recommendations scan a project's custom events and existing actions and suggest up to three business outcomes to measure.
-The API and MCP tools expose saved recommendations independently of the frontend.
-The `marketing-analytics-conversion-setup-ai` feature flag gates the API and MCP tools.
+They appear in the existing Marketing analytics Setup, under Suggestions and Conversion goals.
+With source onboarding enabled, the dashboard also shows the same conversion recommendations beside source setup.
+Dashboard suggestions have a dismiss button in their header when the Setup tab is available.
+Source onboarding, source loading failures, and connection diagnostics stay visible even when source suggestions have been dismissed.
+Dismiss hides the whole block for that user and project in the current browser and opens a dialog linking to the relevant Setup section.
+Setup keeps the sources and conversion recommendations available, with **Show suggestions on dashboard** to restore a hidden block.
+The `marketing-analytics-conversion-setup-ai` feature flag gates the UI, API, and MCP tools.
 The existing Marketing analytics setup flag must also be enabled.
 
 ## Analysis lifecycle
 
-A start request begins the first analysis after checking permission to generate.
-Analyses cover 30 days until one completes successfully; later analyses cover 14 days and require an explicit refresh request.
-Runs and completed results are stored per project, so reading saved state does not start another analysis.
-After a successful scan, a project waits one hour from completion before starting another scan.
-Failed scans can be retried immediately, and active scans are reused.
-The backend enforces this interval for UI and MCP requests; it never starts a scheduled rescan.
+The first visit to Setup or the source onboarding dashboard starts an analysis once, after loading the saved state and checking permission to generate.
+Analyses cover 30 days until one completes successfully; later analyses cover 14 days and require an explicit **Scan again** action.
+Runs and completed results are stored per project, so returning to Setup does not start another analysis.
+After a successful scan, a project waits one hour from its completion before starting another scan.
+Failed scans can be retried immediately with **Scan again**, including after an interrupted run expires.
+An active scan is reused instead of starting another in parallel.
+The backend enforces this interval for UI and MCP requests and returns the existing run during the cooldown.
+The UI updates the countdown when it receives scan status, so a newly completed scan shows 60 minutes.
+It enables **Scan again** when the hour has passed and never starts a scheduled rescan.
 An update retains the last completed recommendations while it runs.
 Interrupted runs become failed after five minutes and require an explicit retry.
 
-Each recommendation includes its source event or action, an explanation, a proposed intent (conversion, customer, or revenue), and up to two actionable checks specific to the proposed goal.
+Recommendations appear as compact rows in a single panel.
+Each row shows its source event or action, proposed intent (conversion, customer, or revenue), and a **Review suggestion** action.
+Expanding the row shows the explanation, amount property, and up to two actionable checks specific to the proposed goal.
 Count-only suggestions do not ask about revenue units, currency, or hypothetical revenue upgrades.
+Each row has **Dismiss**. Dismissed source references and names persist per user and project in the current browser and stay hidden across scans.
+**Dismissed suggestions** lists those sources and provides **Restore**.
+Restoring makes a source eligible to appear again; it appears immediately when the latest scan still recommends it and no goal for that event or action is configured.
+Earlier suggestions remain listed after a scan, without treating their old evidence as current results.
+**Scan details** contains the analysis period and discovery limits.
+**Scan again** scans recent events and actions and generates updated suggestions.
 A revenue suggestion must reference a numeric property observed in the source metadata.
 A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
 Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
-Recommendations do not create or modify goals, and do not depend on conversion previews or the new dashboard.
+The **Configure goals** button opens the existing goal editor, scrolls it into view, and focuses the name field, including when the Conversion goals section is already open.
+It preserves any draft already in the editor.
+Recommendations do not automatically create or modify goals, and do not depend on conversion previews or the new dashboard.
+In Setup, **Review suggestion** opens the existing goal editor with the proposed name and event or action.
+Revenue suggestions select the sum of the proposed amount property; customer suggestions select the customer flag.
+Business questions remain visible for review, and nothing is saved until the user clicks **Add conversion goal**.
+The form blocks duplicate submissions and keeps the draft after a failed save so the user can retry.
+Recommendations for an event or action with a saved goal are hidden from the pending list, even if the user changed the name, measurement, filters, or revenue and customer flags before saving.
+Opening a stale suggestion reviews a goal for that source, preferring an exact measurement match when there are several.
+Manual goals still use full measurement equivalence to prevent duplicate saves while allowing distinct filtered goals for the same source.
+The list updates after a successful save, without another AI analysis.
+If no suggestions remain to review, the recommendation block disappears from the dashboard after a successful scan, including when all are configured or dismissed.
+Setup shows a compact confirmation and keeps **Scan again** available after the cooldown; saved goals remain in the configured goals list.
+A failed refresh explains that the latest attempt failed while the saved goals and last successful results remain available.
+An active scan or a failed request remains visible on the dashboard so its status and retry action are available.
+Deleting the last goal for a source makes its suggestion available again.
+The form also checks for an equivalent saved goal before submitting, including when settings changed after the draft opened.
+The setup plan no longer generates rules that suggest creating conversion goals or enabling Revenue or Customer.
+The backend removes those suggestions for both the UI and the setup plan's MCP tool, and stops running the event-ranking scan that supplied them.
+Misconfigured goal warnings and integration diagnostics remain available.
+Without AI recommendations enabled, users configure goals manually; capability readiness still explains missing revenue or customer definitions.
 
 ## Discovery and access
 
@@ -56,23 +92,16 @@ Starting a run persists an analysis record and enqueues a task after the transac
 Concurrent starts reuse an active run, and repeated initial requests reuse the existing run.
 The start endpoint is limited to five requests per hour per user.
 
-The setup plan no longer generates rules that suggest creating conversion goals or enabling Revenue or Customer.
-Misconfigured goal warnings and integration diagnostics remain available.
-Without AI recommendations enabled, users configure goals manually; capability readiness still explains missing revenue or customer definitions.
-
-## Frontend follow-up
-
-The Setup integration ships separately and consumes these endpoints.
-It starts the first analysis once, shows saved results, and offers explicit updates and navigation to the existing goal editor.
-The backend and MCP tools do not depend on that integration.
-
 ## Verification
 
 The static IDOR coverage check verifies that recommendation runs appear in the generated environment-scoped model list.
 After changing model scope, regenerate that list with `python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models`, then run the same command without the regeneration flag.
 
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
-MCP tests cover tool schemas, feature flag gating, and access from read-only sessions.
+Frontend tests cover the initial run, manual updates, polling, project isolation, and the setup feature flag.
+Draft tests cover event and action mapping, explicit saves, duplicate-click prevention, and retries after failed saves.
+They also cover reviewing existing goals and avoiding duplicate saves from stale drafts.
+Storybook covers analysis in progress, saved results, updates, failure, empty results, missing consent, and narrow layouts.
 
 The standalone recommendation evaluation uses eleven synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
 It does not exercise discovery queries, permissions, persistence, or Celery; those have separate tests.
