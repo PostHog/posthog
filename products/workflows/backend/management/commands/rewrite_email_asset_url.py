@@ -12,7 +12,8 @@ from django.utils import timezone
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.messaging.backend.facade.api import find_template_ids_containing, rewrite_template_content
+from products.messaging.backend.facade.api import find_template_ids_containing
+from products.messaging.backend.facade.templates import rewrite_template_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 
@@ -39,7 +40,7 @@ MODEL_TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
     "hog_flow_templates": (HogFlowTemplate, {"actions": "updated_at"}),
     "hog_functions": (HogFunction, {"inputs": "updated_at", "draft": "draft_updated_at"}),
 }
-# Message templates belong to messaging, which finds and rewrites its own rows (content, updated_at).
+# Message templates belong to messaging, which finds and rewrites its own rows (content, draft_content, updated_at).
 MESSAGE_TEMPLATES: Final = "message_templates"
 TARGETS: Final[tuple[str, ...]] = ("hog_flows", "hog_flow_templates", MESSAGE_TEMPLATES, "hog_functions")
 

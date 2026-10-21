@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.messaging.backend.facade.api import get_template_email_content
+from products.messaging.backend.facade.templates import get_template
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.management.commands import rewrite_email_asset_url
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -118,6 +119,21 @@ class TestRewriteEmailAssetUrl(BaseTest):
         assert OLD in json.dumps(theirs.actions)
         assert get_template_email_content(self.team.id, my_template) == {"html": f'<img src="{NEW}?w=960px" />'}
         assert get_template_email_content(self.other_team.id, their_template) == content["email"]
+
+    def test_rewrites_a_template_draft_that_alone_holds_the_url(self) -> None:
+        published = {"email": {"html": "<p>No images yet</p>"}}
+        template = create_message_template_for_test(
+            team_id=self.team.id,
+            name="drafted",
+            content=published,
+            draft_content={"email": {"html": f'<img src="{OLD}?w=960px" />'}},
+        )
+
+        call_command("rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id))
+
+        row = get_template(self.team.id, template)
+        assert row.draft_content == {"email": {"html": f'<img src="{NEW}?w=960px" />'}}
+        assert row.content == published
 
     def test_preserves_query_suffixes_and_is_idempotent(self) -> None:
         flow = self._flow(self.team, "mine")

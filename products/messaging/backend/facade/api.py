@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -27,7 +26,6 @@ __all__ = [
     "is_push_integration_kind",
     "list_email_templates",
     "render_design_html",
-    "rewrite_template_content",
     "validate_design",
 ]
 
@@ -65,10 +63,3 @@ def list_email_templates(team_id: int, *, limit: int) -> list[EmailTemplateSumma
 
 def find_template_ids_containing(text: str, *, team_ids: list[int] | None, template_id: str | None) -> list[UUID]:
     return message_templates.find_ids_containing(text, team_ids=team_ids, template_id=template_id)
-
-
-def rewrite_template_content(
-    template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
-) -> int:
-    """Apply `rewrite` to a template's content under a row lock. Returns the number of occurrences it replaced."""
-    return message_templates.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)

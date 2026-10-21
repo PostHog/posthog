@@ -107,31 +107,22 @@ def _workflow_exists(team_id: int, hog_flow_id: UUID) -> bool:
     return True
 
 
-def lock_transactional_workflow_id(team_id: int, template_id: UUID) -> UUID | None:
-    """Lock the template row for the rest of the transaction and return its workflow id. Holding the lock
-    keeps make_transactional from linking a workflow between this read and the update that follows."""
-    return (
-        MessageTemplate.objects.select_for_update()
-        .filter(team_id=team_id, id=template_id)
-        .values_list("transactional_hog_flow_id", flat=True)
-        .get()
+def is_transactional(template: MessageTemplate) -> bool:
+    return template.transactional_hog_flow_id is not None and _workflow_exists(
+        template.team_id, template.transactional_hog_flow_id
     )
 
 
-def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str, Any]) -> None:
-    """Raise when an update would leave a transactional template unable to send. `fields` are validated
-    serializer fields, where `message_category` holds a category id."""
-    template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
-    if not template.transactional_hog_flow_id or fields.get("deleted"):
-        return
-    # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
-    if not _workflow_exists(team_id, template.transactional_hog_flow_id):
+def check_still_sendable(template: MessageTemplate) -> None:
+    """Raise when a written but unsaved template could no longer send as a transactional email."""
+    # A link to a deleted workflow no longer restricts the template. The sync after the save clears it.
+    if template.deleted or not is_transactional(template):
         return
     check_sendable(
-        team_id,
-        template_type=fields.get("type", template.type),
-        content=fields.get("content", template.content),
-        message_category_id=fields.get("message_category", template.message_category_id),
+        template.team_id,
+        template_type=template.type,
+        content=template.content,
+        message_category_id=template.message_category_id,
     )
 
 
