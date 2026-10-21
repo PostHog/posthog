@@ -170,12 +170,16 @@ function Header(): JSX.Element {
 }
 
 const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
+// Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
+const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
+    // The promo waits until the field guide banner is closed so the two never stack
+    const { isDismissed: isFieldGuideDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (isDismissed) {
+    if (isDismissed || !isFieldGuideDismissed) {
         return null
     }
 
@@ -196,9 +200,6 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
         </PostHogCaptureOnViewed>
     )
 }
-
-// Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
-const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
 
 function FieldGuideBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
