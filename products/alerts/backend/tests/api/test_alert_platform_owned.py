@@ -10,7 +10,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
+from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import cut_over_team
@@ -183,16 +185,22 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         )
 
     def test_an_edit_the_platform_cannot_run_is_refused_on_both_rows(self) -> None:
+        # Real-time passes the insight API's own checks on this insight, so only the platform refuses it.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}
+        ]
+        self.organization.save()
+
         response = self.client.patch(
             f"{self.url}/{self.alert.id}/",
-            {"detector_config": {"type": "zscore", "threshold": 0.95, "window": 30}},
+            {"calculation_interval": AlertCalculationInterval.REAL_TIME.value},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "alerts platform" in str(response.json())
         self.alert.refresh_from_db()
-        assert self.alert.detector_config is None
+        assert self.alert.calculation_interval == AlertCalculationInterval.DAILY.value
 
     @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
     def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:

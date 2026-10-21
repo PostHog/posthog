@@ -678,7 +678,9 @@ class UpsertAlertTool(MaxTool):
         # Deferred for the same cycle as `_follow_on_commit`.
         from products.alerts.backend.platform_ownership import on_created  # noqa: PLC0415
 
-        if alert.enabled and not on_created(alert, timezone.now()):
+        # A draft is handed over too, so turning it on later needs no second cutover run.
+        handed_over = on_created(alert, timezone.now())
+        if alert.enabled and not handed_over:
             _follow_on_commit(alert)
 
         return alert
