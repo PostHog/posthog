@@ -303,6 +303,7 @@ __all__ = [
     "task_access_scope",
     "normalize_verified_pull_request_urls_batch",
     "get_task_id_for_run",
+    "get_task_run_completed_at",
     "get_task_run",
     "get_task_run_session",
     "sync_task_run_session",
@@ -1196,6 +1197,17 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     need to deep-link a run to its task.
     """
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
+
+
+def get_task_run_completed_at(run_ids: Iterable[str | UUID], team_id: int) -> dict[UUID, datetime | None]:
+    """Each run's ``completed_at`` by run id, team-scoped. Runs not found for the team are left out.
+
+    A primary-key read for callers that only need the completion time, so they skip a join to the
+    task run table.
+    """
+    return dict(
+        TaskRun.objects.filter(id__in=list(run_ids), team_id=team_id).order_by().values_list("id", "completed_at")
+    )
 
 
 def task_access_scope(*, team_id: int, user: User) -> contracts.TaskAccessScope:
