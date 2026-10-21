@@ -7,6 +7,7 @@ import * as redisDb from '~/common/utils/db/redis'
 import { createRedisClient } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './idempotency-keys'
 
@@ -62,6 +63,27 @@ describe('IdempotencyKeys', () => {
         await keys.markQueued(1, key, 'request-a', 'run-1')
 
         expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
+    })
+
+    it('records the run once the store recovers from an outage that outlasts the inline attempts', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const failedBefore = await operations('test', 'mark_queued', 'failed')
+        const useClient = valkey.useClient
+        const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            expect(await operations('test', 'mark_queued', 'failed')).toEqual(failedBefore + 1)
+            outage.mockImplementation(useClient)
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                })
+            )
+        } finally {
+            outage.mockRestore()
+        }
     })
 
     it('reports the store as unavailable when it is not configured', async () => {

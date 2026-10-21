@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
+import { setTimeout as delay } from 'timers/promises'
 
 import type { CommonConfig } from '~/common/config'
 import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -8,8 +9,8 @@ import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 
-// Covers a caller's timeout and retry. After this a pending key expires, so a crash between the
-// reservation and the queue write can cost a duplicate, but never a send the caller thinks happened.
+// Covers a caller's timeout and retry. After this a pending key expires, so a crash after the queue
+// write and before the run is recorded can cost a duplicate, but never a send the caller thinks happened.
 const PENDING_TTL_SECONDS = 60
 const QUEUED_TTL_SECONDS = 24 * 60 * 60
 // A hung Valkey must not hold the caller's request open. Each route decides what an unavailable store means.
@@ -20,7 +21,9 @@ const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.deco
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
-const MARK_QUEUED_ATTEMPTS = 2
+const MARK_QUEUED_INLINE_ATTEMPTS = 2
+const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
+const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000
 
 const idempotencyOperationsTotal = new Counter({
     name: 'cdp_hogflow_idempotency_operations_total',
@@ -191,32 +194,11 @@ export class IdempotencyKeys {
 
     async markQueued(teamId: number, key: string, fingerprint: string, invocationId: string): Promise<void> {
         const value: StoredKey = { fingerprint, invocationId, queued: true }
-        for (let attempt = 1; attempt <= MARK_QUEUED_ATTEMPTS; attempt++) {
+        for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {
-                const written = await this.timed(
-                    'mark_queued',
-                    () =>
-                        this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
-                            client.eval(
-                                MARK_QUEUED_SCRIPT,
-                                1,
-                                this.redisKey(teamId, key),
-                                JSON.stringify(value),
-                                invocationId,
-                                QUEUED_TTL_SECONDS
-                            )
-                        ) ?? Promise.resolve(null)
-                )
-                if (written === 0) {
-                    logger.warn('🔑', 'idempotency key held by another request, run not recorded', {
-                        scope: this.scope,
-                    })
-                }
-                this.count('mark_queued', written === 0 ? 'not_owned' : 'written')
+                await this.writeQueued(teamId, key, value)
                 return
             } catch (error) {
-                // The run is already queued, so the request still succeeds. Without this record a retry
-                // after the pending TTL queues the run again.
                 logger.error('🔑', 'idempotency key completion failed', {
                     scope: this.scope,
                     attempt,
@@ -225,6 +207,48 @@ export class IdempotencyKeys {
             }
         }
         this.count('mark_queued', 'failed')
+        void this.retryMarkQueued(teamId, key, value)
+    }
+
+    private async retryMarkQueued(teamId: number, key: string, value: StoredKey): Promise<void> {
+        // A record after the replay window serves no retry, so the retries stop there.
+        const giveUpAt = Date.now() + QUEUED_TTL_SECONDS * 1000
+        for (
+            let delayMs = MARK_QUEUED_RETRY_FIRST_DELAY_MS;
+            Date.now() < giveUpAt;
+            delayMs = Math.min(delayMs * 2, MARK_QUEUED_RETRY_MAX_DELAY_MS)
+        ) {
+            await delay(delayMs, undefined, { ref: false })
+            const recorded = await this.writeQueued(teamId, key, value).then(
+                () => true,
+                () => false
+            )
+            if (recorded) {
+                return
+            }
+        }
+        logger.error('🔑', 'idempotency key completion gave up', { scope: this.scope })
+    }
+
+    private async writeQueued(teamId: number, key: string, value: StoredKey): Promise<void> {
+        const written = await this.timed(
+            'mark_queued',
+            () =>
+                this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
+                    client.eval(
+                        MARK_QUEUED_SCRIPT,
+                        1,
+                        this.redisKey(teamId, key),
+                        JSON.stringify(value),
+                        value.invocationId,
+                        QUEUED_TTL_SECONDS
+                    )
+                ) ?? Promise.resolve(null)
+        )
+        if (written === 0) {
+            logger.warn('🔑', 'idempotency key held by another request, run not recorded', { scope: this.scope })
+        }
+        this.count('mark_queued', written === 0 ? 'not_owned' : 'written')
     }
 
     async release(teamId: number, key: string, invocationId: string): Promise<void> {
