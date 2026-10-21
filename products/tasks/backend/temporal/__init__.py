@@ -16,6 +16,7 @@ from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
+    cleanup_boot_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
     collect_agent_shadow_result,
@@ -87,6 +88,7 @@ ACTIVITIES = [
     prepare_sandbox_for_repository,
     create_sandbox_for_repository,
     provision_sandbox_and_start_agent,
+    cleanup_boot_sandbox,
     inject_fresh_tokens_on_resume,
     restore_sandbox_connection_state,
     invalidate_resume_snapshot,

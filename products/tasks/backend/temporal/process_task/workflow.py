@@ -99,7 +99,9 @@ from .activities.provision_sandbox import (
     restore_sandbox_connection_state,
 )
 from .activities.provision_sandbox_and_start_agent import (
+    CleanupBootSandboxInput,
     ProvisionSandboxAndStartAgentInput,
+    cleanup_boot_sandbox,
     provision_sandbox_and_start_agent,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
@@ -1970,17 +1972,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _boot_in_one_activity(self) -> tuple[GetSandboxForRepositoryOutput, StartAgentServerOutput]:
-        booted = await workflow.execute_activity(
+        boot = workflow.start_activity(
             provision_sandbox_and_start_agent,
             ProvisionSandboxAndStartAgentInput(
                 context=self.context,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 workflow_start_at=self._workflow_start_at_iso(),
             ),
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             start_to_close_timeout=timedelta(minutes=50),
             heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        try:
+            booted = await self._await_unless_task_completes(boot)
+        except temporalio.exceptions.ActivityError:
+            await self._cleanup_boot_sandbox()
+            raise
         created = booted.created
         self._adopt_created_sandbox(created, cancellable=booted.sandbox_creation_cancellable)
         await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
@@ -1999,6 +2007,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             dev_stack_preview_sized=created.dev_stack_preview_sized,
         )
         return sandbox_output, booted.agent_server
+
+    async def _cleanup_boot_sandbox(self) -> None:
+        try:
+            await workflow.execute_activity(
+                cleanup_boot_sandbox,
+                CleanupBootSandboxInput(run_id=self.context.run_id, sandbox_backend=self.context.sandbox_backend),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except temporalio.exceptions.ActivityError as error:
+            workflow.logger.warning(
+                "boot_sandbox_cleanup_failed",
+                extra={"run_id": self.context.run_id, **self._activity_error_properties(error)},
+            )
 
     def _adopt_created_sandbox(self, created: CreateSandboxForRepositoryOutput, *, cancellable: bool) -> None:
         self._sandbox_id_for_cleanup = created.sandbox_id
@@ -2302,6 +2324,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=creation_timeout,
             retry_policy=retry_policy,
         )
+        return await self._await_unless_task_completes(creation)
+
+    async def _await_unless_task_completes[T](self, creation: workflow.ActivityHandle[T]) -> T:
         completion = asyncio.create_task(workflow.wait_condition(lambda: self._task_completed))
         done, _ = await asyncio.wait({creation, completion}, return_when=asyncio.FIRST_COMPLETED)
         if creation in done:

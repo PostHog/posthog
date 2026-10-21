@@ -1,10 +1,12 @@
 import asyncio
 import importlib
 import threading
+import contextlib
 
 import pytest
 from unittest.mock import MagicMock
 
+from products.tasks.backend.exceptions import SandboxProvisionError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -61,7 +63,7 @@ async def test_agent_start_failure_cleans_up_the_new_sandbox(task_context, boot_
 
     with pytest.raises(RuntimeError, match="agent never became healthy"):
         await boot_module._provision_sandbox_and_start_agent(
-            ProvisionSandboxAndStartAgentInput(context=task_context), threading.Event()
+            ProvisionSandboxAndStartAgentInput(context=task_context), boot_module._CreationClock(60), threading.Event()
         )
 
     assert _cleaned_sandbox_ids(boot_steps["cleanup_sandbox_now"]) == ["sandbox-new"]
@@ -76,7 +78,7 @@ async def test_retry_cleans_up_the_sandbox_a_crashed_attempt_left_behind(
     monkeypatch.setattr(boot_module, "current_activity_attempt", lambda: 2)
 
     await boot_module._provision_sandbox_and_start_agent(
-        ProvisionSandboxAndStartAgentInput(context=task_context), threading.Event()
+        ProvisionSandboxAndStartAgentInput(context=task_context), boot_module._CreationClock(60), threading.Event()
     )
 
     assert _cleaned_sandbox_ids(boot_steps["cleanup_sandbox_now"]) == ["sandbox-orphan"]
@@ -108,3 +110,41 @@ async def test_cancelled_boot_cleans_up_the_sandbox_it_created(task_context, boo
         await boot
 
     assert _cleaned_sandbox_ids(boot_steps["cleanup_sandbox_now"]) == ["sandbox-new"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_timeout_raised_by_a_boot_step_fails_the_activity(task_context, boot_steps, monkeypatch):
+    monkeypatch.setattr(provision_sandbox_module.activity, "heartbeat", lambda: None)
+    boot_steps["start_agent_server_in_sandbox"].side_effect = TimeoutError("agent health wait")
+
+    with pytest.raises(TimeoutError, match="agent health wait"):
+        await asyncio.wait_for(
+            boot_module.provision_sandbox_and_start_agent(ProvisionSandboxAndStartAgentInput(context=task_context)),
+            timeout=30,
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_creation_past_the_provider_deadline_fails_the_attempt(task_context, boot_steps, monkeypatch):
+    monkeypatch.setattr(provision_sandbox_module.activity, "heartbeat", lambda: None)
+    sandbox_class = MagicMock(creation_timeout_seconds=0)
+    sandbox_class.creation_cancellation_scope.return_value = contextlib.nullcontext()
+    monkeypatch.setattr(boot_module, "get_sandbox_class_for_run_backend", lambda _backend: sandbox_class)
+    release = threading.Event()
+    created = boot_steps["create_repository_sandbox"].return_value
+
+    def hung_create(_input):
+        release.wait(timeout=10)
+        return created
+
+    boot_steps["create_repository_sandbox"].side_effect = hung_create
+    boot = asyncio.create_task(
+        boot_module.provision_sandbox_and_start_agent(ProvisionSandboxAndStartAgentInput(context=task_context))
+    )
+    await asyncio.sleep(2)
+    release.set()
+
+    with pytest.raises(SandboxProvisionError):
+        await boot

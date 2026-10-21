@@ -54,6 +54,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     StartAgentServerOutput,
     TaskProcessingContext,
     checkout_branch_in_sandbox,
+    cleanup_boot_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
     complete_run_stream,
@@ -67,7 +68,6 @@ from products.tasks.backend.temporal.process_task.activities import (
     mark_repo_ready,
     post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
-    provision_sandbox_and_start_agent,
     read_sandbox_logs,
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
@@ -3124,12 +3124,16 @@ class TestProcessTaskWorkflowUnit:
             sandbox_creation_cancellable=False,
         )
 
-        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
-            if activity_fn is provision_sandbox_and_start_agent:
-                return booted
-            assert activity_fn is emit_progress_activity
-            return None
+        async def boot() -> ProvisionSandboxAndStartAgentOutput:
+            return booted
 
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> None:
+            assert activity_fn is emit_progress_activity
+
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "start_activity", lambda *a, **k: asyncio.create_task(boot())
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", lambda _: asyncio.Event().wait())
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
 
         sandbox_output, agent_server_output = await process_workflow._boot_in_one_activity()
@@ -3137,6 +3141,38 @@ class TestProcessTaskWorkflowUnit:
         assert process_workflow._sandbox_id_for_cleanup == "sandbox-123"
         assert sandbox_output.sandbox_id == "sandbox-123"
         assert agent_server_output == agent_server
+
+    async def test_failed_one_activity_boot_cleans_up_the_recorded_sandbox(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        process_workflow = ProcessTaskWorkflow()
+        process_workflow._context = _build_context(github_integration_id=None, repository=None)
+        activity_calls: list[object] = []
+
+        async def failed_boot() -> None:
+            raise ActivityError(
+                "Activity task timed out",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="worker-1",
+                activity_type="provision_sandbox_and_start_agent",
+                activity_id="activity-1",
+                retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
+            )
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> None:
+            activity_calls.append(activity_fn)
+
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "start_activity", lambda *a, **k: asyncio.create_task(failed_boot())
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", lambda _: asyncio.Event().wait())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        with pytest.raises(ActivityError):
+            await process_workflow._boot_in_one_activity()
+
+        assert activity_calls == [cleanup_boot_sandbox]
 
     async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         process_workflow = ProcessTaskWorkflow()
