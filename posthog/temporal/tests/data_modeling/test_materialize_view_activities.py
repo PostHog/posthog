@@ -1452,6 +1452,8 @@ class TestPrepareQueryableTableActivity:
         await database_sync_to_async(warehouse_table.delete)()
 
     async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, asaved_query, ajob):
+        asaved_query.is_materialized = True
+        await database_sync_to_async(asaved_query.save)()
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
             job_id=str(ajob.id),
@@ -1485,11 +1487,11 @@ class TestPrepareQueryableTableActivity:
         await database_sync_to_async(warehouse_table.delete)()
 
     @pytest.mark.parametrize(
-        "is_materialized,expected_type",
-        [(True, NodeType.MAT_VIEW), (False, NodeType.VIEW)],
+        "is_materialized,expected_type,keeps_table",
+        [(True, NodeType.MAT_VIEW, True), (False, NodeType.VIEW, False)],
     )
     async def test_linking_a_table_retypes_the_node_only_while_the_query_asks_to_materialize(
-        self, activity_environment, ateam, asaved_query, anode, ajob, is_materialized, expected_type
+        self, activity_environment, ateam, asaved_query, anode, ajob, is_materialized, expected_type, keeps_table
     ):
         # A node left typed VIEW is treated as ephemeral by every scheduled DAG run, which skips
         # materialization without recording a job. Linking a table is where that gets repaired —
@@ -1497,7 +1499,7 @@ class TestPrepareQueryableTableActivity:
         # the customer just turned off.
         anode.type = NodeType.VIEW
         await database_sync_to_async(anode.save)()
-        asaved_query.is_materialized = is_materialized
+        asaved_query.is_materialized = True
         await database_sync_to_async(asaved_query.save)()
 
         inputs = PrepareQueryableTableInputs(
@@ -1513,22 +1515,31 @@ class TestPrepareQueryableTableActivity:
             name="test_warehouse_table",
             format="Delta",
         )
+
+        async def publish_while_the_query_changes(*args, **kwargs):
+            await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+                is_materialized=is_materialized, table=warehouse_table
+            )
+            return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
+
         with (
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
             ) as mock_prepare,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
-            ) as mock_create_table,
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+                side_effect=publish_while_the_query_changes,
+            ),
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
-            mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
-            )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        await database_sync_to_async(warehouse_table.refresh_from_db)()
         assert anode.type == expected_type
+        assert (asaved_query.table_id == warehouse_table.id) is keeps_table
+        assert bool(warehouse_table.deleted) is not keeps_table
         await database_sync_to_async(warehouse_table.delete)()
 
 

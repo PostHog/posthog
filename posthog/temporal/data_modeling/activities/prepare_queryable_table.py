@@ -41,11 +41,33 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
+def _stopped_materializing(saved_query: DataWarehouseSavedQuery) -> bool:
+    return saved_query.origin != DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET and not saved_query.is_materialized
+
+
+def _discard_published_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable) -> None:
+    if saved_query.table_id == saved_query_table.id:
+        saved_query.table_id = None
+        saved_query.save(update_fields=["table", "updated_at"])
+    if not saved_query_table.deleted:
+        saved_query_table.soft_delete()
+    LOGGER.info(
+        "discarded_table_published_after_revert",
+        team_id=saved_query.team_id,
+        saved_query_id=str(saved_query.id),
+        table_id=str(saved_query_table.id),
+    )
+
+
 @database_sync_to_async_pool
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
     saved_query.refresh_from_db()
+    if _stopped_materializing(saved_query):
+        _discard_published_table(saved_query, saved_query_table)
+        return
+
     saved_query.table_id = saved_query_table.id
     saved_query.save()
 
