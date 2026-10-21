@@ -8,7 +8,7 @@ from django.db import close_old_connections
 import structlog
 import posthoganalytics
 from temporalio import activity
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import RetryCallState, Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -359,6 +359,20 @@ def _build_and_send_for_org(
     return counts
 
 
+DIGEST_RETRY_SLEEP_BUDGET_SECONDS = 5 * 60
+
+
+class _RetrySleepBudget:
+    def __init__(self, seconds: float) -> None:
+        self.remaining = seconds
+
+    def should_stop(self, state: RetryCallState) -> bool:
+        return stop_after_attempt(3)(state) or state.upcoming_sleep > self.remaining
+
+    def spend(self, state: RetryCallState) -> None:
+        self.remaining -= state.upcoming_sleep
+
+
 def _run_wa_digest_notification_batch(input: DigestBatchInput) -> DigestBatchResult:
     close_old_connections()
 
@@ -370,11 +384,12 @@ def _run_wa_digest_notification_batch(input: DigestBatchInput) -> DigestBatchRes
 
     totals = DigestBatchResult(batch_size=len(input.org_ids))
 
-    retry_deadline = time.monotonic() + 5 * 60
+    sleep_budget = _RetrySleepBudget(DIGEST_RETRY_SLEEP_BUDGET_SECONDS)
     build_retry = Retrying(
         retry=retry_if_exception_type((*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)),
         wait=wait_exponential(multiplier=30, max=60),
-        stop=lambda state: stop_after_attempt(3)(state) or time.monotonic() + state.upcoming_sleep >= retry_deadline,
+        stop=sleep_budget.should_stop,
+        before_sleep=sleep_budget.spend,
         reraise=True,
     )
 

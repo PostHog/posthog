@@ -394,12 +394,13 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
 
     @parameterized.expand(
         [
-            ("recovers", ClickHouseAtCapacity, 1, False, False, 2, 2),
-            ("concurrency_limited", ConcurrencyLimitExceeded, 1, False, False, 2, 2),
-            ("exhausted", ClickHouseAtCapacity, 3, False, False, 3, 1),
-            ("permanent", ValueError, 3, False, False, 1, 1),
-            ("budget_spent", ClickHouseAtCapacity, 3, True, False, 1, 1),
-            ("send_failure", ClickHouseAtCapacity, 1, False, True, 2, 1),
+            ("recovers", ClickHouseAtCapacity, 1, False, 300, False, 2, 2),
+            ("concurrency_limited", ConcurrencyLimitExceeded, 1, False, 300, False, 2, 2),
+            ("exhausted", ClickHouseAtCapacity, 3, False, 300, False, 3, 1),
+            ("permanent", ValueError, 3, False, 300, False, 1, 1),
+            ("slow_batch_start", ClickHouseAtCapacity, 1, True, 300, False, 2, 2),
+            ("budget_spent", ClickHouseAtCapacity, 3, False, 60, False, 2, 1),
+            ("send_failure", ClickHouseAtCapacity, 1, False, 300, True, 2, 1),
         ]
     )
     def test_retries_only_transient_reads_before_delivery(
@@ -407,7 +408,8 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         _name: str,
         error_type: type[Exception],
         failures: int,
-        spend_budget: bool,
+        slow_start: bool,
+        sleep_budget: float,
         fail_send: bool,
         expected_attempts: int,
         expected_sent: int,
@@ -445,7 +447,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
                 compare_periods.append((compare_range.date_from(), compare_range.date_to()))
             if query.breakdownBy == WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 attempts[team.id] += 1
-                if team.id == self.team.id and spend_budget:
+                if team.id == self.team.id and slow_start:
                     clock[0] += 301
                 if team.id == other_team.id and attempts[team.id] <= failures:
                     return MagicMock(run=MagicMock(side_effect=error_type()))
@@ -468,6 +470,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
             with (
                 patch(f"{ACTIVITIES}.Retrying", side_effect=lambda **kwargs: Retrying(sleep=sleep, **kwargs)),
                 patch(f"{ACTIVITIES}.time.monotonic", side_effect=lambda: clock[0]),
+                patch(f"{ACTIVITIES}.DIGEST_RETRY_SLEEP_BUDGET_SECONDS", sleep_budget),
                 patch(f"{digest_module}.WebOverviewQueryRunner", side_effect=overview_runner),
                 patch(f"{digest_module}.WebStatsTableQueryRunner", side_effect=stats_runner),
                 patch(f"{digest_module}.WebGoalsQueryRunner", side_effect=AssertionError("Unused goals queried")),

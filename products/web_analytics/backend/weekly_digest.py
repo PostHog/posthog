@@ -320,9 +320,9 @@ def get_goals_for_team(
     return results
 
 
-def _digest_date_range(team: Team, days: int) -> QueryDateRange:
+def _digest_date_range(team: Team, days: int, date_range: DateRange | None = None) -> QueryDateRange:
     return QueryDateRange(
-        date_range=DateRange(date_from=f"-{days}d"),
+        date_range=date_range or DateRange(date_from=f"-{days}d"),
         team=team,
         timezone_info=team.timezone_info,
         interval=None,
@@ -360,13 +360,7 @@ def _zero_traffic_status(team: Team, date_from: datetime, date_to: datetime) -> 
 
 
 def get_digest_metadata(team: Team, overview: dict, days: int = 7, date_range: DateRange | None = None) -> dict:
-    resolved_range = QueryDateRange(
-        date_range=date_range or DateRange(date_from=f"-{days}d"),
-        team=team,
-        timezone_info=team.timezone_info,
-        interval=None,
-        now=datetime.now(team.timezone_info),
-    )
+    resolved_range = _digest_date_range(team, days, date_range)
     date_from = overview.get("date_from", resolved_range.date_from())
     date_to = overview.get("date_to", resolved_range.date_to())
     if overview["sessions"]["current"] or overview["pageviews"]["current"]:
