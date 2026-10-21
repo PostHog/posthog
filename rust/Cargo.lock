@@ -3973,6 +3973,7 @@ dependencies = [
  "metrics",
  "object_store",
  "parquet",
+ "percent-encoding",
  "serde_json",
  "sqlparser",
  "tempfile",
@@ -3985,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "arrow",
  "arrow-array",
