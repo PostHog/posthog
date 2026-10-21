@@ -29,9 +29,9 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ..facade.contracts import DevToken, DevTokenRefused, DevTokenUsage, MintedDevToken
-from ..facade.enums import DevTokenClient, DevTokenStatus
-from ..models import DevGatewayToken
+from .facade.contracts import DevToken, DevTokenRefused, DevTokenUsage, MintedDevToken
+from .facade.enums import DevTokenClient, DevTokenStatus
+from .models import DevGatewayToken
 
 logger = structlog.get_logger(__name__)
 
