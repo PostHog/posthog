@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import structlog
@@ -10,6 +11,7 @@ from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.dataclasses import frozen
 
 from products.data_modeling.backend.facade.api import (
+    IncrementalConfig,
     definition_fingerprint,
     get_incremental_config,
     get_incremental_state,
@@ -30,6 +32,23 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 MAX_MATERIALIZATION_AGE = ci_rows.SYNC_FREQUENCY * 2
+
+
+def ci_tables(tables: GitHubTables, depot: depot_ci.DepotJobAttempts | None) -> list[str]:
+    """Every raw table a CI read of this repository touches."""
+    names = [tables.pull_requests, tables.workflow_runs, tables.workflow_jobs]
+    if depot is not None:
+        names.append(depot.table)
+    return [name for name in names if name]
+
+
+def _readable(catalog: "Database", name: str) -> bool:
+    return catalog.has_table(name) and not catalog.is_table_access_denied(name)
+
+
+@lru_cache(maxsize=32)
+def _definition_fingerprint(sql: str, config: IncrementalConfig) -> str | None:
+    return definition_fingerprint({"query": sql}, config)
 
 
 def materialized_views_enabled(team: "Team") -> bool | None:
@@ -85,42 +104,39 @@ class MaterializedCI:
             or selected.depot_job_attempts != depot
         ):
             return None
-        raw_tables = [tables.pull_requests, tables.workflow_runs, tables.workflow_jobs]
-        if depot is not None:
-            raw_tables.append(depot.table)
-        if not all(catalog.has_table(name) and not catalog.is_table_access_denied(name) for name in raw_tables):
+        raw_tables = ci_tables(tables, depot)
+        if not all(_readable(catalog, name) for name in raw_tables):
             return None
 
         # Read completion and its published table in one snapshot, so publication cannot race readiness.
         # A refresh publishes only on completion, so a running or failed one leaves the previous build readable.
-        jobs = DataModelingJob.objects.filter(
-            team_id=team.id,
-            status=DataModelingJob.Status.COMPLETED,
-            engine=DataModelingJob.Engine.CLICKHOUSE,
-            saved_query__team_id=team.id,
-            saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
-            saved_query__managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
-            saved_query__deleted=False,
-            saved_query__is_materialized=True,
-            saved_query__table__deleted=False,
-        ).select_related("saved_query__table")
+        newest_build = {
+            job.saved_query.name: job
+            for job in DataModelingJob.objects.filter(
+                team_id=team.id,
+                status=DataModelingJob.Status.COMPLETED,
+                engine=DataModelingJob.Engine.CLICKHOUSE,
+                saved_query__team_id=team.id,
+                saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                saved_query__managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
+                saved_query__deleted=False,
+                saved_query__is_materialized=True,
+                saved_query__table__deleted=False,
+                saved_query__name__in=(ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME),
+            )
+            .select_related("saved_query__table")
+            .order_by("saved_query__name", "-last_run_at")
+            .distinct("saved_query__name")
+            if job.saved_query is not None
+        }
+        expected = ci_rows.build_views(sources)
         materialized_at: dict[str, datetime] = {}
         started_at: dict[str, datetime] = {}
         for name, fields, config, sql in (
-            (
-                ci_rows.RUNS_VIEW_NAME,
-                ci_rows.RUN_FIELDS,
-                ci_rows.RUN_INCREMENTAL_CONFIG,
-                "\nUNION ALL\n".join(ci_rows.runs_select(source) for source in sources),
-            ),
-            (
-                ci_rows.JOBS_VIEW_NAME,
-                ci_rows.JOB_FIELDS,
-                ci_rows.JOB_INCREMENTAL_CONFIG,
-                "\nUNION ALL\n".join(ci_rows.jobs_select(source) for source in sources),
-            ),
+            (ci_rows.RUNS_VIEW_NAME, ci_rows.RUN_FIELDS, ci_rows.RUN_INCREMENTAL_CONFIG, expected.runs),
+            (ci_rows.JOBS_VIEW_NAME, ci_rows.JOB_FIELDS, ci_rows.JOB_INCREMENTAL_CONFIG, expected.jobs),
         ):
-            job = jobs.filter(saved_query__name=name).order_by("-last_run_at").first()
+            job = newest_build.get(name)
             view = job.saved_query if job is not None else None
             if (
                 job is None
@@ -130,8 +146,7 @@ class MaterializedCI:
                 or not fields.keys() <= (view.table.columns or {}).keys()
                 or view.query != {"kind": "HogQLQuery", "query": sql}
                 or view.incremental_config != config
-                or not catalog.has_table(name)
-                or catalog.is_table_access_denied(name)
+                or not _readable(catalog, name)
             ):
                 return None
             table = catalog.get_table(name)
@@ -145,7 +160,7 @@ class MaterializedCI:
             ):
                 return None
             incremental = get_incremental_config(view)
-            fingerprint = definition_fingerprint(view.query, incremental) if incremental is not None else None
+            fingerprint = _definition_fingerprint(sql, incremental) if incremental is not None else None
             if fingerprint is None or fingerprint != get_incremental_state(view).definition_fingerprint:
                 return None
             completed_at = job.last_run_at
