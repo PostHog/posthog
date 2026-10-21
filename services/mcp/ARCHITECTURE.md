@@ -79,6 +79,8 @@ The Hono runtime keeps per-user session state (active project/organization, regi
 - **Deterministic**: Same token always produces the same hash/prefix
 - **Secure**: Tokens can't be reversed from the hash
 
+Project and organization selections are scoped to the credential and transport session, or to the SDK's conversation handle for sessionless clients. Conversation and transport namespaces are separate. Echoed handles resolve before the state lookup; a newly minted handle binds state before tool execution, including switches on the first call. Switching does not update the shared credential selection.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:

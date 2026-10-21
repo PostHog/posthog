@@ -134,6 +134,7 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
 
 // Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
 export interface ToolCallHooks {
+    resolveConversation?(conversationId: string): Promise<ResolvedState>
     beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
     afterExecute(state: ResolvedState, result: unknown): Promise<void>
 }
@@ -236,7 +237,16 @@ export class ToolExecutor {
         // same session. A batch never reaches here holding a handle, because the dispatcher
         // refuses a batch containing a modern message and a legacy client carries a session.
         if (preparedCall?.conversationId) {
+            const previousConversationId = state.requestContext.mcpConversationId
             state.requestContext.mcpConversationId = preparedCall.conversationId
+            if (
+                !state.requestContext.mcpSessionId &&
+                preparedCall.conversationId !== previousConversationId &&
+                hooks?.resolveConversation
+            ) {
+                // The SDK can mint the first handle after state resolves; bind its store before a switch executes.
+                state = await hooks.resolveConversation(preparedCall.conversationId)
+            }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }

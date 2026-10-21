@@ -108,6 +108,15 @@ function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     )
 }
 
+// The SDK owns minting; only restore handles it accepts before resolving tool targets.
+const SDK_CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function echoedConversationId(request: JSONRPCRequest): string | undefined {
+    const value = (request.params?.arguments as { conversation_id?: unknown } | undefined)?.conversation_id
+    const id = typeof value === 'string' ? value.trim().toLowerCase() : undefined
+    return id && SDK_CONVERSATION_ID.test(id) ? id : undefined
+}
+
 type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
 type JsonRpcErrorResponse = {
     jsonrpc: typeof JSONRPC_VERSION
@@ -261,6 +270,10 @@ class McpDispatcher {
             props.mcpSessionId = randomUUID()
         }
 
+        if (!props.mcpSessionId && requests.length === 1 && requests[0]!.method === Method.ToolsCall) {
+            props.mcpConversationId = echoedConversationId(requests[0]!) ?? props.mcpConversationId
+        }
+
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
@@ -399,6 +412,10 @@ class McpDispatcher {
                     state!,
                     params
                         ? {
+                              resolveConversation: (conversationId) => {
+                                  props.mcpConversationId = conversationId
+                                  return this.stateResolver.resolve(props)
+                              },
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(
                                       params,

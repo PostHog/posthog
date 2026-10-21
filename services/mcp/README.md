@@ -410,7 +410,9 @@ The server defaults to port **8787**, reads config from `.env` (see `.env.exampl
 
 ### Session cache
 
-Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching organizations clears the previous project. Requests without an MCP session ID retain the credential-level selection, so use an explicit project pin for those clients.
+Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching to another organization clears the previous project.
+
+Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls, including when the first call switches projects or organizations. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity cannot restore earlier switches, so echo the conversation handle or send an explicit project pin.
 
 Session defaults are stored once, separately from explicit selections. A delayed lookup can resolve context for its own request without overwriting a completed switch.
 

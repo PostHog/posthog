@@ -102,6 +102,7 @@ type CallOptions = {
     token?: string
     query?: string
     sessionId?: string
+    conversationId?: string
 }
 
 function requestHeaders({ token = 'phx_default', sessionId }: CallOptions): Record<string, string> {
@@ -146,12 +147,17 @@ type ToolCallResponse = {
 async function postToolCall(
     name: string,
     args: Record<string, unknown>,
-    { query = `?project_id=${PINNED_PROJECT}`, ...options }: CallOptions = {}
+    { query = `?project_id=${PINNED_PROJECT}`, conversationId, ...options }: CallOptions = {}
 ): Promise<ToolCallResponse> {
     const response = await app.request(`/mcp${query}`, {
         method: 'POST',
         headers: requestHeaders(options),
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name, arguments: conversationId ? { ...args, conversation_id: conversationId } : args },
+        }),
     })
     const raw = await response.text()
     const json = JSON.parse(raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'))) as Omit<ToolCallResponse, 'status'>
@@ -184,6 +190,14 @@ async function targets(options: CallOptions): Promise<{ project: string | null; 
 
 const tokenCache = (token: string): RedisCache<State> => new RedisCache<State>(hash(token), redis, 'token')
 
+const CONVERSATION_A = '0199c6f0-0000-7000-8000-00000000000a'
+const CONVERSATION_B = '0199c6f0-0000-7000-8000-00000000000b'
+
+function mintedConversationId(response: ToolCallResponse): string | undefined {
+    const prompt = response.result?.content?.find((item) => item.text?.startsWith('{"conversation_id"'))
+    return prompt ? (JSON.parse(prompt.text!) as { conversation_id: string }).conversation_id : undefined
+}
+
 // The session store key that deployed servers used before it included the credential.
 async function seedLegacySession(sessionId: string, state: Partial<SessionScopedState>): Promise<void> {
     const legacyPrefix = createHash('sha256').update(sessionId).digest().subarray(0, 16).toString('base64url')
@@ -209,11 +223,8 @@ const pathsFor = (projectId: string, orgId: string): string[] => [
 ]
 const billingPathFor = (orgId: string): string[] => [`/api/organizations/${orgId}/billing/subscription/`]
 
-// An unpinned, sessionless switch writes the shared token cache, as another session on the credential would.
 async function cacheOtherProjectOnToken(token: string): Promise<void> {
-    const switched = await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, { token, query: '' })
-    expect(switched.isError).toBeFalsy()
-    expect(await runQueryAndBilling({ token, query: '' })).toEqual(pathsFor(OTHER_PROJECT, OTHER_ORG))
+    await tokenCache(token).setMany({ projectId: OTHER_PROJECT, orgId: OTHER_ORG })
 }
 
 describe('pinned project with switch-project (Hono)', () => {
@@ -239,15 +250,6 @@ describe('pinned project with switch-project (Hono)', () => {
             pathsFor(PINNED_PROJECT, PINNED_ORG)
         )
         expect(await runQueryAndBilling({ token, sessionId: 'session-a' })).toEqual(pathsFor(OTHER_PROJECT, OTHER_ORG))
-    })
-
-    it('refuses switch-project without an MCP session instead of reporting a switch the pin reverts', async () => {
-        const token = 'phx_sessionless'
-        const switched = await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, { token })
-        expect(switched.isError).toBe(true)
-        expect(switched.text).toContain('sends no MCP session id')
-
-        expect(await runQueryAndBilling({ token })).toEqual(pathsFor(PINNED_PROJECT, PINNED_ORG))
     })
 
     it.each([
@@ -285,17 +287,92 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(result.paths).toEqual([])
     })
 
-    it("lets a sessionless project pin switch only to the project's own organization", async () => {
+    it('clears a project when the first conversation call switches organizations', async () => {
         const token = 'phx_switch_org'
-        const ownOrg = await callTool('switch-organization', { orgId: PINNED_ORG }, { token })
-        expect(ownOrg.isError).toBeFalsy()
-        expect(await runBilling({ token })).toEqual({ isError: undefined, paths: billingPathFor(PINNED_ORG) })
-
-        const otherOrg = await callTool('switch-organization', { orgId: OTHER_ORG }, { token })
-        expect(otherOrg.isError).toBe(true)
-        expect(otherOrg.text).toContain('sends no MCP session id')
+        const response = await postToolCall('switch-organization', { orgId: OTHER_ORG }, { token })
+        expect(response.result?.isError).toBeFalsy()
+        const conversationId = mintedConversationId(response)
+        expect(conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/)
+        expect(await targets({ token, conversationId })).toEqual({ project: null, org: OTHER_ORG })
         expect(await runBilling({ token })).toEqual({ isError: undefined, paths: billingPathFor(PINNED_ORG) })
     })
+    it.each([
+        ['unpinned conversation', ''],
+        ['pinned conversation', `?project_id=${PINNED_PROJECT}`],
+    ])('isolates each %s without changing credential defaults', async (label, query) => {
+        const token = `phx_${label.replaceAll(' ', '_')}`
+        const first = { token, query, conversationId: CONVERSATION_A }
+        const second = { token, query, conversationId: CONVERSATION_B }
+        expect((await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, first)).isError).toBeFalsy()
+        expect((await callTool('switch-project', { projectId: Number(PINNED_PROJECT) }, second)).isError).toBeFalsy()
+
+        expect(await targets(first)).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
+        expect(await targets(second)).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+        expect(await tokenCache(token).get('projectId')).toBeUndefined()
+    })
+
+    it.each(['', `?project_id=${PINNED_PROJECT}`])(
+        'persists a first-call switch with a newly minted conversation and pin %s',
+        async (query) => {
+            const token = `phx_first_conversation_${query ? 'pin' : 'default'}`
+            const first = await postToolCall('switch-project', { projectId: Number(OTHER_PROJECT) }, { token, query })
+            expect(first.result?.isError).toBeFalsy()
+            const conversationId = mintedConversationId(first)
+            expect(conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/)
+            await callTool(
+                'switch-project',
+                { projectId: Number(PINNED_PROJECT) },
+                { token, query: '', conversationId: CONVERSATION_B }
+            )
+
+            expect(await targets({ token, query, conversationId })).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
+        }
+    )
+
+    it('keeps a conversation bound to its credential and separate from a transport session with the same id', async () => {
+        const token = 'phx_conversation_namespace'
+        const conversation = { token, query: '', conversationId: CONVERSATION_A }
+        await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, conversation)
+
+        expect(
+            await targets({ token: 'phx_other_conversation_namespace', query: '', conversationId: CONVERSATION_A })
+        ).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+        expect(await targets({ token, query: '', sessionId: CONVERSATION_A })).toEqual({
+            project: PINNED_PROJECT,
+            org: PINNED_ORG,
+        })
+        expect(await targets({ token, query: '', sessionId: CONVERSATION_A, conversationId: CONVERSATION_A })).toEqual({
+            project: PINNED_PROJECT,
+            org: PINNED_ORG,
+        })
+        expect(await targets(conversation)).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
+    })
+
+    it.each(['conv-1', CONVERSATION_A.toUpperCase()])(
+        'uses the SDK-normalized conversation identity for %s',
+        async (supplied) => {
+            const token = `phx_normalize_${supplied}`
+            const first = await postToolCall(
+                'switch-project',
+                { projectId: Number(OTHER_PROJECT) },
+                { token, query: '', conversationId: supplied }
+            )
+            expect(first.result?.isError).toBeFalsy()
+            const conversationId = supplied === 'conv-1' ? mintedConversationId(first) : CONVERSATION_A
+            expect(conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/)
+
+            expect(await targets({ token, query: '', conversationId })).toEqual({
+                project: OTHER_PROJECT,
+                org: OTHER_ORG,
+            })
+            expect(await targets({ token, query: '', conversationId: supplied })).toEqual(
+                supplied === 'conv-1'
+                    ? { project: PINNED_PROJECT, org: PINNED_ORG }
+                    : { project: OTHER_PROJECT, org: OTHER_ORG }
+            )
+        }
+    )
+
     it.each([
         ['pinned across organizations', `?project_id=${PINNED_PROJECT}`, OTHER_PROJECT, OTHER_ORG],
         ['unpinned across organizations', '', OTHER_PROJECT, OTHER_ORG],
@@ -325,11 +402,15 @@ describe('pinned project with switch-project (Hono)', () => {
     })
 
     it.each([
-        ['unpinned', ''],
-        ['organization-pinned', `?organization_id=${PINNED_ORG}`],
-    ])('keeps a %s session on its project when the website selection changes', async (label, query) => {
+        ['unpinned session', '', undefined],
+        ['organization-pinned session', `?organization_id=${PINNED_ORG}`, undefined],
+        ['unpinned conversation', '', CONVERSATION_A],
+        ['organization-pinned conversation', `?organization_id=${PINNED_ORG}`, CONVERSATION_A],
+    ])('keeps a %s on its project when the website selection changes', async (label, query, conversationId) => {
         const token = `phx_website_selection_${label}`
-        const sessionId = await initialize({ token, query })
+        const sessionId = conversationId ? undefined : await initialize({ token, query })
+        const connection = { token, sessionId, conversationId, query }
+        await targets(connection)
         const user = {
             distinct_id: 'website-selection-test',
             email: 'test@example.com',
@@ -339,42 +420,51 @@ describe('pinned project with switch-project (Hono)', () => {
         mswServer.use(http.get('*/api/users/@me/', () => HttpResponse.json(user)))
         const newSessionId = await initialize({ token, query: '' })
 
-        expect(await targets({ token, sessionId, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+        expect(await targets(connection)).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
         expect(await targets({ token, sessionId: newSessionId, query: '' })).toEqual({
             project: OTHER_PROJECT,
             org: OTHER_ORG,
         })
     })
 
-    it('routes overlapping calls from unpinned sessions to their own organizations and projects', async () => {
-        const token = 'phx_concurrent_sessions'
-        const sessions = await Promise.all(
-            [PINNED_PROJECT, OTHER_PROJECT].map(async (projectId) => {
-                const session = { token, sessionId: await initialize({ token, query: '' }), query: '' }
-                const result = await callTool('switch-project', { projectId: Number(projectId) }, session)
-                expect(result.isError).toBeFalsy()
-                return session
-            })
-        )
-        apiPaths.length = 0
-        apiPathsByIntent.clear()
+    it.each(['session', 'conversation'])(
+        'routes overlapping calls from each %s to its own organization and project',
+        async (kind) => {
+            const token = `phx_concurrent_${kind}`
+            const sessions = await Promise.all(
+                [PINNED_PROJECT, OTHER_PROJECT].map(async (projectId) => {
+                    const session = {
+                        token,
+                        ...(kind === 'session'
+                            ? { sessionId: await initialize({ token, query: '' }) }
+                            : { conversationId: projectId === PINNED_PROJECT ? CONVERSATION_A : CONVERSATION_B }),
+                        query: '',
+                    }
+                    const result = await callTool('switch-project', { projectId: Number(projectId) }, session)
+                    expect(result.isError).toBeFalsy()
+                    return session
+                })
+            )
+            apiPaths.length = 0
+            apiPathsByIntent.clear()
 
-        const pathsBySession = await Promise.all(
-            sessions.map(async (session, index) => {
-                const context = `concurrent-session-${index}`
-                await Promise.all([
-                    callTool('execute-sql', { query: 'SELECT 1', context }, session),
-                    callTool('billing-subscription-get', { context }, session),
-                ])
-                return [...(apiPathsByIntent.get(context) ?? [])].sort()
-            })
-        )
+            const pathsBySession = await Promise.all(
+                sessions.map(async (session, index) => {
+                    const context = `concurrent-session-${index}`
+                    await Promise.all([
+                        callTool('execute-sql', { query: 'SELECT 1', context }, session),
+                        callTool('billing-subscription-get', { context }, session),
+                    ])
+                    return [...(apiPathsByIntent.get(context) ?? [])].sort()
+                })
+            )
 
-        expect(pathsBySession).toEqual([
-            pathsFor(PINNED_PROJECT, PINNED_ORG).sort(),
-            pathsFor(OTHER_PROJECT, OTHER_ORG).sort(),
-        ])
-    })
+            expect(pathsBySession).toEqual([
+                pathsFor(PINNED_PROJECT, PINNED_ORG).sort(),
+                pathsFor(OTHER_PROJECT, OTHER_ORG).sort(),
+            ])
+        }
+    )
 
     it.each([
         ['pinned', `?project_id=${PINNED_PROJECT}`],
@@ -501,7 +591,7 @@ describe('pinned project with switch-project (Hono)', () => {
             label: 'a cached project in the pinned organization',
             seed: cacheOtherProjectOnToken,
             pinnedOrg: OTHER_ORG,
-            expected: { project: OTHER_PROJECT, org: OTHER_ORG },
+            expected: { project: null, org: OTHER_ORG },
         },
         {
             label: 'no cached project and a default in the pinned organization',
