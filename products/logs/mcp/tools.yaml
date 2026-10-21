@@ -47,6 +47,8 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -171,6 +173,8 @@ tools:
                 - threshold_operator
                 - window_minutes
                 - schedule_restriction
+                - grouping
+                - platform_owned
                 - created_at
                 - updated_at
     logs-alerts-partial-update:
@@ -213,6 +217,8 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -249,6 +255,8 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -407,6 +415,21 @@ tools:
         response:
             include:
                 - results
+    logs-group-by:
+        operation: logs_group_by_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Group logs by attributes
+        description_file: ./prompts/logs-group-by.md
+        feature_flag: logs-agent-tools
+        response:
+            exclude:
+                - groups.*.value
     logs-patterns:
         operation: logs_patterns_create
         enabled: true
@@ -438,6 +461,8 @@ tools:
         description_file: ./prompts/logs-patterns-diff.md
         response:
             exclude:
+                - entries.*.pattern.pattern
+                - entries.*.pattern.services
                 - entries.*.pattern.examples
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count
@@ -451,22 +476,15 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List services with stats
-        description: |
-            Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate,
-            plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on
-            — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking
-            attribute-values + per-service counts.
-
-            Put all parameters in `query`:
-
-            ```json
-            { "query": { "dateRange": { "date_from": "-24h" } } }
-            ```
+        title: List services with health status
+        description_file: ./prompts/logs-services.md
         response:
             include:
                 - services
                 - sparkline
+                - window
+                - summary
+                - next
     logs-sparkline-query:
         operation: logs_sparkline_create
         enabled: true
@@ -490,6 +508,7 @@ tools:
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
+        reads_ingested_data: events
         response:
             include:
                 - results

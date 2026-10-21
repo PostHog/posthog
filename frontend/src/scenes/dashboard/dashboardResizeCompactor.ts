@@ -16,7 +16,7 @@ export function restoreUnmovedItemPositions(
 
     return layout.map((item) => {
         const baselineItem = baselineById.get(item.i)
-        if (item.i === activeItemId || !baselineItem) {
+        if (item.i === activeItemId || !baselineItem || (item.x === baselineItem.x && item.y === baselineItem.y)) {
             return item
         }
 
@@ -58,6 +58,9 @@ export function resizeNeighborToFitRow(
                         return item
                     }
 
+                    if (item.x === activeRight && item.y === rightNeighbor.y && item.w === nextWidth) {
+                        return item
+                    }
                     return { ...item, x: activeRight, y: rightNeighbor.y, w: nextWidth }
                 })
             }
@@ -75,6 +78,9 @@ export function resizeNeighborToFitRow(
                         return item
                     }
 
+                    if (item.y === leftNeighbor.y && item.w === nextWidth) {
+                        return item
+                    }
                     return { ...item, y: leftNeighbor.y, w: nextWidth }
                 })
             }

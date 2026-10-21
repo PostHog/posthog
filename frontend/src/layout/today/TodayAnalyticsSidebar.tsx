@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconBox, IconList, IconNotification, IconPerson } from '@posthog/icons'
+import { IconBell, IconBox, IconList, IconNotification, IconPerson, IconPinFilled } from '@posthog/icons'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -22,7 +23,8 @@ import { TodayPaneSection } from './TodayPaneSection'
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { collapsedSections, fromPostHog } = useValues(todayAnalyticsLogic)
     const { toggleSection } = useActions(todayAnalyticsLogic)
-    const { pinnedSpaces } = useValues(analyticsSpacesLogic)
+    const { pinnedSpaces, pinning } = useValues(analyticsSpacesLogic)
+    const { togglePin } = useActions(analyticsSpacesLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const isOpen = (section: TodayAnalyticsSection): boolean => !collapsedSections.includes(section)
@@ -82,6 +84,25 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                             icon={<AnalyticsSpaceGlyph name={space.name} />}
                             to={urls.analyticsList({ folder: space.path })}
                             active={openFolder === space.path}
+                            action={
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <Button
+                                                variant="default"
+                                                size="icon-sm"
+                                                aria-label={`Unpin ${space.name}`}
+                                                loading={pinning === space.path}
+                                                onClick={() => togglePin(space)}
+                                                data-attr="analytics-sidebar-unpin-space"
+                                            />
+                                        }
+                                    >
+                                        <IconPinFilled />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Unpin</TooltipContent>
+                                </Tooltip>
+                            }
                             dataAttr="analytics-sidebar-starred-space"
                         />
                     ))}

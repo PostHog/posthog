@@ -29,14 +29,17 @@ Regenerate the baseline (after confirming a rename, or when a body cites a new t
 """
 
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions
+from posthog.test.repo_invariants.ratchet import enforce_baseline
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "signals_scout_tool_citations_baseline.txt"
+BLOCKING_FROM = date.fromisoformat("2026-09-19")
 
 TOOL_NAME_VERBS = frozenset(
     {
@@ -161,10 +164,15 @@ def test_baseline_tool_citations_still_resolve() -> None:
         "Repoint each citation at the live tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
         + "\n".join(f"  {name}" for name in missing)
     )
-    assert not added, (
-        "Canonical scouts cite tools the baseline does not pin. Confirm each name is a real "
-        "tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
-        + "\n".join(f"  {name}" for name in added)
+    enforce_baseline(
+        added=added,
+        removed=[],
+        blocking_from=BLOCKING_FROM,
+        message=(
+            "Canonical scouts cite tools the baseline does not pin. Confirm each name is a real "
+            "tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
+            + "\n".join(f"  {name}" for name in added)
+        ),
     )
 
 

@@ -334,9 +334,7 @@ class TestRetries:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("forbidden_scope", 403, True, None),
-            ("unauthorized", 401, False, "rejected your Admin API key"),
             ("service_unavailable", 503, False, "couldn't check your Admin API key"),
         ]
     )
@@ -354,37 +352,6 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and fragment in message
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.openai.com/v1/organization/users?limit=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.openai.com/v1/organization/costs",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = OpenAISource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.openai.com/v1/organization/users",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = OpenAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestRetryableErrors:

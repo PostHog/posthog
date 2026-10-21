@@ -216,7 +216,7 @@ STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 # The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
 # run can resume after. It differs from the staged `last_value`, which the loader promotes only
 # when the whole run completes.
-STAGED_RESUME_VALUE_KEY = "resume_value"
+STAGED_RESUME_VALUE_KEY = "ordered_resume_value"
 
 # The key, inside a staged cursor, for the run whose queue rows the resume value actually describes.
 # An attempt that only inherits the value from an earlier attempt, without queuing a batch of its
@@ -228,6 +228,11 @@ STAGED_RESUME_OWNER_KEY = "resume_owner_run_uuid"
 # owns the value (see `pipeline_v3/load/append_rollback.py`). A reset deletes the table, so it
 # drops the key too.
 APPEND_RUN_MARKER_KEY = "append_run_in_progress"
+
+# The key for the newest watermark that a loaded prefix of batches moved, with the job that loaded
+# them and the rows that job had synced through the prefix. A later attempt of the same job reads
+# only the rows above that watermark, so it keeps that row count instead of counting from zero.
+PREFIX_PROMOTION_KEY = "incremental_prefix_promotion"
 
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
@@ -1241,6 +1246,50 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
 
+    def promote_loaded_prefix_value(
+        self, *, run_uuid: str, job_id: str, field: str, value: Any, job_rows_synced: int
+    ) -> bool:
+        """Move `incremental_field_last_value` up to the value that a loaded prefix of `run_uuid` covers.
+
+        Returns True when the watermark moved. It moves only forward, and only while the run still
+        has a staged cursor at or above `value` for the same incremental field. A reset drops the
+        staged cursors, so a run that loads late never moves the watermark of the table that replaced
+        its own. A pair of values that cannot be compared keeps the current watermark.
+        """
+        moved = False
+
+        def mutate(config: dict[str, Any]) -> None:
+            nonlocal moved
+            if config.get("incremental_field") != field:
+                return
+            staged = _staged_cursor_of_run(config, run_uuid)
+            if staged is None or "last_value" not in staged:
+                return
+            field_type = config.get("incremental_field_type")
+            staged_comparison = _compare_incremental_values(staged["last_value"], value, field_type)
+            if staged_comparison is None or staged_comparison < 0:
+                return
+            current = config.get("incremental_field_last_value")
+            if current is not None:
+                comparison = _compare_incremental_values(current, value, field_type)
+                if comparison is None or comparison >= 0:
+                    return
+            config["incremental_field_last_value"] = value
+            config[PREFIX_PROMOTION_KEY] = {
+                "job_id": job_id,
+                "run_uuid": run_uuid,
+                "value": value,
+                "rows_synced": job_rows_synced,
+            }
+            moved = True
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return moved
+
+    def serialize_incremental_value(self, value: Any) -> Any:
+        """Encode a cursor value the way the staged and the promoted watermark values store it."""
+        return self._serialize_incremental_value(value)
+
     def _serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
         if "numpy" in sys.modules:
@@ -1321,6 +1370,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",
+            PREFIX_PROMOTION_KEY,
             APPEND_RUN_MARKER_KEY,
             "partitioning_enabled",
             "partition_size",
@@ -1536,6 +1586,31 @@ def _staged_attempts_of_run(config: dict[str, Any], workflow_run_id: str) -> lis
         if parsed is not None and parsed[0] == workflow_run_id:
             attempts.append((staged, parsed[1]))
     return attempts
+
+
+def _staged_cursor_of_run(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
+    """The staged cursor of `run_uuid`, live or parked, without removing it."""
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        if staged.get("run_uuid") == run_uuid:
+            return staged
+    return None
+
+
+def prefix_promotion_rows_synced(config: dict[str, Any], job_id: str) -> int | None:
+    """The rows `job_id` synced through the loaded prefix that set the stored watermark, or None.
+
+    None when the stored watermark did not come from a loaded prefix of this job, so a new attempt
+    of the job reads the rows that the count would cover again.
+    """
+    promotion = config.get(PREFIX_PROMOTION_KEY)
+    if not isinstance(promotion, dict) or promotion.get("job_id") != job_id:
+        return None
+    if "value" not in promotion or promotion["value"] != config.get("incremental_field_last_value"):
+        return None
+    rows_synced = promotion.get("rows_synced")
+    if isinstance(rows_synced, bool) or not isinstance(rows_synced, int) or rows_synced < 0:
+        return None
+    return rows_synced
 
 
 def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:

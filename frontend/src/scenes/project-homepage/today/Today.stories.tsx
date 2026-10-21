@@ -1073,9 +1073,36 @@ export const LibraryFeatureFlags: Story = {
     parameters: { pageUrl: urls.featureFlags() },
 }
 
-export const ToolsPane: Story = {
+const PRODUCT_STARS = mswDecorator({
+    get: {
+        '/api/environments/:team_id/file_system_shortcut/': {
+            count: 3,
+            next: null,
+            previous: null,
+            results: [
+                { id: 'star-1', path: 'Product analytics', type: 'insight', href: '/insights' },
+                { id: 'star-2', path: 'Session replay', type: 'session_recording_playlist', href: '/replay/home' },
+                { id: 'star-3', path: 'Error tracking', type: 'error_tracking', href: '/error_tracking' },
+            ],
+        },
+    },
+})
+
+export const ProductsPane: Story = {
+    decorators: [PRODUCT_STARS],
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Tools'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Products'))
+        await within(canvasElement).findByText('Starred')
+    },
+}
+
+// Hovering a product row opens its card with the description, an example and the docs link.
+export const ProductsPaneProductCard: Story = {
+    decorators: [PRODUCT_STARS],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Products'))
+        await userEvent.hover(await sidebarRow(canvasElement, 'Web analytics', 'today-tool'))
+        await within(document.body).findByText('For example')
     },
 }
 

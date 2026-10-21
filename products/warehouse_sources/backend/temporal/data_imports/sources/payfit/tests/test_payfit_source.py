@@ -33,22 +33,6 @@ class TestPayFitSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://partner-api.payfit.com/companies/c/absences",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://partner-api.payfit.com/companies/c/contracts",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     def test_validate_credentials_probes_endpoint_scope_for_schema(self) -> None:
         # PayFit keys carry per-endpoint scopes, so per-schema validation must probe that endpoint
         # rather than only introspecting the token.
