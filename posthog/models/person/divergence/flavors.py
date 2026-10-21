@@ -62,6 +62,8 @@ MAPPING_VERBS: dict[tuple[str, str | None], RepairVerb | None] = {
     ("ghost", "owner_ghost"): "restore",
     ("ghost", "owner_live"): "restore",
     ("ghost", "owner_deleted"): None,
+    # Like their owners, ghosts of a deleted team are historical stock left as they are.
+    ("ghost", "team_gone"): None,
     ("deleted_visible", None): "bury",
     ("diverged", "a_absent"): "fold",
     ("diverged", "a_live"): "merge",
@@ -177,7 +179,9 @@ def classify_person(
     return _verdict("person", "ok")
 
 
-def classify_mapping(pg: PgMapping | None, ch: ChMapping | None, *, ch_owner_pg_state: str | None = None) -> Verdict:
+def classify_mapping(
+    pg: PgMapping | None, ch: ChMapping | None, *, ch_owner_pg_state: str | None = None, team_exists: bool = True
+) -> Verdict:
     """The flavor of one mapping. `ch_owner_pg_state` is the Postgres state of ClickHouse's winning owner
     (`live`, `deleted` or `absent`), needed only for ghost and diverged mappings."""
     ch_live = ch is not None and ch.visible_rows > 0 and not ch.winner_deleted
@@ -185,6 +189,8 @@ def classify_mapping(pg: PgMapping | None, ch: ChMapping | None, *, ch_owner_pg_
     if pg is None:
         if not ch_live:
             return _verdict("mapping", "ok_deleted")
+        if not team_exists:
+            return _verdict("mapping", "ghost", "team_gone")
         sub = {"absent": "owner_ghost", "live": "owner_live", "deleted": "owner_deleted"}.get(
             ch_owner_pg_state or "absent", "owner_ghost"
         )
