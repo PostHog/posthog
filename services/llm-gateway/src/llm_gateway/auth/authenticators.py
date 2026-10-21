@@ -132,8 +132,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
             if not row["application_id"]:
                 return None
 
-            # A staff impersonation session mints tokens as the customer.
-            # Gateway spend must not be attributed to a user who did not authorize it.
+            # Staff impersonation mints tokens as the customer. Gateway spend must not go to that user.
             if row.get("impersonated_by_id") is not None:
                 return None
 
