@@ -18,7 +18,6 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionResource
 from products.slack_app.backend.facade.api import slack_followup_invite, slack_followup_invite_text
 from products.subscriptions.backend.logic.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
@@ -29,6 +28,7 @@ from products.subscriptions.backend.logic.subscription_utils import (
     subscription_support_url,
     summary_skipped_over_budget_message,
 )
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionResource
 
 logger = structlog.get_logger(__name__)
 

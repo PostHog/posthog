@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -28,6 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportArtefactsList,
     signalsReportChecksApproveCreate,
     signalsReportChecksDestroy,
     signalsReportChecksList,
@@ -45,6 +46,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
+    PaginatedSignalReportArtefactListApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
@@ -77,13 +79,7 @@ import {
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import {
-    EnrichedReviewer,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStatus,
-} from '../types'
+import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -209,6 +205,9 @@ const PR_CHECKS_POLL_INTERVAL_MS = 15000
 // checks for (deleted branch, lost integration access) re-fails on every 15s tick for nothing.
 const PR_CHECKS_MAX_CONSECUTIVE_FAILURES = 3
 
+// Check conclusions that mean the check failed. Matches the failure bucket of `PrChecksSection`.
+const FAILED_CHECK_CONCLUSIONS = ['failure', 'timed_out', 'action_required', 'startup_failure']
+
 // While backed off, still retry every Nth tick (20 × 15s = 5 min) so a transient GitHub outage
 // heals the section without the report having to be closed and reopened.
 const PR_CHECKS_FAILURE_BACKOFF_TICKS = 20
@@ -333,6 +332,7 @@ export interface inboxReportDetailLogicValues {
     prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
     prChecksError: PrChecksError | null
+    prChecksFailing: boolean
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
@@ -483,7 +483,7 @@ export interface inboxReportDetailLogicActions {
         prComments: readonly PullRequestCommentApi[] | null
         payload?: void
     }
-    loadReportArtefacts: () => any
+    loadReportArtefacts: (_: void) => void
     loadReportArtefactsFailure: (
         error: string,
         errorObject?: any
@@ -493,10 +493,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadReportArtefactsSuccess: (
         reportArtefacts: SignalReportArtefact[],
-        payload?: any
+        payload?: void
     ) => {
         reportArtefacts: SignalReportArtefact[]
-        payload?: any
+        payload?: void
     }
     loadReportChecks: (_: void) => void
     loadReportChecksFailure: (
@@ -684,6 +684,10 @@ export interface inboxReportDetailLogicMeta {
         shouldPollReportTasks: (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null) => boolean
         selectedPullRequest: (report: SignalReport | null, selectedPullRequestUrl: string | null) => ReportPullRequest
         hasImplementationPr: (report: SignalReport | null) => boolean
+        prChecksFailing: (
+            selectedPullRequest: ReportPullRequest,
+            prChecks: readonly PullRequestCheckApi[] | null
+        ) => boolean
         prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
@@ -824,11 +828,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
-                loadReportArtefacts: async () => {
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
-                        limit: ARTEFACT_FETCH_LIMIT,
-                    })
-                    return response.results
+                loadReportArtefacts: async (_: void, breakpoint): Promise<SignalReportArtefact[]> => {
+                    let response = await signalsReportArtefactsList(
+                        String(ApiConfig.getCurrentProjectId()),
+                        props.reportId,
+                        {
+                            limit: ARTEFACT_FETCH_LIMIT,
+                        }
+                    )
+                    await breakpoint()
+                    const artefacts = [...response.results]
+                    while (response.next) {
+                        // nosemgrep: prefer-codegen-api -- follows the server-provided pagination next link.
+                        response = await api.get<PaginatedSignalReportArtefactListApi>(response.next)
+                        await breakpoint()
+                        artefacts.push(...response.results)
+                    }
+                    return artefacts as SignalReportArtefact[]
                 },
             },
         ],
@@ -1231,6 +1247,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         hasImplementationPr: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => reportPullRequests(report).length > 0,
+        ],
+        // Whether a check fails on the selected PR while it is still open, so CI there is worth fixing.
+        prChecksFailing: [
+            (s) => [s.selectedPullRequest, s.prChecks],
+            (pr: ReportPullRequest, prChecks: readonly PullRequestCheckApi[] | null): boolean =>
+                !pr.merged &&
+                pr.state !== 'closed' &&
+                pr.state !== 'merged' &&
+                (prChecks ?? []).some(
+                    (check) => check.status === 'completed' && FAILED_CHECK_CONCLUSIONS.includes(check.conclusion ?? '')
+                ),
         ],
         // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
         // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
@@ -1939,7 +1966,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Auto-disposed on unmount / hidden tab.
         cache.disposables.add(() => {
             const interval = setInterval(() => {
-                if (!values.shouldPollReportTasks) {
+                if (!values.shouldPollReportTasks || values.reportArtefactsLoading) {
                     return
                 }
                 actions.loadReportArtefacts()

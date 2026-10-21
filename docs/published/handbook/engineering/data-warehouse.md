@@ -147,6 +147,18 @@ Both cards have **AND / OR groups**. Choose **AND (match all)** or **OR (match a
 
 Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
 
+## Marketing analytics cost charts
+
+The `marketing-analytics-costs-precomputation` flag controls whether the cost trend can use precomputed costs.
+The backend checks materialization jobs for every displayed source over the requested date range and comparison period.
+It uses precomputed costs only when all windows are ready and unexpired.
+An in-progress refresh can temporarily route the chart to the original sources until coverage is ready.
+Opening the chart as an editable insight uses its original source series without the automatic precompute selection.
+Completed windows with zero rows count as covered.
+Missing, expired, inaccessible, or unmaterializable sources use the original live warehouse series for the whole chart.
+Coverage check errors also fall back to the live query.
+This read-only check does not start or wait for materialization jobs.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
@@ -344,11 +356,11 @@ BI chart settings preserve custom scatter axes and implicit count formatting. Nu
 
 ## Catalog metrics in BI mode
 
-Catalog SQL metrics can open as BI query snapshots. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
+Catalog SQL metrics can open as BI query snapshots. Opening a metric shows a loading state until its definition is ready, or an error if it cannot load. Press **Run** to query the snapshot. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
 
 After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. Proposing an existing metric name updates its definition for review. Direct-connection worksheets cannot be proposed as catalog metrics.
 
-The worksheet library suggests approved, non-drifted SQL metrics and certified sources. Each list requests at most three eligible candidates; drifted metrics are omitted without scanning more pages. Source context shows certification, descriptions, and relationship review status. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable.
+The worksheet library suggests approved, non-drifted SQL metrics and certified sources. Each list requests at most three eligible candidates; drifted metrics are omitted without scanning more pages. Source context keeps certification visible and groups descriptions and relationship review status under **Catalog details**, collapsed by default to leave room for fields. Neutral catalog buttons show an external-link icon to indicate that they leave the worksheet. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable. Browser Back returns from a starter to the worksheet library; confirming discarded edits does not replace that history entry with an empty worksheet.
 
 The BI assistant receives the current worksheet draft, including its unsaved name, and shared catalog capabilities. Worksheet and catalog content remain untrusted context. Dismissing the saved worksheet attachment also removes its hidden draft and metric reference. Completed foreground insight tools refresh the worksheet library. Updates to the open worksheet refresh its saved version while preserving local edits. If both changed the query or name differently, saving over the worksheet is blocked until the local draft is discarded or saved as a copy. This conflict protection survives reloading a worksheet link. A failed refresh can be retried before saving.
 

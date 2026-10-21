@@ -177,7 +177,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 0
         },
         {
             "data": [
@@ -297,7 +298,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 1
         },
         {
             "data": [
@@ -419,7 +421,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 2
         },
         {
             "data": [
@@ -541,7 +544,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 3
         },
         {
             "data": [
@@ -663,7 +667,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 4
         },
         {
             "data": [
@@ -785,7 +790,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 5
         },
         {
             "data": [
@@ -907,7 +913,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 6
         },
         {
             "data": [
@@ -1029,7 +1036,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 7
         },
         {
             "data": [
@@ -1151,7 +1159,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 8
         },
         {
             "data": [
@@ -1273,7 +1282,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 9
         },
         {
             "data": [
@@ -1395,7 +1405,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 10
         },
         {
             "data": [
@@ -1517,7 +1528,8 @@
                 "math_hogql": null,
                 "math_group_type_index": null,
                 "properties": {}
-            }
+            },
+            "order": 11
         }
     ],
     "timezone": "US/Pacific",

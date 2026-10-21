@@ -11,6 +11,8 @@ from rest_framework import status
 
 from posthog.schema import ChartDisplayType
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -334,14 +336,20 @@ class TestReportMetricQueryShapes(APIBaseTest):
         assert run_query.call_args_list[0].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.BOLD_NUMBER
         assert run_query.call_args_list[1].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.ACTIONS_BAR
 
-    def test_passes_the_snapshot_cache_age_to_both_shapes(self) -> None:
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_passes_the_snapshot_cache_age_to_both_shapes(self, _name: str, ch_user: ClickHouseUser | None) -> None:
         response = TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=timezone.now())
         with patch(
             "products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=response
         ) as run_query:
-            whole_window_value(_metric()["query"], self.team)
+            if ch_user is None:
+                whole_window_value(_metric()["query"], self.team)
+            else:
+                whole_window_value(_metric()["query"], self.team, ch_user=ch_user)
 
         assert run_query.call_args.kwargs["cache_age_seconds"] == 15 * 60
+        assert run_query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
+        assert run_query.call_args.kwargs["workload"] == Workload.DEFAULT
 
     def test_skips_the_strip_when_the_deadline_passes_after_the_headline(self) -> None:
         measured_at = timezone.now()

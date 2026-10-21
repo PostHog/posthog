@@ -73,6 +73,24 @@ class RepoSelectionUnavailableError(Exception):
         super().__init__(reason)
 
 
+class RepoSelectionUsageLimitError(Exception):
+    """Raised when the LLM gateway refused the agent's model calls with a 402, because the team
+    has no credits left for this billing period.
+
+    A task on any repository would hit the same refusal, so callers should report the limit
+    instead of falling back to a repository picker.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+# The agent prints a refused model call as `API Error: <status> <body>`. The gateway answers a
+# team with no credits left with a 402.
+_USAGE_LIMIT_REPLY = re.compile(r"\s*API Error: 402\b")
+
+
 def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration | None:
     """Pick one GitHub ``UserIntegration`` among ``user_ids`` to act as a fallback source.
 
@@ -699,21 +717,36 @@ async def select_repository(
         service_tier=service_tier,
     )
 
-    session, result = await MultiTurnSession.start(
-        prompt=prompt,
-        context=sandbox_context,
-        model=RepoSelectionResult,
-        step_name=step_name,
-        verbose=verbose,
-        output_fn=output_fn,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
-        ai_stage="repo_selection",
-        internal=True,
-        # An unreadable end turn used to fail the whole selection, and the caller then dropped the
-        # user into a manual repository picker. Read the pick out of the raw reply instead.
-        fallback_from_text=lambda text: _salvage_repo_selection(text, candidate_repos),
-    )
+    usage_limit_reply: str | None = None
+
+    def _salvage(text: str) -> RepoSelectionResult:
+        nonlocal usage_limit_reply
+        if _USAGE_LIMIT_REPLY.match(text):
+            # The runner raises its own parse error when this raises, so the refusal is kept here.
+            usage_limit_reply = text
+            raise ValueError("The end turn is a usage limit refusal, not a selection")
+        return _salvage_repo_selection(text, candidate_repos)
+
+    try:
+        session, result = await MultiTurnSession.start(
+            prompt=prompt,
+            context=sandbox_context,
+            model=RepoSelectionResult,
+            step_name=step_name,
+            verbose=verbose,
+            output_fn=output_fn,
+            origin_product=origin_product,
+            signal_report_id=signal_report_id,
+            ai_stage="repo_selection",
+            internal=True,
+            # An unreadable end turn used to fail the whole selection, and the caller then dropped the
+            # user into a manual repository picker. Read the pick out of the raw reply instead.
+            fallback_from_text=_salvage,
+        )
+    except Exception as e:
+        if usage_limit_reply is not None:
+            raise RepoSelectionUsageLimitError(usage_limit_reply) from e
+        raise
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:
         on_research_session(str(session.task.id), str(session.task_run.id))

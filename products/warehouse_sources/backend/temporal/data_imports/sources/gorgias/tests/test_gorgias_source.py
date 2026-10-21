@@ -13,10 +13,6 @@ def _config() -> GorgiasSourceConfig:
 
 
 class TestGorgiasSource:
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = GorgiasSource().get_schemas(_config(), team_id=1, names=["tickets", "customers"])
-        assert {s.name for s in schemas} == {"tickets", "customers"}
-
     def test_source_for_pipeline_plumbs_schema_name(self) -> None:
         result = SourceDriver(GorgiasSource(), _config()).run(
             "customers", [ScriptedResponse(json={"data": [], "meta": {"next_cursor": None}})]

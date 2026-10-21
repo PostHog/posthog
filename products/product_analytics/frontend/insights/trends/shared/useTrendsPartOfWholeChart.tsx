@@ -181,14 +181,7 @@ export function useTrendsPartOfWholeChart({
             }
             openPersonsModal({
                 title: label || '',
-                query: datasetToActorsQuery({
-                    dataset: {
-                        action: result.action,
-                        breakdown_value: result.breakdown_value,
-                        compare_label: result.compare_label,
-                    },
-                    query: querySource,
-                }),
+                query: datasetToActorsQuery({ dataset: result, query: querySource }),
                 additionalSelect: {
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',
