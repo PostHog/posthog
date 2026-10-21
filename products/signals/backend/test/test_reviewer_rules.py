@@ -16,6 +16,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
+    RelevantCommit,
     ReviewerEdit,
     ReviewerProposal,
     SuggestedReviewerEntry,
@@ -172,16 +173,31 @@ class TestReviewerRules(BaseTest):
         with self.assertRaises(ReviewerWriteError):
             self.write(self.other, edit=ReviewerEdit(action="add"))
 
-    def test_unchanged_write_creates_no_rows_or_delivery_and_stale_retry_conflicts(self) -> None:
-        proposal = ReviewerProposal(expected_state=self.rules.read().state)
-        first = self.write(self.me, proposal=proposal)
-        with self.captureOnCommitCallbacks(execute=False) as callbacks:
-            same = self.write(self.me)
+    @parameterized.expand([False, True])
+    def test_unchanged_write_creates_no_rows_or_delivery_and_stale_retry_conflicts(self, wording: bool) -> None:
+        reviewer = SuggestedReviewerEntry(
+            user_uuid=self.me.user_uuid,
+            relevant_commits=[RelevantCommit(sha="abcdef0", reason="Fix", url="https://example.com/commit")],
+        )
+        proposal = ReviewerProposal(expected_state=self.rules.read().state, source="research")
+        first = self.write(reviewer, proposal=proposal)
+        proposed = reviewer.model_copy(deep=True)
+        if wording:
+            proposed.reason = "A new explanation for the same selection."
+            proposed.github_name = "Reviewer name"
+            proposed.relevant_commits[0].reason = "A new explanation for the same commit."
+        with (
+            patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=True),
+            self.captureOnCommitCallbacks(execute=False) as callbacks,
+        ):
+            same = self.write(
+                proposed, proposal=ReviewerProposal(expected_state=self.rules.read().state, source="research")
+            )
         assert callbacks == []
         assert same.id == first.id
         assert self.report.artefacts.count() == 2
         with self.assertRaises(StaleReviewerProposal):
-            self.write(self.me, proposal=proposal)
+            self.write(proposed, proposal=proposal)
         with self.assertRaises(ArtefactContentValidationError):
             first.update_content([])
 

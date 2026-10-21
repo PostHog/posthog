@@ -343,9 +343,20 @@ class ReviewerRules:
             proposed = snapshot.reviewers
         if protected:
             proposed = self._validate_members(proposed).reviewers
+        reviewers = SuggestedReviewers(root=list(proposed))
+        if current is not None and edit is None and proposal is not None and proposal.source == "research":
+            # Research can rephrase its evidence without changing the selection.
+            comparison_exclusions = {
+                "__all__": {"reason": True, "github_name": True, "relevant_commits": {"__all__": {"reason"}}}
+            }
+            previous = SuggestedReviewers(root=list(snapshot.reviewers))
+            if previous.model_dump(exclude=comparison_exclusions) == reviewers.model_dump(
+                exclude=comparison_exclusions
+            ):
+                reviewers = previous
         return ReviewerUpdate(
             protected=protected,
-            reviewers=SuggestedReviewers(root=list(proposed)),
+            reviewers=reviewers,
             corrections=corrections if protected and (not enrolled or corrections != snapshot.corrections) else None,
             current=current,
         )
