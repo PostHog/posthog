@@ -54,7 +54,9 @@ export class SourceHistory {
   }
 
   private async trees(revisions: string[], fetchDeadline: number): Promise<void> {
-    const trees = [...new Set((await this.git(['rev-list', '--no-walk', '--no-commit-header', '--format=%T', ...revisions], fetchDeadline)).split('\n').filter(Boolean))]
+    const trees = [...new Set((await this.git([
+      'rev-list', '--no-walk', '--no-commit-header', '--format=%T', '--stdin'
+    ], fetchDeadline, revisions.join('\n') + '\n')).split('\n').filter(Boolean))]
     const missing = async (): Promise<boolean> => {
       const roots = await this.git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], fetchDeadline, trees.join('\n') + '\n')
       if (roots.split('\n').some(line => line.endsWith(' missing'))) return true
@@ -124,11 +126,11 @@ export class SourceHistory {
     const fetchDeadline = Math.min(this.deadline, Date.now() + this.budgets.fetchMs)
     const commits = (await this.git(['rev-list', '--first-parent', revision, '--not', base], fetchDeadline)).split('\n').filter(Boolean)
     await this.trees([base, ...commits], fetchDeadline)
-    const deadline = Math.min(this.deadline, Date.now() + this.budgets.comparisonMs)
     const changes = (await this.git([
       'log', '--first-parent', '--diff-merges=first-parent', '--no-patch', '--format=%H', `${base}..${revision}`, '--', this.policyPath
-    ], deadline)).split('\n').filter(Boolean).reverse()
+    ], fetchDeadline)).split('\n').filter(Boolean).reverse()
     const policies = await this.readPolicies([base, ...changes], fetchDeadline)
+    const deadline = Math.min(this.deadline, Date.now() + this.budgets.comparisonMs)
     const files = await intervalFiles(base, revision, args => this.git(args, deadline))
     return {files, policies}
   }

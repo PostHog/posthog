@@ -17,8 +17,8 @@ beforeEach(() => { scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-fetch
 afterEach(() => { jest.restoreAllMocks(); rmSync(scratch, {recursive: true, force: true}) })
 
 describe('publisher bounded tree fetching with the real command runner', () => {
-  test.each(['available', 'missing subtrees', 'missing', 'probe failure', 'fetch and probe failure'])('bounded tree fetch: %s', async mode => {
-    const available = mode === 'available' || mode === 'missing subtrees' || mode === 'probe failure'
+  test.each(['available', 'slow policy fetch', 'missing subtrees', 'missing', 'probe failure', 'fetch and probe failure'])('bounded tree fetch: %s', async mode => {
+    const available = mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees' || mode === 'probe failure'
     const source = path.join(scratch, 'source')
     const cwd = path.join(scratch, 'executing')
     const origin = path.join(scratch, 'origin.git')
@@ -84,17 +84,25 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       budgets: {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024 * 1024, registryMs: 30000, copySeconds: 1,
         readbackSeconds: 1, maxChannels: 1, concurrency: 1, channelMs: 120000, totalMs: 120000}
     }
+    if (mode === 'slow policy fetch') options.budgets.comparisonMs = 1000
     const run = commands.command
     const fetches: {args: string[]; input?: string}[] = []
     const probes: {args: string[]; output: string}[] = []
     let fetched = false
+    let policyFetchMs = 0
+    let discoveryTimeoutMs = 0
     jest.spyOn(commands, 'command').mockImplementation(async (executable, args, configuration) => {
       if (mode.includes('probe failure') && fetched && executable === 'git' && args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)')) {
         throw new Error('post-fetch availability probe timed out')
       }
       if (executable === 'git' && args[0] === 'fetch') fetches.push({args, input: configuration.input})
+      const delayed = mode === 'slow policy fetch' && executable === 'git' && args[0] === 'fetch' && configuration.input?.includes(policyBlob)
+      const started = performance.now()
+      if (delayed) await new Promise<void>(resolve => setTimeout(resolve, 2000))
+      if (executable === 'git' && args[0] === 'log' && args.includes('--format=%H')) discoveryTimeoutMs = configuration.timeoutMs
       try {
         const output = await run(executable, args, configuration)
+        if (delayed) policyFetchMs = performance.now() - started
         if (executable === 'git') probes.push({args, output})
         return output
       } finally {
@@ -102,8 +110,14 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       }
     })
     const [result] = await publishChannels(options)
-    if (mode === 'available' || mode === 'missing subtrees') {
+    if (mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees') {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
+      if (mode === 'slow policy fetch') {
+        expect(policyFetchMs).toBeGreaterThan(options.budgets.comparisonMs)
+        expect(policyFetchMs).toBeLessThan(options.budgets.fetchMs)
+        expect(discoveryTimeoutMs).toBeGreaterThan(options.budgets.comparisonMs)
+        process.stdout.write(JSON.stringify({comparisonMs: options.budgets.comparisonMs, fetchMs: options.budgets.fetchMs, policyFetchMs, discoveryTimeoutMs}) + '\n')
+      }
       expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
       expect(() => git(cwd, 'cat-file', '-e', policyBlob)).not.toThrow()
       expect(published.has(options.alias)).toBe(true)
@@ -123,5 +137,5 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       if (!available) expect(result.reason).toContain('git: exited')
       expect(published.size).toBe(0)
     }
-  })
+  }, 15000)
 })

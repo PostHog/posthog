@@ -104,6 +104,28 @@ describe('executing checkout first-parent interval', () => {
     ])
   })
 
+  test.each(['short', 'long'])('tree discovery streams %s revision lists through stdin', async size => {
+    put('worker/run.py', 'base')
+    const base = commit('base')
+    put('worker/run.py', 'changed')
+    const head = commit('head')
+    const argumentLimit = Number(execFileSync('getconf', ['ARG_MAX'], {encoding: 'utf8'}).trim())
+    const count = size === 'short' ? 2 : Math.ceil(argumentLimit / (head.length + 1)) + 1
+    const revisions = Array.from({length: count}, (_, index) => index % 2 ? head : base)
+    const input = revisions.join('\n') + '\n'
+    if (size === 'long') expect(Buffer.byteLength(input)).toBeGreaterThan(argumentLimit)
+    const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 4 * 1024 * 1024})
+    const runner = jest.spyOn(history, 'git')
+    try {
+      await expect(history['trees'](revisions, Date.now() + 30000)).resolves.toBeUndefined()
+      const discovery = runner.mock.calls.find(([args]) => args.includes('--format=%T'))!
+      expect(discovery[0]).toEqual(['rev-list', '--no-walk', '--no-commit-header', '--format=%T', '--stdin'])
+      expect(discovery[0].some(argument => revisions.includes(argument))).toBe(false)
+      expect(discovery[2]).toBe(input)
+      process.stdout.write(JSON.stringify({treeDiscovery: size, argumentLimit, revisions: count, inputBytes: Buffer.byteLength(input)}) + '\n')
+    } finally { runner.mockRestore() }
+  })
+
   test('missing history, wrong checkout and exhausted budgets fail explicitly', async () => {
     put('worker/run.py')
     const base = commit('base')
