@@ -12,9 +12,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
     get_required_model_flag,
 )
 
@@ -25,48 +22,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
-WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID = "tasks-workflow-dispatch-shadow"
-
-
-def is_workflow_dispatch_shadow_enabled() -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
-                distinct_id=WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID,
-                person_properties={"region": get_instance_region() or "DEV"},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("workflow_dispatch_shadow_flag_check_failed")
-        return False
-
-
-def _is_workflow_dispatch_org_flag_enabled(flag: str, organization_id: str, distinct_id: str) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("workflow_dispatch_org_flag_check_failed", extra={"flag": flag})
-        return False
-
-
-def is_workflow_dispatch_async_enabled(organization_id: str, distinct_id: str) -> bool:
-    return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, organization_id, distinct_id)
-
-
-def is_workflow_dispatch_restart_enabled(organization_id: str, distinct_id: str) -> bool:
-    return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, organization_id, distinct_id)
 
 
 def is_task_run_stream_presence_gated(origin_product: str) -> bool:
