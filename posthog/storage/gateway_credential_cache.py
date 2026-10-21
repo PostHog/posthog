@@ -340,7 +340,8 @@ def _team_tier_overrides() -> dict[str, str]:
 
 def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool:
     """Whether an OAuth credential is still authorized for team right now: the user
-    is active, a member, and still has project access. Callers outside the
+    is active, a member, and still has project access, and the token was not minted
+    under staff impersonation. Callers outside the
     projection need it because a token's scoped_teams is frozen at consent.
     """
     return _oauth_authorization_ok(credential, team, team.id, None)
