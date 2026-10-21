@@ -484,6 +484,15 @@ META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
 
+# Code 190 / subcode 459: Meta has checkpointed the user behind the token. The token stays refused
+# until that user signs in to Facebook and clears the check, which reconnecting alone doesn't do.
+META_CHECKPOINT_ERROR_SUBCODE = 459
+
+META_CHECKPOINT_ERROR_MESSAGE = (
+    "Meta locked the Facebook account you connected until it passes a security check. Sign in at "
+    "facebook.com, follow the steps, then reconnect your Meta Ads account."
+)
+
 META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
 )
@@ -595,7 +604,12 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
-        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+        message = (
+            META_CHECKPOINT_ERROR_MESSAGE
+            if _meta_error_subcode(response) == META_CHECKPOINT_ERROR_SUBCODE
+            else META_AUTH_ERROR_MESSAGE
+        )
+        raise Exception(f"{message} (Meta API response: {response.status_code} - {response.text})")
     if _is_rate_limit_error(response):
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"

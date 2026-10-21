@@ -97,7 +97,7 @@ class TestTransactionalEmail(APIBaseTest):
         response = self._psak_client(["hog_flow:write"]).post(self.url, body, format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "invocation-1"}
+        assert response.json() == {"message_id": "invocation-1", "replayed": False}
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
         )
@@ -106,6 +106,19 @@ class TestTransactionalEmail(APIBaseTest):
             "distinct_id": expected_distinct_id,
             "variables": {"link": "https://example.com/reset", "nickname": None},
         }
+
+    def test_passes_the_idempotency_key_to_the_pipeline_and_reports_a_replay(self, mock_post, _flag, capture):
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}
+        )
+
+        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset:user-1:42"})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "reset:user-1:42"
+        assert capture.call_args.kwargs["properties"]["outcome"] == "replayed"
+        assert capture.call_args.kwargs["properties"]["has_idempotency_key"] is True
 
     @parameterized.expand(
         [
@@ -139,10 +152,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("workflow_archived", "transactional_email_paused"),
             ("category_turned_marketing", "marketing_template"),
             ("liquid_in_recipient", "invalid_recipient"),
+            ("idempotency_key_with_spaces", "invalid_idempotency_key"),
+            ("idempotency_key_too_long", "invalid_idempotency_key"),
         ]
     )
     def test_rejects_a_send_it_cannot_make(self, mock_post, _flag, _capture, case, expected_code):
-        url, body = self.url, dict(self.body)
+        url, body, headers = self.url, dict(self.body), {}
         if case == "not_transactional":
             url = f"/api/projects/{self.team.id}/messaging_templates/{self._template().id}/send/"
         elif case == "workflow_archived":
@@ -158,8 +173,12 @@ class TestTransactionalEmail(APIBaseTest):
             MessageCategory.objects.filter(id=category.id).update(category_type=MessageCategoryType.MARKETING)
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
+        elif case == "idempotency_key_with_spaces":
+            headers["Idempotency-Key"] = "reset user 1"
+        elif case == "idempotency_key_too_long":
+            headers["Idempotency-Key"] = "k" * 256
 
-        response = self.client.post(url, body, format="json")
+        response = self.client.post(url, body, format="json", headers=headers)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
@@ -234,13 +253,20 @@ class TestTransactionalEmail(APIBaseTest):
         assert edited.json()["transactional_hog_flow_id"] is None
         assert remade.json()["transactional_hog_flow_id"] not in (None, str(self.hog_flow_id))
 
-    def test_reports_quota_limited_teams(self, mock_post, _flag, _capture):
-        mock_post.return_value = MagicMock(status_code=429, json=lambda: {"error": "quota_limited"})
+    @parameterized.expand(
+        [
+            ("quota_limited", 429),
+            ("idempotency_key_in_flight", 409),
+            ("idempotency_key_reused", 422),
+        ]
+    )
+    def test_reports_a_send_the_pipeline_refuses(self, mock_post, _flag, _capture, code, status_code):
+        mock_post.return_value = MagicMock(status_code=status_code, json=lambda: {"error": code})
 
-        response = self.client.post(self.url, self.body, format="json")
+        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert response.json()["code"] == "quota_limited"
+        assert response.status_code == status_code
+        assert response.json()["code"] == code
 
     @parameterized.expand([("send", "send/"), ("make_transactional", "make_transactional/")])
     def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture, _name, suffix):

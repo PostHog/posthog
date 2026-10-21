@@ -99,6 +99,7 @@ Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
 Supports `config.legend` for grouped series and `onBoxClick`.
 `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
+Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
 ## Heatmap
 
