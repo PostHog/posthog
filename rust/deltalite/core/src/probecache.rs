@@ -544,7 +544,9 @@ mod tests {
         let c = Arc::new(ProbeCache::new(1 << 24));
         let mut k = c.collector().unwrap();
         for _ in 0..3 {
-            k.reserve(8192).unwrap().extend(std::iter::repeat_n(1, 8192));
+            k.reserve(8192)
+                .unwrap()
+                .extend(std::iter::repeat_n(1, 8192));
             assert!(k.hashes.capacity() * 8 <= k.reserved);
         }
         assert_eq!(c.collecting.load(Ordering::Acquire), k.reserved);
