@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef } from 'react'
+import { Fragment, useMemo, useRef } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
@@ -9,60 +9,73 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
-import { tracingConfigLogic } from '../../tracingConfigLogic'
-import { customFacetsLogic } from './customFacetsLogic'
-import { facetPresenceLogic } from './facetPresenceLogic'
-import { facetRailLogic } from './facetRailLogic'
-import { facetsByGroup, filterFacetsByName } from './facets'
-import { RailFacet } from './RailFacet'
-
-const ADD_FACET_GROUP_TYPES = [TaxonomicFilterGroupType.SpanAttributes, TaxonomicFilterGroupType.SpanResourceAttributes]
+import { CustomFacetsProduct, customFacetsLogic } from './customFacetsLogic'
+import { FacetGroupItem, facetsByGroup, filterFacetsByName } from './facetGroups'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
 
-/** Resizable left-hand facet rail, rendered entirely from the FACETS config (see facets.ts). */
-export function FacetRail(): JSX.Element {
-    const railRef = useRef<HTMLDivElement>(null)
-    const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
-    const { visibleFacets } = useValues(facetPresenceLogic)
-    const { facetNameSearch } = useValues(facetRailLogic)
-    const { setFacetNameSearch } = useActions(facetRailLogic)
-    const { addCustomFacet } = useActions(customFacetsLogic)
-    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic)
+export interface FacetRailProps<T extends FacetGroupItem> {
+    product: CustomFacetsProduct
+    facets: T[]
+    /** Renders one facet. A facet that the name search hides still renders, so its logic stays mounted. */
+    renderFacet: (facet: T, hidden: boolean) => JSX.Element
+    facetNameSearch: string
+    onFacetNameSearchChange: (value: string) => void
+    onCollapsedChange: (collapsed: boolean) => void
+    addFacetGroupTypes: { attribute: TaxonomicFilterGroupType; resourceAttribute: TaxonomicFilterGroupType }
+    /** Persisted width keys. Frozen: a change resets every user's saved rail width. */
+    resizerLogicKey: string
+    resizerPersistPrefix: string
+    /** Prefix for the rail's data-attrs, e.g. `logs-facet-rail`. Frozen: autocapture and tests select on them. */
+    dataAttrPrefix: string
+}
 
-    const onToggleClosed = useCallback(
-        (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
-        [setFacetRailCollapsed]
-    )
+/** Resizable left-hand facet rail: a facet-name search, an add-custom-facet button, and the grouped facets. */
+export function FacetRail<T extends FacetGroupItem>({
+    product,
+    facets,
+    renderFacet,
+    facetNameSearch,
+    onFacetNameSearchChange,
+    onCollapsedChange,
+    addFacetGroupTypes,
+    resizerLogicKey,
+    resizerPersistPrefix,
+    dataAttrPrefix,
+}: FacetRailProps<T>): JSX.Element {
+    const railRef = useRef<HTMLDivElement>(null)
+    const { addCustomFacet } = useActions(customFacetsLogic({ product }))
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic({ product }))
+
     const resizerLogicProps: ResizerLogicProps = useMemo(
         () => ({
-            logicKey: 'tracing-facet-rail',
+            logicKey: resizerLogicKey,
             containerRef: railRef,
             persistent: true,
-            persistPrefix: '2026-07-06',
+            persistPrefix: resizerPersistPrefix,
             placement: 'right',
             closeThreshold: COLLAPSE_THRESHOLD_PX,
-            onToggleClosed,
+            onToggleClosed: onCollapsedChange,
         }),
-        [onToggleClosed]
+        [resizerLogicKey, resizerPersistPrefix, onCollapsedChange]
     )
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     // Every visible facet renders a container, whether or not the field-name search matches it: a
     // non-matching one renders nothing but stays mounted, so clearing the search doesn't refetch.
-    const matchingKeys = new Set(filterFacetsByName(visibleFacets, facetNameSearch).map((f) => f.key))
-    const groups = facetsByGroup(visibleFacets)
+    const matchingKeys = new Set(filterFacetsByName(facets, facetNameSearch).map((f) => f.key))
+    const groups = facetsByGroup(facets)
 
     return (
         <div
             ref={railRef}
             className="relative flex flex-col shrink-0 border rounded bg-surface-primary overflow-hidden"
-            // eslint-disable-next-line react/forbid-dom-props
             // The width is the user's alone: a fixed min (not min-content) so a long facet value
             // can never force the rail wider — values truncate to fit instead.
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: COLLAPSE_THRESHOLD_PX, maxWidth: '40%' }}
-            data-attr="tracing-facet-rail"
+            data-attr={dataAttrPrefix}
         >
             <div className="flex items-center gap-1 px-2 py-1 border-b">
                 <LemonInput
@@ -71,25 +84,23 @@ export function FacetRail(): JSX.Element {
                     fullWidth
                     placeholder="Search facets…"
                     value={facetNameSearch}
-                    onChange={setFacetNameSearch}
-                    data-attr="tracing-facet-rail-search"
+                    onChange={onFacetNameSearchChange}
+                    data-attr={`${dataAttrPrefix}-search`}
                 />
                 {customFacetsEnabled && (
                     <TaxonomicStringPopover
-                        groupType={TaxonomicFilterGroupType.SpanAttributes}
-                        groupTypes={ADD_FACET_GROUP_TYPES}
+                        groupType={addFacetGroupTypes.attribute}
+                        groupTypes={[addFacetGroupTypes.attribute, addFacetGroupTypes.resourceAttribute]}
                         placeholder={null}
                         size="small"
                         icon={<IconPlus />}
                         tooltip="Add custom facet"
                         disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
-                        data-attr="tracing-facet-rail-add"
+                        data-attr={`${dataAttrPrefix}-add`}
                         onChange={(value, groupType) =>
                             addCustomFacet(
                                 value,
-                                groupType === TaxonomicFilterGroupType.SpanResourceAttributes
-                                    ? 'resourceAttribute'
-                                    : 'attribute'
+                                groupType === addFacetGroupTypes.resourceAttribute ? 'resourceAttribute' : 'attribute'
                             )
                         }
                     />
@@ -99,15 +110,15 @@ export function FacetRail(): JSX.Element {
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (
                     <div className="px-1 text-xs text-muted">No matching facets</div>
                 )}
-                {groups.map(([group, facets]) => (
+                {groups.map(([group, groupFacets]) => (
                     <div key={group}>
-                        {facets.some((facet) => matchingKeys.has(facet.key)) && (
+                        {groupFacets.some((facet) => matchingKeys.has(facet.key)) && (
                             <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
                                 {group}
                             </div>
                         )}
-                        {facets.map((facet) => (
-                            <RailFacet key={facet.key} facet={facet} hidden={!matchingKeys.has(facet.key)} />
+                        {groupFacets.map((facet) => (
+                            <Fragment key={facet.key}>{renderFacet(facet, !matchingKeys.has(facet.key))}</Fragment>
                         ))}
                     </div>
                 ))}
