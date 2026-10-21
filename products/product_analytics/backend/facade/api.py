@@ -24,6 +24,7 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
+from products.product_analytics.backend.chart_rules import is_chartable
 from products.product_analytics.backend.facade.contracts import (
     ChartableInsight,
     InsightDashboardContext,
@@ -240,11 +241,9 @@ CHARTABLE_INSIGHTS_SCANNED = 200
 
 
 def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> list[ChartableInsight]:
-    from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
-        insight_series,
+    insights = Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True).filter(
+        Q(query__source__kind="TrendsQuery") | Q(query__kind="DataVisualizationNode")
     )
-
-    insights = Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
     if search.strip():
         insights = insights.filter(Q(name__icontains=search.strip()) | Q(derived_name__icontains=search.strip()))
     else:
@@ -263,7 +262,7 @@ def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> li
         .order_by(F("viewed_at").desc(nulls_last=True), "-id")
     )
     for insight in newest_first[:CHARTABLE_INSIGHTS_SCANNED]:
-        if insight.short_id and insight_series.is_chartable(insight.query or {}):
+        if insight.short_id and is_chartable(insight.query or {}):
             found.append(
                 ChartableInsight(
                     short_id=insight.short_id, name=insight.name or insight.derived_name or "Untitled insight"

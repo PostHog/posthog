@@ -127,7 +127,10 @@ async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_again(
             execution_timeout=timedelta(minutes=5),
         )
 
-    assert (asked, [[result.pending for result in inputs.pin_results] for inputs in finalized]) == (
+    assert (
+        asked,
+        [([result.pending for result in inputs.pin_results], inputs.final) for inputs in finalized],
+    ) == (
         [["insight:a", "insight:slow"], ["insight:slow"]],
-        [[["insight:slow"]], [["insight:slow"], []]],
+        [([["insight:slow"]], False), ([["insight:slow"], []], True)],
     )

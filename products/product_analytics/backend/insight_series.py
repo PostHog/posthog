@@ -11,6 +11,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.week_start_day import WeekStartDay
 
+from products.product_analytics.backend.chart_rules import LOOKBACK, is_chartable, series_interval
 from products.product_analytics.backend.facade.contracts import (
     InsightDashboardContext,
     InsightSeries,
@@ -25,18 +26,7 @@ ADDITIVE_MATH = {
     "first_time_for_group",
     "first_matching_event_for_group",
 }
-UNCHARTED_DISPLAYS = {
-    "ActionsTable",
-    "ActionsPie",
-    "BoldNumber",
-    "WorldMap",
-    "ActionsBarValue",
-    "ActionsLineGraphCumulative",
-    "SlopeGraph",
-}
-CHARTED_SQL_DISPLAYS = {"ActionsLineGraph", "ActionsBar", "ActionsStackedBar", "ActionsAreaGraph"}
 NO_BREAKDOWN_VALUE = "[No value]"
-LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
 DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 
@@ -188,26 +178,6 @@ def _sql_series(
     )
 
 
-def is_chartable(query: dict[str, Any], interval: str | None = None) -> bool:
-    source = query.get("source", query)
-    if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
-        settings = query.get("chartSettings") or {}
-        return (
-            query.get("display") in CHARTED_SQL_DISPLAYS
-            and bool((settings.get("xAxis") or {}).get("column"))
-            and any(axis.get("column") for axis in settings.get("yAxis") or [])
-        )
-    trends = source.get("trendsFilter") or {}
-    if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
-        return False
-    return not (_interval(source, interval) == "day" and (source.get("dateRange") or {}).get("daysOfWeek"))
-
-
-def _interval(source: dict[str, Any], override: str | None) -> str:
-    interval = override or source.get("interval") or "day"
-    return interval if interval in LOOKBACK else "day"
-
-
 def insight_series(
     team: Team,
     user: User,
@@ -241,7 +211,7 @@ def insight_series(
             raise_if_pending=raise_if_pending,
         )
     trends = source.get("trendsFilter") or {}
-    interval = _interval(source, dashboard_filters.get("interval"))
+    interval = series_interval(source, dashboard_filters.get("interval"))
     date_range = source.get("dateRange") or {}
     kept = {key: value for key, value in date_range.items() if key not in DATE_FILTERS}
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}

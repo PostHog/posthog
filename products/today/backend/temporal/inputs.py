@@ -53,6 +53,7 @@ class ResolvePinsResult:
     keys: list[str]
     found: str
     pending: list[str]
+    errored: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,6 +63,7 @@ class FinalizeHighlightsInputs:
     results: list[HighlightSourceResult]
     pins: list[PinnedNumber] = dataclasses.field(default_factory=list)
     pin_results: list[ResolvePinsResult] = dataclasses.field(default_factory=list)
+    final: bool = True
 
 
 def highlights_workflow_id(team_id: int, user_id: int, highlights_id: str) -> str:

@@ -1,3 +1,6 @@
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -28,9 +31,16 @@ def set_pins(*, team_id: int, user_id: int, pins: list[contracts.PulsePin]) -> l
         if len(kept) == MAX_PULSE_PINS:
             break
     kept_pins = list(kept.values())
-    TodayPulsePins.objects.for_team(team_id, canonical=True).update_or_create(
-        team_id=team_id, user_id=user_id, defaults={"pins": _PINS.dump_python(kept_pins, mode="json")}
-    )
+    stored = _PINS.dump_python(kept_pins, mode="json")
+    try:
+        with transaction.atomic():
+            TodayPulsePins.objects.for_team(team_id, canonical=True).update_or_create(
+                team_id=team_id, user_id=user_id, defaults={"pins": stored}
+            )
+    except IntegrityError:
+        TodayPulsePins.objects.for_team(team_id, canonical=True).filter(user_id=user_id).update(
+            pins=stored, updated_at=timezone.now()
+        )
     return kept_pins
 
 

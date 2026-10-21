@@ -37,11 +37,14 @@ from products.today.backend.facade.enums import (
 from products.today.backend.logic import highlight_registry, highlight_types, highlights
 from products.today.backend.logic.highlight_types import Context
 from products.today.backend.logic.highlights import MAX_ITEMS, rank
+from products.today.backend.logic.pinned import PINNED_METRICS
 from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
+    PinnedNumber,
+    ResolvePinsResult,
 )
 
 DAY = date(2026, 10, 13)
@@ -286,6 +289,14 @@ class TestRunSource(BaseTest):
         self.assertEqual((result.failed, FOUND.validate_json(result.found or "")), (True, HighlightFindings()))
 
 
+PIN_READY = ResolvePinsResult(
+    keys=["insight:a"], found=PINNED_METRICS.dump_json([metric("insight:a")]).decode(), pending=[]
+)
+PIN_ERRORED = ResolvePinsResult(keys=["insight:a"], found="[]", pending=[], errored=["insight:a"])
+PIN_PENDING = ResolvePinsResult(keys=["insight:a"], found="[]", pending=["insight:a"])
+PIN_NOT_ATTEMPTED = ResolvePinsResult(keys=[], found="[]", pending=["insight:a"])
+
+
 class TestFinalizeHighlights(BaseTest):
     @parameterized.expand(
         [
@@ -322,6 +333,36 @@ class TestFinalizeHighlights(BaseTest):
             ),
             (status, True, items, keeps_older),
         )
+
+    @parameterized.expand(
+        [
+            ("every pin is ready", [PIN_READY], True, False),
+            ("a pin errored", [PIN_ERRORED], True, True),
+            ("a retry resolved a pin that was not attempted", [PIN_NOT_ATTEMPTED, PIN_READY], True, False),
+            ("a pin still computing with retries to come", [PIN_PENDING], False, False),
+            ("a pin still computing after the last retry", [PIN_PENDING], True, True),
+        ]
+    )
+    def test_pins_decide_whether_the_row_refreshes_soon(
+        self, _name: str, pin_results: list[ResolvePinsResult], final: bool, refreshes_soon: bool
+    ) -> None:
+        computing = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="k"
+        )
+
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(computing.id),
+                results=[ALERT_RESULT],
+                pins=[PinnedNumber("insight:a")],
+                pin_results=pin_results,
+                final=final,
+            )
+        )
+
+        computing.refresh_from_db()
+        self.assertEqual(computing.failed_sources, refreshes_soon)
 
 
 @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)

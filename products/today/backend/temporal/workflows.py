@@ -24,8 +24,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=60)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
-PIN_ATTEMPTS = 5
-PIN_RETRY_SECONDS = 5
+PIN_RETRY_DELAYS_SECONDS = (5, 10, 15, 30, 60)
 PINNED_NUMBERS_PATCH = "today-pinned-numbers"
 
 
@@ -37,23 +36,27 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
         if not (temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins):
-            await _finalize(inputs, list(await sources), [])
+            await _finalize(inputs, list(await sources), [], final=True)
             return
         results, first = await asyncio.gather(sources, _resolve_pins(inputs, inputs.pins))
         pin_results = [first]
-        await _finalize(inputs, list(results), pin_results)
-        for _ in range(PIN_ATTEMPTS - 1):
+        await _finalize(inputs, list(results), pin_results, final=not first.pending)
+        for delay in PIN_RETRY_DELAYS_SECONDS:
             last = pin_results[-1]
             if not last.pending:
                 break
-            await asyncio.sleep(PIN_RETRY_SECONDS)
+            await asyncio.sleep(delay)
             pin_results.append(await _resolve_pins(inputs, [pin for pin in inputs.pins if pin.key in last.pending]))
         if len(pin_results) > 1:
-            await _finalize(inputs, list(results), pin_results)
+            await _finalize(inputs, list(results), pin_results, final=True)
 
 
 async def _finalize(
-    inputs: ComputeHighlightsInputs, results: list[HighlightSourceResult], pin_results: list[ResolvePinsResult]
+    inputs: ComputeHighlightsInputs,
+    results: list[HighlightSourceResult],
+    pin_results: list[ResolvePinsResult],
+    *,
+    final: bool,
 ) -> None:
     await temporalio.workflow.execute_activity(
         finalize_highlights_activity,
@@ -63,6 +66,7 @@ async def _finalize(
             results=results,
             pins=inputs.pins,
             pin_results=pin_results,
+            final=final,
         ),
         start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),

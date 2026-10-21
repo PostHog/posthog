@@ -50,16 +50,9 @@ class TestPinnedNumbers(BaseTest):
 
     @parameterized.expand(
         [
-            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)], []),
-            (
-                "an insight whose query still runs",
-                [PinnedNumber("insight:slow")],
-                None,
-                [],
-                [],
-                ["insight:slow"],
-            ),
-            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], [], []),
+            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)], [], []),
+            ("an insight whose query still runs", [PinnedNumber("insight:slow")], None, [], [], ["insight:slow"], []),
+            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], [], [], ["insight:broken"]),
             (
                 "a tile pinned from a dashboard",
                 [PinnedNumber("insight:ready", dashboard_id=7)],
@@ -67,11 +60,13 @@ class TestPinnedNumbers(BaseTest):
                 [],
                 [("insight:ready", "/dashboard/7")],
                 [],
+                [],
             ),
             (
                 "a tile removed from its dashboard",
                 [PinnedNumber("insight:ready", dashboard_id=8)],
                 None,
+                [],
                 [],
                 [],
                 [],
@@ -83,12 +78,15 @@ class TestPinnedNumbers(BaseTest):
                 [key_metric("quiet", 0, 0)],
                 [("quiet", None)],
                 [],
+                [],
             ),
-            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, [], ["quiet"]),
+            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, [], ["quiet"], []),
+            ("key metrics that fail to load", [PinnedNumber("quiet")], None, ValueError("down"), [], [], ["quiet"]),
             (
                 "a key without insight access",
                 [PinnedNumber("insight:ready")],
                 ["customer_analytics:read"],
+                [],
                 [],
                 [],
                 [],
@@ -100,9 +98,10 @@ class TestPinnedNumbers(BaseTest):
         _name: str,
         pins: list[PinnedNumber],
         scopes: list[str] | None,
-        key_metrics: list[KeyMetric] | None,
+        key_metrics: list[KeyMetric] | Exception | None,
         resolved: list[tuple[str, str | None]],
         pending: list[str],
+        errored: list[str],
     ) -> None:
         def series(**kwargs: Any) -> InsightSeries:
             if kwargs["short_id"] == "slow":
@@ -132,7 +131,12 @@ class TestPinnedNumbers(BaseTest):
         with (
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(routine, "dashboard_insight_tile", side_effect=tile),
-            patch.object(pinned, "get_key_metrics", return_value=key_metrics),
+            patch.object(
+                pinned,
+                "get_key_metrics",
+                side_effect=key_metrics if isinstance(key_metrics, Exception) else None,
+                return_value=None if isinstance(key_metrics, Exception) else key_metrics,
+            ),
         ):
             result = pinned.resolve_pins(
                 ResolvePinsInputs(
@@ -151,6 +155,7 @@ class TestPinnedNumbers(BaseTest):
                     for metric in METRICS.validate_json(result.found)
                 ],
                 result.pending,
+                result.errored,
             ),
-            (resolved, pending),
+            (resolved, pending, errored),
         )
