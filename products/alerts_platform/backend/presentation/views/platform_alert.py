@@ -1,18 +1,20 @@
 from dataclasses import replace
 from functools import cache, cached_property
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
@@ -40,6 +42,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertNotEditable,
     SourceConfigSpec,
     SourceKind,
+    UnknownPlatformAlertGroup,
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
@@ -354,19 +357,25 @@ PLATFORM_ALERT_CONFIGURATION_EDIT = PolymorphicProxySerializer(
     resource_type_field_name="source_kind",
 )
 
+
+class PlatformAlertGroupSnoozeSerializer(serializers.Serializer):
+    grouping_key = serializers.CharField(
+        max_length=255,
+        help_text="Key of the group to snooze, as the grouping_key of one of the alert's instances.",
+    )
+    snooze_until = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Time until which this group's notifications are muted. Must be in the future and at most "
+        "30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.",
+    )
+
+
 EDIT_RESPONSES = {
     200: PlatformAlertConfigurationSerializer,
     403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
     404: OpenApiResponse(description="No alert with this id that the caller can read."),
     409: OpenApiResponse(description="The source product owns this alert, so only its own API edits it."),
 }
-
-
-@frozen
-class _WriteTarget:
-    configuration: PlatformAlertConfigurationView
-    # The source kinds the caller may write, which bound the write's own read of the row.
-    writable_source_kinds: list[str]
 
 
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -426,31 +435,30 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")
 
-    def _writable(self, pk: str, *, verb: Literal["edit", "delete"]) -> _WriteTarget:
-        """The configuration a write names, with the kinds the caller may write. Raises when the
-        caller cannot read it, cannot write its kind, or its source owns it."""
-        configuration_id = serializers.UUIDField().run_validation(pk)
+    @cached_property
+    def _writable_source_kinds(self) -> list[str]:
+        return self._source_kinds_with("editor", "write")
+
+    def _writable_configuration(
+        self, team_id: int, configuration_id: UUID, verb: str
+    ) -> PlatformAlertConfigurationView:
         current = platform_api.get_configuration(
-            team_id=self._canonical_team_id(),
-            source_kinds=self._readable_source_kinds(),
-            configuration_id=configuration_id,
+            team_id=team_id, source_kinds=self._readable_source_kinds(), configuration_id=configuration_id
         )
         if current is None:
             raise NotFound()
-        writable = self._source_kinds_with("editor", "write")
-        if current.source_kind not in writable:
+        if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
+        return current
+
+    def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = self._writable_configuration(team_id, configuration_id, "edit")
         # Checked again under the row lock. Here it answers before the body is validated, so a caller
         # never fixes a body for an alert it can never write.
         if current.owner != PlatformAlertOwner.PLATFORM:
-            raise Conflict(f"This alert is managed by the {current.source_kind} product. {verb.capitalize()} it there.")
-        return _WriteTarget(configuration=current, writable_source_kinds=writable)
-
-    def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
-        team_id = self._canonical_team_id()
-        target = self._writable(pk, verb="edit")
-        current, writable = target.configuration, target.writable_source_kinds
-        configuration_id = current.id
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Edit it there.")
         edit_serializer = edit_serializers().get(current.source_kind)
         if edit_serializer is None:
             raise Conflict(f"{current.source_kind} alerts cannot be edited through this API.")
@@ -464,7 +472,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         try:
             updated = platform_api.update_configuration(
                 team_id=team_id,
-                source_kinds=writable,
+                source_kinds=self._writable_source_kinds,
                 configuration_id=configuration_id,
                 # A partial update names only the fields it changes. The rest keep what is stored.
                 change=lambda stored: replace(stored, **fields),
@@ -548,19 +556,61 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         }
     )
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:
-        target = self._writable(pk, verb="delete")
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = self._writable_configuration(team_id, configuration_id, "delete")
+        # Checked again by the delete, under the source row's lock.
+        if current.owner != PlatformAlertOwner.PLATFORM:
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Delete it there.")
         try:
             deleted = platform_api.delete_configuration(
-                team_id=self._canonical_team_id(),
-                source_kinds=target.writable_source_kinds,
-                configuration_id=target.configuration.id,
+                team_id=team_id, source_kinds=self._writable_source_kinds, configuration_id=configuration_id
             )
         except PlatformAlertNotEditable as error:
             raise Conflict(str(error)) from error
         if not deleted:
             raise NotFound()
-        transaction.on_commit(lambda: self._track("deleted", target.configuration), robust=True)
+        transaction.on_commit(lambda: self._track("deleted", current), robust=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        PlatformAlertGroupSnoozeSerializer,
+        responses={
+            200: PlatformAlertSerializer,
+            400: OpenApiResponse(description="The time is not in the future, or the alert is not grouped."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(
+                description="No alert with this id that the caller can read, or no group with this key."
+            ),
+            409: OpenApiResponse(description="The source product owns this alert, so only its own API changes it."),
+        },
+        summary="Snooze one group of a grouped alert",
+    )
+    @action(detail=True, methods=["post"], required_scopes=["alert:write"])
+    def snooze_group(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        self._writable_configuration(team_id, configuration_id, "snooze")
+        try:
+            group = platform_api.snooze_group(
+                team_id=team_id,
+                source_kinds=self._writable_source_kinds,
+                configuration_id=configuration_id,
+                grouping_key=request.validated_data["grouping_key"],
+                snooze_until=request.validated_data["snooze_until"],
+            )
+        except PlatformAlertNotEditable as error:
+            raise Conflict(str(error)) from error
+        except UnknownPlatformAlertGroup as error:
+            raise NotFound(
+                "This alert has no group with that key. A group that stays quiet is removed, so refresh the "
+                "alert to see its current groups."
+            ) from error
+        except InvalidPlatformAlertEdit as error:
+            raise ValidationError({error.field_name: str(error)}) from error
+        if group is None:
+            raise NotFound()
+        return Response(PlatformAlertSerializer(group).data)
 
     @extend_schema(parameters=[PlatformAlertConfigurationListQuerySerializer])
     def list(self, request: Request, **kwargs) -> Response:

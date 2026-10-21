@@ -72,7 +72,12 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
 
 
 def start_firing(
-    configuration_id: UUID, *, team_id: int, at: datetime, delivered_via: DeliveryPath | None = None
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    delivered_via: DeliveryPath | None = None,
+    grouping_key: str = "",
 ) -> None:
     """Put a configuration's instance inside a firing, as live delivery can leave one.
 
@@ -81,14 +86,14 @@ def start_firing(
     PlatformAlert.objects.update_or_create(
         team_id=team_id,
         configuration_id=configuration_id,
-        grouping_key="",
+        grouping_key=grouping_key,
         defaults={"state": "firing", "firing_started_at": at},
     )
     if delivered_via is not None:
         PlatformAlertDeliveryPath.objects.for_team(team_id).create(
             team_id=team_id,
             configuration_id=str(configuration_id),
-            grouping_key="",
+            grouping_key=grouping_key,
             episode_started_at=at,
             path=delivered_via.value,
         )

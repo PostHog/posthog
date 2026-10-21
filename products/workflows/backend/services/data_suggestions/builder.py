@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 _TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
+_REPEAT_ENTRY_SECONDS = 7 * 24 * 60 * 60
 
 
 @frozen
@@ -131,12 +132,12 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
             "edges": edges,
             "conversion": {"filters": [], "window_minutes": None},
             "exit_condition": "exit_only_at_end",
-            # A person who repeats a welcome or onboarding event would otherwise start the whole sequence again.
-            **(
-                {"trigger_masking": {"hash": "{person.id}", "ttl": None, "threshold": None}}
-                if context.once_per_person
-                else {}
-            ),
+            # A person who repeats the trigger event would otherwise start the sequence again and get every email again.
+            "trigger_masking": {
+                "hash": "{person.id}",
+                "ttl": None if context.once_per_person else _REPEAT_ENTRY_SECONDS,
+                "threshold": None,
+            },
         },
     )
 
