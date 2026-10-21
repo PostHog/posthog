@@ -7394,6 +7394,30 @@ snapshots:
         hash: v1.k794b7964.07fbb23b3942035a85dc6d01935b8bd6ac19d0dabeeb9e791e4927d5baf4ef72.axXUR1_1SAlWjxI7MO8me8EhFHP-K4K8BK7nz9MYixk
     products-growth-enrichment-scoring--ten-companies--light:
         hash: v1.k794b7964.0408b3b6fd529316505baa5fead85a26cbac63ccc65cd2c969e1e76429ac7378.gGeycoxbfN15Ye7CZYv6cM1xGDS3zD_ba9rJKHpj354
+    products-logs-alerting-group-by--group-firing-alert-confirmation--dark:
+        hash: v1.k794b7964.290738f433db9582da1a4b88791af12198cf8ff6ec5ec3ab093980fd0873d85a.gTiEBLZZbJ7o1Sk04fInxFlrfIlaedm4Ek9THJnjpTQ
+    products-logs-alerting-group-by--group-firing-alert-confirmation--light:
+        hash: v1.k794b7964.75a91aec6007d7bdc350d5b93d400ea27f3b90ebd5bdf6ad683d37d9927f5f2f.Fis5m55hg7q_SZyUgLe4mDYveFiTyYuMwLaWx0ZRvTQ
+    products-logs-alerting-group-by--group-limit-out-of-range--dark:
+        hash: v1.k794b7964.10afb442752f92f7bec6c8c730292c6e79f09d0cf386f68317ff40868cabf4cc.Yitnk2TD6Vt8vBK27Y_aytdlouMsZUWxz4uuepAMbPA
+    products-logs-alerting-group-by--group-limit-out-of-range--light:
+        hash: v1.k794b7964.52f7e282bc5f9b15ed7da0295056cf8bbef5acf6c179a267c0a4ca1cf86669ea.9exy1BYwSaqaB57xYnD6wI9e37Zx8msshSQQXXKu3po
+    products-logs-alerting-group-by--grouped-by-service--dark:
+        hash: v1.k794b7964.be221a1ac5d999374bec56104be50b09c1cf1deab974629cd891ac8a5c7bbce6.L7UPr3B5tJq8MCmV6t58mEyJLsHDxK6Pdolsxnct-rU
+    products-logs-alerting-group-by--grouped-by-service--light:
+        hash: v1.k794b7964.9843ec9753d92f2376b1589e6342147829c94099be930b2338f3ac19e60cf8f3.2WoR21D11d1cUOakQk18UrN_x69pFAE8XKZ34QkvQ6Q
+    products-logs-alerting-group-by--grouped-by-service-narrow--dark:
+        hash: v1.k794b7964.6c95308004becdd1443fdca3eb77d32f2241722376d54c76113ad5542ffe1334.pZ4Gaqb-J-xHMGRtjopaTZH9KwJYFcNV37O8D7U6hos
+    products-logs-alerting-group-by--grouped-by-service-narrow--light:
+        hash: v1.k794b7964.2fef9a44569587ce95b8111b7b64c54b486bc584aeb2788f331c0ac39c488b1a.HPvRL7lns5R1uLrscIqv_3oMMHBN4cFdMXtNJ3b2bPs
+    products-logs-alerting-group-by--regroup-confirmation--dark:
+        hash: v1.k794b7964.9f43995beecfa4a7217dcbd4cd12fe7b56ff280e4da78ca628c17f092147c529.4En13fN0SKhDSaPEVJiKcChgoOuLzHlK2r9ORChRZ_w
+    products-logs-alerting-group-by--regroup-confirmation--light:
+        hash: v1.k794b7964.5e2c72f756e107885621f42fbc1f1edc494cb4e24e29fa2f5cf17ca4c3841630.GPR9xF9SvNKlw-yS186LzTpSGrsn7kvsahIXRHiKhbo
+    products-logs-alerting-group-by--ungrouped--dark:
+        hash: v1.k794b7964.58a264d2615832f3e96be1bb5a7f07cc9fc5858adce4b7582aab491f4e34281b.F6Uvo-RwN6NUscIkcmR-BHShSAuHtkpW5NX-XLChMJU
+    products-logs-alerting-group-by--ungrouped--light:
+        hash: v1.k794b7964.bbe4c79ee9117cc0df57531110e19b7e2584fe3bc8075bfd08b7f35cd9d3a5b8.hyGeBtgGbsX5I0W6XUtLOayiFlXZPxoEJfaIkg_jtC8
     products-mcp-analytics-brand-marks--all-marks--dark:
         hash: v1.k794b7964.7c7d7c7233c5a27dbfa3aa4b3487fa34fdf05b7f0434b3e333eb5fb1cbb9fc5a.f8oq1fyw6uRkercF_yNDT5tdUIRZ7h9ONcxngwkQtqE
     products-mcp-analytics-brand-marks--all-marks--light:
@@ -8203,9 +8227,9 @@ snapshots:
     products-workflows-editor-graph--with-navigation--light:
         hash: v1.k794b7964.56d8bf045970b426f994709ddc19478d18e1968fcf3a41f8e0d28485ff338fa1.QsH5OKiKp00RMcqNzSYgsacI4_1BZ7UtU31Qt2EYzuU
     products-workflows-editor-tile-canvas--long-emails--dark:
-        hash: v1.k794b7964.1c68fbef090e03ad78553e83f9600ca723e1410c5dea6cde7724640423dc63a3.IpQlXvn4eu0Kx0xAvtWrFY0HWEDmW2PJSaTJ-DdzfuQ
+        hash: v1.k794b7964.746428991aecc1377d0eee56fb4bfa599ea2655fd0e5ea52b422d2801a35b7d3.1ymLS7jybK2AYnJEU35IFIHsVPFfXodyVK7oL-aUNB8
     products-workflows-editor-tile-canvas--long-emails--light:
-        hash: v1.k794b7964.a44070a707b2bb3a40b702e9a651c7f65ace1aacbca38638558385d335b46931.-Ngt_-R_pmOJcOIUzg0hvf17t1OdkMaL3XHfBp8resg
+        hash: v1.k794b7964.eebfc3cc0b5c90e085ba25241bcc782ecea76b1d80eddecd7395694223163f78.6yn2sx_hr50S9YDOqkZOEFUj3ksKoyDB5SOGeOwjQ6k
     products-workflows-editor-tile-canvas--paths-collapsed--dark:
         hash: v1.k794b7964.a7d1365772454bc11513284e6b78429127fd18f9e88dc8596005089e1ec69719.W3pCWyBom6wjFqo5FoXZ1Ve1o6zhmWDzy3X0gRZHdN0
     products-workflows-editor-tile-canvas--paths-collapsed--light:
@@ -8219,9 +8243,9 @@ snapshots:
     products-workflows-editor-tile-canvas--time-window-and-webhook--light:
         hash: v1.k794b7964.bb4d20744239d7853c41634985d6c021415cf69a6c7a7affd82cc1b66629c05c.V8xSVCs8-Ryzp0TxCYhQJGUE6lIVtIJhK3_z07BoEvc
     products-workflows-editor-tile-canvas--with-step-counts--dark:
-        hash: v1.k794b7964.2316bb905034aa99508f6137d9c223b2b4748f4095dcd1fedfe9f201505a5860.fonj_IIaN6K5A3Y_4FuSU0S8XBM-aMC8uhrRRFD4ac8
+        hash: v1.k794b7964.0ab0b8a7082c3361fbfe4411ced4404bb68a064b053b7f2ccf1a837eac899e16.J6jtQPYdW-CDpPpbapVHB1Ne2lsf5pfJIDUyPiAP5XM
     products-workflows-editor-tile-canvas--with-step-counts--light:
-        hash: v1.k794b7964.9250d4a392bfacf5d7777281f0e9759727d32119667b05630dd0131f89043d1e.e6tQol5A8SUhDy8Ubh964qHOS0Vp329Jjst4MIRsx-k
+        hash: v1.k794b7964.b152134d4ebad3b1aad8e7daa775d1c9a8eb751a4135054d79236ed3a667ab6d.SJNeHLOjBtEOEO14ecxMYO0Bc2DHtzrAF3ddp99XzsE
     products-workflows-editor-tree--add-on-promotion-emails--dark:
         hash: v1.k794b7964.b57f08708c8687742a71ed295c7e0d342e11cc63c709a9b9b703385fbf4d1b31.yosoQWPjKotHOoPqaIycyvai4desJVjTgoOqJHZu1fA
     products-workflows-editor-tree--add-on-promotion-emails--light:
@@ -11209,7 +11233,7 @@ snapshots:
     scenes-app-heatmap-new--authenticated-review--dark:
         hash: v1.k794b7964.23ad5e208a3001a6415b90a9ba2402e483aab06938cc95fa7fe5d1ea5c496bcc.sZFsnhxz8q2n5R5WhX4eifoKj2C-UIdZM9Yv3Hp_G9U
     scenes-app-heatmap-new--authenticated-review--light:
-        hash: v1.k794b7964.61d6de77bd380e99500dae2f0a78057fec5603627b73f9eb7bd9054edac3266c.BU5AqsFGK7h4O8TAWLjEZXdNMSPz2sQpCmWjNvHGajk
+        hash: v1.k794b7964.1e5957da89de374b78732161eb00eea58830bd3dd0785bdc27cb31addfc970bd.7YJ59ISZkOm2Oe2GUoxbCJyhxqmfIFSTQimLYKZtwvM
     scenes-app-heatmap-new--authenticated-with-recordings--dark:
         hash: v1.k794b7964.442992a798205b41538d40ab3c5852395200d7d52fe23bd1059aed4c771b50ee.1nJ8Jqy6XLD1f94_Ynt--NV4WjG8B5DEVHmW88gBA5M
     scenes-app-heatmap-new--authenticated-with-recordings--light:
