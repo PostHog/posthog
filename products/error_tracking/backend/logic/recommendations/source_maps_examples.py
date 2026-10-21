@@ -55,8 +55,10 @@ _REASONS_WITH_SYMBOL_ID = {
 }
 
 
+# nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression
 class _FirstRawIds(Func):
-    # Postgres still aggregates every frame ID, but only the first ones leave the database.
+    # Postgres still aggregates every frame ID, but only the first ones leave the database. The template
+    # holds only a module constant, and the only expression is an aggregate of columns, so no input reaches the SQL.
     template = f"(%(expressions)s)[1:{RAW_IDS_PER_EXAMPLE}]"
     output_field = ArrayField(TextField())
 
