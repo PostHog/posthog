@@ -927,8 +927,9 @@ class EnterpriseExperimentsViewSet(
 
         Two checks read whether the project received an event from its event definitions: a
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
-        not received. A name whose definition was deleted is not checked, because ingestion writes
-        it again only when the event arrives. `metric_event_not_ingested` names each metric that
+        not received. A name whose definition was deleted since launch, or in the last day for a
+        draft, is not checked, because ingestion writes the definition again only when the event
+        arrives. `metric_event_not_ingested` names each metric that
         reads an event the project never received, in the `evidence` keys `metric_N`,
         `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
         exposure event the project never received (`exposure_event_not_ingested`), and a

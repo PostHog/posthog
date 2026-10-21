@@ -1,9 +1,10 @@
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone
 
 import pydantic
 
@@ -491,13 +492,24 @@ def _events_received(
     checked = {name for name in names if _has_event_definition(name)}
     project_id = experiment.team.project_id
     received = defined_event_names(project_id, checked, seen_only=True)
-    checked -= _deleted_definition_names(project_id, checked - received)
+    checked -= _deleted_definition_names(project_id, checked - received, since=_deletions_since(experiment))
     return {name: name in received for name in checked}
 
 
-def _deleted_definition_names(project_id: int, names: set[str]) -> set[str]:
-    # Ingestion writes a deleted definition again only when it sees the event again, so until then the project can
-    # hold the event without a definition.
+# Ingestion writes a deleted definition again when it next sees the event, which takes up to about an hour for an
+# event that keeps arriving. A margin of a day also covers events that arrive a few times a day.
+_DEFINITION_RECREATION_MARGIN = timedelta(days=1)
+
+
+def _deletions_since(experiment: Experiment) -> datetime:
+    # An earlier deletion matters only if the event stopped arriving: an event that arrived during the run, or
+    # within the margin, has a new definition. So a deletion before then leaves the finding correct.
+    recent = timezone.now() - _DEFINITION_RECREATION_MARGIN
+    return min(experiment.start_date, recent) if experiment.start_date is not None else recent
+
+
+def _deleted_definition_names(project_id: int, names: set[str], *, since: datetime) -> set[str]:
+    # Until ingestion writes a deleted definition again, the project can hold the event without a definition.
     if not names:
         return set()
     return set(
@@ -505,6 +517,11 @@ def _deleted_definition_names(project_id: int, names: set[str]) -> set[str]:
             team_id__in=Team.objects.filter(project_id=project_id).values("id"),
             scope="EventDefinition",
             activity="deleted",
+            created_at__gte=since,
+            # These match the condition of `idx_alog_team_act_scope_usr`, so the lookup reads only the deletions. A
+            # deletion made while impersonating a user is not read.
+            was_impersonated=False,
+            is_system=False,
             detail__name__in=names,
         ).values_list("detail__name", flat=True)
     )
