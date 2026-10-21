@@ -29,10 +29,11 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
+from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert
-from products.alerts.backend.platform_ownership import PlatformCannotOwn, on_created, on_updated
+from products.alerts.backend.platform_ownership import on_created, on_updated
 from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
