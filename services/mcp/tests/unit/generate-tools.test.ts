@@ -993,7 +993,7 @@ describe('rename_params', () => {
             operation: 'things_list',
             enabled: true,
             rename_params: { tile_ids: 'dashboard_tile_ids' },
-            param_overrides: { tile_ids: { input_schema: 'DashboardInsightTileIdsSchema' } },
+            param_overrides: { tile_ids: { input_schema: 'DashboardInsightTileIdsSchema', aliases: ['tile_ids'] } },
         }
         const resolved = makeResolved({
             operation: {
@@ -1015,6 +1015,7 @@ describe('rename_params', () => {
         expect(result.code).toContain('DashboardInsightTileIdsSchema')
         expect(result.code).toContain('tile_ids: params.dashboard_tile_ids')
         expect(result.code).not.toContain('ThingsListBody')
+        expect(result.code).toContain("normalizeParamAliases({ dashboard_tile_ids: ['tile_ids'] })")
     })
 
     it('swaps field names in schema expression and tracks renames', () => {

@@ -45,14 +45,20 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+function normalizeDashboardTileIds(value: unknown): unknown {
+    if (typeof value === 'string' && /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(value)) {
+        return value.split(',').map(Number)
+    }
+    return value
+}
+
 export const DashboardInsightTileIdsSchema = z
-    .array(z.number().int().positive())
-    .min(1)
+    .preprocess(normalizeDashboardTileIds, z.array(z.number().int().positive()).min(1))
     .optional()
     .describe(
         'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
     )
-    .transform((ids) => ids?.join(','))
+    .transform((ids): string | undefined => ids?.join(','))
 
 const DashboardTileLayoutSchema = z.object({
     x: z.number().int().min(0).optional(),

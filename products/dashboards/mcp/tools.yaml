@@ -308,8 +308,10 @@ tools:
         param_overrides:
             tile_ids:
                 input_schema: DashboardInsightTileIdsSchema
+                aliases: [tile_ids]
             id:
                 cast: string-int
+                aliases: [dashboard_id, dashboardId]
         rename_params:
             tile_ids: dashboard_tile_ids
         reads_ingested_data: events

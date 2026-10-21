@@ -717,7 +717,7 @@ function composeToolSchema(
             }
 
             if (override.aliases?.length) {
-                paramAliases[paramName] = override.aliases
+                paramAliases[renameMap.get(paramName) ?? paramName] = override.aliases
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -857,7 +857,11 @@ function composeToolSchema(
     // param, so an alias that is also a real parameter of this operation, or an alias
     // two params both claim, would silently drop a value. Checked after every override
     // has run, because input_schema overrides add body fields inside the loop above.
-    const declaredParamNames = new Set([...pathParamNames, ...queryParamNames, ...bodyFieldNames])
+    const declaredParamNames = new Set([
+        ...pathParamNames,
+        ...queryParamNames.map((name) => renameMap.get(name) ?? name),
+        ...bodyFieldNames,
+    ])
     const aliasOwners = new Map<string, string>()
     for (const [paramName, aliases] of Object.entries(paramAliases)) {
         for (const alias of aliases) {
