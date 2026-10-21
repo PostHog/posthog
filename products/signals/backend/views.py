@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, timedelta
 from functools import cached_property, partial
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -219,6 +219,7 @@ from products.signals.backend.report_task_actions import (
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.scout_authorship import inbox_hidden_report_exists
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
@@ -695,6 +696,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
+    ("no_action_needed", "No action needed"),
     ("pr_merged", "PR was merged"),
     ("other", "Something else…"),
 ]
@@ -702,11 +704,12 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
     "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
-    "fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a "
+    "fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
-    "or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing "
+    "or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with "
+    "state='resolved' when the report was useful but needs no implementation. A report that failed in processing "
     "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
     "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
     "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
@@ -812,6 +815,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if attrs.get("dismissal_reason") == "no_action_needed" and attrs.get("state") != SignalReportState.RESOLVED:
+            raise serializers.ValidationError({"dismissal_reason": "No action needed requires state 'resolved'."})
         if (
             attrs.get("state") == SignalReportState.POTENTIAL
             and attrs.get("dismissal_reason") in FIXED_DISMISSAL_REASONS
@@ -1318,6 +1323,7 @@ class SignalReportViewSet(
         if renders_reports or self._channel_id_filter_value() is not None:
             qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
+        qs = self._apply_signal_report_listed_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_created_after_filter(qs)
         unread = self.request.query_params.get("unread")
@@ -1376,7 +1382,14 @@ class SignalReportViewSet(
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
-            .exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .exclude(
+                type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES
+                | (
+                    {SignalReportArtefact.ArtefactType.CHECK_OBSERVATION}
+                    if not self._report_monitoring_enabled
+                    else set()
+                )
+            )
             .values("report_id")
             .annotate(count=Count("*"))
             .values("count"),
@@ -1523,6 +1536,12 @@ class SignalReportViewSet(
         if value in ("0", "false", "no"):
             return False
         raise serializers.ValidationError({name: f"Invalid value: {raw!r}. Allowed: true, false."})
+
+    def _apply_signal_report_listed_filter(self, queryset):
+        # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
+        if self.action != "list" or self._bool_query_param("include_unlisted") is True:
+            return queryset
+        return queryset.exclude(inbox_hidden_report_exists(self.team_id))
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -2687,7 +2706,9 @@ class SignalReportViewSet(
         # page, rather than a correlated subquery the sort makes Postgres run for every report in
         # the team. The serializer reads both off the instance, as it does for the other actions.
         with tracer.start_as_current_span("signals.reports.list.fetch_artefact_fields"):
-            artefact_counts = SignalReportArtefact.counts_by_report(report_ids)
+            artefact_counts = SignalReportArtefact.counts_by_report(
+                report_ids, monitoring_enabled=self._report_monitoring_enabled
+            )
             live_channel_ids = SignalReportArtefact.live_channel_ids_by_report(report_ids)
             for report in reports:
                 report.__dict__.update(
@@ -3687,6 +3708,11 @@ class SignalReportViewSet(
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
                 dismissal_reason or dismissal_note
             )
+            feedback_state = (
+                None
+                if report.status == SignalReport.Status.SUPPRESSED and target == "potential"
+                else cast(Literal["resolved", "suppressed", "potential"], target)
+            )
 
             if not already_holds_verdict:
                 try:
@@ -3750,6 +3776,7 @@ class SignalReportViewSet(
                     team_id=self.team.id,
                     report_id=str(report.id),
                     content=Dismissal(
+                        state=feedback_state,
                         reason=dismissal_reason,
                         note=dismissal_note,
                         selected_repository=selected_repository,
@@ -3759,6 +3786,11 @@ class SignalReportViewSet(
                     ),
                     attribution=self._request_attribution(),
                 )
+                if target_status == SignalReport.Status.RESOLVED and dismissal_reason == "no_action_needed":
+                    for check in SignalReportCheck.objects.for_team(self.team.id).filter(
+                        report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES
+                    ):
+                        cancel_check(check, reason="stopped_by_person", attribution=self._request_attribution())
                 if is_wrong_repo:
                     self._apply_wrong_repo_selection(report, corrected_repository)
                     # The wrong-repo path just wrote a new repo_selection artefact; drop the
@@ -4021,6 +4053,7 @@ class SignalReportViewSet(
                 team_id=self.team.id,
                 report_id=str(report.id),
                 content=Dismissal(
+                    state="resolved" if resolved_via_merged_pr else "suppressed",
                     reason="refunded",
                     note=note or None,
                     user_id=user.id if user.is_authenticated else None,
@@ -5559,6 +5592,8 @@ class SignalReportArtefactViewSet(
             report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
+        if not organization_report_monitoring_enabled(self.organization.id):
+            queryset = queryset.exclude(type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION)
         # Scoring rows are staff-only on every artefact route, not only in the log.
         if not self.request.user.is_staff:
             queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)

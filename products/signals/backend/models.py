@@ -187,6 +187,34 @@ class AutonomyPriority(models.TextChoices):
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
 
 
+class SignalFirstReportNotification(UUIDModel):
+    # Activation and report visibility belong to the environment, so the recipient must not be canonicalized to its parent.
+    objects = EnvironmentScopedManager()
+
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    activated_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, related_name="+", db_constraint=False
+    )
+    activated_at = models.DateTimeField(auto_now_add=True)
+    report = models.ForeignKey("signals.SignalReport", on_delete=models.SET_NULL, null=True, blank=True)
+    message_data = models.JSONField(default=dict, db_default={})
+    send_started_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    message_id = models.CharField(max_length=200, null=True, blank=True)
+    last_error = models.CharField(max_length=50, default="", db_default="", blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=models.Q(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True),
+                name="signals_first_report_pending",
+            )
+        ]
+
+
 class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -304,6 +332,15 @@ class InvalidStatusTransition(Exception):
         self.from_status = from_status
         self.to_status = to_status
         super().__init__(f"Cannot transition from {from_status} to {to_status}")
+
+
+def scout_lists_reports_in_inbox(output_destinations: object) -> bool:
+    """Whether a scout with these output destinations lists its reports in the shared inbox.
+
+    Only an explicit `inbox: false` opts out, so configs written before the key existed keep
+    listing their reports.
+    """
+    return not (isinstance(output_destinations, dict) and output_destinations.get("inbox") is False)
 
 
 class SignalReport(UUIDModel):
@@ -1357,6 +1394,7 @@ class SignalReportArtefact(UUIDModel):
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
+        CHECK_OBSERVATION = "check_observation"
         CHECK_SCHEDULED = "check_scheduled"
         CHECK_EXPIRED = "check_expired"
         CHECK_CANCELLED = "check_cancelled"
@@ -1424,6 +1462,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
             ArtefactType.CHECK_RESULT,
+            ArtefactType.CHECK_OBSERVATION,
             ArtefactType.CHECK_SCHEDULED,
             ArtefactType.CHECK_EXPIRED,
             ArtefactType.CHECK_CANCELLED,
@@ -1498,7 +1537,7 @@ class SignalReportArtefact(UUIDModel):
         ]
 
     @classmethod
-    def counts_by_report(cls, report_ids: list[str]) -> dict[str, int]:
+    def counts_by_report(cls, report_ids: list[str], *, monitoring_enabled: bool = True) -> dict[str, int]:
         """How many artefacts each report has, in one grouped query over the page.
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
@@ -1510,7 +1549,10 @@ class SignalReportArtefact(UUIDModel):
             return {}
         rows = (
             cls.objects.filter(report_id__in=report_ids)
-            .exclude(type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .exclude(
+                type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES
+                | ({cls.ArtefactType.CHECK_OBSERVATION} if not monitoring_enabled else set())
+            )
             .values("report_id")
             .annotate(artefact_count=models.Count("*"))
         )
@@ -2439,6 +2481,7 @@ class SignalReportCheck(UUIDModel):
     run_interval_minutes = models.PositiveIntegerField(null=True, blank=True)
     runs_remaining = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField()
+    monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
@@ -3733,6 +3776,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         OK = "ok"
         FAILED = "failed"
+        # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
+        SKIPPED = "skipped"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

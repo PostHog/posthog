@@ -424,12 +424,14 @@ def test_findings_permission_probe_reads_details(config: AwsMacieSourceConfig) -
 
 
 @pytest.mark.parametrize("status,code", [(429, "ThrottlingException"), (500, "InternalServerException")])
-def test_transient_errors_propagate(config: AwsMacieSourceConfig, status: int, code: str) -> None:
+def test_transient_errors_report_an_unreachable_vendor(config: AwsMacieSourceConfig, status: int, code: str) -> None:
     with scripted_network(
         always(ScriptedResponse(json={"message": "Try again."}, status=status, headers={"x-amzn-ErrorType": code}))
     ) as network:
-        with pytest.raises(AwsMacieError, match=code):
-            validate_credentials(config)
+        assert validate_credentials(config) == (
+            False,
+            "Couldn't reach AWS Macie to check your credentials. Try again in a few minutes.",
+        )
     assert all(request.path == "/findings" for request in network.requests_log)
     assert not any(pattern.lower() in code.lower() for pattern in AwsMacieSource().get_non_retryable_errors())
 

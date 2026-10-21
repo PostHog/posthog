@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -28,6 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportArtefactsList,
     signalsReportChecksApproveCreate,
     signalsReportChecksDestroy,
     signalsReportChecksList,
@@ -45,6 +46,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
+    PaginatedSignalReportArtefactListApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
@@ -57,12 +59,7 @@ import type {
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
-import {
-    deriveTaskPurpose,
-    PURPOSE_ORDER,
-    ReportTaskPurpose,
-    TaskRunArtefactContent,
-} from '../components/detail/artefactTypes'
+import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
     buildAddReviewerOptions,
@@ -77,13 +74,7 @@ import {
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import {
-    EnrichedReviewer,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStatus,
-} from '../types'
+import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -200,6 +191,7 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 ]
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
+const REPORT_CHECK_TIMING_POLL_INTERVAL_MS = 60000
 
 // PR CI checks refresh cadence while the detail is open — a running build's status stays current
 // without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
@@ -487,7 +479,7 @@ export interface inboxReportDetailLogicActions {
         prComments: readonly PullRequestCommentApi[] | null
         payload?: void
     }
-    loadReportArtefacts: () => any
+    loadReportArtefacts: (_: void) => void
     loadReportArtefactsFailure: (
         error: string,
         errorObject?: any
@@ -497,10 +489,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadReportArtefactsSuccess: (
         reportArtefacts: SignalReportArtefact[],
-        payload?: any
+        payload?: void
     ) => {
         reportArtefacts: SignalReportArtefact[]
-        payload?: any
+        payload?: void
     }
     loadReportChecks: (_: void) => void
     loadReportChecksFailure: (
@@ -832,11 +824,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
-                loadReportArtefacts: async () => {
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
-                        limit: ARTEFACT_FETCH_LIMIT,
-                    })
-                    return response.results
+                loadReportArtefacts: async (_: void, breakpoint): Promise<SignalReportArtefact[]> => {
+                    let response = await signalsReportArtefactsList(
+                        String(ApiConfig.getCurrentProjectId()),
+                        props.reportId,
+                        {
+                            limit: ARTEFACT_FETCH_LIMIT,
+                        }
+                    )
+                    await breakpoint()
+                    const artefacts = [...response.results]
+                    while (response.next) {
+                        // nosemgrep: prefer-codegen-api -- follows the server-provided pagination next link.
+                        response = await api.get<PaginatedSignalReportArtefactListApi>(response.next)
+                        await breakpoint()
+                        artefacts.push(...response.results)
+                    }
+                    return artefacts as SignalReportArtefact[]
                 },
             },
         ],
@@ -916,11 +920,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     )
                     return entries
                         .filter((entry): entry is ReportTaskEntry => entry !== null)
-                        .sort(
-                            (a, b) =>
-                                PURPOSE_ORDER.indexOf(a.purpose) - PURPOSE_ORDER.indexOf(b.purpose) ||
-                                new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
-                        )
+                        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
                 },
             },
         ],
@@ -1940,6 +1940,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // The shell re-renders the detail with a refreshed `selectedReport`; re-gate polling on the new status.
         if (props.report !== oldProps.report) {
             actions.setReport(props.report ?? null)
+            if (props.report?.status !== oldProps.report?.status) {
+                actions.loadReportChecks()
+            }
         }
     }),
 
@@ -1952,13 +1955,27 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
+        cache.disposables.add(() => {
+            const interval = setInterval(() => {
+                if (
+                    values.report?.status !== SignalReportStatus.RESOLVED &&
+                    values.report?.status !== SignalReportStatus.SUPPRESSED &&
+                    values.report?.status !== SignalReportStatus.DELETED &&
+                    !values.reportChecksLoading &&
+                    values.reportChecks?.some((check) => check.monitoring_timing)
+                ) {
+                    actions.loadReportChecks()
+                }
+            }, REPORT_CHECK_TIMING_POLL_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }, 'reportCheckTimingPoll')
         // Register the artefact-log poll once for the lifetime of the mount and let each tick decide
         // whether to fetch. Re-arming it from `setReport` instead would reset the 5s cadence on every
         // report prop the shell hands down, which is the starvation the PR-checks poll below avoids.
         // Auto-disposed on unmount / hidden tab.
         cache.disposables.add(() => {
             const interval = setInterval(() => {
-                if (!values.shouldPollReportTasks) {
+                if (!values.shouldPollReportTasks || values.reportArtefactsLoading) {
                     return
                 }
                 actions.loadReportArtefacts()

@@ -37,6 +37,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -1936,6 +1937,15 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
         ),
     )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
+        ),
+    )
 
 
 # One list page, with room for a next page's ids that have not loaded yet.
@@ -2169,7 +2179,39 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
     return redacted
 
 
+class MonitoringCheckTimingSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=MonitoringCheckTimingState.choices,
+        help_text="Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.",
+    )
+    started_at = serializers.DateTimeField(
+        allow_null=True, help_text="Original Monitoring start for this check's report."
+    )
+    ends_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="End of this check's soak window, independent of its target reference period and safety expiry.",
+    )
+    next_measurement_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Stored next interim attempt, only when it falls before the soak deadline and expiry. Null when no interim measurement is scheduled.",
+    )
+
+
+class SignalReportCheckSerializerExtension(OpenApiSerializerExtension):
+    target_class = "products.signals.backend.serializers.SignalReportCheckSerializer"
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict[str, object] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        required = schema.get("required")
+        if isinstance(required, list):
+            schema["required"] = [name for name in required if name != "monitoring_timing"]
+        return schema
+
+
 class SignalReportCheckSerializer(serializers.ModelSerializer):
+    monitoring_timing = serializers.SerializerMethodField(
+        help_text="Server-derived timing for open checks on Monitoring reports, including archived Monitoring periods. Omitted when Monitoring is disabled or the check is outside that lane.",
+    )
     config = SignalReportCheckConfigField(
         help_text=(
             "What the check measures and what the result must satisfy; the shape depends on `kind`. "
@@ -2177,18 +2219,29 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         )
     )
 
+    def _monitoring_enabled(self, instance: SignalReportCheck) -> bool:
+        enabled_by_team = cast(dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {}))
+        if instance.team_id not in enabled_by_team:
+            enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
+        return enabled_by_team[instance.team_id]
+
+    @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))
+    def get_monitoring_timing(self, instance: SignalReportCheck) -> dict[str, object] | None:
+        now = cast(datetime, self.context.setdefault("report_check_timing_now", timezone.now()))
+        timing = MonitoringCheckTiming.for_check(instance, now=now)
+        if timing is None or not self._monitoring_enabled(instance):
+            return None
+        return dict(MonitoringCheckTimingSerializer(timing).data)
+
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
         representation = dict(super().to_representation(instance))
+        if representation.get("monitoring_timing") is None:
+            representation.pop("monitoring_timing", None)
         config = representation.get("config")
         if isinstance(config, Mapping):
             config = dict(config)
             if "monitoring" in config:
-                enabled_by_team = cast(
-                    dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {})
-                )
-                if instance.team_id not in enabled_by_team:
-                    enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
-                if not enabled_by_team[instance.team_id]:
+                if not self._monitoring_enabled(instance):
                     config.pop("monitoring")
             if instance.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
                 metric = next(
@@ -2217,6 +2270,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "kind",
             "status",
             "config",
+            "monitoring_timing",
             "approved_at",
             "next_run_at",
             "soak_minutes",
@@ -2244,18 +2298,22 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "next_run_at": {
                 "help_text": (
-                    "When the coordinator next evaluates the check. Provisional while the check is `pending`: "
-                    "the report resolving is what sets it."
+                    "Stored coordinator schedule, provisional while pending. During Monitoring this can be the "
+                    "observation-window end rather than another measurement; use `monitoring_timing` for interim timing."
                 )
             },
             "soak_minutes": {
                 "help_text": (
-                    "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution "
-                    "query window. Null on legacy checks that did not record a soak."
+                    "This check's observation window during Monitoring, in minutes. Otherwise the minimum wait after "
+                    "resolution; metric checks also wait for a full post-resolution query window. Null on legacy checks."
                 )
             },
-            "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},
-            "runs_remaining": {"help_text": "Evaluations still owed before the check retires as passed."},
+            "run_interval_minutes": {
+                "help_text": "Gap between interim Monitoring measurements or recurring verdicts. Null uses the Monitoring executor's default cadence, otherwise denotes a one-shot check."
+            },
+            "runs_remaining": {
+                "help_text": "Terminal evaluations still owed before the check retires as passed. Interim Monitoring observations do not consume this count."
+            },
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
             "last_run_at": {"help_text": "When the check last ran; null before its first run."},
             "last_outcome": {"help_text": "Verdict of the most recent run."},
@@ -2512,7 +2570,10 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
-        if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+        } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
 
         if (
@@ -2572,6 +2633,11 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             "observed_value": None,
             "baseline_value": None,
             "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+            **(
+                {"comparison": None, "matches": None, "error": None}
+                if obj.type == SignalReportArtefact.ArtefactType.CHECK_OBSERVATION
+                else {}
+            ),
         }
 
 

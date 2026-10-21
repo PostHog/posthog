@@ -10,7 +10,13 @@ ENDPOINTS = {
     "invoice_series": "invoice-series",
     "expense_reports": "expense-report",
     "contacts": "contact",
+    "virtual_accounts": "virtual-account",
+    "card_groups": "card-group",
+    "customers": "customer",
+    "account_balances": "account/{accountId}/balance",
 }
+
+PRIMARY_KEYS = {"account_balances": ["accountId", "type"]}
 
 INCREMENTAL_FIELDS = {"transactions": [incremental_field("date")]}
 
