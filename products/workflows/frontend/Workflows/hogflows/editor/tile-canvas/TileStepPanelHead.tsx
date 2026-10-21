@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { HogFlowStepNameFields } from '../../panel/HogFlowStepNameFields'
 import type { HogFlowAction } from '../../types'
-import { emailContent } from './stepValues'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
@@ -24,12 +23,7 @@ export function TileStepPanelHead({ action }: { action: HogFlowAction }): JSX.El
             data-attr="workflow-tile-panel-head"
         >
             <div className="relative flex items-start gap-3">
-                <TileFace
-                    action={action}
-                    tile={tile}
-                    count={countOf(action.id)}
-                    showEmail={!!emailContent(action)?.html}
-                />
+                <TileFace tile={tile} count={countOf(action.id)} />
                 <TileCaption facts={tile.facts} />
                 <div
                     className="absolute right-0 top-0 text-[10px] font-semibold uppercase tracking-wider"

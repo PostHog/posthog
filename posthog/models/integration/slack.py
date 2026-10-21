@@ -20,6 +20,8 @@ from rest_framework.request import Request
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.ingress.slack.provider import build_slack_signature_scheme
 from posthog.ingress.verify.schemes import VerificationOutcome, hmac_sha256_signature
@@ -393,20 +395,35 @@ class SlackIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def slack_config(cls):
-        # Span only fires on cache miss (cache_for is process-local in-memory).
-        # If preflight.slack_config_main is fast in production traces, this span
-        # will be absent; if it appears, it tells us the DB hit was slow.
+    def slack_config(cls) -> dict[str, str]:
+        # Every Slack request to this app is verified with the signing secret, so the credentials are
+        # read here, under the cache, and not once per request. A rotation reaches each process
+        # within five minutes.
         with tracer.start_as_current_span("slack_integration.slack_config_db"):
-            config = get_instance_settings(
+            config = get_many_or_instance_settings(
                 [
                     "SLACK_APP_CLIENT_ID",
                     "SLACK_APP_CLIENT_SECRET",
                     "SLACK_APP_SIGNING_SECRET",
-                ]
+                ],
+                CredentialsCaller.INTEGRATIONS,
             )
 
         return config
+
+    @classmethod
+    @cache_for(timedelta(minutes=5))
+    def slack_client_id(cls) -> str:
+        """The app's public client id, for preflight.
+
+        Preflight runs on every page load. It reads the instance setting and never the credentials
+        service, so an outage of the service cannot break page loads for a value that is not secret.
+        """
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the DB hit was slow.
+        with tracer.start_as_current_span("slack_integration.slack_client_id_db"):
+            return get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or ""
 
 
 @frozen
