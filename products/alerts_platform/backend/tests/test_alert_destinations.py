@@ -99,8 +99,6 @@ class TestAlertDestinations(BaseTest):
     @parameterized.expand(
         [
             ("same_webhook", WEBHOOK, dict(WEBHOOK)),
-            # The stored workspace id must read back as the integer it was written as, and the channel
-            # name only labels the destination, so both of these name the same receiver.
             (
                 "same_slack_channel_with_another_label",
                 {

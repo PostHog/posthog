@@ -25,7 +25,6 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import AlertDestinationDelivery
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
-# What each type needs before a transport can send to it.
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
     DestinationType.WEBHOOK: ("webhook_url",),

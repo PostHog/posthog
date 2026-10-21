@@ -278,8 +278,7 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     type = models.CharField(max_length=32, choices=destination_type_choices)
     delivery = models.CharField(max_length=16, choices=Delivery.choices)
-    # The whole `AlertDestinationData`, encrypted as one document so its value types survive a read.
-    # A webhook URL or a routing key is a credential.
+    # Encrypted as one document so its value types survive a read. A webhook URL or a routing key is a credential.
     config = EncryptedJSONStringField(default=dict)
     # The transitions it sends about, as `AlertEventKind` values.
     event_kinds = ArrayField(models.CharField(max_length=16), default=list)
