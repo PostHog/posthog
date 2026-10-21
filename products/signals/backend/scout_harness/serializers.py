@@ -4676,6 +4676,7 @@ class ScoutToolCatalogueSerializer(serializers.Serializer):
         ),
     )
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_run_context_tools(self, _obj: object) -> list[str]:
         return sorted(SCOUT_RUN_CONTEXT_TOOLS)
 
