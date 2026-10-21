@@ -72,7 +72,7 @@ export function TodayPulseEditor(): JSX.Element {
                 setOpen(next)
                 if (next) {
                     pulseEditorOpened()
-                    setShownOnOpen(pulseTiles.map(({ key, name }) => ({ key, name })))
+                    setShownOnOpen(pulseTiles.map(({ key, name, dashboard_id }) => ({ key, name, dashboard_id })))
                 } else {
                     setSearch('')
                 }
@@ -103,7 +103,9 @@ export function TodayPulseEditor(): JSX.Element {
                         value={search}
                         onChange={(event) => {
                             setSearch(event.target.value)
-                            loadPulseInsightResults(event.target.value)
+                            if (event.target.value.trim()) {
+                                loadPulseInsightResults(event.target.value)
+                            }
                         }}
                     />
                 </InputGroup>

@@ -39,6 +39,7 @@ from ..temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
+    PinnedNumber,
     highlights_workflow_id,
 )
 from . import pulse_pins
@@ -65,7 +66,11 @@ _HIGHLIGHTS = TypeAdapter(contracts.Highlights)
 def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
     now = timezone.now()
     day = now.astimezone(team.timezone_info).date()
-    key = _key(team, user, scopes)
+    pins = [
+        PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
+        for pin in pulse_pins.get_pins(team_id=team.id, user_id=user.id)
+    ]
+    key = _key(team, user, scopes, pins)
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
@@ -73,7 +78,7 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     )
     latest = rows.first()
     if latest is None or _is_due(latest, now):
-        _start(team, user, scopes, day, key)
+        _start(team, user, scopes, day, key, pins)
         status = HighlightsStatus.COMPUTING
     else:
         status = HighlightsStatus(latest.status)
@@ -90,10 +95,10 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     )
 
 
-def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
+def _key(team: Team, user: User, scopes: frozenset[str] | None, pins: Sequence[PinnedNumber]) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
     restrictions = property_restrictions(team, user)
-    pinned = ",".join(pin.key for pin in pulse_pins.get_pins(team_id=team.id, user_id=user.id))
+    pinned = ",".join(f"{pin.key}@{pin.dashboard_id or ''}" for pin in pins)
     return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}:{pinned}".encode()).hexdigest()[:32]
 
 
@@ -104,7 +109,9 @@ def _is_due(row: TodayHighlights, now: datetime) -> bool:
     return row.ready_at is None or row.ready_at < now - timedelta(seconds=fresh_seconds)
 
 
-def _start(team: Team, user: User, scopes: frozenset[str] | None, day: date, key: str) -> None:
+def _start(
+    team: Team, user: User, scopes: frozenset[str] | None, day: date, key: str, pins: list[PinnedNumber]
+) -> None:
     if not cache.add(f"today_highlights:start:{team.id}:{user.id}:{key}:{day.isoformat()}", True, START_LOCK_SECONDS):
         return
     row = TodayHighlights.objects.for_team(team.id).create(team_id=team.id, user_id=user.id, local_day=day, key=key)
@@ -115,6 +122,7 @@ def _start(team: Team, user: User, scopes: frozenset[str] | None, day: date, key
         local_day=day.isoformat(),
         scopes=None if scopes is None else sorted(scopes),
         source_names=[source.name for source in load_sources()],
+        pins=pins,
     )
     try:
         asyncio.run(
@@ -153,18 +161,19 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
-    pins = [pin.key for pin in pulse_pins.get_pins(team_id=inputs.team_id, user_id=row.user_id)]
-    resolved = {key for result in inputs.pins for key in result.keys}
-    still_pending = set(inputs.pins[-1].pending) if inputs.pins else set()
-    pins_failed = any(result.failed for result in inputs.pins)
+    pins = [pin.key for pin in inputs.pins]
+    attempted = {key for result in inputs.pin_results for key in result.keys}
+    still_pending = set(inputs.pin_results[-1].pending) if inputs.pin_results else set()
     highlights = build_highlights(
         load_sources(),
         found,
         Team.objects.get(id=inputs.team_id),
         row.local_day,
         pins=pins,
-        pinned={metric.key: metric for result in inputs.pins for metric in PINNED_METRICS.validate_json(result.found)},
-        computing={key for key in pins if key in still_pending or pins_failed or key not in resolved},
+        pinned={
+            metric.key: metric for result in inputs.pin_results for metric in PINNED_METRICS.validate_json(result.found)
+        },
+        computing={key for key in pins if key in still_pending or key not in attempted},
     )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
@@ -174,7 +183,11 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         else HighlightsStatus.READY
     )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
-    row.failed_sources = bool(failed) or any(pin.status == HighlightPinStatus.COMPUTING for pin in highlights.pins)
+    row.failed_sources = (
+        bool(failed)
+        or any(result.failed for result in inputs.pin_results)
+        or any(pin.status == HighlightPinStatus.COMPUTING for pin in highlights.pins)
+    )
     row.ready_at = timezone.now()
     row.save(update_fields=["status", "content", "failed_sources", "ready_at"])
     if row.status == HighlightsStatus.READY:

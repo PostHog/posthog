@@ -168,6 +168,11 @@ export interface HighlightMetricApi {
      */
     dashboard_name: string | null
     /**
+     * Id of the dashboard the tile comes from, with its filters applied. Pass it when pinning the tile. Null otherwise.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
      * On how many of the last 14 days the person opened the insight, or the dashboard of the tile. Null for a key metric.
      * @nullable
      */
@@ -306,6 +311,11 @@ export interface PulsePinApi {
      * @maxLength 400
      */
     name: string
+    /**
+     * For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.
+     * @nullable
+     */
+    dashboard_id?: number | null
 }
 
 export interface PulsePinsApi {

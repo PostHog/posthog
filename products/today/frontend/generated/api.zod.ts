@@ -54,6 +54,12 @@ export const TodayPulsePinsUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(todayPulsePinsUpdateBodyPinsItemNameMax)
                     .describe('Name to show for the number until the highlights compute its value.'),
+                dashboard_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.'
+                    ),
             })
         )
         .describe(

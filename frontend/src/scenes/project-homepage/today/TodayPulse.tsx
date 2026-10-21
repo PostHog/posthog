@@ -88,7 +88,9 @@ function TodayPulsePlaceholder({ tile }: { tile: PulsePlaceholderTile }): JSX.El
         <>
             <span className="TodayPulse__name">{tile.name}</span>
             <span className="TodayPulse__row">
-                <span className="TodayPulse__unavailable">Can't show this insight</span>
+                <span className="TodayPulse__unavailable">
+                    {shortId ? "Can't show this insight" : "Can't show this number"}
+                </span>
             </span>
         </>
     )
@@ -132,7 +134,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef)
     const { baseCurrency } = useValues(teamLogic)
-    const { pulsePins, pulsePinsLoaded } = useValues(todayHighlightsLogic)
+    const { pulsePins, pulsePinsUnavailableReason } = useValues(todayHighlightsLogic)
     const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =
         useActions(todayHighlightsLogic)
     return (
@@ -192,12 +194,13 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     pinned={pinned}
                                     pinDisabledReason={
-                                        pulsePinsLoaded
-                                            ? pulsePinLimitReason(pulsePins.length, pinned)
-                                            : 'Loading your pins…'
+                                        pulsePinsUnavailableReason ?? pulsePinLimitReason(pulsePins.length, pinned)
                                     }
                                     onTogglePin={() =>
-                                        togglePulsePin({ key: metric.key, name: metric.name }, 'hover_card')
+                                        togglePulsePin(
+                                            { key: metric.key, name: metric.name, dashboard_id: metric.dashboard_id },
+                                            'hover_card'
+                                        )
                                     }
                                 />
                             }

@@ -17,6 +17,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         FinalizeHighlightsInputs,
         HighlightSourceInputs,
         HighlightSourceResult,
+        PinnedNumber,
         ResolvePinsInputs,
         ResolvePinsResult,
     )
@@ -35,14 +36,18 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
-        if temporalio.workflow.patched(PINNED_NUMBERS_PATCH):
-            results, pins = await asyncio.gather(sources, _resolve_pins(inputs))
+        if temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins:
+            results, pin_results = await asyncio.gather(sources, _resolve_pins(inputs))
         else:
-            results, pins = await sources, []
+            results, pin_results = await sources, []
         await temporalio.workflow.execute_activity(
             finalize_highlights_activity,
             FinalizeHighlightsInputs(
-                team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=list(results), pins=pins
+                team_id=inputs.team_id,
+                highlights_id=inputs.highlights_id,
+                results=list(results),
+                pins=inputs.pins,
+                pin_results=pin_results,
             ),
             start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
@@ -69,7 +74,7 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
 
 async def _resolve_pins(inputs: ComputeHighlightsInputs) -> list[ResolvePinsResult]:
     results: list[ResolvePinsResult] = []
-    keys: list[str] | None = None
+    remaining: list[PinnedNumber] = inputs.pins
     for attempt in range(PIN_ATTEMPTS):
         if attempt:
             await asyncio.sleep(PIN_RETRY_SECONDS)
@@ -81,15 +86,18 @@ async def _resolve_pins(inputs: ComputeHighlightsInputs) -> list[ResolvePinsResu
                     user_id=inputs.user_id,
                     local_day=inputs.local_day,
                     scopes=inputs.scopes,
-                    keys=keys,
+                    pins=remaining,
                 ),
                 start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
             )
         except ActivityError:
-            return [*results, ResolvePinsResult(keys=[], found="[]", pending=[], failed=True)]
+            return [
+                *results,
+                ResolvePinsResult(keys=[], found="[]", pending=[pin.key for pin in remaining], failed=True),
+            ]
         results.append(result)
         if not result.pending:
             break
-        keys = result.pending
+        remaining = [pin for pin in remaining if pin.key in result.pending]
     return results

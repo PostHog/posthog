@@ -382,18 +382,28 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                     )
                     for name in inputs.source_names
                 ]
-                pins = pinned.resolve_pins(
-                    ResolvePinsInputs(
-                        team_id=inputs.team_id,
-                        user_id=inputs.user_id,
-                        local_day=inputs.local_day,
-                        scopes=inputs.scopes,
-                        keys=None,
-                    )
+                pin_results = (
+                    [
+                        pinned.resolve_pins(
+                            ResolvePinsInputs(
+                                team_id=inputs.team_id,
+                                user_id=inputs.user_id,
+                                local_day=inputs.local_day,
+                                scopes=inputs.scopes,
+                                pins=inputs.pins,
+                            )
+                        )
+                    ]
+                    if inputs.pins
+                    else []
                 )
                 highlights.finalize(
                     FinalizeHighlightsInputs(
-                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results, pins=[pins]
+                        team_id=inputs.team_id,
+                        highlights_id=inputs.highlights_id,
+                        results=results,
+                        pins=inputs.pins,
+                        pin_results=pin_results,
                     )
                 )
         return response

@@ -187,6 +187,7 @@ class HighlightMetric:
     period_starts: list[date] = field(default_factory=list)
     reason: HighlightMetricReason | None = None
     dashboard_name: str | None = None
+    dashboard_id: int | None = None
     opened_days: int | None = None
     last_opened: date | None = None
     movers: list[HighlightMover] = field(default_factory=list)
@@ -210,6 +211,7 @@ class HighlightItem:
 class PulsePin:
     key: str
     name: str
+    dashboard_id: int | None = None
 
 
 @dataclass(frozen=True)

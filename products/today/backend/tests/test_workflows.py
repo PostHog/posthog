@@ -18,6 +18,7 @@ from products.today.backend.temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
+    PinnedNumber,
     ResolvePinsInputs,
     ResolvePinsResult,
 )
@@ -44,7 +45,7 @@ async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_other
 
     @activity.defn(name="resolve_pins_activity")
     async def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
-        return ResolvePinsResult(keys=[], found="[]", pending=[], failed=False)
+        raise AssertionError("A person without pins resolves no pins.")
 
     @activity.defn(name="finalize_highlights_activity")
     async def finalize(inputs: FinalizeHighlightsInputs) -> None:
@@ -71,11 +72,14 @@ async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_other
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
-    assert [inputs.results for inputs in finalized] == [
-        [
-            HighlightSourceResult(source_name="alerts", found="{}", failed=False),
-            HighlightSourceResult(source_name="broken", found=None, failed=True),
-        ]
+    assert [(inputs.results, inputs.pin_results) for inputs in finalized] == [
+        (
+            [
+                HighlightSourceResult(source_name="alerts", found="{}", failed=False),
+                HighlightSourceResult(source_name="broken", found=None, failed=True),
+            ],
+            [],
+        )
     ]
 
 
@@ -84,7 +88,7 @@ async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_togethe
     environment: WorkflowEnvironment,
 ) -> None:
     finalized: list[FinalizeHighlightsInputs] = []
-    asked: list[list[str] | None] = []
+    asked: list[list[str]] = []
 
     @activity.defn(name="run_highlight_source_activity")
     async def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
@@ -92,12 +96,9 @@ async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_togethe
 
     @activity.defn(name="resolve_pins_activity")
     async def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
-        asked.append(inputs.keys)
-        if inputs.keys is None:
-            return ResolvePinsResult(
-                keys=["insight:a", "insight:slow"], found="[]", pending=["insight:slow"], failed=False
-            )
-        return ResolvePinsResult(keys=["insight:slow"], found="[]", pending=[], failed=False)
+        keys = [pin.key for pin in inputs.pins]
+        asked.append(keys)
+        return ResolvePinsResult(keys=keys, found="[]", pending=["insight:slow"] if len(keys) > 1 else [], failed=False)
 
     @activity.defn(name="finalize_highlights_activity")
     async def finalize(inputs: FinalizeHighlightsInputs) -> None:
@@ -119,13 +120,14 @@ async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_togethe
                 local_day="2026-10-13",
                 scopes=None,
                 source_names=["alerts"],
+                pins=[PinnedNumber("insight:a"), PinnedNumber("insight:slow", dashboard_id=7)],
             ),
             id=str(uuid.uuid4()),
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=timedelta(minutes=5),
         )
 
-    assert (asked, [[result.pending for result in inputs.pins] for inputs in finalized]) == (
-        [None, ["insight:slow"]],
+    assert (asked, [[result.pending for result in inputs.pin_results] for inputs in finalized]) == (
+        [["insight:a", "insight:slow"], ["insight:slow"]],
         [[["insight:slow"], []]],
     )

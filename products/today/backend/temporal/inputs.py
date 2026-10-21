@@ -6,6 +6,12 @@ HIGHLIGHTS_WORKFLOW_NAME = "today-compute-highlights"
 
 
 @dataclasses.dataclass(frozen=True)
+class PinnedNumber:
+    key: str
+    dashboard_id: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
 class ComputeHighlightsInputs:
     team_id: int
     user_id: int
@@ -13,6 +19,7 @@ class ComputeHighlightsInputs:
     local_day: str
     scopes: list[str] | None
     source_names: list[str]
+    pins: list[PinnedNumber] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -37,7 +44,7 @@ class ResolvePinsInputs:
     user_id: int
     local_day: str
     scopes: list[str] | None
-    keys: list[str] | None
+    pins: list[PinnedNumber]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -53,7 +60,8 @@ class FinalizeHighlightsInputs:
     team_id: int
     highlights_id: str
     results: list[HighlightSourceResult]
-    pins: list[ResolvePinsResult] = dataclasses.field(default_factory=list)
+    pins: list[PinnedNumber] = dataclasses.field(default_factory=list)
+    pin_results: list[ResolvePinsResult] = dataclasses.field(default_factory=list)
 
 
 def highlights_workflow_id(team_id: int, user_id: int, highlights_id: str) -> str:

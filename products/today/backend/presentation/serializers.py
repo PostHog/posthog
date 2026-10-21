@@ -298,6 +298,12 @@ class PulsePinSerializer(DataclassSerializer):
     name = serializers.CharField(
         max_length=400, help_text="Name to show for the number until the highlights compute its value."
     )
+    dashboard_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.",
+    )
 
     class Meta:
         dataclass = PulsePin
@@ -364,6 +370,10 @@ class HighlightMetricSerializer(DataclassSerializer):
     dashboard_name = serializers.CharField(
         allow_null=True,
         help_text="Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.",
+    )
+    dashboard_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="Id of the dashboard the tile comes from, with its filters applied. Pass it when pinning the tile. Null otherwise.",
     )
     opened_days = serializers.IntegerField(
         allow_null=True,

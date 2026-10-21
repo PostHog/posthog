@@ -10,12 +10,13 @@ from pydantic import TypeAdapter
 from posthog.models import Team
 
 from products.customer_analytics.backend.facade.contracts import KeyMetric
+from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightSeries, InsightSeriesPending
 from products.today.backend.facade import contracts
 from products.today.backend.facade.contracts import PulsePin
 from products.today.backend.logic import pinned, pulse_pins
 from products.today.backend.logic.highlight_sources import routine
-from products.today.backend.temporal.inputs import ResolvePinsInputs
+from products.today.backend.temporal.inputs import PinnedNumber, ResolvePinsInputs
 
 TODAY = date(2026, 10, 13)
 METRICS = TypeAdapter(list[contracts.HighlightMetric])
@@ -49,25 +50,62 @@ class TestPinnedNumbers(BaseTest):
 
     @parameterized.expand(
         [
-            ("a cached insight", ["insight:ready"], None, [], ["insight:ready"], []),
-            ("an insight whose query still runs", ["insight:slow"], None, [], [], ["insight:slow"]),
-            ("a key metric with no events in either week", ["quiet"], None, [key_metric("quiet", 0, 0)], ["quiet"], []),
-            ("key metrics still being calculated", ["quiet"], None, None, [], ["quiet"]),
-            ("a key without insight access", ["insight:ready"], ["customer_analytics:read"], [], [], []),
+            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)], [], False),
+            (
+                "an insight whose query still runs",
+                [PinnedNumber("insight:slow")],
+                None,
+                [],
+                [],
+                ["insight:slow"],
+                False,
+            ),
+            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], [], [], True),
+            (
+                "a tile pinned from a dashboard",
+                [PinnedNumber("insight:ready", dashboard_id=7)],
+                None,
+                [],
+                [("insight:ready", "/dashboard/7")],
+                [],
+                False,
+            ),
+            (
+                "a key metric with no events in either week",
+                [PinnedNumber("quiet")],
+                None,
+                [key_metric("quiet", 0, 0)],
+                [("quiet", None)],
+                [],
+                False,
+            ),
+            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, [], ["quiet"], False),
+            (
+                "a key without insight access",
+                [PinnedNumber("insight:ready")],
+                ["customer_analytics:read"],
+                [],
+                [],
+                [],
+                False,
+            ),
         ]
     )
     def test_each_pin_is_resolved_on_its_own(
         self,
         _name: str,
-        keys: list[str],
+        pins: list[PinnedNumber],
         scopes: list[str] | None,
         key_metrics: list[KeyMetric] | None,
-        resolved: list[str],
+        resolved: list[tuple[str, str | None]],
         pending: list[str],
+        failed: bool,
     ) -> None:
         def series(**kwargs: Any) -> InsightSeries:
             if kwargs["short_id"] == "slow":
                 raise InsightSeriesPending()
+            if kwargs["short_id"] == "broken":
+                raise ValueError("query failed")
             return InsightSeries(
                 short_id=kwargs["short_id"],
                 name=kwargs["short_id"],
@@ -77,8 +115,16 @@ class TestPinnedNumbers(BaseTest):
                 event_name="",
             )
 
+        growth = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=(DashboardInsightTile(insight_short_id="ready", filters_overrides=None),),
+        )
         with (
             patch.object(routine, "get_insight_series", side_effect=series),
+            patch.object(routine, "dashboard_insights", return_value=growth),
             patch.object(pinned, "get_key_metrics", return_value=key_metrics),
         ):
             result = pinned.resolve_pins(
@@ -87,11 +133,18 @@ class TestPinnedNumbers(BaseTest):
                     user_id=self.user.id,
                     local_day=TODAY.isoformat(),
                     scopes=scopes,
-                    keys=keys,
+                    pins=pins,
                 )
             )
 
         self.assertEqual(
-            ([metric.key for metric in METRICS.validate_json(result.found)], result.pending, result.failed),
-            (resolved, pending, False),
+            (
+                [
+                    (metric.key, metric.url if metric.dashboard_id else None)
+                    for metric in METRICS.validate_json(result.found)
+                ],
+                result.pending,
+                result.failed,
+            ),
+            (resolved, pending, failed),
         )

@@ -8,7 +8,7 @@ from posthog.dataclasses import frozen
 from posthog.models import FileSystemViewLog
 from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
-from products.dashboards.backend.facade.api import dashboard_insights
+from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile, dashboard_insights
 from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 
@@ -36,6 +36,7 @@ FRECENCY_TILES = 4
 DASHBOARD_TILES_TRIED = 6
 OPENED_DAYS_WINDOW = 14
 MOVERS_SHOWN = 4
+PINNED_DASHBOARD_TILES = 500
 
 
 @frozen
@@ -151,22 +152,46 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
             continue
         metric = context.guard(
             f"dashboard {item.ref} tile {tile.insight_short_id}",
-            partial(
-                insight_metric,
-                context,
-                tile.insight_short_id,
-                dashboard=InsightDashboardContext(
-                    filters=dashboard.filters, tile_filters=tile.filters_overrides, variables=dashboard.variables
-                ),
-                viewed=item,
-                url=f"/dashboard/{dashboard.dashboard_id}",
-                dashboard_name=dashboard.name,
-            ),
+            partial(_tile_metric, context, dashboard, tile, viewed=item),
             None,
         )
         if metric is not None:
             return metric
     return None
+
+
+def dashboard_tile_metric(
+    context: Context, dashboard_id: int, short_id: str, *, raise_if_pending: bool = False
+) -> contracts.HighlightMetric | None:
+    dashboard = dashboard_insights(
+        team=context.team, user=context.user, dashboard_id=dashboard_id, limit=PINNED_DASHBOARD_TILES
+    )
+    tile = next((tile for tile in dashboard.tiles if tile.insight_short_id == short_id), None) if dashboard else None
+    if dashboard is None or tile is None:
+        return None
+    return _tile_metric(context, dashboard, tile, raise_if_pending=raise_if_pending)
+
+
+def _tile_metric(
+    context: Context,
+    dashboard: DashboardInsights,
+    tile: DashboardInsightTile,
+    *,
+    viewed: ViewedItem | None = None,
+    raise_if_pending: bool = False,
+) -> contracts.HighlightMetric | None:
+    return insight_metric(
+        context,
+        tile.insight_short_id,
+        dashboard=InsightDashboardContext(
+            filters=dashboard.filters, tile_filters=tile.filters_overrides, variables=dashboard.variables
+        ),
+        viewed=viewed,
+        url=f"/dashboard/{dashboard.dashboard_id}",
+        dashboard_name=dashboard.name,
+        dashboard_id=dashboard.dashboard_id,
+        raise_if_pending=raise_if_pending,
+    )
 
 
 def insight_metric(
@@ -177,6 +202,7 @@ def insight_metric(
     dashboard: InsightDashboardContext | None = None,
     url: str | None = None,
     dashboard_name: str | None = None,
+    dashboard_id: int | None = None,
     raise_if_pending: bool = False,
 ) -> contracts.HighlightMetric | None:
     insight = get_insight_series(
@@ -230,6 +256,7 @@ def insight_metric(
         value_format=value_format,
         reason=HighlightMetricReason.ROUTINE if dashboard is None else HighlightMetricReason.DASHBOARD,
         dashboard_name=dashboard_name,
+        dashboard_id=dashboard_id,
         opened_days=_opened_days(viewed, context.today) if viewed else None,
         last_opened=max(viewed.days) if viewed and viewed.days else None,
         movers=_movers(series, insight.averaged_series, period, context.today),
