@@ -1433,6 +1433,39 @@ class AlertListFiltersSerializer(serializers.Serializer):
     has_detector = OptionalBooleanField(required=False)
 
 
+def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
+    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
+    moving once the insight stack stops checking it."""
+    moved = {alert.id: alert for alert in alerts if alert.platform_owned}
+    if not moved:
+        return
+    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
+    for alert_id, moved_status in statuses.items():
+        alert = moved[alert_id]
+        if moved_status.runtime is not None:
+            apply_platform_state(alert, moved_status.runtime.state)
+            alert.next_check_at = moved_status.runtime.next_check_at
+            alert.last_notified_at = moved_status.runtime.last_notified_at
+        if moved_status.last_check is not None:
+            alert.last_checked_at = moved_status.last_check.checked_at
+            # Annotated from the alert's own checks, which stop once the shadow ends.
+            alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+
+
+def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
+    # Never saved. It carries what the check serializer shows.
+    return AlertCheck(
+        id=check.id,
+        alert_configuration=alert,
+        created_at=check.checked_at,
+        calculated_value=check.value,
+        condition=alert.condition,
+        state=check.state,
+        error={"message": check.error_message} if check.error_message else None,
+        targets_notified={},
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1473,39 +1506,6 @@ class AlertListFiltersSerializer(serializers.Serializer):
         ],
     ),
 )
-def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
-    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
-    moving once the insight stack stops checking it."""
-    moved = {alert.id: alert for alert in alerts if alert.platform_owned}
-    if not moved:
-        return
-    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
-    for alert_id, moved_status in statuses.items():
-        alert = moved[alert_id]
-        if moved_status.runtime is not None:
-            apply_platform_state(alert, moved_status.runtime.state)
-            alert.next_check_at = moved_status.runtime.next_check_at
-            alert.last_notified_at = moved_status.runtime.last_notified_at
-        if moved_status.last_check is not None:
-            alert.last_checked_at = moved_status.last_check.checked_at
-            # Annotated from the alert's own checks, which stop once the shadow ends.
-            alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
-
-
-def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
-    # Never saved. It carries what the check serializer shows.
-    return AlertCheck(
-        id=check.id,
-        alert_configuration=alert,
-        created_at=check.checked_at,
-        calculated_value=check.value,
-        condition=alert.condition,
-        state=check.state,
-        error={"message": check.error_message} if check.error_message else None,
-        targets_notified={},
-    )
-
-
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
