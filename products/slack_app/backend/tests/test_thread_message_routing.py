@@ -195,6 +195,21 @@ class TestRouteThreadMessage(TestCase):
             assert kwargs["posthog_user"].id == self.bob.id
             assert mock_start.call_args.args[1].id == self.integration.id
 
+    @parameterized.expand([("loose filter on", True), ("loose filter off", False)])
+    def test_top_level_post_without_a_question_signal_dispatches_only_on_the_loose_filter(self, _name, loose_on):
+        event = self._make_question_event(text="need signups by country for last month")
+        with (
+            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.api.is_slack_app_unprompted_answers_loose_filter_enabled",
+                return_value=loose_on,
+            ),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            self._route(event)
+
+        assert mock_start.called is loose_on
+
     @parameterized.expand(
         [
             ("the other region holds the workspace", True, True),

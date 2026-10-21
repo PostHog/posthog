@@ -51,10 +51,11 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_unprompted_answers_enabled,
+    is_slack_app_unprompted_answers_loose_filter_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import reply_suggestions
-from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
+from products.slack_app.backend.logic.untagged_question import has_question_signal, is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackChannel,
@@ -2537,7 +2538,7 @@ def _route_untagged_question(
     An author without a PostHog account is a normal drop, not a failure.
     Externally shared channels are out, because people outside the organization would see the reply.
     """
-    if is_ext_shared_channel or not is_untagged_question_candidate(event):
+    if is_ext_shared_channel or not is_untagged_question_candidate(event, require_question_signal=False):
         return ROUTE_HANDLED_LOCALLY
     slack_user_id = str(event.get("user") or "")
     channel = event.get("channel") if isinstance(event.get("channel"), str) else None
@@ -2548,6 +2549,17 @@ def _route_untagged_question(
         slack_user_id=slack_user_id,
         channel=channel,
     )
+    question_signal = has_question_signal(str(event.get("text") or ""))
+    loose_filter_ids: set[int] = set()
+    if not question_signal:
+        # Most channel chatter lands here, so it stops before the cross-region probe and user resolution.
+        loose_filter_ids = {
+            candidate.id
+            for candidate in workspace_result.candidates
+            if is_slack_app_unprompted_answers_loose_filter_enabled(candidate)
+        }
+        if not loose_filter_ids:
+            return ROUTE_HANDLED_LOCALLY
     # Without a local connection no mirror went out, so the full event can cross, but only to a
     # region that confirms it holds the workspace. The probe answer is cached per workspace.
     if not workspace_result.candidates:
@@ -2586,6 +2598,8 @@ def _route_untagged_question(
     # Checked on the project that will answer: a workspace can connect projects from several
     # organizations, and the flag is rolled out per organization.
     if not is_slack_app_unprompted_answers_enabled(target):
+        return ROUTE_HANDLED_LOCALLY
+    if not question_signal and target.id not in loose_filter_ids:
         return ROUTE_HANDLED_LOCALLY
 
     logger.info(

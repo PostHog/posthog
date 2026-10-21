@@ -11,7 +11,13 @@ _QUESTION_OPENER_PATTERN = re.compile(
 )
 
 
-def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
+def has_question_signal(text: str) -> bool:
+    """Whether a post looks like a question by its words alone: a ``?`` or a question word first."""
+    text = text.strip()
+    return "?" in text or bool(_QUESTION_OPENER_PATTERN.match(text))
+
+
+def is_untagged_question_candidate(event: dict[str, Any], *, require_question_signal: bool = True) -> bool:
     """Whether a top-level post nobody tagged the app in could be a question for PostHog.
 
     Text-only checks, because every top-level post in every channel the app is in comes through
@@ -27,4 +33,4 @@ def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
     # the whole channel addresses them, not PostHog.
     if "<@" in text or "<!" in text:
         return False
-    return "?" in text or bool(_QUESTION_OPENER_PATTERN.match(text))
+    return not require_question_signal or has_question_signal(text)
