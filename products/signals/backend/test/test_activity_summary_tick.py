@@ -9,6 +9,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
@@ -33,6 +35,7 @@ from products.signals.backend.activity_summary.schedule import (
     create_activity_summary_tick_schedule,
 )
 from products.signals.backend.activity_summary.tick import (
+    STOP_GATEWAY_NOT_CONFIGURED,
     STOP_MAX_COST_USD_PER_DAY,
     STOP_MAX_PAIRS_PER_DAY,
     STOP_MAX_PAIRS_PER_TICK,
@@ -207,26 +210,33 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
-            ("the tick cap", {"max_pairs_per_tick": 1}, STOP_MAX_PAIRS_PER_TICK, 1),
-            ("the daily pair cap", {"max_pairs_per_day": 1}, STOP_MAX_PAIRS_PER_DAY, 0),
-            ("the daily cost cap", {"max_cost_usd_per_day": 0.1}, STOP_MAX_COST_USD_PER_DAY, 0),
-            ("no cap", {}, None, 2),
+            ("the tick cap", {"max_pairs_per_tick": 1}, "phs_test", STOP_MAX_PAIRS_PER_TICK, 1),
+            ("the daily pair cap", {"max_pairs_per_day": 1}, "phs_test", STOP_MAX_PAIRS_PER_DAY, 0),
+            ("the daily cost cap", {"max_cost_usd_per_day": 0.1}, "phs_test", STOP_MAX_COST_USD_PER_DAY, 0),
+            ("no cap", {}, "phs_test", None, 2),
+            ("no gateway", {}, "", STOP_GATEWAY_NOT_CONFIGURED, 0),
         ]
     )
     def test_plan_names_the_cap_that_stops_it(
-        self, _name: str, overrides: dict[str, Any], stop_reason: str | None, pairs: int
+        self, _name: str, overrides: dict[str, Any], gateway_key: str, stop_reason: str | None, pairs: int
     ) -> None:
         self._changes(self._user("a@example.com"), 3)
         self._changes(self._user("b@example.com"), 3)
         self._summary(self.user, cost_usd=0.1)
 
         with (
+            override_settings(
+                AI_GATEWAY_URL="https://ai-gateway.example/v1" if gateway_key else "",
+                AI_GATEWAY_API_KEY=gateway_key,
+                LLM_GATEWAY_URL="",
+                LLM_GATEWAY_API_KEY="",
+            ),
             patch.object(tick, "read_config", return_value=self._config(**overrides)),
             patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
         ):
             plan = plan_tick(None, NOW)
 
-        assert (plan.stop_reason, len(plan.pairs)) == (stop_reason, pairs)
+        assert (plan.stop_reason, len(plan.pairs), plan.enabled) == (stop_reason, pairs, bool(gateway_key))
 
     def test_a_skipped_pair_does_not_come_back_on_the_next_tick(self) -> None:
         self._changes(self.user, 2)

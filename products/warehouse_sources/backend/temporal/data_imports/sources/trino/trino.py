@@ -134,6 +134,9 @@ TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
 # `OperationalError`. A fresh query on the next sync attempt gets a new query ID, so this clears on
 # its own — not a PostHog or customer problem.
 TRINO_QUERY_NOT_FOUND_ERROR = "Query not found"
+# Trino's error name when no worker has free or healthy spill disk left. The customer's cluster ran out
+# of a resource it controls, so only the cluster owner can fix it, and a later query can succeed.
+TRINO_OUT_OF_SPILL_SPACE_ERROR = "name=OUT_OF_SPILL_SPACE"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
