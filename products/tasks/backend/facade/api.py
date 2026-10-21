@@ -5186,6 +5186,9 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return read_task_run_log_content(log_urls)
 
 
+_MARK_WATCHED_REDIS_TIMEOUT_SECONDS = 0.5
+
+
 def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
     from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
         TASK_RUN_STREAM_WATCHED_TIMEOUT,
@@ -5201,7 +5204,11 @@ def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_i
     if info is None or info.is_terminal or not run_stream_presence_gated(info.state):
         return
     try:
-        get_tasks_stream_redis_sync(run_uses_dedicated_stream(info.state)).set(
+        get_tasks_stream_redis_sync(
+            run_uses_dedicated_stream(info.state),
+            socket_timeout=_MARK_WATCHED_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_MARK_WATCHED_REDIS_TIMEOUT_SECONDS,
+        ).set(
             get_task_run_stream_watched_key(get_task_run_stream_key(str(info.id))),
             "1",
             ex=TASK_RUN_STREAM_WATCHED_TIMEOUT,
