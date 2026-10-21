@@ -1627,15 +1627,22 @@ class TestSignupAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_signup", "plain", True),
-            ("social_signup", "social", True),
-            ("invite_signup", "invite", True),
-            ("delegated_invite_signup", "delegated_invite", False),
+            ("plain_signup", "plain", True, True),
+            ("social_signup", "social", True, True),
+            ("invite_signup", "invite", True, False),
+            ("delegated_invite_signup", "delegated_invite", False, False),
         ]
     )
+    @patch("posthoganalytics.group_identify")
     @patch("posthoganalytics.capture")
     def test_api_sign_up_reports_the_pending_oauth_connection(
-        self, _name: str, signup_path: str, expect_onboarding_skip: bool, mock_capture
+        self,
+        _name: str,
+        signup_path: str,
+        expect_onboarding_skip: bool,
+        expect_project_marked: bool,
+        mock_capture,
+        mock_group_identify,
     ):
         email = "oauth-signup@posthog.com"
         self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
@@ -1690,6 +1697,25 @@ class TestSignupAPI(APIBaseTest):
         else:
             self.assertIsNone(user.onboarding_skipped_at)
             self.assertIsNone(user.onboarding_skipped_reason)
+
+        project_calls = [c for c in mock_group_identify.call_args_list if c.args[0] == "project"]
+        if expect_project_marked:
+            assert user.team is not None
+            self.assertEqual(
+                project_calls,
+                [
+                    mock.call(
+                        "project",
+                        str(user.team.uuid),
+                        properties={
+                            "created_via_oauth_client": "Claude",
+                            "created_via_oauth_client_id": "https://claude.example.com/.well-known/oauth-client",
+                        },
+                    )
+                ],
+            )
+        else:
+            self.assertEqual(project_calls, [])
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
