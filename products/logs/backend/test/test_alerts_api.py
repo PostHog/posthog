@@ -2455,8 +2455,117 @@ class TestLogsAlertAPI(APIBaseTest):
 
         created = self._create_via_api(name="Added after the cutover")
 
+        assert created["platform_owned"] is True
         assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
         assert self._copy(created["id"]).owner == "platform"
+
+    def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=self._copy(alert_id).id
+            )
+        assert view is not None
+        return view.grouping.keys
+
+    def test_grouping_set_on_the_logs_page_regroups_the_platform_copy(self) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+
+        temporal = MagicMock(start_workflow=AsyncMock())
+
+        with (
+            patch(f"{_WEB_START}.async_connect", AsyncMock(return_value=temporal)),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/",
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (delivery,) = [call.args[1] for call in temporal.start_workflow.call_args_list]
+        assert delivery.incident_actions == {"": IncidentAction.RESOLVE}
+        assert response.json()["grouping"]["keys"] == ["service_name"]
+        assert self._copy_grouping_keys(created["id"]) == ("service_name",)
+        with team_scope(self.team.id):
+            assert platform_testing.alert_for(copy.id) is None
+            platform_testing.start_firing(
+                copy.id, team_id=self.team.id, at=datetime.now(UTC), grouping_key='{"service_name":"api"}'
+            )
+        assert self.client.get(f"{self.base_url}{created['id']}/").json()["state"] == "firing"
+
+    @parameterized.expand(
+        [
+            ("cut_over", True, "severity_text", status.HTTP_201_CREATED),
+            ("not_cut_over", False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("cut_over_unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
+        if cut_over:
+            self._owned_by_the_platform()
+        alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert self._copy_grouping_keys(response.json()["id"]) == (key,)
+        else:
+            assert response.json()["attr"] == "grouping"
+            assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
+
+    @parameterized.expand(
+        [
+            ("source_owned_grouped", False, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+            ("unknown_key", True, {"grouping": {"mode": "by_result_labels", "keys": ["host"]}}),
+            (
+                "below_threshold",
+                True,
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}, "threshold_operator": "below"},
+            ),
+        ]
+    )
+    def test_a_grouping_the_alert_cannot_take_is_rejected(
+        self, _name: str, platform_owned: bool, payload: dict
+    ) -> None:
+        created = self._owned_by_the_platform() if platform_owned else self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "grouping"
+        assert LogsAlertConfiguration.objects.get(pk=created["id"]).threshold_operator == "above"
+        if platform_owned:
+            assert self._copy_grouping_keys(created["id"]) == ()
+
+    @parameterized.expand(
+        [
+            ("as_read", None),
+            ("with_its_own_cap", {"mode": "single", "max_instances": 50}),
+        ]
+    )
+    def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
+        created = self._create_via_api()
+
+        response = self.client.put(
+            f"{self.base_url}{created['id']}/",
+            self._valid_payload(grouping=grouping or created["grouping"]),
+            format="json",
+        )
+
+        assert created["grouping"] == {
+            "mode": "single",
+            "keys": [],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        assert created["platform_owned"] is False
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
         created = self._owned_by_the_platform()

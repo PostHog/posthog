@@ -2917,7 +2917,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
         "overlap_clone_boot_enabled",
-        "use_modal_network_allowlist",
         "stream_presence_gated",
         "stream_thin_tail",
         PR_LOOP_ENABLED_STATE_KEY,
