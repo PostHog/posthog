@@ -82,13 +82,5 @@ exclude {
     "flow_logs_local",
     "k8s_node_inventory",
     "rds_inventory",
-
-    # --- retired, still created by old migrations ---
-    # The v1 query_log_archive write path. Migrations 0273 and 0276 still create it
-    # on a fresh stack, but cloud dropped it and query_log_archive reads v3 only.
-    "ops_query_log_archive_mv",
-    "writable_query_log_archive",
-    "query_log_archive_buffer",
-    "sharded_query_log_archive",
   ]
 }
