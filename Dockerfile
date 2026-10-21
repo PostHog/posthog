@@ -297,12 +297,19 @@ RUN apt-get update && \
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS export-forecast-model
 COPY --from=uv /uv /bin/
 WORKDIR /code
+ENV UV_PROJECT_ENVIRONMENT=/opt/forecast-model \
+    UV_LINK_MODE=copy
+# The forecast-model group in pyproject.toml pins these packages through uv.lock. uv sync validates workspace
+# membership, so every workspace member must be in the build context.
 RUN --mount=type=cache,id=uv-forecast-model,target=/root/.cache/uv \
-    uv pip install --system --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple \
-        "torch==2.14.1" "onnx==1.23.2" "onnxscript==0.7.2" \
-        "timestral @ https://github.com/mistralai/timestral/archive/a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff.tar.gz"
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
+    --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
+    uv sync --locked --only-group forecast-model --no-install-project
 COPY bin/export_forecast_model.py bin/
-RUN mkdir share && python bin/export_forecast_model.py share/timestral-28m.onnx
+RUN mkdir share && /opt/forecast-model/bin/python bin/export_forecast_model.py share/timestral-28m.onnx
 
 
 #

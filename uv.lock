@@ -2,12 +2,12 @@ version = 1
 revision = 3
 requires-python = "==3.14.7"
 resolution-markers = [
-    "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
-    "platform_machine == 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
-    "platform_machine != 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
-    "platform_machine == 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
-    "platform_machine != 's390x' and sys_platform == 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
-    "platform_machine == 's390x' and sys_platform == 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
+    "platform_machine == 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
+    "platform_machine == 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and sys_platform == 'emscripten' and extra != 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
+    "platform_machine == 's390x' and sys_platform == 'emscripten' and extra != 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
     "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'darwin' and sys_platform != 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
     "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
     "platform_machine == 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
@@ -15,29 +15,36 @@ resolution-markers = [
     "platform_machine == 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
     "platform_machine != 's390x' and sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
     "platform_machine == 's390x' and sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
-    "platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
-    "platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
-    "sys_platform == 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'darwin' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine == 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine == 's390x' and platform_python_implementation == 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine != 's390x' and sys_platform == 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
+    "platform_machine == 's390x' and sys_platform == 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment'",
 ]
 conflicts = [[
     { package = "posthog", group = "inbox-ranking" },
     { package = "posthog", group = "sentiment" },
+], [
+    { package = "posthog", group = "forecast-model" },
+    { package = "posthog", group = "sentiment" },
 ]]
 
 [options]
-exclude-newer = "2026-10-09T14:35:12.109977Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-pixelhog = false
-modal = false
-posthoganalytics = false
+deltalite = false
 django = false
 google-ads = false
-deltalite = false
 hogql-parser = false
-posthog-hogland = false
 hogql-parser-rs = false
+modal = false
+pixelhog = false
+posthog-hogland = false
+posthoganalytics = false
 
 [manifest]
 members = [
@@ -815,10 +822,10 @@ name = "browser-cookie3"
 version = "0.20.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "jeepney", marker = "'bsd' in sys_platform or sys_platform == 'linux' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "jeepney", marker = "'bsd' in sys_platform or sys_platform == 'linux' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "lz4" },
     { name = "pycryptodomex" },
-    { name = "shadowcopy", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "shadowcopy", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e0/e1/652adea0ce25948e613ef78294c8ceaf4b32844aae00680d3a1712dde444/browser_cookie3-0.20.1.tar.gz", hash = "sha256:6d8d0744bf42a5327c951bdbcf77741db3455b8b4e840e18bab266d598368a12", size = 22665, upload-time = "2024-12-20T00:31:30.144Z" }
 wheels = [
@@ -908,7 +915,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -1016,7 +1023,7 @@ name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b9/2e/0090cbf739cee7d23781ad4b89a9894a41538e4fcf4c31dcdd705b78eb8b/click-8.1.8.tar.gz", hash = "sha256:ed53c9d8990d83c2a27deae68e4ee337473f6330c040a31d4225c9574d16096a", size = 226593, upload-time = "2024-12-21T18:38:44.339Z" }
 wheels = [
@@ -1313,7 +1320,7 @@ name = "cryptography"
 version = "46.0.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/47/93/ac8f3d5ff04d54bc814e961a43ae5b0b146154c89c61b47bb07557679b18/cryptography-46.0.7.tar.gz", hash = "sha256:e4cfd68c5f3e0bfdad0d38e023239b96a2fe84146481852dffbcca442c245aa5", size = 750652, upload-time = "2026-04-08T01:57:54.692Z" }
 wheels = [
@@ -1406,10 +1413,10 @@ dependencies = [
     { name = "grpcio-health-checking" },
     { name = "jinja2" },
     { name = "protobuf" },
-    { name = "psutil", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "psutil", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "python-dotenv" },
     { name = "pytz" },
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "requests" },
     { name = "rich" },
     { name = "setuptools" },
@@ -1899,7 +1906,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
-    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/85/fe/79e692b430c7721bf4b812c328bfe687e73e3f28f56611a6a18a97e887cc/django-5.2.18.tar.gz", hash = "sha256:461c5dd06d2ea16bd5ca37d3f46e4def1d6b0fe7588c6f4e2119517bb0af8b2d", size = 10910238, upload-time = "2026-10-06T13:01:09.371Z" }
 wheels = [
@@ -2231,7 +2238,7 @@ dependencies = [
     { name = "pendulum" },
     { name = "pluggy" },
     { name = "pytz" },
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "requirements-parser" },
@@ -2264,7 +2271,7 @@ name = "docker"
 version = "7.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "requests" },
     { name = "urllib3" },
 ]
@@ -2981,7 +2988,7 @@ reload = [
     { name = "watchfiles" },
 ]
 uvloop = [
-    { name = "uvloop", marker = "(platform_python_implementation == 'CPython' and sys_platform != 'win32') or (platform_python_implementation != 'CPython' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "uvloop", marker = "(platform_python_implementation == 'CPython' and sys_platform != 'win32') or (platform_python_implementation != 'CPython' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_python_implementation != 'CPython' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 
 [[package]]
@@ -3395,7 +3402,7 @@ name = "humanfriendly"
 version = "10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyreadline3", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pyreadline3", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cc/3f/2c29224acb2e2df4d2046e4c73ee2662023c58ff5b113c4c1adac0886c43/humanfriendly-10.0.tar.gz", hash = "sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc", size = 360702, upload-time = "2021-09-17T21:40:43.31Z" }
 wheels = [
@@ -3520,12 +3527,12 @@ name = "ipython"
 version = "9.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "decorator" },
     { name = "ipython-pygments-lexers" },
     { name = "jedi" },
     { name = "matplotlib-inline" },
-    { name = "pexpect", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pexpect", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "prompt-toolkit" },
     { name = "pygments" },
     { name = "stack-data" },
@@ -4001,7 +4008,7 @@ version = "0.4.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "orjson", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "orjson", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "packaging" },
     { name = "pydantic" },
     { name = "requests" },
@@ -4438,12 +4445,12 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
-    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pywin32", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "typing-extensions" },
     { name = "typing-inspection" },
-    { name = "uvicorn", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fc/6d/62e76bbb8144d6ed86e202b5edd8a4cb631e7c8130f3f4893c3f90262b10/mcp-1.26.0.tar.gz", hash = "sha256:db6e2ef491eecc1a0d93711a76f28dec2e05999f93afd48795da1c1137142c66", size = 608005, upload-time = "2026-01-24T19:40:32.468Z" }
 wheels = [
@@ -4639,7 +4646,7 @@ version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-serialize" },
-    { name = "librt", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "librt", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "mypy-extensions" },
     { name = "pathspec" },
     { name = "typing-extensions" },
@@ -4860,7 +4867,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fa/41/e79269ce215c857c935fd86bcfe91a451a584dfc27f1e068f568b9ad1ab7/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:c9132cc3f8958447b4910a1720036d9eff5928cc3179b0a51fb6d167c6cc87d8", size = 705026878, upload-time = "2025-06-06T21:52:51.348Z" },
@@ -4873,7 +4880,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/bc/7771846d3a0272026c416fbb7e5f4c1f146d6d80704534d0b187dd6f4800/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:848ef7224d6305cdb2a4df928759dca7b1201874787083b6e7550dd6765ce69a", size = 193109211, upload-time = "2025-03-07T01:44:56.873Z" },
@@ -4905,9 +4912,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
-    { name = "nvidia-cusparse-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-cusparse-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/32/f7cd6ce8a7690544d084ea21c26e910a97e077c9b7f07bf5de623ee19981/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:db9ed69dbef9715071232caa9b69c52ac7de3a95773c2db65bdba85916e4e5c0", size = 267229841, upload-time = "2025-03-07T01:46:54.356Z" },
@@ -4920,7 +4927,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/f7/cd777c4109681367721b00a106f491e0d0d15cfa1fd59672ce580ce42a97/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:9b6c161cb130be1a07a27ea6923df8141f3c295852f4b260c65f18f3e0a091dc", size = 288117129, upload-time = "2025-03-07T01:47:40.407Z" },
@@ -5011,6 +5018,22 @@ wheels = [
 ]
 
 [[package]]
+name = "onnx-ir"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ml-dtypes" },
+    { name = "numpy" },
+    { name = "onnx" },
+    { name = "sympy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d6/c2/61194cec0dbc5622273c0ebd592d37cc1dca0d7f1a744f02edd45ac905a3/onnx_ir-1.0.0.tar.gz", hash = "sha256:9e261f25fde8da9612ae5cb43b3b374d5ff469c04af0363cad588b2bb000b812", size = 163121, upload-time = "2026-08-11T14:49:46.895Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/cd/6d1637172eb59c7b18ac90ed089d1f599a11fe0e63b4db2d017f3bb38a32/onnx_ir-1.0.0-py3-none-any.whl", hash = "sha256:e578f0d608d3062866b48223616eb2d10a6d6d01f8b8faac596129034f483cc7", size = 185849, upload-time = "2026-08-11T14:49:45.524Z" },
+]
+
+[[package]]
 name = "onnxruntime"
 version = "1.30.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5028,6 +5051,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2f/db/db8e4c0cf6f70f1311060560630fd21763648e01dfbba5195a2592c052ef/onnxruntime-1.30.0-cp314-cp314-win_arm64.whl", hash = "sha256:83d543843cbd352cfa9996a6c7b92f8a480f114a18f95ff2a1acaf6921e85b6d", size = 14569360, upload-time = "2026-09-10T16:32:09.896Z" },
     { url = "https://files.pythonhosted.org/packages/24/0a/ec0a9d656e39b43887c378a5388b20c3b1e1ee43bded84580b0936466694/onnxruntime-1.30.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:265de607ba6f9814264e1d5d413fa7069d70f48e3049b5e460b3b04bdfcef294", size = 21348433, upload-time = "2026-09-10T16:32:12.772Z" },
     { url = "https://files.pythonhosted.org/packages/91/f0/40f74b7c00077e1e25627067ed98a70df1fef5c0e21b82849190d312554e/onnxruntime-1.30.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:67ad7f03433b6462c627d0f555dece80e6a26bc71e8542ced35cebd32142d1b7", size = 23579340, upload-time = "2026-09-10T16:32:15.532Z" },
+]
+
+[[package]]
+name = "onnxscript"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ml-dtypes" },
+    { name = "numpy" },
+    { name = "onnx" },
+    { name = "onnx-ir" },
+    { name = "packaging" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0a/01/3e3fab8d643ca097ea4aa9e51246643699dfaaa0650589744fe44bc46651/onnxscript-0.7.2.tar.gz", hash = "sha256:2c664f6383d10f332a4d47b2876dcab16dba84909fe703656b19abc281fda165", size = 646719, upload-time = "2026-09-09T17:06:44.567Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/3b/06260997cdc41138e58718588a6c87d0eb342bbe0dda8a6aae91d163c384/onnxscript-0.7.2-py3-none-any.whl", hash = "sha256:d0e7121c6a1eefd608058928e111cbdb76709f70d269ff0d07aee493bd1d13c9", size = 754215, upload-time = "2026-09-09T17:06:46.442Z" },
 ]
 
 [[package]]
@@ -5638,7 +5678,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -5996,7 +6036,7 @@ dependencies = [
     { name = "statshog" },
     { name = "stripe" },
     { name = "structlog" },
-    { name = "tbb", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'linux' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "tbb", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 'x86_64' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'linux' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'linux' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "temporalio" },
     { name = "tenacity" },
     { name = "tiktoken" },
@@ -6068,7 +6108,7 @@ dev = [
     { name = "requests-mock" },
     { name = "responses" },
     { name = "ruff" },
-    { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or (platform_machine == 'aarch64' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 'arm64' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or sys_platform != 'linux'" },
+    { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or (platform_machine == 'aarch64' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine == 'aarch64' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 'arm64' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine == 'arm64' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or sys_platform != 'linux'" },
     { name = "syrupy" },
     { name = "tach" },
     { name = "testcontainers", extra = ["mysql"] },
@@ -6090,14 +6130,21 @@ dev = [
     { name = "types-tzlocal" },
     { name = "watchdog" },
 ]
+forecast-model = [
+    { name = "onnx" },
+    { name = "onnxscript" },
+    { name = "timestral" },
+    { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-forecast-model') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "torch", version = "2.9.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-forecast-model') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra != 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-forecast-model') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine == 's390x' and extra != 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-forecast-model') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (sys_platform != 'darwin' and extra != 'group-7-posthog-sentiment')" },
+]
 hogql-parser-parity = [
     { name = "shrinkray" },
 ]
 inbox-ranking = [
     { name = "onnx" },
     { name = "onnxruntime" },
-    { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
-    { name = "torch", version = "2.9.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking')" },
+    { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "torch", version = "2.9.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (sys_platform != 'darwin' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-forecast-model' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 proto-codegen = [
     { name = "grpcio-tools" },
@@ -6388,6 +6435,12 @@ dev = [
     { name = "types-tzlocal", specifier = "~=5.1.0.1" },
     { name = "watchdog", specifier = "==5.0.3" },
 ]
+forecast-model = [
+    { name = "onnx", specifier = "~=1.21.0" },
+    { name = "onnxscript", specifier = "~=0.7.2" },
+    { name = "timestral", url = "https://github.com/mistralai/timestral/archive/a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff.tar.gz" },
+    { name = "torch", specifier = "~=2.9.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "posthog", group = "forecast-model" } },
+]
 hogql-parser-parity = [{ name = "shrinkray", specifier = "==26.4.14.0" }]
 inbox-ranking = [
     { name = "onnx", specifier = "~=1.21.0" },
@@ -6567,7 +6620,7 @@ name = "psycopg"
 version = "3.2.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/f1/0258a123c045afaf3c3b60c22ccff077bceeb24b8dc2c593270899353bd0/psycopg-3.2.10.tar.gz", hash = "sha256:0bce99269d16ed18401683a8569b2c5abd94f72f8364856d56c0389bcd50972a", size = 160380, upload-time = "2025-09-08T09:13:37.775Z" }
 wheels = [
@@ -6576,7 +6629,7 @@ wheels = [
 
 [package.optional-dependencies]
 binary = [
-    { name = "psycopg-binary", marker = "implementation_name != 'pypy' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "psycopg-binary", marker = "implementation_name != 'pypy' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 
 [[package]]
@@ -7078,7 +7131,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -7436,7 +7489,7 @@ name = "qrcode"
 version = "7.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "pypng" },
     { name = "typing-extensions" },
 ]
@@ -7953,7 +8006,7 @@ name = "shadowcopy"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "wmi", marker = "(platform_machine == 's390x' and sys_platform == 'darwin') or (platform_python_implementation == 'PyPy' and sys_platform == 'darwin') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and sys_platform != 'emscripten') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "wmi", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/12/44/c00420a3b7bcdf830529b933392b566c876a4944a24f31e126eb6fd28647/shadowcopy-0.0.4.tar.gz", hash = "sha256:ed89817dda065f893607a04c0b7d6b3b34c3507a4711f441111a4bcb1b1826c0", size = 4138, upload-time = "2023-07-08T00:01:35.266Z" }
 wheels = [
@@ -8166,7 +8219,7 @@ name = "sqlalchemy"
 version = "2.0.54"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/29/9c/271aa905cf2964f841371a97f3e63ab692bf51b4423d0491e67bc7f64037/sqlalchemy-2.0.54.tar.gz", hash = "sha256:baa8521e8ee9f24e75dfc7aaabc08020e551ef0d48d7c3e3536f5cddf277586b", size = 9969559, upload-time = "2026-09-15T21:06:57.337Z" }
@@ -8400,7 +8453,7 @@ name = "tbb"
 version = "2022.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tcmlib", marker = "(platform_machine != 's390x' and platform_python_implementation == 'PyPy' and sys_platform == 'darwin') or (platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten') or (platform_machine != 's390x' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking') or (platform_machine == 's390x' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "tcmlib" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/08/59/8d381a2cfe8d36c4f4ff9f94769ff2809bfc16014d888360b0e24c7e5c6b/tbb-2022.3.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:534c089eca6bcf148408684c156229d5f09c01d323b685b15739f41985b529d7", size = 4178630, upload-time = "2026-01-22T05:30:20.589Z" },
@@ -8591,6 +8644,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/42/42c0796a8e1cd866fec78edb8ff1c6d360de26900f6fcdbe1dfe735acc7c/time_machine-3.5.1-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:ee142848d6f51e719d23d233ae381fb7f1db12bffee1dbd4ed7eba9e0d81ea39", size = 69830, upload-time = "2026-09-08T22:19:27.941Z" },
     { url = "https://files.pythonhosted.org/packages/66/c9/482b603caee78c3a459f85118ef327795d41a5858914152eaffffbd64478/time_machine-3.5.1-cp314-cp314t-win_amd64.whl", hash = "sha256:759ec7a3d175ae3b468ec5b7e426a8d0d85f05e543e5aefa20dc99d95fd87535", size = 31108, upload-time = "2026-09-08T22:19:29.24Z" },
     { url = "https://files.pythonhosted.org/packages/c8/1e/b2ddad5bfbc81691eb95caa11de00132222cd761d029be86fcc81e72d4ee/time_machine-3.5.1-cp314-cp314t-win_arm64.whl", hash = "sha256:66b1c8848794ac83551c643283497fd1ed9dff19b20e86e474fc15a8032e5886", size = 29401, upload-time = "2026-09-08T22:19:30.298Z" },
+]
+
+[[package]]
+name = "timestral"
+version = "1.0.0"
+source = { url = "https://github.com/mistralai/timestral/archive/a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff.tar.gz" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "safetensors" },
+    { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-forecast-model') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "torch", version = "2.9.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-forecast-model') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine != 's390x' and platform_python_implementation == 'PyPy' and extra != 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-forecast-model') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking') or (platform_machine == 's390x' and extra != 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and extra == 'group-7-posthog-forecast-model') or (sys_platform != 'darwin' and extra == 'group-7-posthog-inbox-ranking') or (sys_platform != 'darwin' and extra != 'group-7-posthog-sentiment')" },
+]
+sdist = { hash = "sha256:be734f502f88e95b138558d765f3ad3b3ac8d2662270f9cf8b03138359828150" }
+
+[package.metadata]
+requires-dist = [
+    { name = "huggingface-hub", specifier = ">=0.23" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "safetensors", specifier = ">=0.4" },
+    { name = "torch", specifier = ">=2.4" },
 ]
 
 [[package]]
@@ -8809,7 +8883,7 @@ name = "tqdm"
 version = "4.67.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a8/4b/29b4ef32e036bb34e4ab51796dd745cdba7ed47ad142a9f4a1eb8e0c744d/tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2", size = 169737, upload-time = "2024-11-24T20:12:22.481Z" }
 wheels = [
@@ -8870,7 +8944,7 @@ version = "0.338.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lz4" },
-    { name = "orjson", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "orjson", marker = "platform_python_implementation != 'PyPy' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "python-dateutil" },
     { name = "pytz" },
     { name = "requests" },
@@ -8888,7 +8962,7 @@ version = "0.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
-    { name = "cffi", marker = "(implementation_name != 'pypy' and os_name == 'nt' and platform_machine == 's390x') or (implementation_name != 'pypy' and os_name == 'nt' and platform_machine != 's390x' and platform_python_implementation == 'PyPy') or (implementation_name != 'pypy' and os_name == 'nt' and platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra != 'group-7-posthog-inbox-ranking') or (implementation_name != 'pypy' and os_name == 'nt' and sys_platform != 'darwin') or (implementation_name != 'pypy' and platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (implementation_name == 'pypy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (os_name != 'nt' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "cffi", marker = "(implementation_name != 'pypy' and os_name == 'nt' and platform_machine == 's390x') or (implementation_name != 'pypy' and os_name == 'nt' and platform_machine != 's390x' and platform_python_implementation == 'PyPy') or (implementation_name != 'pypy' and os_name == 'nt' and platform_machine != 's390x' and platform_python_implementation != 'PyPy' and extra == 'group-7-posthog-sentiment') or (implementation_name != 'pypy' and os_name == 'nt' and sys_platform != 'darwin') or (implementation_name == 'pypy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (implementation_name == 'pypy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (os_name != 'nt' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (os_name != 'nt' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "idna" },
     { name = "outcome" },
     { name = "sniffio" },
@@ -9358,7 +9432,7 @@ name = "tzlocal"
 version = "5.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8b/2e/c14812d3d4d9cd1773c6be938f89e5735a1f11a9f184ac3639b93cef35d5/tzlocal-5.3.1.tar.gz", hash = "sha256:cceffc7edecefea1f595541dbd6e990cb1ea3d19bf01b2809f362a03dd7921fd", size = 30761, upload-time = "2025-03-05T21:17:41.549Z" }
 wheels = [
@@ -9468,11 +9542,11 @@ wheels = [
 
 [package.optional-dependencies]
 standard = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "httptools" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'cygwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (platform_python_implementation == 'PyPy' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'cygwin' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'cygwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'win32' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
     { name = "watchfiles" },
     { name = "websockets" },
 ]
@@ -9625,7 +9699,7 @@ name = "wmi"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywin32", marker = "(platform_machine == 's390x' and sys_platform == 'darwin') or (platform_python_implementation == 'PyPy' and sys_platform == 'darwin') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and sys_platform != 'emscripten') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pywin32", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-forecast-model' and extra == 'group-7-posthog-sentiment') or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d4/66/6364deb0a03415f96c66803d8c4379f808f2401da3bdb183348487b10510/WMI-1.5.1.tar.gz", hash = "sha256:b6a6be5711b1b6c8d55bda7a8befd75c48c12b770b9d227d31c1737dbf0d40a6", size = 26254, upload-time = "2020-04-28T08:22:58.096Z" }
 wheels = [

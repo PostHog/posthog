@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 # Timestral-28M constants, from the model config and TimestralForecaster defaults.
 PATCH = 32
 BLOCK_PATCHES = 32
+MIN_RUN_PATCHES = 2
 MIN_SCALE = 1e-6
 CAP_K = 1e4
 EXTREME = 1e30
@@ -145,8 +146,11 @@ class Forecaster:
         remaining = math.ceil(horizon / PATCH)
         while remaining > 0:
             patches = min(BLOCK_PATCHES, remaining)
-            feed = {"context": x, "mask": mask, "horizon": np.zeros(patches, np.float32)}
+            # The graph takes at least two horizon patches. A decoder patch never reads later ones, so the extra
+            # patch does not change the first.
+            feed = {"context": x, "mask": mask, "horizon": np.zeros(max(MIN_RUN_PATCHES, patches), np.float32)}
             q, loc0, scale0 = self._run(feed, deadline)
+            q = q[:, : patches * PATCH]
             blocks.append(_refine(q, x.astype(np.float64), mask, loc0, scale0))
             remaining -= patches
             # Later blocks read this block's median as context.
@@ -184,7 +188,7 @@ def _model() -> Forecaster:
 
 def _tokens(length: int, horizon: int) -> int:
     """Transformer positions one row costs: its context and horizon patches, twice for the mirrored pass."""
-    return 2 * (math.ceil(length / PATCH) + math.ceil(horizon / PATCH))
+    return 2 * (math.ceil(length / PATCH) + max(MIN_RUN_PATCHES, math.ceil(horizon / PATCH)))
 
 
 def _series(values: list[object]) -> dict[int, list[object]]:

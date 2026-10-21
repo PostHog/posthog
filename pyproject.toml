@@ -310,6 +310,14 @@ inbox-ranking = [
     "onnxruntime~=1.30.0",
     "torch~=2.9.0",
 ]
+# Exports the network behind the HogQL `forecast` function to ONNX (bin/export_forecast_model.py). Only
+# the export-forecast-model stage in Dockerfile installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
+forecast-model = [
+    "onnx~=1.21.0",
+    "onnxscript~=0.7.2",
+    "timestral",
+    "torch~=2.9.0",
+]
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
 ]
@@ -327,8 +335,8 @@ exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltali
 # dependency spec on every release, so this constraint is what stops a new major from
 # landing by accident. Lift it in the migration PR that moves the call sites.
 constraint-dependencies = ["posthoganalytics<8"]
-# sentiment takes torch from PyPI with the CUDA libraries, inbox-ranking takes the CPU-only build.
-conflicts = [[{ group = "sentiment" }, { group = "inbox-ranking" }]]
+# sentiment takes torch from PyPI with the CUDA libraries, inbox-ranking and forecast-model take the CPU-only build.
+conflicts = [[{ group = "sentiment" }, { group = "inbox-ranking" }], [{ group = "sentiment" }, { group = "forecast-model" }]]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -348,7 +356,8 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 # To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
 # v0.11.0-posthog.N tag, and bump this pin.
 pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.8" }
-torch = [{ index = "pytorch-cpu", group = "inbox-ranking" }]
+torch = [{ index = "pytorch-cpu", group = "inbox-ranking" }, { index = "pytorch-cpu", group = "forecast-model" }]
+timestral = { url = "https://github.com/mistralai/timestral/archive/a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff.tar.gz" }
 
 # xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
 # CPU, so drop it to keep the wheel out of the image.

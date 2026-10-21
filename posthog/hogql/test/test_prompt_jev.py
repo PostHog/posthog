@@ -212,7 +212,7 @@ class TestPromptJev(SimpleTestCase):
         with self.assertRaisesRegex(QueryError, "query budget"):
             runner.check_budget([(spec, values), (spec, values)])
         # Each short row is padded to the long row in its batch, and the budget must count that padding.
-        padded: list[object] = [[1.0, 2.0]] * 8 + [[1.0] * 3584]
+        padded: list[object] = [[1.0, 2.0]] * 8 + [[1.0] * 3552]
         with self.assertRaisesRegex(QueryError, "query budget"):
             runner.check_budget([(spec, padded)] * 20)
         with patch("posthog.hogql.transforms.forecast._model") as model:

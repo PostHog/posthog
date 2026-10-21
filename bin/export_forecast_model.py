@@ -84,9 +84,11 @@ class Block(torch.nn.Module):
 def main(output: str) -> None:
     forecaster = TimestralForecaster.from_pretrained(MODEL, device="cpu", revision=REVISION)
     ps = forecaster.config.patch_size
-    rows = torch.export.Dim("rows", min=1, max=4096)
+    # torch.export specializes a dimension that can be 1, so rows and horizon start at 2. The runtime always sends the
+    # mirrored rows, and pads a one-patch horizon to two patches.
+    rows = torch.export.Dim("rows", min=2, max=4096)
     patches = torch.export.Dim("patches", min=1, max=1024)
-    horizon = torch.export.Dim("horizon", min=1, max=forecaster.per_shot_horizon_patches)
+    horizon = torch.export.Dim("horizon", min=2, max=forecaster.per_shot_horizon_patches)
     context = torch.randn(3, 12 * ps).cumsum(-1)
     with torch.no_grad():
         torch.onnx.export(
