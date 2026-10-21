@@ -1119,6 +1119,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("hours", "2h"),
             ("days", "1d"),
             ("fractional", "1.5h"),
+            ("past_the_wait_cap", "42d"),
+            ("day_cap", "365d"),
+            ("hour_cap", "24h"),
         ]
     )
     def test_hog_flow_delay_validation_accepts_canonical_config(self, _name, delay_duration):
@@ -1175,6 +1178,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds", "30s"),
             ("minutes", "30m"),
             ("fractional_days", "1.5d"),
+            ("day_cap", "30d"),
             # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
             ("null", None),
             ("empty_string", ""),
@@ -1183,6 +1187,118 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            ("delay_days", "delay_duration", "400d", 365),
+            ("delay_hours", "delay_duration", "36h", 365),
+            ("delay_minutes", "delay_duration", "90m", 365),
+            ("delay_until_ceiling", "max_delay_duration", "400d", 365),
+            ("wait_timeout", "max_wait_duration", "31d", 30),
+            # A web draft save is otherwise lenient, but the cap is checked on every save.
+            ("delay_days_on_a_web_draft", "delay_duration", "400d", 365, "draft"),
+        ]
+    )
+    def test_hog_flow_rejects_a_duration_the_executor_would_clamp(self, _name, field, value, max_days, status="active"):
+        if field == "max_wait_duration":
+            flow = self._make_wait_flow(value)
+        elif field == "max_delay_duration":
+            flow = self._make_delay_flow(
+                {"delay_until": {"expression": "person.properties.trial_end"}, "max_delay_duration": value}
+            )
+        else:
+            flow = self._make_delay_flow({field: value}, status=status)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                f"{field} can be at most {max_days}d, 24h, 60m or 60s, and a longer value only waits that long. "
+                "Use a larger unit, for example '1.5d' instead of '36h'."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("unrelated_edit_on_an_active_flow", "active", {}),
+            # Disabling sets the status to draft, so re-enabling revalidates every stored step.
+            ("re_enabling_a_disabled_flow", "draft", {"status": "active"}),
+        ]
+    )
+    def test_hog_flow_grandfathers_a_stored_over_cap_delay(self, _name, status, extra_payload):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_duration": "5m"}, status=status),
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the cap check existed, bypassing the serializer that now refuses it.
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"]["delay_duration"] = "400d"
+        flow.actions = actions
+        flow.save()
+
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": actions, **extra_payload},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["actions"][1]["config"]["delay_duration"] == "400d"
+
+        changed = [{**action} for action in actions]
+        changed[1] = {**changed[1], "config": {**changed[1]["config"], "delay_duration": "450d"}}
+        changed_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": changed})
+        assert changed_response.status_code == 400, changed_response.json()
+
+    @parameterized.expand(
+        [
+            # A fixed delay ignores max_delay_duration, so nothing checked the stored value.
+            (
+                "unused_by_the_stored_step",
+                "active",
+                {"delay_duration": "1d", "max_delay_duration": "400d"},
+                {
+                    "config": {
+                        "delay_until": {"expression": "person.properties.trial_end"},
+                        "max_delay_duration": "400d",
+                    }
+                },
+            ),
+        ]
+    )
+    def test_hog_flow_does_not_grandfather_an_unchecked_over_cap_value(self, _name, status, stored_config, change):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_delay_flow({"delay_duration": "5m"}, status=status)
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"] = stored_config
+        flow.actions = actions
+        flow.save()
+
+        payload: dict = {"actions": actions}
+        if "config" in change:
+            payload["actions"] = [actions[0], {**actions[1], "config": change["config"]}]
+        else:
+            payload.update(change)
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 400, response.json()
+        assert "can be at most 365d" in response.json()["detail"]
+
+    def test_hog_flow_web_draft_rejects_an_over_cap_max_delay_before_the_date_is_picked(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_until": {"offset": "-1d"}, "max_delay_duration": "400d"}, status="draft"),
+        )
+        assert response.status_code == 400, response.json()
+        assert "max_delay_duration can be at most 365d" in response.json()["detail"]
 
     def _make_conditional_branch_flow(self, config: dict) -> dict:
         flow = self._make_delay_flow({"delay_duration": "5m"})
