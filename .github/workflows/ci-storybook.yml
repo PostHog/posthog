@@ -209,8 +209,7 @@ jobs:
             # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
             # only. That coverage is worth a batched queue run, because a webkit-only break then
             # fails the queue instead of master. It is not worth every push of every frontend PR,
-            # so the full PR matrix stays chromium-only. select-stories adds webkit for the stories
-            # a narrowed PR run renders.
+            # so author PRs stay chromium-only.
             - name: Build matrix
               id: matrix
               env:
@@ -602,7 +601,7 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # PRs may use chromium and webkit shards running only affected story files.
+            # PRs may use chromium shards running only affected story files.
             # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
             # while master pushes and merge-queue runs add webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
@@ -1430,13 +1429,8 @@ jobs:
                   # Size the narrowed matrix from the estimated affected workload.
                   AFFECTED_FILES_JSON=$(jq -c '.affected_stories' /tmp/selection-result.json)
                   SHARDS=$(jq -r '[.suggested_shards, 16] | min' /tmp/selection-result.json)
-                  # Webkit takes no snapshots, so it needs a third of the chromium shards.
-                  WEBKIT_SHARDS=$(( (SHARDS + 2) / 3 ))
-                  MATRIX=$(jq -cn --argjson count "$SHARDS" --argjson webkit "$WEBKIT_SHARDS" \
-                      '{include: (
-                          [range(1; $count + 1) | {browser: "chromium", shard_count: $count, shard: .}]
-                          + [range(1; $webkit + 1) | {browser: "webkit", shard_count: $webkit, shard: .}]
-                      )}')
+                  MATRIX=$(jq -cn --argjson count "$SHARDS" \
+                      '{include: [range(1; $count + 1) | {browser: "chromium", shard_count: $count, shard: .}]}')
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
                   echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
