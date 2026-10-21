@@ -74,8 +74,9 @@ class DecisionRequest:
     privacy_mode: bool = False
 
     def __post_init__(self) -> None:
-        if self.team_id <= 0:
-            raise ValueError(f"team_id must be positive, got {self.team_id}")
+        # Team 0 is a real placeholder team on PostHog Cloud, so only a negative id is invalid.
+        if self.team_id < 0:
+            raise ValueError(f"team_id must not be negative, got {self.team_id}")
         if not self.ai_product:
             raise ValueError("ai_product is required")
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:

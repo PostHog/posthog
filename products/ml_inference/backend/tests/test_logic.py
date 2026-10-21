@@ -76,14 +76,16 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
         DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
 
 
-@pytest.mark.parametrize(
-    "team_id,ai_product,arg", [(0, "ml_inference", "team_id"), (-1, "ml_inference", "team_id"), (1, "", "ai_product")]
-)
+@pytest.mark.parametrize("team_id,ai_product,arg", [(-1, "ml_inference", "team_id"), (1, "", "ai_product")])
 def test_a_request_refuses_an_unattributed_call(team_id: int, ai_product: str, arg: str) -> None:
     with pytest.raises(ValidationError) as exc:
         DecisionRequest(team_id=team_id, state="text", questions=QUESTIONS, ai_product=ai_product)
     # The whole error string repeats the input, so read the message alone.
     assert arg in exc.value.errors()[0]["msg"]
+
+
+def test_a_request_accepts_team_zero() -> None:
+    assert DecisionRequest(team_id=0, state="text", questions=QUESTIONS).team_id == 0
 
 
 def test_a_request_refuses_non_json_state() -> None:

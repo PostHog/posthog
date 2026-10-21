@@ -171,8 +171,8 @@ def build_system_one_client(
     """
     if not ai_product:
         raise ValueError("ai_product is required")
-    if team_id is not None and team_id <= 0:
-        raise ValueError(f"team_id must be positive, got {team_id}")
+    if team_id is not None and team_id < 0:
+        raise ValueError(f"team_id must not be negative, got {team_id}")
     gateway = _usable_gateway()
     if gateway is not None:
         labels = dict(properties or {})

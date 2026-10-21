@@ -237,9 +237,10 @@ def _decision(choice: str) -> DecisionResult:
 
 
 @pytest.mark.parametrize(
-    "enabled,ai_approved,decide_outcome,expected_result,expected_error_type",
+    "enabled,is_demo,ai_approved,decide_outcome,expected_result,expected_error_type",
     [
         (
+            False,
             False,
             False,
             _decision("critical"),
@@ -248,6 +249,15 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            True,
+            True,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DEMO_TEAM),
+            None,
+        ),
+        (
+            True,
+            False,
             False,
             _decision("critical"),
             IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
@@ -255,6 +265,7 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            False,
             True,
             _decision("critical"),
             IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
@@ -262,6 +273,7 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            False,
             True,
             _decision("catastrophic"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.UNEXPECTED_ANSWER),
@@ -269,6 +281,7 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            False,
             True,
             DecisionsDisabledError(1),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DECISIONS_UNAVAILABLE),
@@ -276,14 +289,22 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            False,
             True,
             DecisionGatewayError(422, "bad request"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.GATEWAY_REJECTED),
             None,
         ),
-        (True, True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
-        (True, True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
-        (True, True, DecisionGatewayUnreachableError("timeout"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, False, True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, False, True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (
+            True,
+            False,
+            True,
+            DecisionGatewayUnreachableError("timeout"),
+            None,
+            SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE,
+        ),
     ],
 )
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.posthoganalytics.capture_exception")
@@ -306,12 +327,14 @@ def test_severity_inference_outcomes(
     inference_outcomes: MagicMock,
     capture_exception: MagicMock,
     enabled: bool,
+    is_demo: bool,
     ai_approved: bool,
     decide_outcome: DecisionResult | Exception,
     expected_result: IssueSeverityInferenceResult | None,
     expected_error_type: str | None,
 ) -> None:
     severity_inference_enabled.return_value = enabled
+    select_related.return_value.get.return_value.is_demo = is_demo
     select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = ai_approved
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     if isinstance(decide_outcome, Exception):
@@ -343,7 +366,9 @@ def test_severity_inference_outcomes(
     inference_outcomes.labels.assert_called_once_with(outcome=expected_outcome, severity=expected_severity)
     inference_outcomes.labels.return_value.inc.assert_called_once_with()
     capture_exception.assert_not_called()
-    if enabled and isinstance(decide_outcome, DecisionResult):
+    if is_demo:
+        decide.assert_not_called()
+    if enabled and not is_demo and isinstance(decide_outcome, DecisionResult):
         assert decide.call_args.args[0].model == SEVERITY_INFERENCE_MODEL
         assert decide.call_args.args[0].privacy_mode is True
 

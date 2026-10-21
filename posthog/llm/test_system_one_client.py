@@ -157,7 +157,7 @@ class TestBuildSystemOneClient(SimpleTestCase):
             "ai_product": "test_product",
         }
 
-    @parameterized.expand([("no_product", "", 42, "ai_product"), ("zero_team", "test_product", 0, "team_id")])
+    @parameterized.expand([("no_product", "", 42, "ai_product"), ("negative_team", "test_product", -1, "team_id")])
     def test_refuses_an_unlabelled_call(self, _name: str, ai_product: str, team_id: int, arg: str) -> None:
         with override_settings(**{**NOTHING, **GATEWAY}), self.assertRaisesRegex(ValueError, arg):
             build_system_one_client(model=GATEWAY_MODEL, ai_product=ai_product, team_id=team_id)

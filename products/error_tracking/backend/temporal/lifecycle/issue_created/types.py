@@ -25,6 +25,7 @@ class SeveritySource(StrEnum):
 class SeverityInferenceSkipReason(StrEnum):
     DISABLED = "disabled"
     TEAM_MISSING = "team_missing"
+    DEMO_TEAM = "demo_team"
     AI_DATA_PROCESSING_NOT_APPROVED = "ai_data_processing_not_approved"
     NO_EXCEPTION = "no_exception"
     DECISIONS_UNAVAILABLE = "decisions_unavailable"
