@@ -682,8 +682,10 @@ export interface signalSourcesLogicMeta {
                 | 'appfollow'
                 | 'asknicely'
                 | 'betterstack'
+                | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
+                | 'clickup'
                 | 'dixa'
                 | 'featurebase'
                 | 'firehydrant'
@@ -722,7 +724,9 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarqube'
                 | 'squadcast'
+                | 'trello'
                 | 'uservoice'
+                | 'wrike'
                 | 'xmatters'
                 | 'zendesk',
                 ExternalSignalSourceState
@@ -1710,8 +1714,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             tableName: string,
             fullRefresh: boolean = false
         ): Promise<void> {
-            const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
-                schema.name === tableName || schema.name.endsWith(`.${tableName}`)
+            // Case-insensitive: some sources name tables in PascalCase (e.g. BugHerd `Tasks`).
+            const wantedTable = tableName.toLowerCase()
+            const matchesTable = (schema: ExternalDataSourceSchema): boolean => {
+                const name = schema.name.toLowerCase()
+                return name === wantedTable || name.endsWith(`.${wantedTable}`)
+            }
             const matchingSchemas = sources
                 .filter((source: ExternalDataSource) => source.source_type === dwSourceType)
                 .flatMap((source: ExternalDataSource) => source.schemas ?? [])
