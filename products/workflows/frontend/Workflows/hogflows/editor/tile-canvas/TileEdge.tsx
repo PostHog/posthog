@@ -38,6 +38,7 @@ export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null 
                             transform: `translate(-50%, -50%) translate(${routed.label.x}px, ${routed.label.y}px)`,
                             height: EDGE_LABEL_HEIGHT,
                             minWidth: edgeLabelWidth(label),
+                            pointerEvents: 'all',
                         }}
                         title={label === shortLabel(label) ? undefined : label}
                     >

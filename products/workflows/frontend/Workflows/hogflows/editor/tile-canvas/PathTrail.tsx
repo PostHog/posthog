@@ -1,5 +1,6 @@
 import { useReactFlow, useStore } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronRight, IconCollapse, IconEllipsis, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -20,26 +21,14 @@ interface TrailFrame {
 const contains = (box: Box, point: Point): boolean =>
     point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height
 
-/** The open paths around the selected step, or around the middle of the view when no step is selected. */
-function useTrail(): TrailFrame[] {
-    const { frameSpecs, layout, selectedStepId } = useValues(tileCanvasLogic)
-    const centre = useStore((state) => {
-        const [x, y, zoom] = state.transform
-        return { x: (state.width / 2 - x) / zoom, y: (state.height / 2 - y) / zoom }
-    })
-    const framed = frameSpecs.flatMap((frame) => {
-        const box = layout?.frames[frame.id]
-        return box ? [{ frame, box }] : []
-    })
-    if (!selectedStepId) {
-        return framed
-            .filter(({ box }) => contains(box, centre))
-            .sort((a, b) => a.frame.group.depth - b.frame.group.depth)
-    }
+const framesAround = (framed: TrailFrame[], centre: Point): TrailFrame[] =>
+    framed.filter(({ box }) => contains(box, centre)).sort((a, b) => a.frame.group.depth - b.frame.group.depth)
+
+function framesOfStep(framed: TrailFrame[], stepId: string): TrailFrame[] {
     // A frame lists the steps drawn in it, so the step's own frame is the deepest that lists it, and its parents follow.
     const byId = new Map(framed.map((entry) => [entry.frame.id, entry]))
     let current = framed
-        .filter(({ frame }) => frame.memberIds.includes(selectedStepId))
+        .filter(({ frame }) => frame.memberIds.includes(stepId))
         .reduce<TrailFrame | undefined>(
             (deepest, entry) => (!deepest || entry.frame.group.depth > deepest.frame.group.depth ? entry : deepest),
             undefined
@@ -50,6 +39,31 @@ function useTrail(): TrailFrame[] {
         current = current.frame.parentId ? byId.get(current.frame.parentId) : undefined
     }
     return chain
+}
+
+/** The open paths around the selected step, or around the middle of the view when no step is selected. */
+function useTrail(): TrailFrame[] {
+    const { frameSpecs, layout, selectedStepId } = useValues(tileCanvasLogic)
+    const centreX = useStore((state) =>
+        selectedStepId ? null : (state.width / 2 - state.transform[0]) / state.transform[2]
+    )
+    const centreY = useStore((state) =>
+        selectedStepId ? null : (state.height / 2 - state.transform[1]) / state.transform[2]
+    )
+    const framed = useMemo(
+        () =>
+            frameSpecs.flatMap((frame) => {
+                const box = layout?.frames[frame.id]
+                return box ? [{ frame, box }] : []
+            }),
+        [frameSpecs, layout]
+    )
+    return useMemo(() => {
+        if (selectedStepId) {
+            return framesOfStep(framed, selectedStepId)
+        }
+        return centreX === null || centreY === null ? [] : framesAround(framed, { x: centreX, y: centreY })
+    }, [framed, selectedStepId, centreX, centreY])
 }
 
 export function PathTrail(): JSX.Element | null {
@@ -92,7 +106,9 @@ export function PathTrail(): JSX.Element | null {
                         fitNextLayout()
                         setOpenPathIds(pathGroups.map((group) => group.id))
                     }}
-                    disabledReason={openPathIds.length >= pathGroups.length ? 'Every path is open' : undefined}
+                    disabledReason={
+                        pathGroups.every((group) => openPathIds.includes(group.id)) ? 'Every path is open' : undefined
+                    }
                     data-attr="workflow-tile-open-all-paths"
                 >
                     Open all
