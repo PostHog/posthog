@@ -11,7 +11,8 @@ import type { FeatureFlagsSet } from '../../../../../../frontend/src/lib/logic/f
 import type { SourceMapsPlatform } from './types'
 
 export type WizardRating = 'good' | 'bad'
-export type WizardOpenSource = 'issues_list'
+// pinned: the `ui_source` value of the wizard opened event. Renaming one breaks dashboards.
+export type WizardOpenSource = 'issues_list' | 'source_maps_examples'
 
 export const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
@@ -59,7 +60,7 @@ export interface sourceMapsFixWizardLogicActions {
         value: true
     }
     openModal: (source: WizardOpenSource) => {
-        source: 'issues_list'
+        source: WizardOpenSource
     }
     rateWizard: (rating: WizardRating) => {
         rating: WizardRating
