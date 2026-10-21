@@ -1936,6 +1936,7 @@ export namespace Schemas {
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
@@ -6380,18 +6381,18 @@ export namespace Schemas {
      */
     export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
     /**
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
      */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum =
+    export type DashboardWidgetTypeEnum =
         | "activity_events_list"
         | "canvas_app"
         | "conversations_recent_tickets"
@@ -6550,7 +6551,7 @@ export namespace Schemas {
         | CanvasAppWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
-        widget_type: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+        widget_type: DashboardWidgetTypeEnum;
         config: DashboardWidgetConfig;
         name: string | null;
         description: string;
@@ -12248,6 +12249,7 @@ export namespace Schemas {
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13652,7 +13654,8 @@ export namespace Schemas {
         | "GoogleAdMob"
         | "Klar"
         | "ConectoCRM"
-        | "CloudflareR2";
+        | "CloudflareR2"
+        | "Particle";
     /**
      * * `web` - web
      * * `api` - api
@@ -15066,6 +15069,7 @@ export namespace Schemas {
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
          * * `CloudflareR2` - CloudflareR2
+         * * `Particle` - Particle
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
