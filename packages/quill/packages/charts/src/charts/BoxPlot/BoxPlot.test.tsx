@@ -211,6 +211,19 @@ describe('BoxPlot', () => {
                 ],
             },
             {
+                name: 'lists only the whisker that is clipped',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 900, whiskerMin: 1, whiskerMax: 80 },
+                rows: [
+                    ['Max', '900'],
+                    ['Upper whisker', '80'],
+                    ['75th percentile', '50'],
+                    ['Median', '30'],
+                    ['Mean', '40'],
+                    ['25th percentile', '20'],
+                    ['Min', '1'],
+                ],
+            },
+            {
                 name: 'omits whisker rows that equal the true extremes',
                 override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 90, whiskerMin: 1, whiskerMax: 90 },
                 rows: [
