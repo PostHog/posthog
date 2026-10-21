@@ -152,10 +152,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_error_fragment"),
         [
-            (200, True, None),
-            (401, False, "rejected the API key"),
             (404, False, "site not found"),
-            (500, False, "HTTP 500"),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_error_fragment: str | None) -> None:

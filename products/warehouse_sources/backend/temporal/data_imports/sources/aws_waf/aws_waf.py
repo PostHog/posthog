@@ -9,7 +9,7 @@ import requests
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.exceptions import InvalidHeader
 from urllib3.util.retry import Retry
 
@@ -41,7 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     AwsService,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
 
@@ -55,14 +59,15 @@ class AwsWafResumeConfig:
 
 
 class AwsWafError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, status_code: int | None = None) -> None:
         super().__init__(f"AWS WAF request failed: {code} - {message}")
         self.code = code
+        self.status_code = status_code
 
 
 class AwsWafRetryableError(AwsWafError):
-    def __init__(self, code: str, message: str, retry_after: float = 0) -> None:
-        super().__init__(code, message)
+    def __init__(self, code: str, message: str, retry_after: float = 0, status_code: int | None = None) -> None:
+        super().__init__(code, message, status_code)
         self.retry_after = retry_after
 
 
@@ -87,8 +92,8 @@ def error_for_response(response: requests.Response) -> AwsWafError:
                 retry_after = min(Retry().parse_retry_after(header), 60)
             except InvalidHeader:
                 pass
-        return AwsWafRetryableError(code, message, retry_after)
-    return AwsWafError(code, message)
+        return AwsWafRetryableError(code, message, retry_after, response.status_code)
+    return AwsWafError(code, message, response.status_code)
 
 
 def retry_wait(state: RetryCallState) -> float:
@@ -148,7 +153,7 @@ class AwsWafClient:
     def close(self) -> None:
         self.session.close()
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((AwsWafRetryableError, requests.ConnectionError, requests.Timeout)),
         stop=stop_after_attempt(5),
         wait=retry_wait,
@@ -255,6 +260,9 @@ def validate_credentials(
             return False, f"Grant {', '.join(others)} and {last} for this table."
         if error.code in ERROR_MESSAGES:
             return False, ERROR_MESSAGES[error.code]
+        status_message = probe_status_message("AWS WAF", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     finally:
         client.close()
