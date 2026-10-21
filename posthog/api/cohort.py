@@ -2002,7 +2002,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 # You can't update a static cohort using the trend/stickiness thing
                 self._enqueue_csv_ids(parsed_csv, cohort)
             elif populate_from_query:
-                insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+                try:
+                    insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+                except Exception as e:
+                    # Without a release, every retry is rejected for a run that was never queued.
+                    Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=False)
+                    cohort.is_calculating = False
+                    capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
+                    raise ValidationError(
+                        {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
+                    ) from e
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
 

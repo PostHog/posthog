@@ -683,6 +683,19 @@ email@example.org
         self.assertEqual(second.json()["attr"], "query")
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
 
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
+    def test_static_cohort_patch_with_query_releases_claim_when_enqueue_fails(self, mock_delay: MagicMock):
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        query = {"kind": "ActorsQuery", "properties": []}
+        mock_delay.side_effect = [ConnectionError("broker down"), None]
+
+        failed = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"query": query})
+        retried = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"query": query})
+
+        self.assertEqual(failed.status_code, 400, failed.json())
+        self.assertEqual(retried.status_code, 200, retried.json())
+        self.assertEqual(mock_delay.call_count, 2)
+
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
         side_effect=insert_cohort_from_filters,
