@@ -20,7 +20,7 @@ dependencies = [
     "brotli==1.2.0",
     "celery==5.6.3",
     "celery-redbeat==2.3.3",
-    "certifi==2026.1.4",
+    "certifi==2026.10.19",
     "clickhouse-connect==0.10.0",
     "clickhouse-driver==0.2.10",
     "clickhouse-pool==0.5.3",
@@ -217,6 +217,7 @@ dependencies = [
     "deltalite==0.1.12",
     "posthog-hogland==0.4.1",
     "requests-oauthlib~=2.0.0",
+    "adlfs~=2026.8.0",
 ]
 
 [dependency-groups]
@@ -322,7 +323,7 @@ proto-codegen = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+exclude-newer-package = { certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 # posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
 # dependency spec on every release, so this constraint is what stops a new major from
 # landing by accident. Lift it in the migration PR that moves the call sites.
@@ -747,9 +748,6 @@ ignore_imports = [
     # test helpers still reach in-product internals directly. Thin each one to parse -> facade
     # -> serialize and delete each entry. backend:contract-check stays off until this list is
     # empty. Only delete entries here: a new import from these views goes through the facade.
-    "products.batch_exports.backend.presentation.views.batch_export.backfills -> products.batch_exports.backend.hogql_source",
-    "products.batch_exports.backend.presentation.views.batch_export.backfills -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.backfills -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.temporal.destinations.constants",
@@ -759,8 +757,6 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.destinations.constants",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
-    "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.service",
     # TODO: subscriptions presentation wave. The viewsets and model serializers moved from ee/
     # with their ORM access: the product's own subscription models and the dashboard models
     # behind dashboard and tile selection. Thin them to parse -> facade -> serialize and delete

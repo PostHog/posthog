@@ -1,5 +1,9 @@
 import { BuiltLogic, getContext } from 'kea'
 
+import { findLiveRunStreamKey } from './runStreamLogic'
+
+export const RETAINED_RUN_STREAMS = 'run-stream'
+
 const retainedByContext = new WeakMap<object, Map<string, Map<string, () => void>>>()
 
 function retainedGroup(group: string): Map<string, () => void> {
@@ -34,4 +38,15 @@ export function retainMountedLogic(group: string, key: string, logic: BuiltLogic
         oldestUnmount()
     }
     return false
+}
+
+export function isLogicRetained(group: string, key: string): boolean {
+    return retainedGroup(group).has(key)
+}
+
+export function resolveRunStreamKey(runId: string, streamKey: string | undefined): string | undefined {
+    if (streamKey && streamKey !== runId) {
+        return streamKey
+    }
+    return findLiveRunStreamKey(runId) ?? streamKey
 }
