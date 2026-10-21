@@ -25,6 +25,7 @@ from products.data_modeling.backend.facade.api import (
     get_saved_query_summary,
     propose_incremental_config,
     saved_query_definitions,
+    saved_query_still_materializes,
 )
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_sources.backend.facade.api import get_queryable_table, saved_queries_feeding_consumers
@@ -133,7 +134,11 @@ def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOpti
     if suggestion.subject_kind != WarehouseSuggestionSubjectKind.SAVED_QUERY or options.keep_materialized:
         return False
     definition = _definition(suggestion)
-    return definition is not None and definition.materializes and stop_blocker(suggestion.team_id, definition) is None
+    return (
+        definition is not None
+        and saved_query_still_materializes(suggestion.team_id, definition.id)
+        and stop_blocker(suggestion.team_id, definition) is None
+    )
 
 
 def _definition(suggestion: WarehouseSuggestion) -> SavedQueryDefinition | None:

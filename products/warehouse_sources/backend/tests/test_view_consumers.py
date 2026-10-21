@@ -8,11 +8,10 @@ from parameterized import parameterized
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.api import saved_queries_feeding_consumers
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySourceProjection
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 VIEW_NAME = "daily_revenue"
-PERSON_PROJECTION = "products.warehouse_sources.backend.view_consumers.person_property_projection_for"
+PROPERTY_SOURCES = "products.warehouse_sources.backend.view_consumers.saved_queries_with_property_sources"
 
 
 def _hog_function(team_id: int) -> None:
@@ -36,17 +35,17 @@ def _nothing(team_id: int) -> None:
 class TestSavedQueriesFeedingConsumers(BaseTest):
     @parameterized.expand(
         [
-            ("hog_function", _hog_function, None, True),
-            ("workflow", _workflow, None, True),
-            ("person_property", _nothing, [PersonPropertySourceProjection("distinct_id", frozenset())], True),
-            ("no_consumer", _nothing, None, False),
+            ("hog_function", _hog_function, False, True),
+            ("workflow", _workflow, False, True),
+            ("property_source", _nothing, True, True),
+            ("no_consumer", _nothing, False, False),
         ]
     )
     def test_finds_views_whose_refreshes_feed_a_consumer(
         self,
         _name: str,
         add_consumer: Callable[[int], None],
-        person_projection: list[PersonPropertySourceProjection] | None,
+        has_property_source: bool,
         feeds: bool,
     ) -> None:
         view = DataWarehouseSavedQuery.objects.create(
@@ -54,7 +53,7 @@ class TestSavedQueriesFeedingConsumers(BaseTest):
         )
         add_consumer(self.team.pk)
 
-        with patch(PERSON_PROJECTION, return_value=person_projection):
+        with patch(PROPERTY_SOURCES, return_value={str(view.id)} if has_property_source else set()):
             feeding = saved_queries_feeding_consumers(self.team.pk, [view.id])
 
         assert (view.id in feeding) is feeds

@@ -60,6 +60,7 @@ _LAZY = {
     "disable_saved_query_materialization": "logic.saved_query_materialization",
     "link_table_if_materializing": "logic.saved_query_dag_sync",
     "unlink_table": "logic.saved_query_dag_sync",
+    "saved_query_still_materializes": "logic.saved_query_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
     "is_materialization_fresh": "logic.saved_query_freshness",

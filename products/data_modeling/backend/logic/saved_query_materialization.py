@@ -97,6 +97,7 @@ def disable_saved_query_materialization(
 
     saved_query.revert_materialization()
     _mark_nodes_ephemeral(saved_query)
+    saved_query.refresh_from_db()
     if _still_materializing(saved_query):
         raise MaterializationFailedError(STILL_MATERIALIZING_MESSAGE)
 
@@ -130,8 +131,15 @@ def _mark_nodes_ephemeral(saved_query: DataWarehouseSavedQuery) -> None:
         logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
 
 
+def saved_query_still_materializes(team_id: int, saved_query_id: UUID | str) -> bool:
+    """Whether the saved query asks to materialize, has a matview node, or keeps a frequency target."""
+    try:
+        return _still_materializing(_live_saved_query(team_id, saved_query_id))
+    except SavedQueryNotFoundError:
+        return False
+
+
 def _still_materializing(saved_query: DataWarehouseSavedQuery) -> bool:
-    saved_query.refresh_from_db()
     nodes = list(Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query))
     return (
         materializes(saved_query)

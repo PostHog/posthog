@@ -4,17 +4,15 @@ from uuid import UUID
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
-    account_property_projection_for,
-    person_property_projection_for,
-    saved_query_binding,
+    saved_queries_with_property_sources,
 )
-from products.workflows.backend.facade.api import has_active_workflow_for_warehouse_table
+from products.workflows.backend.facade.api import active_workflow_warehouse_table_names
 
 VIEW_TRIGGER_SOURCE = "data-warehouse-view"
 
 
 def saved_queries_feeding_consumers(team_id: int, saved_query_ids: Collection[UUID]) -> frozenset[UUID]:
-    """The given saved queries whose refreshes feed person or account properties, a hog function or a workflow."""
+    """The given saved queries whose refreshes feed person, group or account properties, a hog function or a workflow."""
     names = dict(
         DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=saved_query_ids)
         .exclude(deleted=True)
@@ -22,13 +20,16 @@ def saved_queries_feeding_consumers(team_id: int, saved_query_ids: Collection[UU
     )
     if not names:
         return frozenset()
-    hog_function_tables = _hog_function_view_names(team_id)
+    triggered_names = _hog_function_view_names(team_id) | active_workflow_warehouse_table_names(
+        team_id=team_id, trigger_source=VIEW_TRIGGER_SOURCE, table_names=names.values()
+    )
+    with_property_sources = saved_queries_with_property_sources(
+        team_id, [str(saved_query_id) for saved_query_id in names]
+    )
     return frozenset(
         saved_query_id
         for saved_query_id, name in names.items()
-        if name in hog_function_tables
-        or has_active_workflow_for_warehouse_table(team_id=team_id, trigger_source=VIEW_TRIGGER_SOURCE, table_name=name)
-        or _feeds_properties(team_id, saved_query_id)
+        if name in triggered_names or str(saved_query_id) in with_property_sources
     )
 
 
@@ -44,8 +45,3 @@ def _hog_function_view_names(team_id: int) -> set[str]:
         for table in (function_filters or {}).get("data_warehouse") or []
         if isinstance(table, dict) and table.get("table_name")
     }
-
-
-def _feeds_properties(team_id: int, saved_query_id: UUID) -> bool:
-    binding = saved_query_binding(saved_query_id)
-    return bool(person_property_projection_for(team_id, binding) or account_property_projection_for(team_id, binding))

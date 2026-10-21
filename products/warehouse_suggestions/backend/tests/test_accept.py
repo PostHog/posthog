@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import timedelta
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
@@ -16,6 +17,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
+from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.contracts import (
@@ -93,6 +95,7 @@ def materialize_in_place(view: DataWarehouseSavedQuery) -> DataWarehouseTable:
     table = DataWarehouseTable.objects.create(team=view.team, name="orders_table", format="Delta")
     DataWarehouseSavedQuery.objects.filter(id=view.id).update(is_materialized=True, table=table)
     Node.objects.filter(saved_query=view).update(type=NodeType.MAT_VIEW)
+    set_declared_target(Node.objects.get(saved_query=view), timedelta(hours=6))
     return table
 
 
@@ -259,19 +262,31 @@ class TestAcceptSuggestion(APIBaseTest):
             properties["refresh_bytes_per_month"],
         ) == ((True, 900, 10**9) if expect_stopped else (False, 0, 0))
 
-    def test_a_deprecate_whose_refreshes_did_not_stop_stays_open(self) -> None:
+    @parameterized.expand(
+        [
+            ("node_type_update", "products.data_modeling.backend.logic.saved_query_materialization.update_node_type"),
+            (
+                "frequency_target_clear",
+                "products.data_modeling.backend.logic.schedule_reconcile.apply_saved_query_frequency_target",
+            ),
+        ]
+    )
+    def test_a_deprecate_whose_refreshes_did_not_stop_stays_open_and_a_retry_finishes_the_stop(
+        self, _name: str, failing_step: str
+    ) -> None:
         materialize_in_place(self.view)
         suggestion = self._suggest(WarehouseSuggestionKind.DEPRECATE)
 
-        with patch(
-            "products.data_modeling.backend.logic.saved_query_materialization.update_node_type",
-            side_effect=RuntimeError("database is down"),
-        ):
+        with patch(failing_step, side_effect=RuntimeError("database is down")):
             failed = self._accept(suggestion.id)
-
         suggestion.refresh_from_db()
+        retried = self._accept(suggestion.id)
+
+        node = Node.objects.get(team=self.team, saved_query=self.view)
         assert failed["http_status"] == status.HTTP_500_INTERNAL_SERVER_ERROR, failed
-        assert (suggestion.status, self._certification_status()) == (WarehouseSuggestionStatus.PROPOSED, None)
+        assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
+        assert retried["created_asset"]["stopped_materialization"] is True, retried
+        assert (node.type, get_declared_target(node)) == (NodeType.VIEW, None)
 
     def test_accepting_a_materialize_suggestion_materializes_the_view_on_the_chosen_interval(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)
