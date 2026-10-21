@@ -14,9 +14,8 @@ use super::{Collector, FetchingPartitions, LoopParts, RevokedPartition, Step};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::settlement::Settlement;
 
-/// Collects a poll, submits it, and admits up to `max_in_flight_polls`
-/// polls. When the cap is full it waits on the oldest poll, and applies
-/// completions only while it waits.
+/// Applies completions only while it waits on the oldest poll, which it does
+/// when `max_in_flight_polls` polls are in flight.
 pub(crate) struct CappedPolling {
     collector: Collector,
     completions: mpsc::UnboundedReceiver<GroupCompletion>,
@@ -31,8 +30,7 @@ pub(crate) struct CappedPolling {
     max_in_flight_polls: usize,
     in_flight_polls: VecDeque<InFlightPoll>,
     accepting_new_batches: bool,
-    /// Set while the loop waits on the oldest poll.
-    heartbeat: Option<Interval>,
+    waiting_heartbeat: Option<Interval>,
 }
 
 impl CappedPolling {
@@ -63,13 +61,13 @@ impl CappedPolling {
             max_in_flight_polls: max_in_flight_polls.max(1),
             in_flight_polls: VecDeque::new(),
             accepting_new_batches: true,
-            heartbeat: None,
+            waiting_heartbeat: None,
         }
     }
 
     pub(crate) async fn next(&mut self) -> Step {
         loop {
-            if self.heartbeat.is_none() {
+            if self.waiting_heartbeat.is_none() {
                 if !self.accepting_new_batches && self.in_flight_polls.is_empty() {
                     return Step::Stop;
                 }
@@ -94,8 +92,6 @@ impl CappedPolling {
 
     async fn collect(&mut self) -> Collected {
         self.drop_revoked_polls();
-        // Consumer-level concurrency: how many Kafka batches are being
-        // processed in parallel, bounded by `max_in_flight_polls`.
         gauge!("ingestion_consumer_in_flight_batches").set(self.in_flight_polls.len() as f64);
 
         // Not beside `collect_batch`: a tick there would drop a collection
@@ -136,14 +132,10 @@ impl CappedPolling {
         Collected::WaitOnOldestPoll
     }
 
-    /// Wait for completions to cover the oldest in-flight poll, then retire
-    /// it. Completions for newer polls are credited while waiting. Returns
-    /// `None` when the loop must collect again.
+    /// Returns `None` when the loop must collect again.
     async fn wait_on_oldest_poll(&mut self) -> Option<Step> {
         loop {
-            // A rebalance can drop the front poll (its partitions were
-            // revoked and its purged messages will never complete), so
-            // re-resolve it every pass instead of waiting on it forever.
+            // A revoke can drop the front poll, so look it up on every pass.
             self.drop_revoked_polls();
             let Some(front) = self.in_flight_polls.front() else {
                 self.stop_waiting();
@@ -152,7 +144,10 @@ impl CappedPolling {
             if front.is_complete() {
                 return self.retire_oldest_poll();
             }
-            let heartbeat = self.heartbeat.as_mut().expect("the loop is waiting");
+            let heartbeat = self
+                .waiting_heartbeat
+                .as_mut()
+                .expect("the loop is waiting");
             let woke = tokio::select! {
                 completion = self.completions.recv() => Woke::Completion(completion),
                 failure = self.errors.recv() => Woke::Error(failure),
@@ -232,20 +227,18 @@ impl CappedPolling {
     }
 
     fn start_waiting(&mut self) {
-        self.heartbeat = Some(tokio::time::interval_at(
+        self.waiting_heartbeat = Some(tokio::time::interval_at(
             tokio::time::Instant::now() + self.commit_tick,
             self.commit_tick,
         ));
     }
 
     fn stop_waiting(&mut self) {
-        self.heartbeat = None;
+        self.waiting_heartbeat = None;
     }
 
-    /// Drop in-flight polls holding a revoked partition. The key table
-    /// purges those partitions' queued messages, so such a poll can never be
-    /// covered; its offsets stay uncommitted and replay under the new
-    /// assignment, and its late completions are discarded as stale.
+    /// The key table purges a revoked partition's queued messages, so its
+    /// slices never complete.
     fn drop_revoked_polls(&mut self) {
         let revoked: Vec<RevokedPartition> =
             std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
@@ -275,10 +268,8 @@ enum Woke {
     Heartbeat,
 }
 
-/// Remove revoked partitions from in-flight polls, and remove polls left
-/// empty. Only slices from before that partition's revoke generation go: a
-/// poll's kept or newly reassigned slices retain their counts and settle their
-/// ledger charges at commit, so the frontier never crosses a hole.
+/// Kept and reassigned slices stay, so their charges settle and the frontier
+/// never crosses a hole.
 fn strip_revoked_partitions(
     in_flight_polls: &mut VecDeque<InFlightPoll>,
     revoked: &[RevokedPartition],
@@ -312,17 +303,10 @@ fn strip_revoked_partitions(
     stripped
 }
 
-/// Credit each of a completion's offsets to the poll that contains it: the
-/// one collected under the same assignment epoch whose span holds the offset.
-/// Within one epoch, poll spans are disjoint per partition, so at most one
-/// poll matches per offset. A key-table run merges messages from several
-/// polls into one send, so one completion can span polls; crediting per
-/// offset keeps every poll's count exact. Acceptance credits the leading
-/// offsets, so a worker that under-reports shorts the tail poll's accepted
-/// check, matching [`send_group_completions`]'s split across groups. An
-/// offset that matches no poll (its partition was revoked and reassigned
-/// while the group was out, or its poll is gone) is discarded; a completion
-/// with any discarded offset counts as stale once.
+/// A key-table run can merge several polls into one send, so a completion
+/// can span polls. Within one epoch, spans are disjoint per partition, so an
+/// offset matches at most one poll. Acceptance credits the leading offsets,
+/// as [`send_group_completions`] splits it across groups.
 ///
 /// [`send_group_completions`]: crate::batcher
 fn apply_completion(
@@ -381,8 +365,6 @@ fn apply_completion(
     Ok(())
 }
 
-/// Pops the front poll for its commit. A complete poll commits only when
-/// workers accepted all of it and a completion covered every charged offset.
 fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InFlightPoll> {
     let poll = in_flight.pop_front().expect("front is present");
     if poll.accepted < poll.message_count {
@@ -600,8 +582,7 @@ mod tests {
 
     #[test]
     fn apply_completion_spanning_two_polls_credits_each() {
-        // A key-table run merges messages from consecutive polls into one
-        // send, so its completion spans both spans.
+        // A key-table run merges consecutive polls into one send.
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
 
         credit(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
@@ -641,8 +622,7 @@ mod tests {
 
     #[test]
     fn a_poll_whose_deliveries_span_an_offset_gap_commits() {
-        // A compacted or transactional topic skips offsets, so a span can far
-        // exceed the poll's message count.
+        // A compacted or transactional topic skips offsets.
         let mut gapped = poll(1, 0, 0, 0, 2);
         let deliveries = gapped
             .partitions
@@ -662,9 +642,7 @@ mod tests {
 
     #[test]
     fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
-        // A cooperative rebalance revokes one partition of a two-partition
-        // poll. The kept partition's slice must stay accounted, or its
-        // ledger charges never settle and its commits freeze at the hole.
+        // A dropped kept slice never settles, and its commits stop at the hole.
         let mut two = poll(1, 0, 0, 1, 4);
         two.partitions.insert(
             TopicPartition::new("test", 1),
@@ -705,8 +683,7 @@ mod tests {
         assert_eq!(in_flight[0].covered, 0, "the revoked slice's credit goes");
         assert!(!in_flight[0].is_complete());
 
-        // The kept partition completes the poll; a late completion for the
-        // revoked partition is discarded, not credited.
+        // A late completion for the revoked partition is discarded.
         credit(&mut in_flight, completion(1, 1, &[11], 1));
         assert_eq!(in_flight[0].covered, 0);
         credit(&mut in_flight, completion(1, 0, &[0, 1], 2));
@@ -746,10 +723,7 @@ mod tests {
             lag_ms: None,
         };
 
-        // This collection saw offset 10 immediately before a revoke, then
-        // saw its replay after the partition was assigned again. Only the
-        // current generation is charged, while the poll still covers both
-        // deliveries that the batcher will complete.
+        // Offset 10 before a revoke and again after the regain: one charge, two deliveries.
         let mut reassigned_deliveries = PartitionDeliveries::new(
             ledger.generation(&topic_partition),
             ledger.generations_version(),
@@ -773,9 +747,7 @@ mod tests {
             )
             .unwrap();
 
-        // The queued revoke notification belongs to generation 0. It must
-        // remove genuine old in-flight work, but not this poll collected and
-        // charged under the later reassignment.
+        // The queued revoke is for generation 0, so only the old poll goes.
         let old_poll = poll(0, 0, 1, 1, 1);
         let reassigned_poll = InFlightPoll {
             poll_id: "reassigned".to_string(),
@@ -820,8 +792,7 @@ mod tests {
             Some(Offset(11))
         );
 
-        // With the retained replay slice settled, the next accepted offset
-        // advances normally instead of remaining stuck behind offset 10.
+        // A dropped replay slice would hold the frontier behind offset 10.
         ledger
             .charge(
                 &topic_partition,
@@ -843,9 +814,7 @@ mod tests {
 
     #[test]
     fn apply_completion_requires_a_matching_epoch() {
-        // The same offsets exist in two polls when a partition was revoked,
-        // reassigned, and replayed. The epoch keeps each incarnation's
-        // completions in its own poll.
+        // A revoke, reassignment and replay put the same offsets in two polls.
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(2, 0, 0, 3, 4)]);
 
         credit(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));
