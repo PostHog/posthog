@@ -1286,6 +1286,7 @@ export interface dashboardLogicMeta {
         ) => boolean
         asDashboardTemplate: (dashboard: DashboardType | null) => DashboardTemplateEditorType | undefined
         placement: (arg: any) => DashboardPlacement
+        readOnly: (arg: any) => boolean
         apiUrl: (
             id: number
         ) => (

@@ -338,12 +338,21 @@ describe('DashboardItems', () => {
                 : defaultValues(logic)
         )
 
+        const setDashboardEditing = jest.fn()
+        const defaultActions = mockedUseActions.getMockImplementation()!
+        mockedUseActions.mockImplementation((logic) =>
+            logic === dashboardLogic ? { ...defaultActions(logic), setDashboardEditing } : defaultActions(logic)
+        )
+
         render(<DashboardItems />)
 
         const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
         expect(cardProps.showEditingControls).toBe(editable)
-        expect(cardProps.onEnterEditModeFromEdge !== undefined).toBe(editable)
-        expect(cardProps.onDragHandleMouseDown !== undefined).toBe(editable)
+        cardProps.onEnterEditModeFromEdge(
+            { target: document.body, clientX: 0, clientY: 0, nativeEvent: new MouseEvent('mousemove') },
+            'e'
+        )
+        expect(setDashboardEditing).toHaveBeenCalledTimes(editable ? 1 : 0)
     })
 
     it.each([
