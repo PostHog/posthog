@@ -148,12 +148,20 @@ async function slack(method, body) {
 // Slack is the only state: a recent bot message for the same top PR means this tick stays quiet.
 async function recentlyAlerted(topPr, now) {
     const oldest = String((now.getTime() - COOLDOWN_MINUTES * 60 * 1000) / 1000)
-    const { messages = [] } = await slack('conversations.history', {
+    // Slack read methods take query parameters, not a JSON body.
+    const url = new URL('https://slack.com/api/conversations.history')
+    url.search = new URLSearchParams({
         channel: process.env.SLACK_CHANNEL,
         oldest,
-        limit: 50,
-        include_all_metadata: true,
-    })
+        limit: '50',
+        include_all_metadata: 'true',
+    }).toString()
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` } })
+    const history = await res.json()
+    if (!history.ok) {
+        throw new Error(`Slack conversations.history: ${history.error}`)
+    }
+    const { messages = [] } = history
     return messages.some(
         (m) => m.metadata?.event_type === ALERT_EVENT_TYPE && m.metadata.event_payload?.top_pr === String(topPr)
     )
