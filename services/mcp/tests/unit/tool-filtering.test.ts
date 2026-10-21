@@ -1024,13 +1024,16 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
-    it('organization-billing-api flag gates the tools that call the organization billing API', () => {
+    it('organization-billing-api flag gates the tools that call the organization and project billing routes', () => {
         const gated = [
             'billing-subscription-get',
             'billing-usage-status-get',
             'billing-usage-timeseries-get',
             'billing-spend-timeseries-get',
             'billing-projects-list',
+            'billing-project-usage-summary-get',
+            'billing-project-usage-timeseries-get',
+            'billing-project-spend-timeseries-get',
         ]
         const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
         for (const tool of gated) {
