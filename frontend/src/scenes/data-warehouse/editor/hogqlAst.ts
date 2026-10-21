@@ -147,3 +147,16 @@ export function tablesAndColumnsFromAst(ast: ASTNode): Record<string, Record<str
 
     return selectedColumnsByTable
 }
+
+export type SelectComparison = 'same' | 'different' | 'unparsable'
+
+/**
+ * Compares two `parseSelect` results made with `isInternal` set. Those results carry no positions,
+ * so two queries that differ only in the whitespace between tokens give the same JSON.
+ */
+export function compareParsedSelects(parsed: string, otherParsed: string): SelectComparison {
+    if ((JSON.parse(parsed) as { error?: boolean }).error) {
+        return 'unparsable'
+    }
+    return parsed === otherParsed ? 'same' : 'different'
+}

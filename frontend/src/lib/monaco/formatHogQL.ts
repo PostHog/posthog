@@ -1,17 +1,23 @@
 import { type DialectOptions, clickhouse, expandPhrases, formatDialect } from 'sql-formatter'
 
+import type { SelectComparison } from 'scenes/data-warehouse/editor/hogqlAst'
+import { compareSelectQueries } from 'scenes/data-warehouse/editor/hogqlParserWorkerManager'
+
+import { splitQueries } from './multiQueryUtils'
+
 export interface FormatHogQLOptions {
     tabWidth?: number
     useTabs?: boolean
 }
 
-export type FormatHogQLFailure = 'too_large' | 'unparsable' | 'unsupported'
+export type FormatHogQLFailure = 'too_large' | 'unparsable' | 'unsupported' | 'unverified'
 
 export type FormatHogQLResult = { formatted: string; failure: null } | { formatted: null; failure: FormatHogQLFailure }
 
-// The formatter's parser slows down more than linearly with nesting depth: 1,000 nested parentheses
-// take seconds on the UI thread, while 200 take well under 100 ms. Real queries stay far below both caps.
-export const MAX_QUERY_LENGTH = 200_000
+// The formatter runs on the UI thread, and its cost grows faster than linearly with both the query
+// length and the nesting depth. The caps keep one format short enough that the editor does not
+// freeze, so a query above a cap is refused instead.
+export const MAX_QUERY_LENGTH = 20_000
 export const MAX_NESTING_DEPTH = 200
 
 type Token = Parameters<NonNullable<DialectOptions['tokenizerOptions']['postProcess']>>[0][number]
@@ -128,14 +134,46 @@ function significantText(query: string): string {
     return text
 }
 
+// HogQL comments. A `#` followed by a digit is a positional reference, as in `ORDER BY #1`.
+const COMMENT = /(?:--|\/\/)[^\n]*|#(?![0-9])[^\n]*|\/\*[\s\S]*?\*\//g
+
+// The parser reads one statement at a time. A part that holds only comments, such as a query that
+// is commented out after the last semicolon, has no statement to parse.
+function statementsOf(query: string): string[] {
+    return splitQueries(query)
+        .map(({ query: statement }) => statement)
+        .filter((statement) => statement.replace(COMMENT, '').trim() !== '')
+}
+
+/** Parses each statement before and after the format, and returns null only when no meaning changed. */
+async function verifyStatements(query: string, formatted: string): Promise<FormatHogQLFailure | null> {
+    const statements = statementsOf(query)
+    const formattedStatements = statementsOf(formatted)
+    if (statements.length !== formattedStatements.length) {
+        return 'unsupported'
+    }
+    let comparisons: SelectComparison[]
+    try {
+        comparisons = await Promise.all(
+            statements.map((statement, index) => compareSelectQueries(statement, formattedStatements[index]))
+        )
+    } catch {
+        return 'unverified'
+    }
+    if (comparisons.includes('unparsable')) {
+        return 'unparsable'
+    }
+    return comparisons.every((comparison) => comparison === 'same') ? null : 'unsupported'
+}
+
 /**
- * Reflows the whitespace of a HogQL query. A query that is too large, does not parse, or would come
- * back with different tokens is refused with a failure reason, so the caller can leave the text as it is.
+ * Reflows the whitespace of a HogQL query. When the query cannot be formatted safely, the result
+ * carries a failure reason instead, so the caller can leave the text as it is.
  */
-export function formatHogQL(
+export async function formatHogQL(
     query: string,
     { tabWidth = 4, useTabs = false }: FormatHogQLOptions = {}
-): FormatHogQLResult {
+): Promise<FormatHogQLResult> {
     if (query.length > MAX_QUERY_LENGTH || nestingDepth(query) > MAX_NESTING_DEPTH) {
         return { formatted: null, failure: 'too_large' }
     }
@@ -154,9 +192,17 @@ export function formatHogQL(
         return { formatted: null, failure: 'unparsable' }
     }
     // HogQL identifiers and function names are case-sensitive and a string prefix must touch its
-    // quote, so a format may only move whitespace between tokens.
+    // quote, so a format may only move whitespace between tokens. The parser skips comments, so this
+    // check is also the one that keeps every comment intact.
     if (significantText(formatted) !== significantText(query)) {
         return { formatted: null, failure: 'unsupported' }
     }
-    return { formatted, failure: null }
+    if (formatted === query) {
+        return { formatted, failure: null }
+    }
+    // The dialect only approximates the HogQL lexer. It can split a token that it does not know, such
+    // as the `/>` of a HogQLX tag, or misread where a string ends and collapse the spaces in it. The
+    // text check above cannot see either change, but both change what the HogQL parser returns.
+    const failure = await verifyStatements(query, formatted)
+    return failure === null ? { formatted, failure: null } : { formatted: null, failure }
 }

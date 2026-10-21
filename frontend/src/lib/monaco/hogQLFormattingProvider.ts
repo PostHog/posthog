@@ -12,6 +12,7 @@ const FAILURE_MESSAGES: Record<FormatHogQLFailure | 'raw_sql', string> = {
     too_large: 'This query is too long or too deeply nested to format. Split it into smaller queries.',
     unparsable: "Couldn't format this query. Check it for syntax errors and try again.",
     unsupported: "Couldn't format this query. It uses syntax the formatter does not support yet.",
+    unverified: "Couldn't format this query. Try again in a moment.",
 }
 
 // A raw query goes to the external connection as written, in that connection's SQL dialect. The
@@ -29,7 +30,7 @@ export const hogQLFormattingProvider: () => languages.DocumentFormattingEditProv
         const { formatHogQL } = await import('./formatHogQL')
         const result = isRawSqlModel(model)
             ? ({ formatted: null, failure: 'raw_sql' } as const)
-            : formatHogQL(query, { tabWidth: options.tabSize, useTabs: !options.insertSpaces })
+            : await formatHogQL(query, { tabWidth: options.tabSize, useTabs: !options.insertSpaces })
         posthog.capture('sql-editor-query-formatted', {
             succeeded: result.failure === null,
             changed: result.formatted !== null && result.formatted !== query,
