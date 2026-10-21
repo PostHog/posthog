@@ -239,7 +239,7 @@ def _list_queryset(
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet:
-    queryset = (
+    queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
