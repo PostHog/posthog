@@ -8,6 +8,9 @@ import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/sche
 import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
+import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
+import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
 
 const BroadcastsCreateSchema = () => {
@@ -15,7 +18,7 @@ const BroadcastsCreateSchema = () => {
     return HogFlowsCreateBody
 }
 
-const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>, Schemas.HogFlow> => ({
+const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>, WithPostHogUrl<Schemas.HogFlow>> => ({
     name: 'broadcasts-create',
     schema: BroadcastsCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof BroadcastsCreateSchema>>) => {
@@ -60,7 +63,28 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/broadcasts/${result.id}`)
+    },
+})
+
+const WorkflowsConvertToBroadcastSchema = () => {
+    const HogFlowsConvertToBroadcastParams = orvalSchemas.HogFlowsConvertToBroadcastParams()
+    return HogFlowsConvertToBroadcastParams.omit({ project_id: true })
+}
+
+const workflowsConvertToBroadcast = (): ToolBase<
+    ReturnType<typeof WorkflowsConvertToBroadcastSchema>,
+    WithPostHogUrl<Schemas.HogFlowConvertedToBroadcast>
+> => ({
+    name: 'workflows-convert-to-broadcast',
+    schema: WorkflowsConvertToBroadcastSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsConvertToBroadcastSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFlowConvertedToBroadcast>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/convert_to_broadcast/`,
+        })
+        return await withPostHogUrl(context, result, `/broadcasts/${result.id}`)
     },
 })
 
@@ -73,49 +97,52 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
     withUiApp('workflow', {
         name: 'workflows-create',
         schema: WorkflowsCreateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
+        handler: withToolHooks(
+            hooks_workflowsCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.name !== undefined) {
+                    body['name'] = params.name
+                }
+                if (params.description !== undefined) {
+                    body['description'] = params.description
+                }
+                if (params.status !== undefined) {
+                    body['status'] = params.status
+                }
+                if (params.origin_product !== undefined) {
+                    body['origin_product'] = params.origin_product
+                }
+                if (params.trigger_masking !== undefined) {
+                    body['trigger_masking'] = params.trigger_masking
+                }
+                if (params.conversion !== undefined) {
+                    body['conversion'] = params.conversion
+                }
+                if (params.exit_condition !== undefined) {
+                    body['exit_condition'] = params.exit_condition
+                }
+                if (params.email_sending_rate_limit !== undefined) {
+                    body['email_sending_rate_limit'] = params.email_sending_rate_limit
+                }
+                if (params.edges !== undefined) {
+                    body['edges'] = params.edges
+                }
+                if (params.actions !== undefined) {
+                    body['actions'] = params.actions
+                }
+                if (params.variables !== undefined) {
+                    body['variables'] = params.variables
+                }
+                const result = await context.api.request<Schemas.HogFlow>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
+                    body,
+                })
+                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
             }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.status !== undefined) {
-                body['status'] = params.status
-            }
-            if (params.origin_product !== undefined) {
-                body['origin_product'] = params.origin_product
-            }
-            if (params.trigger_masking !== undefined) {
-                body['trigger_masking'] = params.trigger_masking
-            }
-            if (params.conversion !== undefined) {
-                body['conversion'] = params.conversion
-            }
-            if (params.exit_condition !== undefined) {
-                body['exit_condition'] = params.exit_condition
-            }
-            if (params.email_sending_rate_limit !== undefined) {
-                body['email_sending_rate_limit'] = params.email_sending_rate_limit
-            }
-            if (params.edges !== undefined) {
-                body['edges'] = params.edges
-            }
-            if (params.actions !== undefined) {
-                body['actions'] = params.actions
-            }
-            if (params.variables !== undefined) {
-                body['variables'] = params.variables
-            }
-            const result = await context.api.request<Schemas.HogFlow>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
-                body,
-            })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
-        },
+        ),
     })
 
 const WorkflowsDataSuggestionsCreateSchema = () => {
@@ -252,14 +279,17 @@ const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPos
     withUiApp('workflow', {
         name: 'workflows-get',
         schema: WorkflowsGetSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.HogFlow>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-            })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
-        },
+        handler: withToolHooks(
+            hooks_workflowsGet,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.HogFlow>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
+                })
+                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+            }
+        ),
     })
 
 const WorkflowsGetInvocationSchema = () => {
@@ -805,37 +835,40 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
     withUiApp('workflow', {
         name: 'workflows-update',
         schema: WorkflowsUpdateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUpdateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
+        handler: withToolHooks(
+            hooks_workflowsUpdate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUpdateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.name !== undefined) {
+                    body['name'] = params.name
+                }
+                if (params.description !== undefined) {
+                    body['description'] = params.description
+                }
+                if (params.trigger_masking !== undefined) {
+                    body['trigger_masking'] = params.trigger_masking
+                }
+                if (params.conversion !== undefined) {
+                    body['conversion'] = params.conversion
+                }
+                if (params.exit_condition !== undefined) {
+                    body['exit_condition'] = params.exit_condition
+                }
+                if (params.email_sending_rate_limit !== undefined) {
+                    body['email_sending_rate_limit'] = params.email_sending_rate_limit
+                }
+                if (params.variables !== undefined) {
+                    body['variables'] = params.variables
+                }
+                const result = await context.api.request<Schemas.HogFlowUpdate>({
+                    method: 'PATCH',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
+                    body,
+                })
+                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
             }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.trigger_masking !== undefined) {
-                body['trigger_masking'] = params.trigger_masking
-            }
-            if (params.conversion !== undefined) {
-                body['conversion'] = params.conversion
-            }
-            if (params.exit_condition !== undefined) {
-                body['exit_condition'] = params.exit_condition
-            }
-            if (params.email_sending_rate_limit !== undefined) {
-                body['email_sending_rate_limit'] = params.email_sending_rate_limit
-            }
-            if (params.variables !== undefined) {
-                body['variables'] = params.variables
-            }
-            const result = await context.api.request<Schemas.HogFlowUpdate>({
-                method: 'PATCH',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-                body,
-            })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
-        },
+        ),
     })
 
 const WorkflowsUpdateScheduleSchema = () => {
@@ -912,6 +945,7 @@ const workflowsVersionStats = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
     'workflows-create': workflowsCreate,
     'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
     'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
