@@ -1,8 +1,11 @@
+from datetime import timedelta
 from typing import Optional, cast
 
 import gspread
 import structlog
 from google.auth import exceptions as google_auth_exceptions
+
+from posthog.cache_utils import cache_for
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -34,6 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+
+# The source config is built on many web requests, and this address is display text, not a secret.
+@cache_for(timedelta(minutes=5))
+def _service_account_email() -> str:
+    return credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 
 
 @SourceRegistry.register
@@ -238,7 +247,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
     @property
     def get_source_config(self) -> SourceConfig:
-        service_account_email = credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
+        service_account_email = _service_account_email()
         return SourceConfig(
             name=ExternalDataSourceType.GOOGLESHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
