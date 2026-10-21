@@ -299,7 +299,9 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
         with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
             results = run_patterns_diff(self.team, query, None, user=self.user)
 
-        assert {call.args[1] for call in feature_enabled.call_args_list} == {str(self.user.distinct_id)}
+        assert {
+            call.args[1] for call in feature_enabled.call_args_list if call.args[0] == "logs_patterns_query_v2"
+        } == {str(self.user.distinct_id)}
 
         assert (results["current"]["source"], results["baseline"]["source"]) == (expected_source, expected_source)
         assert (results["current"]["fallback_reason"], results["baseline"]["fallback_reason"]) == expected_reasons
