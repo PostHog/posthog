@@ -527,6 +527,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "keyword": {
         "resource_name": "keyword_view",
+        "removed_filter": "ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED'",
         "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group_criterion.criterion_id",
@@ -653,6 +654,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "ad_group_criterion": {
         "resource_name": "ad_group_criterion",
+        "removed_filter": "ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED'",
         "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "should_sync_default": False,
         "description": "Every targeting criterion at ad group level, including negative keywords and other exclusions. Unlike the keyword table (which is backed by keyword_view and only returns positive, servable keywords), this reaches negative and non-keyword criteria. Filter on ad_group_criterion.negative to isolate exclusions.",

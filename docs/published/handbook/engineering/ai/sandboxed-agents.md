@@ -77,7 +77,7 @@ The thinking indicator stops at stream end, and a history error stays visible ev
 `sandbox_stream_recovered` records successful recovery after history reconciliation, with the phase, run status, attempt counts, and elapsed time.
 Neither event includes transcript contents or proxy tokens.
 
-After deployment, verify recovery with `tasks-stream-via-proxy` both enabled and disabled: interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
+After deployment, verify recovery on both stream legs (agent proxy and Django): interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
 Also exhaust retries and verify that Retry works for both an active run and an ended run with an unreadable history snapshot.
 
 ```text
@@ -108,6 +108,15 @@ The run's `state.systemPrompt` is server-owned. Set it through trusted server-si
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
 only to the task-bound sandbox, so it can initialize the agent session.
+
+### Pi project resources
+
+Cloud Pi sessions treat checked-out projects as untrusted, including when resuming a session.
+Project extensions, settings, prompt templates, system prompt overrides, and `.pi/mcp.json` are not loaded.
+Project skills in `.pi/skills` and `.agents/skills` are not automatically discovered.
+Repository `AGENTS.md` instructions continue to load.
+Bundled extensions and MCP servers supplied by the task runtime remain available.
+Local Desktop Pi sessions retain their existing project-resource behavior.
 
 ## Creating a sandboxed agent
 
