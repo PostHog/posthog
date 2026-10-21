@@ -103,6 +103,20 @@ DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000, type_cast=int
 )
 
+# Coarsening of md5 tables that upsert on a primary key. Such an upsert rewrites at least one file in
+# every md5 partition, so the partition count, not the partition size, sets the merge cost. For these
+# tables the coarsening path uses the merge budget above, and picks the divisor of the current count
+# nearest to TARGET, never below MIN. MIN is the memory governor's cap on the partitions that one upsert
+# merges in parallel, so a coarser table keeps all of its merge parallelism. TARGET is twice that cap,
+# so the parallel partition tasks still share the work when one partition is slow.
+# When AUTO_COARSEN_ENABLED is off, the automatic path coarsens these tables on the base budget as for
+# any other table, and only a `stage_warehouse_coarsening` nomination uses this policy.
+DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED = get_from_env(
+    "DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED", False, type_cast=str_to_bool
+)
+DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8, type_cast=int)
+DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN", 4, type_cast=int)
+
 # How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
 # Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
 # entirely (the fleet kill switch — hooks become no-ops and no thread starts).

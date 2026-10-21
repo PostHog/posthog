@@ -412,6 +412,7 @@ class TestPartitionMeasurementRecord:
             "phase": phase,
             "budget": budget,
             "split_budget": budget,
+            "coarsen_budget": budget,
             "healthy": healthy,
         }
 
@@ -450,16 +451,59 @@ class TestPartitionMeasurementRecord:
         assert measurement is not None and measurement["healthy"] is False
 
     @pytest.mark.parametrize(
-        "previous_status, nominated, sync_type, measured_budget, measured_split_budget, recent_ooms, redundant",
+        "previous_status, nominated, sync_type, measured_budget, measured_split_budget, recent_ooms, auto_coarsen, "
+        "measured_coarsen_budget, redundant",
         [
-            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 0, True),
-            (ExternalDataJob.Status.FAILED, False, None, 500, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, True, None, 500, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, None, 400, 500, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 3, False),
-            (ExternalDataJob.Status.COMPLETED, False, ExternalDataSchema.SyncType.INCREMENTAL, 500, 2000, 0, True),
-            (ExternalDataJob.Status.COMPLETED, False, ExternalDataSchema.SyncType.INCREMENTAL, 500, 3000, 0, False),
-            (ExternalDataJob.Status.COMPLETED, False, None, 500, None, 0, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 0, False, None, True),
+            (ExternalDataJob.Status.FAILED, False, None, 500, 500, 0, False, None, False),
+            (ExternalDataJob.Status.COMPLETED, True, None, 500, 500, 0, False, None, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 400, 500, 0, False, None, False),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, 500, 3, False, None, False),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                2000,
+                0,
+                False,
+                None,
+                True,
+            ),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                3000,
+                0,
+                False,
+                None,
+                False,
+            ),
+            (ExternalDataJob.Status.COMPLETED, False, None, 500, None, 0, False, None, False),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                2000,
+                0,
+                True,
+                None,
+                False,
+            ),
+            (
+                ExternalDataJob.Status.COMPLETED,
+                False,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                500,
+                2000,
+                0,
+                True,
+                2000,
+                True,
+            ),
         ],
         ids=[
             "previous_run_completed",
@@ -470,6 +514,8 @@ class TestPartitionMeasurementRecord:
             "merge_table_measured_against_its_split_budget",
             "split_budget_changed_since_the_measurement",
             "measurement_without_a_split_budget",
+            "automatic_merge_coarsening_turned_on_since_the_measurement",
+            "merge_table_measured_against_its_coarsen_budget",
         ],
     )
     def test_gate_reads_what_can_change_without_a_write(
@@ -481,6 +527,8 @@ class TestPartitionMeasurementRecord:
         measured_budget: int,
         measured_split_budget: int | None,
         recent_ooms: int,
+        auto_coarsen: bool,
+        measured_coarsen_budget: int | None,
         redundant: bool,
     ):
         schema = _make_schema(team, {})
@@ -506,14 +554,18 @@ class TestPartitionMeasurementRecord:
                 "phase": "post_load",
                 "budget": measured_budget,
                 "split_budget": measured_split_budget,
+                **({"coarsen_budget": measured_coarsen_budget} if measured_coarsen_budget else {}),
                 "healthy": True,
             },
+            "partition_mode": "md5",
             **({"coarsen_requested": _NOMINATION} if nominated else {}),
         }
 
         with (
             override_settings(
-                DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500, DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=2000
+                DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500,
+                DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=2000,
+                DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED=auto_coarsen,
             ),
             patch.object(ctrl.ExternalDataSchemaOOMEvent, "recent_count", return_value=recent_ooms),
         ):
@@ -850,6 +902,172 @@ class TestCoarsenTrigger:
 
         assert schema.repartition_pending is None
         assert schema.coarsen_requested is None
+
+
+_KEYED = ExternalDataSchema.SyncType.INCREMENTAL
+_FULL_REFRESH = ExternalDataSchema.SyncType.FULL_REFRESH
+
+
+class TestMergeCoarsenPolicy:
+    # Budgets in bytes, small enough to state partition sizes directly: the merge policy caps a coarse
+    # partition at 1500 (0.75 of the merge budget), and its automatic trigger fires at 250 or less.
+    _BUDGETS = {"DATA_WAREHOUSE_TARGET_PARTITION_BYTES": 500, "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES": 2000}
+
+    def _schema(
+        self, team, sync_type: str, *, partition_count: int, nominated: bool, **overrides
+    ) -> ExternalDataSchema:
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": partition_count,
+                "partitioning_keys": ["id"],
+                "last_repartition_at": _days_ago_iso(30),
+                **({"coarsen_requested": _NOMINATION} if nominated else {}),
+                **overrides,
+            },
+        )
+        schema.sync_type = sync_type
+        schema.save()
+        return schema
+
+    def _detect(self, team, schema: ExternalDataSchema, partition_bytes: dict[str | None, int], **settings) -> None:
+        with (
+            override_settings(**{**self._BUDGETS, **settings}),
+            patch.object(ctrl, "measure_partition_bytes", return_value=partition_bytes),
+            patch.object(ctrl, "capture_repartition_event"),
+        ):
+            async_to_sync(ctrl.maybe_flag_for_repartition)(
+                schema, schema.source, _make_job(team, schema), MagicMock(), logger
+            )
+        schema.refresh_from_db()
+
+    @staticmethod
+    def _md5_layout(count: int, each: int) -> dict[str | None, int]:
+        return {str(bucket): each for bucket in range(count)}
+
+    @pytest.mark.parametrize(
+        "sync_type, count, each, settings, expected_count, expected_reason",
+        [
+            (_KEYED, 85, 60, {}, 5, None),
+            (ExternalDataSchema.SyncType.WEBHOOK, 85, 60, {}, 5, None),
+            (ExternalDataSchema.SyncType.XMIN, 85, 60, {}, 5, None),
+            (_KEYED, 64, 20, {}, 8, None),
+            (_KEYED, 85, 100, {}, 17, None),
+            (_KEYED, 85, 480, {}, None, "no_coarser_layout_fits"),
+            (_KEYED, 16, 10, {}, 4, None),
+            (_KEYED, 6, 10, {}, None, "md5_at_partition_floor"),
+            (_KEYED, 64, 20, {"DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN": 16}, 16, None),
+            (_FULL_REFRESH, 85, 60, {}, None, "no_coarser_layout_fits"),
+            (_FULL_REFRESH, 16, 10, {}, 1, None),
+        ],
+        ids=[
+            "incremental_picks_the_divisor_nearest_the_target",
+            "webhook_uses_the_merge_policy",
+            "xmin_uses_the_merge_policy",
+            "an_exact_divisor_hits_the_target",
+            "a_divisor_over_the_headroom_is_skipped_for_a_finer_one",
+            "refuses_when_no_divisor_fits_under_the_merge_budget",
+            "stops_at_the_floor_where_the_base_policy_goes_to_one",
+            "a_table_at_the_floor_has_no_coarser_layout",
+            "the_floor_setting_wins_over_the_target",
+            "full_refresh_keeps_the_base_budget",
+            "full_refresh_still_goes_to_the_coarsest_fit",
+        ],
+    )
+    def test_a_nomination_sizes_keyed_md5_tables_by_merge_parallelism(
+        self,
+        team,
+        sync_type: str,
+        count: int,
+        each: int,
+        settings: dict[str, int],
+        expected_count: int | None,
+        expected_reason: str | None,
+    ):
+        schema = self._schema(
+            team, sync_type, partition_count=count, nominated=True, last_repartition_at=_days_ago_iso(0)
+        )
+
+        with patch.object(ctrl, "DELTA_COARSEN_DECLINE_TOTAL") as decline_metric:
+            self._detect(team, schema, self._md5_layout(count, each), **settings)
+
+        assert schema.coarsen_requested is None
+        pending = schema.repartition_pending
+        if expected_count is None:
+            assert pending is None
+            assert decline_metric.labels.call_args.kwargs == {"reason": expected_reason}
+        else:
+            assert pending is not None
+            assert pending["trigger_reason"] == "coarsening_requested"
+            assert pending["partition_mode"] == "md5"
+            assert pending["partition_count"] == expected_count
+
+    @pytest.mark.parametrize(
+        "sync_type, auto_enabled, each, expected_count",
+        [
+            (_KEYED, None, 100, None),
+            (_KEYED, False, 100, None),
+            (_KEYED, True, 100, 17),
+            (_KEYED, None, 20, 17),
+            (_KEYED, True, 20, 5),
+            (_FULL_REFRESH, True, 100, None),
+        ],
+        ids=[
+            "off_by_default",
+            "off_leaves_a_table_only_the_merge_budget_can_coarsen",
+            "on_coarsens_against_the_merge_budget",
+            "off_keeps_the_base_policy",
+            "on_stops_near_the_target",
+            "on_does_not_reach_full_refresh_tables",
+        ],
+    )
+    def test_automatic_merge_coarsening_is_behind_a_setting(
+        self, team, sync_type: str, auto_enabled: bool | None, each: int, expected_count: int | None
+    ):
+        schema = self._schema(team, sync_type, partition_count=85, nominated=False)
+        settings = {} if auto_enabled is None else {"DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED": auto_enabled}
+
+        self._detect(team, schema, self._md5_layout(85, each), **settings)
+
+        pending = schema.repartition_pending
+        if expected_count is None:
+            assert pending is None
+        else:
+            assert pending is not None
+            assert pending["trigger_reason"] == "coarsening"
+            assert pending["partition_count"] == expected_count
+
+    @pytest.mark.parametrize("auto_enabled", [False, True], ids=["auto_off", "auto_on"])
+    @pytest.mark.parametrize("layout_age_days", [0, 2], ids=["just_rewritten", "past_the_cooldown"])
+    def test_a_coarsened_table_is_not_split_or_coarsened_again(self, team, auto_enabled: bool, layout_age_days: int):
+        schema = self._schema(team, _KEYED, partition_count=64, nominated=True)
+        self._detect(team, schema, self._md5_layout(64, 187))
+        pending = schema.repartition_pending
+        assert pending is not None
+        coarse_count = pending["partition_count"]
+        assert coarse_count == 8
+
+        # The state a finished swap leaves behind.
+        schema.sync_type_config = {
+            **schema.sync_type_config,
+            "partition_count": coarse_count,
+            "last_repartition_at": _days_ago_iso(layout_age_days),
+        }
+        schema.sync_type_config.pop("repartition_pending")
+        schema.save()
+
+        self._detect(
+            team,
+            schema,
+            self._md5_layout(coarse_count, 64 * 187 // coarse_count),
+            DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED=auto_enabled,
+        )
+
+        assert schema.repartition_pending is None
+        measurement = schema.partition_measurement
+        assert measurement is not None and measurement["healthy"] is True
 
 
 # An Exception-derived cancellation, named exactly `CancelledError`: models how `async_to_sync` can

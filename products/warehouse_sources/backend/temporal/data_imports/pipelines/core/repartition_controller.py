@@ -118,6 +118,48 @@ def split_budget_bytes(schema: ExternalDataSchema) -> int:
     return target_partition_bytes()
 
 
+# A coarsened keyed md5 table aims at this share of the merge budget, not at half of it as other
+# tables do. Its partition size costs no merge memory, so the margin only has to keep normal growth from
+# sending the table straight back to the size split. A table must grow by a third before that split
+# claims it, and the split then waits out the cooldown that the coarsening rewrite starts.
+MERGE_COARSEN_TARGET_FRACTION = 0.75
+
+
+def merge_auto_coarsen_enabled() -> bool:
+    return bool(getattr(settings, "DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED", False))
+
+
+def merge_md5_partition_min() -> int:
+    return max(1, int(getattr(settings, "DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN", 4)))
+
+
+def merge_md5_partition_target() -> int:
+    return max(merge_md5_partition_min(), int(getattr(settings, "DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8)))
+
+
+def coarsens_for_merge_parallelism(schema: ExternalDataSchema, *, operator_requested: bool) -> bool:
+    """Whether coarsening sizes this table by the merge budget and the md5 partition target.
+
+    Only a keyed md5 table qualifies. Its upserts hash every batch over all partitions, so each
+    partition adds at least one rewritten file to every merge, and its partition size costs no merge
+    memory (see `split_budget_bytes`). A batch of a datetime or numerical table usually falls in a few
+    partitions, so the partition count does not set its merge cost, and the base budget stays.
+
+    The automatic path uses this policy only when `DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED` is on.
+    An operator nomination always uses it.
+    """
+    if schema.sync_type not in KEYED_MERGE_SYNC_TYPES or schema.partition_mode != "md5":
+        return False
+    return operator_requested or merge_auto_coarsen_enabled()
+
+
+def coarsen_trigger_budget(schema: ExternalDataSchema, *, operator_requested: bool) -> int:
+    """The budget that the coarsening trigger compares the largest partition with."""
+    if coarsens_for_merge_parallelism(schema, operator_requested=operator_requested):
+        return merge_target_partition_bytes()
+    return target_partition_bytes()
+
+
 def min_splittable_partition_bytes() -> int:
     """The smallest partition an OOM-triggered split is allowed to produce.
 
@@ -208,6 +250,11 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
     if measurement.get("budget") != target_partition_bytes():
         return False
     if measurement.get("split_budget") != split_budget_bytes(schema):
+        return False
+    # A measurement without this key is older than the key, and was taken against the base budget.
+    if measurement.get("coarsen_budget", measurement.get("budget")) != coarsen_trigger_budget(
+        schema, operator_requested=False
+    ):
         return False
     if (
         not schema.is_append
@@ -343,7 +390,6 @@ async def maybe_flag_for_coarsening(
     recent_oom_count: int,
     logger: FilteringBoundLogger,
     *,
-    budget: int,
     max_bytes: int,
 ) -> None:
     """Flag an over-fragmented table to be rebuilt into fewer, larger partitions.
@@ -358,6 +404,9 @@ async def maybe_flag_for_coarsening(
     `stage_warehouse_coarsening` has already made that call, so a nomination skips them. The *safety*
     check is `select_coarsen_target`, which measures the live layout and refuses any target that would
     not fit the budget. Nothing overrides that, so a nomination can only ever be a no-op.
+
+    A keyed md5 table can use the merge budget and the md5 partition target instead of the base
+    budget (see `coarsens_for_merge_parallelism`). The safety check then uses that budget too.
 
     Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database.
     Post-load detection runs this
@@ -381,6 +430,8 @@ async def maybe_flag_for_coarsening(
         return
 
     requested = schema.coarsen_requested
+    merge_policy = coarsens_for_merge_parallelism(schema, operator_requested=requested is not None)
+    budget = coarsen_trigger_budget(schema, operator_requested=requested is not None)
     if requested is None:
         # Below these two the table is not over-fragmented at all, so returning before `_decline`
         # keeps the metric scoped to the population the rollout is about.
@@ -397,9 +448,19 @@ async def maybe_flag_for_coarsening(
         if layout_age is not None and layout_age < COARSEN_MIN_LAYOUT_AGE_SECONDS:
             return _decline("layout_too_young")
 
-    target, reason = await asyncio.to_thread(
-        select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
-    )
+    if merge_policy:
+        target, reason = await asyncio.to_thread(
+            select_coarsen_target,
+            schema,
+            partition_bytes,
+            int(budget * MERGE_COARSEN_TARGET_FRACTION),
+            min_md5_count=merge_md5_partition_min(),
+            preferred_md5_count=merge_md5_partition_target(),
+        )
+    else:
+        target, reason = await asyncio.to_thread(
+            select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
+        )
     if requested is not None and target is None:
         # Consume a refused nomination now: leaving it set would re-evaluate the same table every sync,
         # and a table the selector refuses today will refuse again until its data changes. A *selected*
@@ -533,8 +594,9 @@ async def maybe_flag_for_repartition(
         # A table with this shape is one that the coarsening path evaluates on each run, and its
         # gates open with time (layout age, days without an OOM). Such a table is never healthy, so
         # the next run measures it again.
+        coarsen_budget = coarsen_trigger_budget(schema, operator_requested=False)
         coarsen_candidate = (
-            len(partition_bytes) >= COARSEN_MIN_PARTITIONS and max_bytes * COARSEN_TRIGGER_DIVISOR <= budget
+            len(partition_bytes) >= COARSEN_MIN_PARTITIONS and max_bytes * COARSEN_TRIGGER_DIVISOR <= coarsen_budget
         )
         await asyncio.to_thread(
             schema.record_partition_measurement,
@@ -544,6 +606,7 @@ async def maybe_flag_for_repartition(
                 "phase": phase,
                 "budget": budget,
                 "split_budget": size_split_budget,
+                "coarsen_budget": coarsen_budget,
                 "healthy": not over_budget and not oom_triggered and not coarsen_candidate,
             },
         )
@@ -561,7 +624,7 @@ async def maybe_flag_for_repartition(
                 partition_count=len(partition_bytes),
             )
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, budget=budget, max_bytes=max_bytes
+                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes
             )
             return
 
@@ -591,7 +654,7 @@ async def maybe_flag_for_repartition(
             # its chance, and this is the only route by which a nominated table reaches coarsening at
             # all once its OOM count crosses the split threshold.
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, budget=budget, max_bytes=max_bytes
+                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes
             )
             return
 
