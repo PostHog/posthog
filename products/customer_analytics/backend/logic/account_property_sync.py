@@ -348,14 +348,15 @@ async def _write_snapshot_hashes(
     job_id: str,
     hashes: dict[str, str],
 ) -> None:
-    if not hashes:
-        return
-
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     path = f"{prefix}/{job_id}.parquet"
     async with aget_s3_client() as s3_client:
         existing_files = await _list_snapshot_files(s3_client, prefix)
+        if not hashes and len(existing_files) <= 1:
+            return
         merge = await _merge_snapshot_files(s3_client, existing_files)
+        if not hashes and not merge.complete:
+            return
         merged = {**merge.hashes, **hashes} if merge.complete else hashes
         snapshot = await asyncio.to_thread(_encode_snapshot, merged)
         await s3_client._pipe_file(_s3_uri(path), snapshot)

@@ -966,13 +966,16 @@ async def test_snapshot_files_without_timestamps_merge_before_dated_files() -> N
 
 
 @pytest.mark.asyncio
-async def test_snapshot_write_compacts_prior_files_newest_hash_winning() -> None:
+@pytest.mark.parametrize("final_hashes", [{"b": "h2", "c": "h2"}, {}])
+async def test_snapshot_write_compacts_prior_files_newest_hash_winning(final_hashes: dict[str, str]) -> None:
     fake = _FakeS3()
     await _write(fake, "job-1", {"a": "h1", "b": "h1"})
-    await _write(fake, "job-2", {"b": "h2", "c": "h2"})
+    with _fake_s3_patch(fake):
+        await aps._write_snapshot_delta(7, _SNAPSHOT_BINDING, "src", _SEGMENT, "job-2-checkpoint-1", {"b": "h2"})
+    await _write(fake, "job-2", final_hashes)
 
     assert len(fake.store) == 1
-    assert await _read(fake) == {"a": "h1", "b": "h2", "c": "h2"}
+    assert await _read(fake) == {"a": "h1", "b": "h2", **final_hashes}
 
 
 @pytest.mark.asyncio
