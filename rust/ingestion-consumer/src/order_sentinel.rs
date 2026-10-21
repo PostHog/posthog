@@ -408,6 +408,7 @@ mod tests {
             key: Some("t:a".to_string()),
             value: None,
             headers: HashMap::new(),
+            generation: 0,
         }
     }
 

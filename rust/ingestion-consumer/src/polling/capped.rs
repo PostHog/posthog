@@ -308,6 +308,7 @@ mod tests {
         GroupCompletion {
             partition: Partition(partition),
             assignment_epoch: epoch,
+            generation: 0,
             offsets: offsets.iter().map(|o| MessageOffset(*o)).collect(),
             accepted,
         }

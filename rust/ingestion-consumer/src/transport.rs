@@ -161,6 +161,7 @@ mod tests {
             key: None,
             value: Some("x".repeat(value_len)),
             headers: std::collections::HashMap::new(),
+            generation: 0,
         }
     }
 

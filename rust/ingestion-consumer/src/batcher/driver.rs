@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
+use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Partition};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
@@ -209,9 +209,13 @@ impl StateMachineDriver {
         SnapshotSender(self.inputs.clone())
     }
 
-    pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
+    pub(super) fn submit(
+        &self,
+        accumulator: Accumulator,
+        generations: &HashMap<Partition, u64>,
+    ) -> u64 {
         let assignment_epoch = self.assignment_epoch.current();
-        let runs = KeyRun::from_groups(accumulator.into_groups());
+        let runs = KeyRun::from_groups(accumulator.into_groups(), generations);
         let unkeyed: usize = runs
             .iter()
             .filter(|run| run.messages.first().is_some_and(|m| m.key.is_none()))

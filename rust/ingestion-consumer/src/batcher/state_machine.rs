@@ -656,23 +656,24 @@ fn completions<'a>(
     assignment_epoch: u64,
     messages: impl IntoIterator<Item = &'a SentMessage>,
 ) -> Vec<GroupCompletion> {
-    let mut by_partition: HashMap<i32, Vec<Offset>> = HashMap::new();
+    let mut by_partition: HashMap<(i32, u64), Vec<Offset>> = HashMap::new();
     for message in messages {
         by_partition
-            .entry(message.partition)
+            .entry((message.partition, message.generation))
             .or_default()
             .push(Offset(message.offset));
     }
     let mut completions: Vec<GroupCompletion> = by_partition
         .into_iter()
-        .map(|(partition, offsets)| GroupCompletion {
+        .map(|((partition, generation), offsets)| GroupCompletion {
             partition: Partition(partition),
             assignment_epoch,
+            generation,
             accepted: offsets.len() as u32,
             offsets,
         })
         .collect();
-    completions.sort_by_key(|completion| completion.partition.0);
+    completions.sort_by_key(|completion| (completion.partition.0, completion.generation));
     completions
 }
 
@@ -1646,7 +1647,11 @@ mod tests {
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
         let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
         // The new owner of the partition replays the uncommitted offsets.
-        let (batcher, effects) = batcher.on_groups(now, &workers, 2, vec![run("a", &[1, 2, 3])]);
+        let mut replay = run("a", &[1, 2, 3]);
+        for message in &mut replay.messages {
+            message.generation = 2;
+        }
+        let (batcher, effects) = batcher.on_groups(now, &workers, 2, vec![replay]);
         assert!(effects.sends.is_empty(), "a's epoch-1 run is still out");
 
         let (batcher, effects) =
@@ -1660,6 +1665,7 @@ mod tests {
         let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 3);
         assert_eq!(effects.completions.len(), 1);
         assert_eq!(effects.completions[0].assignment_epoch, 2);
+        assert_eq!(effects.completions[0].generation, 2);
         assert_eq!(
             effects.completions[0].offsets,
             vec![Offset(1), Offset(2), Offset(3)]

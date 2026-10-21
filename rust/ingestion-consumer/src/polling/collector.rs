@@ -108,6 +108,7 @@ impl Collector {
                 .and_then(|v| std::str::from_utf8(v).ok())
                 .map(|s| s.to_string()),
             headers,
+            generation: 0,
         };
 
         self.accumulator

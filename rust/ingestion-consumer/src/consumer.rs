@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    AssignmentEpoch, GroupCompletion, Offset, TopicOffsetLedger, TopicPartition,
+    AssignmentEpoch, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
 };
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
@@ -495,10 +495,12 @@ impl IngestionConsumer {
             stats,
         } = collected;
         let mut uncommitted = HashMap::with_capacity(partitions.len());
+        let mut generations = HashMap::with_capacity(partitions.len());
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
         for (topic_partition, partition) in &mut partitions {
             partition.generation = self.topic_offset_ledger.generation(topic_partition);
+            generations.insert(Partition(topic_partition.partition), partition.generation);
             // The ledger counts a rejection; it is logged here, where the
             // slice is still known.
             match self
@@ -531,7 +533,7 @@ impl IngestionConsumer {
             self.batch_size_bytes,
         );
 
-        let assignment_epoch = self.batcher.submit(accumulator);
+        let assignment_epoch = self.batcher.submit(accumulator, &generations);
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
             batch_id: poll_id.clone(),
             messages: message_count,

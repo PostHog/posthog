@@ -255,6 +255,7 @@ fn msg(distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
         key: Some(distinct_id.to_string()),
         value: Some("{}".to_string()),
         headers,
+        generation: 0,
     }
 }
 
@@ -1163,7 +1164,7 @@ async fn the_watchdog_bounds_overlapping_busy_retries() {
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), msg("a", 1).into());
     accumulator.push(Partition(0), msg("b", 2).into());
-    batcher.submit(accumulator);
+    batcher.submit(accumulator, &HashMap::new());
 
     let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
@@ -1246,7 +1247,7 @@ async fn a_busy_send_is_retried_until_it_completes() {
 
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), msg("a", 1).into());
-    batcher.submit(accumulator);
+    batcher.submit(accumulator, &HashMap::new());
 
     let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
@@ -1292,7 +1293,7 @@ async fn the_watchdog_allows_in_flight_success_after_the_deadline() {
 
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), msg("a", 1).into());
-    batcher.submit(accumulator);
+    batcher.submit(accumulator, &HashMap::new());
 
     let attempt = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await

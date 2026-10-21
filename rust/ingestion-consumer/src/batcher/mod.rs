@@ -25,10 +25,11 @@ pub(crate) mod test_support;
 pub mod worker_assigner;
 pub mod worker_pool;
 
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use common_kafka_consumer::GroupCompletion;
+use common_kafka_consumer::{GroupCompletion, Partition};
 use tokio::sync::mpsc;
 
 use self::driver::StateMachineDriver;
@@ -79,9 +80,11 @@ impl Batcher {
     }
 
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
-    /// order. Returns the assignment epoch stamped on the poll's completions.
-    pub fn submit(&self, accumulator: Accumulator) -> u64 {
-        self.driver.submit(accumulator)
+    /// order. Each partition's completions carry its generation from
+    /// `generations`. Returns the assignment epoch stamped on the poll's
+    /// completions.
+    pub fn submit(&self, accumulator: Accumulator, generations: &HashMap<Partition, u64>) -> u64 {
+        self.driver.submit(accumulator, generations)
     }
 
     /// A read-only view of the batcher's load, for the drain reaper, the

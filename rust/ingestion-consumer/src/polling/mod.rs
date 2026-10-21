@@ -135,6 +135,8 @@ mod tests {
 
     use common_kafka_consumer::{Offset, Partition, TopicOffsetLedger};
 
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
     use super::collector::tests::message;
     use super::*;
     use crate::settlement::GroupSettlement;
@@ -230,14 +232,19 @@ mod tests {
         }
 
         fn complete(&mut self, partition: i32, offsets: &[i64]) {
+            let generation = self.ledger.generation(&p(partition));
+            self.complete_under(generation, partition, offsets);
+        }
+
+        fn complete_under(&mut self, generation: u64, partition: i32, offsets: &[i64]) {
             self.poller
-                .completed(&GroupCompletion {
-                    partition: Partition(partition),
-                    assignment_epoch: 1,
-                    offsets: offsets.iter().map(|&offset| Offset(offset)).collect(),
-                    accepted: offsets.len() as u32,
-                })
+                .completed(&completion(generation, partition, offsets))
                 .expect("the completion applies");
+        }
+
+        fn revoke(&mut self, partition: i32) {
+            self.settlement.forget_partitions(&[p(partition)]);
+            self.poller.revoked(&[p(partition)]);
         }
 
         fn commit(&mut self) -> HashMap<TopicPartition, Offset> {
@@ -259,6 +266,16 @@ mod tests {
                 ChargeLimit::new(NonZeroU64::new(in_flight_events), None),
             )
         })
+    }
+
+    fn completion(generation: u64, partition: i32, offsets: &[i64]) -> GroupCompletion {
+        GroupCompletion {
+            partition: Partition(partition),
+            assignment_epoch: 1,
+            generation,
+            offsets: offsets.iter().map(|&offset| Offset(offset)).collect(),
+            accepted: offsets.len() as u32,
+        }
     }
 
     fn p(partition: i32) -> TopicPartition {
@@ -318,6 +335,76 @@ mod tests {
             HashMap::from([(p(0), (10, 10)), (p(1), (20, 20))]),
             "the redelivery after the revoke stays"
         );
+    }
+
+    #[test]
+    fn a_completion_from_before_a_revoke_settles_nothing_in_the_next_assignment() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        let before = harness.ledger.generation(&p(0));
+
+        harness.revoke(0);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.complete_under(before, 0, &[0, 1]);
+        harness.poller.ticked();
+        assert!(
+            harness.step().is_none(),
+            "the old assignment's completion is stale"
+        );
+        harness.complete(0, &[0, 1]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+    }
+
+    #[test]
+    fn a_completion_a_worker_did_not_accept_in_full_fails() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        let mut short = completion(harness.ledger.generation(&p(0)), 0, &[0, 1]);
+        short.accepted = 1;
+
+        let error = harness
+            .poller
+            .completed(&short)
+            .expect_err("a dropped message must not commit");
+        assert!(error.to_string().contains("accepted 1/2"), "{error}");
+    }
+
+    #[test]
+    fn a_commit_reports_the_newest_kafka_timestamp_it_passed() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let latest_processed = || {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find_map(|(key, _, _, value)| match value {
+                    DebugValue::Gauge(ts)
+                        if key.key().name() == "latest_processed_timestamp_ms" =>
+                    {
+                        Some(ts.into_inner())
+                    }
+                    _ => None,
+                })
+        };
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert_eq!(latest_processed(), None);
+
+        harness.complete(0, &[0, 1]);
+        harness.commit();
+
+        assert_eq!(latest_processed(), Some(1_000.0));
     }
 
     #[test]
