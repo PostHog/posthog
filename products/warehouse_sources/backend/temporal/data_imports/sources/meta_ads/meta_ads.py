@@ -719,6 +719,25 @@ def _is_refused_batch_subresponse(error: typing.Any) -> bool:
     return isinstance(subcode, int) and subcode in META_REFUSED_CREATIVE_ERROR_SUBCODES
 
 
+# Meta's batch endpoint can abort one subrequest on its own, independently of the rest of the
+# batch and of the overall call returning 200 — observed as code 960, "Request aborted. This could
+# happen if a dependent request failed or the entire request timed out." Our subrequests have no
+# JSONPath dependencies between them, so the cause is the batch nearing a timeout rather than the
+# lookup itself being invalid. `_get_with_transient_retry` never sees this: it only inspects the
+# outer HTTP response, and that response is a plain 200.
+META_BATCH_SUBREQUEST_ABORTED_ERROR_CODE = 960
+
+
+def _is_transient_batch_subresponse_error(error: typing.Any) -> bool:
+    """Return True for a batch subresponse error worth retrying the whole batch for (see above)."""
+    if not isinstance(error, dict):
+        return False
+    return error.get("is_transient") is True or error.get("code") in (
+        *META_TRANSIENT_ERROR_CODES,
+        META_BATCH_SUBREQUEST_ABORTED_ERROR_CODE,
+    )
+
+
 def _fetch_refusable_fields(
     node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
 ) -> dict[str, dict]:
@@ -745,6 +764,7 @@ def _fetch_refusable_fields(
             return make_tracked_session().post(node_lookup_url, data=data)
 
         malformed_json_attempts = 0
+        transient_subresponse_attempts = 0
         while True:
             response = _get_with_transient_retry(_issue)
             if response.status_code != 200:
@@ -756,14 +776,27 @@ def _fetch_refusable_fields(
                 if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
                     raise
                 continue
+
+            parsed_sub_responses = []
+            for sub_response in sub_responses:
+                try:
+                    body = json.loads(sub_response.get("body") or "{}")
+                except (ValueError, TypeError):
+                    body = None
+                error = body.get("error") if isinstance(body, dict) else None
+                parsed_sub_responses.append((sub_response, body, error))
+
+            has_transient_error = any(
+                sub_response.get("code") != 200 and _is_transient_batch_subresponse_error(error)
+                for sub_response, _body, error in parsed_sub_responses
+            )
+            if has_transient_error and transient_subresponse_attempts < META_TRANSIENT_ERROR_MAX_ATTEMPTS - 1:
+                transient_subresponse_attempts += 1
+                _backoff_sleep(transient_subresponse_attempts)
+                continue
             break
 
-        for node_id, sub_response in zip(chunk, sub_responses):
-            try:
-                body = json.loads(sub_response.get("body") or "{}")
-            except (ValueError, TypeError):
-                body = None
-            error = body.get("error") if isinstance(body, dict) else None
+        for node_id, (sub_response, body, error) in zip(chunk, parsed_sub_responses):
             if sub_response.get("code") == 200 and isinstance(body, dict):
                 nodes[node_id] = body
             elif _is_refused_batch_subresponse(error):
