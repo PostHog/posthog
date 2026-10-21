@@ -428,8 +428,15 @@ class PlatformAlertHistory:
     last_checked_at: datetime
     # None when the last check in the window succeeded.
     last_error_message: str | None
-    # What the last check in the window measured, or None when it measured nothing.
-    last_value: float | None = None
+
+
+@frozen
+class PlatformLastCheck:
+    """The newest check of an alert the platform owns."""
+
+    checked_at: datetime
+    # None when the check measured nothing.
+    value: float | None
 
 
 @frozen

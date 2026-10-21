@@ -25,14 +25,12 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_cutover import insight_state_of_platform
 from products.alerts_platform.backend.facade.api import (
     check_page_by_legacy_id,
-    history_by_legacy_id,
+    last_check_by_legacy_id,
     runtime_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
-# Long enough to hold the last check of a monthly alert.
-LAST_CHECK_WINDOW: Final = timedelta(days=32)
 _EARLIEST: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
 
@@ -40,9 +38,8 @@ _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
 def moved_alert_statuses(*, team_id: int, alert_ids: Sequence[UUID], now: datetime) -> dict[UUID, MovedAlertStatus]:
     """Each moved alert's state, schedule and last check as the platform has them.
 
-    Alerts the platform does not own are left out. Two Postgres queries, and one ClickHouse query
-    when the alerts include a moved one. A ClickHouse failure leaves out the last check, and the
-    response still goes out.
+    Alerts the platform does not own are left out. Up to three Postgres queries and one ClickHouse
+    query. A ClickHouse failure leaves out the last check, and the response still goes out.
     """
     snoozed_until = dict(
         AlertConfiguration.objects.filter(
@@ -54,16 +51,14 @@ def moved_alert_statuses(*, team_id: int, alert_ids: Sequence[UUID], now: dateti
     moved = list(snoozed_until)
     runtime = runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=moved)
     try:
-        history = history_by_legacy_id(
-            team_id=team_id, legacy_configuration_ids=moved, since=now - LAST_CHECK_WINDOW, until=now
-        )
+        last_checks = last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=moved)
     except Exception as error:
         capture_exception(error, additional_properties={"team_id": team_id})
-        history = {}
+        last_checks = {}
     statuses = {}
     for alert_id in moved:
         alert_runtime = runtime.get(alert_id)
-        alert_history = history.get(alert_id)
+        last_check = last_checks.get(alert_id)
         statuses[alert_id] = MovedAlertStatus(
             runtime=MovedAlertRuntime(
                 state=insight_state_of_platform(alert_runtime.state, snoozed_until=snoozed_until[alert_id], at=now),
@@ -72,10 +67,8 @@ def moved_alert_statuses(*, team_id: int, alert_ids: Sequence[UUID], now: dateti
             )
             if alert_runtime is not None
             else None,
-            last_check=MovedAlertLastCheck(
-                checked_at=ensure_utc(alert_history.last_checked_at), value=alert_history.last_value
-            )
-            if alert_history is not None
+            last_check=MovedAlertLastCheck(checked_at=ensure_utc(last_check.checked_at), value=last_check.value)
+            if last_check is not None
             else None,
         )
     return statuses
