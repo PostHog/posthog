@@ -53,7 +53,11 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     get_rows,
     increment_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ReplaceScope,
+    SortMode,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -957,13 +961,15 @@ class TestValidateIncrementalSync:
         [
             # The failure this guard exists for: a keyless incremental table can never merge into
             # the Delta table that an earlier run already wrote.
-            ("keyless_incremental_after_first_sync_raises", True, False, None, True),
+            ("keyless_incremental_after_first_sync_raises", True, False, None, False, True),
             # The first run writes the whole table, so it doesn't need a merge key. Raising here
             # would break every initial sync of a keyless table.
-            ("keyless_incremental_first_sync_allowed", True, True, None, False),
+            ("keyless_incremental_first_sync_allowed", True, True, None, False, False),
             # Full refresh overwrites, so it never merges on a key.
-            ("keyless_full_refresh_allowed", False, False, None, False),
-            ("incremental_with_key_allowed", True, False, ["id"], False),
+            ("keyless_full_refresh_allowed", False, False, None, False, False),
+            ("incremental_with_key_allowed", True, False, ["id"], False, False),
+            # A replace scope loads as appends, so it never merges on a key.
+            ("keyless_incremental_with_a_replace_scope_allowed", True, False, None, True, False),
         ]
     )
     def test_missing_primary_keys(
@@ -972,9 +978,16 @@ class TestValidateIncrementalSync:
         is_incremental: bool,
         is_first_sync: bool,
         primary_keys: list[str] | None,
+        replaces_rows: bool,
         expect_raise: bool,
     ):
-        resource = MagicMock(primary_keys=primary_keys, has_duplicate_primary_keys=False)
+        resource = MagicMock(
+            primary_keys=primary_keys,
+            has_duplicate_primary_keys=False,
+            replace_scope=ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset())
+            if replaces_rows
+            else None,
+        )
 
         if not expect_raise:
             validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
