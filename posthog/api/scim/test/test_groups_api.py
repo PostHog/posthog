@@ -3,6 +3,9 @@ import uuid
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.scim.auth import generate_scim_token
+from posthog.api.scim.group import PostHogSCIMGroup
+from posthog.api.scim.views import MAX_ITEMS_PER_PAGE
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
@@ -11,9 +14,6 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from products.access_control.backend.models.role import Role, RoleMembership
 
-from ee.api.scim.auth import generate_scim_token
-from ee.api.scim.group import PostHogSCIMGroup
-from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
 
 
