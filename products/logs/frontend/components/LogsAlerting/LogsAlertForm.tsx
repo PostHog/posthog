@@ -26,6 +26,8 @@ import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsView
 import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
+import { LogsAlertGroupByField } from './LogsAlertGroupByField'
+import { GROUPING_NEEDS_ABOVE } from './logsAlertGrouping'
 
 const WINDOW_OPTIONS = [
     { value: 5, label: '5 minutes' },
@@ -172,7 +174,11 @@ export function LogsAlertTrigger(): JSX.Element {
                         onChange={(value) => setAlertFormValue('thresholdOperator', value)}
                         options={[
                             { value: LogsAlertConfigurationThresholdOperatorEnumApi.Above, label: 'above' },
-                            { value: LogsAlertConfigurationThresholdOperatorEnumApi.Below, label: 'below' },
+                            {
+                                value: LogsAlertConfigurationThresholdOperatorEnumApi.Below,
+                                label: 'below',
+                                disabledReason: alertForm.groupBy === 'none' ? undefined : GROUPING_NEEDS_ABOVE,
+                            },
                         ]}
                         size="small"
                     />
@@ -194,6 +200,7 @@ export function LogsAlertTrigger(): JSX.Element {
                     />
                 </AlertDefinitionRow>
             </div>
+            <LogsAlertGroupByField />
             <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
                 <LemonField.Pure
                     label={

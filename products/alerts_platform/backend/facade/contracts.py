@@ -356,6 +356,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen
@@ -395,12 +398,14 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
+    API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    grouping: Grouping
 
 
 @frozen
