@@ -789,6 +789,218 @@ export interface PatchedHogFunctionRearrangeApi {
 }
 
 /**
+ * * `events` - events
+ */
+export type MCPEventSourceEnumApi = (typeof MCPEventSourceEnumApi)[keyof typeof MCPEventSourceEnumApi]
+
+export const MCPEventSourceEnumApi = {
+    Events: 'events',
+} as const
+
+export type MCPEventFiltersApiActionsItem = { [key: string]: unknown }
+
+export type MCPEventFiltersApiEventsItem = { [key: string]: unknown }
+
+export type MCPEventFiltersApiPropertiesItem = { [key: string]: unknown }
+
+export interface MCPEventFiltersApi {
+    /** Captured PostHog events. Use events.
+     *
+     * * `events` - events */
+    source?: MCPEventSourceEnumApi
+    /** Saved action entries combined with the event entries using OR. Example: [{"id": "123", "type": "actions"}]. */
+    actions?: MCPEventFiltersApiActionsItem[]
+    /** Captured event entries combined with OR. Example: [{"id": "survey sent", "type": "events", "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}]}]. */
+    events?: MCPEventFiltersApiEventsItem[]
+    /** Property conditions applied to all selected events. Example: [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}]. */
+    properties?: MCPEventFiltersApiPropertiesItem[]
+    /** Apply the project's existing test-account exclusions. */
+    filter_test_accounts?: boolean
+}
+
+export interface MCPEventArgumentsApi {
+    /**
+     * Project whose captured events should be monitored.
+     * @minimum 1
+     */
+    project_id: number
+    /** Normal real-time destination filters. Preview the filters before subscribing. */
+    filters: MCPEventFiltersApi
+}
+
+export interface MCPEventSubscriptionApi {
+    /** Subscription ID supplied to the receiving MCP client. */
+    readonly id: string
+    readonly arguments: MCPEventArgumentsApi
+    /** Callback hostname. Paths and signing secrets are hidden. */
+    readonly callback_host: string
+    /** Time when this subscription stops delivering events. */
+    readonly expires_at: string
+    /** Whether this subscription is enabled. */
+    readonly active: boolean
+    /** Time when this subscription was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedMCPEventSubscriptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MCPEventSubscriptionApi[]
+}
+
+export interface MCPEventDeliveryRequestApi {
+    /** Compiled filter that matched the queued event. */
+    filter_bytecode: unknown[]
+    /** Subscription lifecycle generation carried by the queued destination. */
+    generation: string
+    /** Managed destination that queued the event. */
+    function_id: string
+    /**
+     * Callback URL carried by the queued destination.
+     * @maxLength 4096
+     */
+    url: string
+    /**
+     * Exact JSON event body awaiting authorization and signing.
+     * @maxLength 262144
+     */
+    body: string
+}
+
+/**
+ * Fresh signing headers for this delivery. Signing secrets are never returned.
+ */
+export type MCPEventDeliveryResponseApiHeaders = { [key: string]: string }
+
+export interface MCPEventDeliveryResponseApi {
+    /** Authorized serialized event body. */
+    body: string
+    /** Fresh signing headers for this delivery. Signing secrets are never returned. */
+    headers: MCPEventDeliveryResponseApiHeaders
+}
+
+/**
+ * * `posthog.event_captured` - posthog.event_captured
+ */
+export type MCPEventEnvelopeNameEnumApi = (typeof MCPEventEnvelopeNameEnumApi)[keyof typeof MCPEventEnvelopeNameEnumApi]
+
+export const MCPEventEnvelopeNameEnumApi = {
+    PosthogeventCaptured: 'posthog.event_captured',
+} as const
+
+/**
+ * Event properties the subscriber is allowed to read.
+ */
+export type MCPEventDataApiProperties = {
+    [key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null
+}
+
+export interface MCPEventDataApi {
+    /** Event properties the subscriber is allowed to read. */
+    properties: MCPEventDataApiProperties
+    /** Original captured event name. */
+    event: string
+    /** Distinct ID attached to the captured event. */
+    distinct_id: string
+}
+
+export interface MCPEventEnvelopeApi {
+    /** Event occurrence time, including its timezone. */
+    timestamp: string
+    /** Null because replay is unavailable. */
+    cursor: unknown
+    /**
+     * Stable source event ID used to deduplicate deliveries.
+     * @minLength 1
+     * @maxLength 255
+     */
+    eventId: string
+    /** Subscribed MCP event type.
+     *
+     * * `posthog.event_captured` - posthog.event_captured */
+    name: MCPEventEnvelopeNameEnumApi
+    /** Captured event data. */
+    data: MCPEventDataApi
+}
+
+export interface MCPEventPreviewApi {
+    readonly filters: MCPEventFiltersApi
+    /** Up to five matching events from the lookback window. */
+    examples: MCPEventEnvelopeApi[]
+    /** Number of days searched for examples. */
+    lookback_days: number
+    /** Maximum number of examples. This is not a total event count. */
+    sample_limit: number
+}
+
+export interface MCPEventWebhookApi {
+    /** Delivery mode. Use webhook. */
+    mode: string
+    /**
+     * HTTPS callback supplied by the receiving MCP client.
+     * @maxLength 4096
+     */
+    url: string
+    /**
+     * Client-supplied whsec_ signing secret.
+     * @maxLength 128
+     */
+    secret: string
+}
+
+export interface MCPEventSubscribeApi {
+    /** Event type. Use posthog.event_captured. */
+    name: string
+    /** Project and event filters for this subscription. */
+    arguments: MCPEventArgumentsApi
+    /** Callback and signing information supplied by the client. */
+    delivery: MCPEventWebhookApi
+    /**
+     * Requested lifetime in milliseconds. The server grants a finite lifetime of at most 24 hours.
+     * @minimum 1000
+     * @nullable
+     */
+    ttl_ms?: number | null
+    /**
+     * Replay is unavailable. Use null to receive future events.
+     * @nullable
+     */
+    cursor?: string | null
+}
+
+export interface MCPEventIdentityArgumentsApi {
+    /**
+     * Project whose captured events should be monitored.
+     * @minimum 1
+     */
+    project_id: number
+    /** Original event filters, including filters for deleted resources. */
+    filters: MCPEventFiltersApi
+}
+
+export interface MCPEventUnsubscribeDeliveryApi {
+    /** Delivery mode. Use webhook. */
+    mode: string
+    /**
+     * Original callback URL supplied when subscribing.
+     * @maxLength 4096
+     */
+    url: string
+}
+
+export interface MCPEventUnsubscribeApi {
+    /** Event type. Use posthog.event_captured. */
+    name: string
+    /** Original project and event filters. */
+    arguments: MCPEventIdentityArgumentsApi
+    /** Original callback identity. */
+    delivery: MCPEventUnsubscribeDeliveryApi
+}
+
+/**
  * * `SYSTEM` - SYSTEM
  * * `PLUGIN` - PLUGIN
  * * `CONSOLE` - CONSOLE
@@ -1039,6 +1251,17 @@ export const HogFunctionsMetricsTotalsRetrieveInterval = {
 } as const
 
 export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type McpEventSubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */

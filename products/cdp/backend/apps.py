@@ -9,3 +9,9 @@ class CdpConfig(AppConfig):
     default_auto_field = "django.db.models.AutoField"
     name = "products.cdp.backend"
     label = "cdp"
+
+    def ready(self) -> None:
+        super().ready()
+        from products.cdp.backend import (
+            mcp_event_signals,  # noqa: F401, PLC0415 — registers receivers after model registration
+        )

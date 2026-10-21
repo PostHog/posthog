@@ -304,6 +304,7 @@ rules:
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPEventSubscription
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -770,6 +771,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPEventSubscription
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -1132,6 +1134,7 @@ rules:
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot
                         |MCPAnalyticsSubmission
+                        |MCPEventSubscription
                         |MCPMeasuredStats
                         |MCPOAuthState
                         |MCPServerInstallation
