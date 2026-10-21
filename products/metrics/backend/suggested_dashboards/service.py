@@ -19,9 +19,10 @@ from products.metrics.backend.facade.contracts import (
 )
 from products.metrics.backend.facade.enums import DashboardTemplateSource, DashboardTemplateStatus
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
-from products.metrics.backend.suggested_dashboards import review
+from products.metrics.backend.suggested_dashboards import generation, review
 from products.metrics.backend.suggested_dashboards.spec import GenerationRecord, template_panels
 from products.metrics.backend.temporal import schedule
+from products.metrics.backend.temporal.inputs import GenerationRequestInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -169,6 +170,30 @@ def reject(user: User, template_id: str) -> DashboardTemplateSummary:
         template = review.reject(template=_get_template(template_id), user=user)
     except review.TemplateNotReviewable as error:
         raise SuggestedDashboardError(str(error)) from error
+    return get_template(str(template.id))
+
+
+def regenerate(user: User, template_id: str) -> DashboardTemplateSummary:
+    try:
+        template = review.regenerate(template=_get_template(template_id), user=user)
+    except review.TemplateNotReviewable as error:
+        raise SuggestedDashboardError(str(error)) from error
+    assert template.source_team_id is not None
+    try:
+        schedule.start_regeneration(
+            template.source_team_id,
+            str(template.id),
+            GenerationRequestInputs(
+                key=template.key,
+                name=template.name,
+                description=template.description,
+                metric_names=list(template.metric_names),
+            ),
+        )
+    except Exception as error:
+        logger.exception("metrics_suggested_dashboards_regeneration_not_started", template_id=str(template.id))
+        generation.finish_generation(str(template.id), error="The generation could not start.")
+        raise SuggestedDashboardError("The generation could not start. Try again.") from error
     return get_template(str(template.id))
 
 

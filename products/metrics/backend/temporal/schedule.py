@@ -20,12 +20,16 @@ from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.metrics.backend.suggested_dashboards.timeouts import SUGGEST_TIMEOUT
+from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT, SUGGEST_TIMEOUT
 from products.metrics.backend.temporal.inputs import (
     DISCOVERY_WORKFLOW_NAME,
+    GENERATE_WORKFLOW_NAME,
     SUGGEST_WORKFLOW_NAME,
     DiscoveryInputs,
+    GenerateInputs,
+    GenerationRequestInputs,
     SuggestInputs,
+    generate_workflow_id,
     suggest_workflow_id,
 )
 
@@ -68,6 +72,22 @@ def start_team_analysis(team_id: int, *, force: bool) -> None:
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=SUGGEST_TIMEOUT,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        )
+    )
+
+
+def start_regeneration(team_id: int, template_id: str, request: GenerationRequestInputs) -> None:
+    """Generate an existing template again. A finished run of the same template is replaced, a running one is not."""
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            GENERATE_WORKFLOW_NAME,
+            GenerateInputs(team_id=team_id, request=request, template_id=template_id),
+            id=generate_workflow_id(request.key),
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            execution_timeout=GENERATE_TIMEOUT,
+            id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         )
     )
