@@ -101,7 +101,10 @@ A change that adds metrics lists their names.
 | 22 | 8 decoupled commits | Cleanup | Delete the per-poll completion path |
 | 23 | 9 bounded replay | Implement | Add the budget accounting |
 | 24 | 9 bounded replay | Switchover | Enable the budget |
-| 25 | 9 bounded replay | Structure | Poll continuously and remove the in-flight admission cap |
+| 25a | 9 bounded replay | Prepare | Put polling behind a strategy |
+| 25b | 9 bounded replay | Implement | Build the continuous polling strategy |
+| 25c | 9 bounded replay | Switchover | Poll continuously |
+| 25d | 9 bounded replay | Cleanup | Delete the capped polling strategy |
 | 26 | 10 clean handoff | Prepare | Add revoke and drained markers |
 | 27 | 10 clean handoff | Implement | Build the drain |
 | 28 | 10 clean handoff | Switchover | Enable the drain |
@@ -602,11 +605,11 @@ Exit criterion at the canary: zero ledger errors and gap walks, and a stalled pa
 **Interfaces:**
 
 - Remove `PollSettlement` and the completion granularity from `Config`.
-- Keep the in-flight poll queue and its per-poll aggregation from change 7. The loop waits on the oldest poll until change 25 replaces it.
+- Keep the in-flight poll queue and its per-poll aggregation from change 7. The capped polling strategy waits on the oldest poll until change 25d deletes it.
 
 ## Cycle 9: replay exposure is bounded per partition
 
-Outcome: no partition's uncommitted work exceeds its budget, in events and bytes. The in-flight admission cap is gone. Needs cycles 2 and 8.
+Outcome: no partition's uncommitted work exceeds its budget, in events and bytes. The poll-count admission cap is gone; a pod-wide in-flight limit bounds memory. Needs cycles 2 and 8.
 
 **Verify:** the ledger's uncommitted gauges run on all lanes with no budget set.
 Exit criterion: `kafka_consumer_ledger_uncommitted_events` summed per pod tracks the admission cap's occupancy.
@@ -642,7 +645,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 - A charts values PR sets the budget lane by lane. The admission cap and the budget both bound work during the transition.
 - Derive the first values from the current config: the cap times the batch size, divided by the partitions a pod holds, for events; the byte bound likewise for bytes. The per-pod bound then does not change at the switchover.
 - Pause a partition when its outstanding charge reaches the budget on either axis. Resume it only when its charge is back at or under the low watermark on both axes. A pause purges that partition's fetched messages from librdkafka's queue and a resume refetches them, so a gate that reopens on the first refund refetches on every crossing.
-- Keep polling while some partitions are paused. A paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled consumer does neither. While every partition is paused, the loop waits on completions without polling Kafka, as it already does when the cap is full; change 25 removes that wait. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned: a partition that arrives starts unpaused, with a fresh ledger generation and zero charge.
+- Keep polling while some partitions are paused. A paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled consumer does neither. While every partition is paused, the loop waits on completions without polling Kafka, as it already does when the cap is full; the continuous polling strategy (change 25b) removes that wait. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned: a partition that arrives starts unpaused, with a fresh ledger generation and zero charge.
 - Watch the paused-partitions gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
 
 - The budget is a fixed amount per partition, not a share of a pod-wide amount. A rebalance changes how many partitions a pod holds, not how much each one may expose, so the value does not move at rebalances.
@@ -656,24 +659,66 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 - Add `ingestion_consumer_budget_paused_partitions` (gauge) and `ingestion_consumer_budget_pauses_total{topic,partition}` (counter).
 
-### 25. Poll continuously and remove the in-flight admission cap (structure)
+### 25a. Put polling behind a strategy (prepare)
 
-**Task:** After the budget is stable on all lanes, replace the poll-and-wait loop with one loop that polls Kafka continuously and applies completions as they arrive. Remove `max_in_flight_batches`.
+**Task:** Move the poll-and-wait loop behind a polling strategy, unchanged. The existing loop becomes the capped strategy.
 
-**Goal:** The budget is the only admission bound. No wait on one poll holds back fetching, completions, or commits.
+**Goal:** A second strategy can replace the loop by config, and the capped strategy stays as its rollback.
 
-- The loop and the cap change together. The loop applies completions only while it waits for the oldest poll, and under steady traffic a full cap is what makes it wait. Without the cap and with the old loop, completions stay unread until every partition pauses at its budget.
-- One `select!` serves the Kafka poll, the completions, the batcher's errors, the commit tick, and shutdown. Collection must be safe to cancel: the loop keeps the poll it is building in its own state and adds each message when `recv()` returns it, so a branch that wins the race drops no message.
-- The commit tick fires when the pacer is next due, so a refund and the resume it allows go out on time.
-- Kafka is polled while every partition is paused, so rebalance callbacks and `max.poll.interval.ms` no longer depend on completions.
-- Only admission control goes. The collection bounds — batch size and batch timeout — stay: they shape one poll, not the amount of admitted work.
-- Nothing tracks a poll after it is submitted. The budget bounds the admitted work, so the loop does not count polls or wait for one to finish.
+- The loop and the cap change together. The loop applies completions only while it waits for the oldest poll, and under steady traffic a full cap is what makes it wait. Without the cap and with the old loop, completions stay unread until every partition pauses at its budget. So the loop, not only the cap, goes behind the seam.
+- The strategy decides how the loop waits: when to collect, which completions to wait for, and when the loop is done. It returns one step at a time. The consumer carries out each step: it charges and submits a poll, submits a commit and resumes its partitions, starts the batcher's shutdown, or fails the process. The Kafka client and the batcher stay with the consumer, and the settlement is shared.
+- Collection builds a poll message by message in a poll builder. The capped strategy runs a collection to the end before it waits, as it does now. The continuous strategy keeps its builder between turns of its loop (change 25b).
+- Charging moves from the end of a collection to the submit. The order does not change: a poll is charged, then submitted.
 
 **Interfaces:**
 
-- Modify `IngestionConsumer::run`: one select loop over collection, completions, errors, the commit tick, and shutdown. Remove `complete_oldest_poll`, the in-flight poll queue, and the per-poll aggregation.
-- Remove `max_in_flight_batches` from `Config` and the admission bookkeeping from `IngestionConsumer`.
-- Remove `ingestion_consumer_in_flight_batches`. The budget gauges replace it.
+- Add `PollingStrategy` with `next() -> Step`, and `CappedPolling`: the in-flight poll queue, the per-poll aggregation, `complete_oldest_poll`, and the admission cap.
+- Add `PollBuilder`: one poll's messages and per-partition deliveries, built one message at a time.
+- Modify `IngestionConsumerOptions`: `polling` replaces `max_in_flight_batches`.
+
+### 25b. Build the continuous polling strategy (implement)
+
+**Task:** Add a strategy that polls Kafka continuously and applies completions as they arrive. Config selects it per lane. The capped strategy stays the default.
+
+**Goal:** With the continuous strategy, no wait on one poll holds back fetching, completions, or commits. The budget bounds each partition's replay exposure, and a pod-wide in-flight limit bounds memory.
+
+- One `select!` serves the Kafka poll, the completions, the batcher's errors, the commit tick, and shutdown. Collection must be safe to cancel: the strategy keeps the poll it is building in its own state and adds each message when `recv()` returns it, so a branch that wins the race drops no message. `StreamConsumer::recv` is cancellation safe.
+- A poll is submitted when it reaches the batch size or the byte bound, or when the batch timeout passes after its first message. The collection bounds shape one poll, not the amount of admitted work.
+- The commit tick fires at the commit interval, capped at 1s, so a refund and the resume it allows go out within one interval.
+- Kafka is polled while every partition is paused, so rebalance callbacks and `max.poll.interval.ms` no longer depend on completions.
+- Nothing waits on a poll after it is submitted. The strategy keeps each partition's submitted slices: the assignment epoch, the ledger generation, the offsets, and the bytes. A completion settles the offsets of the slice with its epoch, under that slice's generation. A completion with no slice is stale and is discarded. A revoke drops the partition's slices, because the batcher purges their messages.
+- The in-flight limit bounds memory: the events and bytes polled and not yet completed, for the whole pod. The budget does not bound memory. It counts completed work that waits for a commit, and the pod's total grows with the number of partitions it holds. A completion releases its events. A slice's bytes release when every offset in the slice is completed, so the byte figure can only be high.
+- At the in-flight limit, the loop stops reading from Kafka until completions free room. While it waits, rebalance callbacks also wait for completions, as they do under the capped strategy. The limit is a safety valve: size it above the budget times the partitions a pod holds, so that it does not bind in steady state.
+- The continuous strategy needs `group` granularity, a budget, and an in-flight limit. Without all three the consumer logs a warning and runs the capped strategy, so a lane rolled back to `poll` does not need its polling setting changed too.
+
+**Interfaces:**
+
+- Add `ContinuousPolling`.
+- Modify `Config`: add the polling strategy (`capped` by default) and the in-flight limit in events and in bytes. Unset means no limit on that axis.
+
+**Metrics:**
+
+- Add `ingestion_consumer_in_flight_events` and `ingestion_consumer_in_flight_bytes` (gauges), and `ingestion_consumer_in_flight_limit_reached_total` (counter, one per time the loop stops reading at the limit).
+
+### 25c. Poll continuously (switchover)
+
+**Task:** After the budget is stable on all lanes, select the continuous strategy lane by lane, with an in-flight limit.
+
+**Goal:** The budget and the in-flight limit are the only admission bounds on every lane.
+
+- A charts values PR sets the strategy and the limit per lane. Rollback is selecting `capped`.
+- Watch `ingestion_lag_ms`, the paused-partitions gauge, the in-flight gauges, and the limit counter. A limit counter that rises in steady state means the limit is too low.
+
+### 25d. Delete the capped polling strategy (cleanup)
+
+**Task:** Remove the capped strategy after the continuous strategy is stable on all lanes.
+
+**Goal:** One loop, and no poll-count admission cap.
+
+**Interfaces:**
+
+- Remove `CappedPolling`, the polling strategy setting, and `max_in_flight_batches` from `Config`.
+- Remove `ingestion_consumer_in_flight_batches`. The budget gauges and the in-flight gauges replace it.
 
 ## Cycle 10: partitions hand off cleanly
 
