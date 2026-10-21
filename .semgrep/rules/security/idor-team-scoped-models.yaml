@@ -125,6 +125,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -458,6 +459,7 @@ rules:
                               |TracingView
                               |UploadedMedia
                               |UserInterview
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -599,6 +601,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -921,6 +924,7 @@ rules:
                         |TracingView
                         |UploadedMedia
                         |UserInterview
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -1031,6 +1035,7 @@ rules:
                         |ColumnConfiguration
                         |Conversation
                         |ConversationRestoreToken
+                        |ConversionRecommendationRun
                         |CoreEvent
                         |CoreMemory
                         |CustomerJourney
