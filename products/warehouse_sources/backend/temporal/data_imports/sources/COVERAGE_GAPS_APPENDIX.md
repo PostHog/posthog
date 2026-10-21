@@ -7326,13 +7326,13 @@ Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 - [x] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
 - [x] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
 - [x] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
-- [ ] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
-- [ ] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
+- [x] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
+- [x] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
 - [x] `stock_adjustments (GET /api/2.0/stock_adjustments)` — inventory movement/shrinkage records that explain changes in the inventory table we sync (medium)
 - [x] `promotions (+ /promotions/{id}/products, promo codes)` — discount campaigns and their product scope; needed to attribute discounted revenue (medium)
 - [x] `gift_cards (+ gift card transactions)` — outstanding liability and gift-card redemption transactions (medium)
-- [ ] `store_credits (+ transactions and balances)` — store credit liability and per-customer transaction ledger (medium)
-- [ ] `shifts (GET /api/2.0/shifts)` — register shift open/close records for labor and till-reconciliation analysis (medium)
+- [x] `store_credits (+ transactions and balances)` — store credit liability and per-customer transaction ledger (medium)
+- [x] `shifts (GET /api/2.0/shifts)` — register shift open/close records for labor and till-reconciliation analysis (medium)
 
 Note: The X-Series docs are a ReadMe.io site with no downloadable OpenAPI; the endpoint inventory was recovered from the 228 operation slugs embedded in the reference page payload. Also unsynced but lower value: price_books/price_book_products, product_types, product_images, serial_numbers, service_orders, quotes, fulfillments, audit log events, custom fields, variant attributes, customer_addresses, channels and retailers.
 
