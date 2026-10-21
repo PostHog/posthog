@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -229,10 +230,24 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("events", 12, "events.timestamp"),
-            ("events", 84, "events.timestamp"),
-            ("web_stats_dimensional_preaggregated", 12, "web_stats_dimensional_preaggregated.period_bucket"),
-            ("web_bounces_dimensional_preaggregated", 12, "web_bounces_dimensional_preaggregated.period_bucket"),
+            ("events", 84, "timestamp"),
+            *[
+                (table, 12, column)
+                for table, column in [
+                    ("events", "timestamp"),
+                    ("web_pre_aggregated_stats", "period_bucket"),
+                    ("web_pre_aggregated_bounces", "period_bucket"),
+                    ("web_stats_dimensional_preaggregated", "period_bucket"),
+                    ("web_bounces_dimensional_preaggregated", "period_bucket"),
+                    ("posthog.web_sessions_dimensional_preaggregated", "period_bucket"),
+                    ("posthog.web_stats_preaggregated", "time_window_start"),
+                    ("posthog.web_overview_preaggregated", "time_window_start"),
+                    ("posthog.web_goals_preaggregated", "time_window_start"),
+                    ("posthog.web_stats_paths_preaggregated", "time_window_start"),
+                    ("posthog.web_stats_frustration_preaggregated", "time_window_start"),
+                    ("posthog.web_vitals_paths_preaggregated", "time_window_start"),
+                ]
+            ],
         ]
     )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
@@ -241,7 +256,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
         sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert f"greater({floored_column}, minus(now" in sql
+        assert re.search(rf"greater\([\w.`]*\b{floored_column}`?, minus\(now", sql), sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):

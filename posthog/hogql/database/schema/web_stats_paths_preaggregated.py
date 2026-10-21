@@ -29,6 +29,7 @@ class WebStatsPathsPreaggregatedTable(Table):
         default_factory=lambda: HogQLQuerySettings(load_balancing="in_order", optimize_skip_unused_shards=True)
     )
 
+    events_retention_field: str | None = "time_window_start"
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),
         "job_id": StringDatabaseField(

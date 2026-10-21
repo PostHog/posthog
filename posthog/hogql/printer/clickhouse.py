@@ -24,10 +24,6 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     extract_uuid_constants,
     get_events_session_id_table_type,
 )
-from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebBouncesDimensionalPreAggregatedTable,
-    WebStatsDimensionalPreAggregatedTable,
-)
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -1106,13 +1102,10 @@ class ClickHousePrinter(BasePrinter):
             return None
         if isinstance(table_type.table, EventsTable):
             return retention_floor_for_table(node_type, months)
-        # These tables keep aggregates of events for longer than a team's retention window. Each
-        # `period_bucket` holds one hour that starts at the bucket value, so the floor drops the
-        # whole hour that contains the retention boundary.
-        if isinstance(
-            table_type.table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable
-        ):
-            return retention_floor_for_table(node_type, months, field_name="period_bucket")
+        # The field holds the start of each aggregated bucket, so the floor drops the whole bucket that
+        # contains the retention boundary.
+        if table_type.table.events_retention_field:
+            return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
         return None
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:

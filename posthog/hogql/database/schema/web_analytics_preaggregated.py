@@ -152,6 +152,7 @@ class WebPreAggregatedStatsTable(Table):
         "Pre-aggregated daily web analytics stats bucketed by dimensions (path, device, geo, UTM, etc.), "
         "used internally by the web analytics product. Metric columns are AggregateFunction states that must be merged."
     )
+    events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
@@ -171,6 +172,7 @@ class WebPreAggregatedBouncesTable(Table):
         "Pre-aggregated daily web analytics session metrics (bounce rate and session duration) bucketed by dimensions, "
         "used internally by the web analytics product. Metric columns are AggregateFunction states that must be merged."
     )
+    events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
@@ -201,6 +203,7 @@ class WebStatsDimensionalPreAggregatedTable(Table):
         "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
         "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
     )
+    events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
@@ -222,6 +225,7 @@ class WebBouncesDimensionalPreAggregatedTable(Table):
         "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
         "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
     )
+    events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,

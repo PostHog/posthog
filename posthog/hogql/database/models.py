@@ -248,6 +248,9 @@ class Table(FieldOrTable):
     # `max_bytes_before_external_group_by=0`, so the ClickHouse user profile's spill thresholds apply.
     inherit_profile_spill: bool = False
     workload: Optional[Workload] = None
+    # Set on tables that store aggregates of events. The printer floors reads on this column at the team's events
+    # retention, as it does for `events`, so that precomputed rows cannot outlive the events they came from.
+    events_retention_field: Optional[str] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
