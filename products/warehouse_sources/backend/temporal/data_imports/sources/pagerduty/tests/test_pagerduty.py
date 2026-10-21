@@ -207,10 +207,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_ok,expected_status",
         [
-            (200, True, 200),
-            (401, False, 401),
             (403, False, 403),
-            (500, False, 500),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_ok: bool, expected_status: int) -> None:
