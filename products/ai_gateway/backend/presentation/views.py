@@ -1,6 +1,4 @@
-"""Developer mode endpoints: staff mint, list and revoke their own short-lived gateway tokens.
-
-Browser endpoints take the session only, so no long-lived key can mint. The CLI never holds
+"""Browser endpoints take the session only, so no long-lived key can mint. The CLI never holds
 a PostHog credential: the browser authorizes a PKCE challenge and hands a one-time code to
 the CLI's loopback listener, which exchanges it for a token.
 """

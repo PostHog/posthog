@@ -8,9 +8,7 @@ from .facade.enums import DevTokenClient
 
 
 class DevGatewayToken(TeamScopedRootMixin):
-    """One developer-mode gateway token minted for a staff user.
-
-    `team` is the team whose wallet pays (DEV_GATEWAY_TEAM_ID), not the user's current
+    """`team` is the team whose wallet pays (DEV_GATEWAY_TEAM_ID), not the user's current
     project. Only the token's sha256 is stored; the bearer is returned once at mint.
     A row exists from before the gateway call, so a concurrent mint counts it against
     the daily cap; a failed mint deletes it. The foreign keys skip the DB constraint so

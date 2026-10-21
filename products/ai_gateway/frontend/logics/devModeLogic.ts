@@ -20,7 +20,6 @@ export interface CliRequest {
     state: string
 }
 
-/** The CLI's loopback request, or null when the URL does not carry a well-formed one. */
 export function parseCliRequest(searchParams: Record<string, any>): CliRequest | null {
     const challenge = String(searchParams.cli_challenge ?? '')
     const port = Number(searchParams.cli_port)

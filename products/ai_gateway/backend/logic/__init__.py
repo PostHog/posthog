@@ -1,9 +1,7 @@
-"""Developer mode: short-lived AI gateway tokens for PostHog staff.
+"""Short-lived AI gateway tokens for PostHog staff.
 
-Django authenticates the employee, then mints a scoped `phe_` token on the gateway with
-the employee's distinct_id pinned as the `user` node, so no request header can change
-who a call is attributed to. Every token is recorded by hash, which is how the daily
-cap is enforced and how tokens are listed and revoked.
+The gateway pins the staff user's distinct_id on each token, so no request header can
+change who a call is attributed to.
 """
 
 from __future__ import annotations
@@ -62,8 +60,7 @@ def daily_cap_usd() -> Decimal:
 
 
 def eligibility_refusal(user: User) -> DevTokenRefused | None:
-    """Why `user` cannot use developer mode, or None. Impersonation is request state and is
-    checked by the caller before this."""
+    """Impersonation is request state, so the caller checks it before this."""
     if not user.is_active or not user.is_staff:
         return DevTokenRefused("not_staff", "Developer mode is only available to PostHog staff.", 403)
     if not (user.email or "").lower().endswith(STAFF_EMAIL_DOMAIN) or email_verification_pending(user):
@@ -244,8 +241,7 @@ def usage(user: User) -> DevTokenUsage:
 
 
 def revoke(user: User, token_id: str | None) -> int:
-    """Revokes one of `user`'s live tokens, or all of them when token_id is None. Returns how many
-    the gateway deleted. A row is marked revoked only after the gateway confirms."""
+    """Returns the gateway's revoked count. Rows are marked revoked only after the gateway confirms."""
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         rows = DevGatewayToken.objects.filter(
             user_id=user.pk, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
