@@ -18,7 +18,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
+from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -172,7 +172,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("source_owned", "source", {}),
-            ("platform_owned", "platform", {"insight_chart_url": "https://example.com/chart.png"}),
+            ("platform_owned", "platform", {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3}),
         ]
     )
     def test_a_firing_records_what_production_sends_beside_it(
@@ -187,7 +187,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             **chart,
         }
 
-        with patch(f"{_MODULE}.render_alert_insight_chart_url", return_value="https://example.com/chart.png") as render:
+        with patch(
+            f"{_MODULE}.render_alert_insight_chart",
+            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
+        ) as render:
             outcome, _ = self._evaluate(
                 configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
             )

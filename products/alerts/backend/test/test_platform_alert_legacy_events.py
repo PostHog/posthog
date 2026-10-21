@@ -7,7 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.schema_enums import AlertState
-from posthog.tasks.alerts.utils import trigger_alert_hog_functions
+from posthog.tasks.alerts.utils import RenderedInsightChart, trigger_alert_hog_functions
 
 from products.alerts.backend.platform_alert_legacy_events import emit_insight_legacy_events
 from products.alerts.backend.test.insight_alerts import create_insight_alert
@@ -23,6 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
 _MODULE = "products.alerts.backend.platform_alert_legacy_events"
 CHECKED_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 CHART_URL = "https://example.com/chart.png"
+_EMITTER = "products.alerts.backend.platform_alert_legacy_events"
 
 
 class TestInsightLegacyEvents(APIBaseTest):
@@ -78,16 +79,31 @@ class TestInsightLegacyEvents(APIBaseTest):
         )
         return LegacyEventEmission(transition=transition, sends_message=sends_message, incident_action=None)
 
-    @parameterized.expand([("without_a_chart", {}), ("with_a_chart", {"insight_chart_url": CHART_URL})])
-    def test_a_firing_emits_the_properties_the_insight_stack_sends(self, _name: str, chart: dict[str, str]) -> None:
+    @parameterized.expand(
+        [
+            ("without_a_chart", {}, {}),
+            (
+                "with_a_chart",
+                {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3},
+                {"insight_chart_url": CHART_URL},
+            ),
+        ]
+    )
+    def test_a_firing_emits_the_properties_the_insight_stack_sends(
+        self, _name: str, stored: dict[str, int], sent: dict[str, str]
+    ) -> None:
         breaches = ["The insight value (150) is more than upper threshold (100)", "A second series breached"]
         with patch("posthog.tasks.alerts.utils.produce_alert_internal_event") as produce:
-            trigger_alert_hog_functions(self.alert, {"breaches": "\n".join(breaches), **chart})
+            trigger_alert_hog_functions(self.alert, {"breaches": "\n".join(breaches), **sent})
 
-        (event,) = self._emit(self._emission(detail={"breaches": breaches, **chart}))
+        with patch(f"{_EMITTER}.insight_chart_url", return_value=CHART_URL) as mint:
+            (event,) = self._emit(self._emission(detail={"breaches": breaches, **stored}))
 
         assert event.event_name == produce.call_args.kwargs["event_name"]
         assert event.properties == produce.call_args.kwargs["properties"]
+        # The URL opens the chart without a login, so it is minted for the user that rendered it.
+        if stored:
+            assert mint.call_args.kwargs["chart"] == RenderedInsightChart(asset_id=7, render_user_id=3)
 
     @parameterized.expand(
         [
