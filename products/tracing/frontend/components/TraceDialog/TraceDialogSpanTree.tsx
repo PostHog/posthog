@@ -29,6 +29,8 @@ interface SpanListRowData {
     openedSpanId: string | null
     openedAtUs: number | null
     openedFrom: TraceDialogSource | null
+    /** Per row, whether it stands for a span of the highlighted operation. Null when nothing dims. */
+    operationRowMatches: boolean[] | null
     onSelect: (spanId: string) => void
     onToggleCollapsed: (spanId: string) => void
     onToggleChain: (spanId: string) => void
@@ -46,6 +48,7 @@ function SpanListRow({
     openedSpanId,
     openedAtUs,
     openedFrom,
+    operationRowMatches,
     onShowAll,
     ...rowProps
 }: {
@@ -54,11 +57,12 @@ function SpanListRow({
     style: CSSProperties
 } & SpanListRowData): JSX.Element {
     const row = spanRows[index]
+    const isDimmed = operationRowMatches != null && !operationRowMatches[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div {...ariaAttributes} style={style}>
             {row.kind === 'more' ? (
-                <TraceDialogMoreSpansRow row={row} onShowAll={onShowAll} />
+                <TraceDialogMoreSpansRow row={row} isDimmed={isDimmed} onShowAll={onShowAll} />
             ) : (
                 <SpanOrChainRow
                     row={row}
@@ -66,6 +70,7 @@ function SpanListRow({
                     openedSpanId={openedSpanId}
                     openedAtUs={openedAtUs}
                     openedFrom={openedFrom}
+                    isDimmed={isDimmed}
                     descendantCounts={descendantCounts}
                     collapsedSpanIds={collapsedSpanIds}
                     rowProps={rowProps}
@@ -81,6 +86,7 @@ function SpanOrChainRow({
     openedSpanId,
     openedAtUs,
     openedFrom,
+    isDimmed,
     descendantCounts,
     collapsedSpanIds,
     rowProps,
@@ -90,6 +96,7 @@ function SpanOrChainRow({
     openedSpanId: string | null
     openedAtUs: number | null
     openedFrom: TraceDialogSource | null
+    isDimmed: boolean
     descendantCounts: Map<string, number>
     collapsedSpanIds: Set<string>
     rowProps: Pick<SpanListRowData, 'timeline' | 'serviceColorMap' | 'onSelect' | 'onToggleCollapsed' | 'onToggleChain'>
@@ -101,6 +108,7 @@ function SpanOrChainRow({
             isSelected={spanId === selectedSpanId}
             openedAtUs={spanId === openedSpanId ? openedAtUs : null}
             openedFrom={spanId === openedSpanId ? openedFrom : null}
+            isDimmed={isDimmed}
             descendantCount={descendantCounts.get(spanId) ?? 0}
             isCollapsed={collapsedSpanIds.has(spanId)}
             {...rowProps}
@@ -131,6 +139,8 @@ export interface TraceDialogSpanTreeProps {
     hasMore?: boolean
     loadingMore?: boolean
     onLoadMore?: () => void
+    /** Dim the rows outside the highlighted operation. Off while the inspector, which explains the dimming, is hidden. */
+    showOperationHighlight?: boolean
 }
 
 export function TraceDialogSpanTree({
@@ -139,6 +149,7 @@ export function TraceDialogSpanTree({
     hasMore = false,
     loadingMore = false,
     onLoadMore,
+    showOperationHighlight = true,
 }: TraceDialogSpanTreeProps): JSX.Element {
     const {
         spanRows,
@@ -149,6 +160,9 @@ export function TraceDialogSpanTree({
         selectedSpan,
         missingParentSpanId,
         pinnedSpanId: openedSpanId,
+        highlightedOperationKey,
+        operationRowMatches,
+        firstOperationRowIndex,
     } = useValues(traceViewLogic)
     const { selectSpan, toggleSpanCollapsed, toggleChain, showAllChildren } = useActions(traceViewLogic)
     const [topIndex, setTopIndex] = useState(0)
@@ -200,6 +214,29 @@ export function TraceDialogSpanTree({
             listRef.current?.scrollToRow({ index, align: 'smart' })
         }
     }, [spanRows, selectedSpanId, openedSpanId, listRef])
+    // The first span of a large operation often sits far down the tree, so a click on the operations table
+    // scrolls to it. The logic has already opened what hid it, so it is the first row of the operation. The
+    // `start` alignment puts it at the top, so the rest of the operation's spans fill the list below it. The
+    // ref holds the key that last scrolled, so that a later collapse, expand or page of spans does not pull
+    // the list back. This effect runs after the selection scroll above, so its scroll wins when the opened
+    // rows trigger both.
+    const scrolledOperationKeyRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (highlightedOperationKey == null) {
+            scrolledOperationKeyRef.current = null
+            return
+        }
+        if (scrolledOperationKeyRef.current === highlightedOperationKey || !listRef.current) {
+            return
+        }
+        if (firstOperationRowIndex >= 0) {
+            // The opened rows can move the opened span to a new index, which the reveal in `onRowsRendered`
+            // reads as a span still to bring into view. The person steers the list now, so that reveal stops.
+            revealedIndexRef.current = openedIndex
+            listRef.current.scrollToRow({ index: firstOperationRowIndex, align: 'start' })
+            scrolledOperationKeyRef.current = highlightedOperationKey
+        }
+    }, [highlightedOperationKey, firstOperationRowIndex, openedIndex, listRef])
 
     const pinnedAncestors = scrolledPastAncestors(spanRows[topIndex])
     const hiddenAncestorCount = Math.max(pinnedAncestors.length - MAX_PINNED_ANCESTORS, 0)
@@ -280,6 +317,7 @@ export function TraceDialogSpanTree({
                                 openedSpanId,
                                 openedAtUs,
                                 openedFrom,
+                                operationRowMatches: showOperationHighlight ? operationRowMatches : null,
                                 onSelect: selectSpan,
                                 onToggleCollapsed: toggleSpanCollapsed,
                                 onToggleChain: toggleChain,

@@ -17,6 +17,7 @@ import { SpanLogsTab } from '../TraceDrawer/SpanLogsTab'
 import { SpanMetricsTab } from '../TraceDrawer/SpanMetricsTab'
 import { SpanSummaryHeader } from '../TraceDrawer/SpanSummaryHeader'
 import { TraceErrorsTab } from '../TraceDrawer/TraceErrorsTab'
+import { TraceOperationsTab } from '../TraceView/TraceOperationsTab'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 
 export interface SpanInspectorProps {
@@ -37,6 +38,15 @@ export interface SpanInspectorProps {
     onSelectTab: (tab: SpanInspectorTab) => void
     /** Offer include, exclude and column actions on each attribute. Off where no span list can use them. */
     showFilterActions?: boolean
+    /** Show the Operations tab, which breaks the trace down by operation. Omit where nothing shows the highlight. */
+    operations?: {
+        /** The trace's real spans. AI event rows are synthetic and have no operation of their own. */
+        spans: Span[]
+        highlightedOperationKey: string | null
+        onHighlightOperation: (operationKey: string | null) => void
+        /** The trace has spans that are not loaded yet, so the counts do not cover the whole trace. */
+        partial: boolean
+    }
 }
 
 export function SpanInspector({
@@ -50,6 +60,7 @@ export function SpanInspector({
     tab,
     onSelectTab,
     showFilterActions = true,
+    operations,
 }: SpanInspectorProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -60,14 +71,15 @@ export function SpanInspector({
 
     // Only DB spans carry a query; the Query tab appears only when one is present.
     const queryText = getQueryText(span)
-    // The Query, Errors and Metrics tabs are conditional, so if the active tab disappears (a span
-    // without a query, or one of the gates turning off), fall back to Attributes. Otherwise
-    // activeKey would point at a tab LemonTabs has dropped and the inspector body would render
-    // blank. Preference is preserved: a DB span re-shows Query.
+    // The Query, Errors, Operations and Metrics tabs are conditional, so if the active tab disappears
+    // (a span without a query, a caller without operations, or one of the gates turning off), fall
+    // back to Attributes. Otherwise activeKey would point at a tab LemonTabs has dropped and the
+    // inspector body would render blank. Preference is preserved: a DB span re-shows Query.
     const activeTab: SpanInspectorTab =
         (tab === 'query' && !queryText) ||
         (tab === 'metrics' && !showMetricsTab) ||
-        (tab === 'errors' && !showErrorsTab)
+        (tab === 'errors' && !showErrorsTab) ||
+        (tab === 'operations' && !operations)
             ? 'attributes'
             : tab
 
@@ -132,6 +144,17 @@ export function SpanInspector({
                                       resolving={resolving}
                                   />
                               ),
+                          }
+                        : null,
+                    // Conditional: only a caller whose span tree shows the highlight that a row click sets
+                    // passes operations.
+                    operations
+                        ? {
+                              key: 'operations',
+                              label: 'Operations',
+                              // Keyed by trace like the Logs tab: a new trace remounts to reset the scope
+                              // toggle; selecting another span re-renders in place.
+                              content: <TraceOperationsTab key={span.trace_id} span={span} {...operations} />,
                           }
                         : null,
                     // Conditional: needs the metrics product (flag + access) and its own flag.

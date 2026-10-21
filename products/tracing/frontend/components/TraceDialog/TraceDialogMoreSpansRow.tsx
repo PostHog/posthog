@@ -1,14 +1,18 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import type { TraceDialogRow } from './traceDialogRows'
 import { indentPx, TraceDialogTreeLines } from './TraceDialogTreeLines'
 
 export interface TraceDialogMoreSpansRowProps {
     row: Extract<TraceDialogRow, { kind: 'more' }>
+    /** None of the hidden spans belongs to the operation the Operations tab highlights. */
+    isDimmed: boolean
     onShowAll: (spanId: string) => void
 }
 
-export function TraceDialogMoreSpansRow({ row, onShowAll }: TraceDialogMoreSpansRowProps): JSX.Element {
+export function TraceDialogMoreSpansRow({ row, isDimmed, onShowAll }: TraceDialogMoreSpansRowProps): JSX.Element {
     const { parent, hiddenCount } = row
     return (
         // Same columns and no gap as the span row, so the tree lines on both line up at any width.
@@ -20,7 +24,7 @@ export function TraceDialogMoreSpansRow({ row, onShowAll }: TraceDialogMoreSpans
                 style={{ paddingLeft: indentPx(row.depth) + 22 }}
             >
                 <TraceDialogTreeLines row={row} />
-                <span className="relative">
+                <span className={cn('relative', isDimmed && 'opacity-40')}>
                     {hiddenCount.toLocaleString()} more {hiddenCount === 1 ? 'span' : 'spans'}
                 </span>
                 <LemonButton
