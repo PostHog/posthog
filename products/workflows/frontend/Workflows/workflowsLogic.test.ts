@@ -40,7 +40,7 @@ describe('workflowsLogic', () => {
         })
     })
 
-    it('saves a row tag edit with only the tags, so it never overwrites the workflow content', async () => {
+    it('saves a row tag edit with only the tags, and shows the name the server stored', async () => {
         const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
         const bodies: unknown[] = []
         useMocks({
@@ -52,10 +52,43 @@ describe('workflowsLogic', () => {
             },
         })
 
-        await expectLogic(logic, () => logic.actions.updateWorkflowTags(workflow, ['growth']))
+        await expectLogic(logic, () => logic.actions.updateWorkflowTags(workflow, ['Growth']))
             .toFinishAllListeners()
             .toMatchValues({ localWorkflowTags: { 'flow-1': ['growth'] } })
 
-        expect(bodies).toEqual([{ tags: ['growth'] }])
+        expect(bodies).toEqual([{ tags: ['Growth'] }])
+    })
+
+    it("sends a row's next tag save only after the one before it lands", async () => {
+        const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
+        const bodies: string[][] = []
+        let markFirstInFlight = (): void => {}
+        let releaseFirst = (): void => {}
+        const firstInFlight = new Promise<void>((resolve) => (markFirstInFlight = resolve))
+        const firstReleased = new Promise<void>((resolve) => (releaseFirst = resolve))
+        let started = 0
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    const { tags } = (await request.json()) as { tags: string[] }
+                    started += 1
+                    if (started === 1) {
+                        markFirstInFlight()
+                        await firstReleased
+                    }
+                    bodies.push(tags)
+                    return [200, { ...workflow, tags }]
+                },
+            },
+        })
+
+        logic.actions.updateWorkflowTags(workflow, ['growth'])
+        logic.actions.updateWorkflowTags(workflow, ['growth', 'billing'])
+        await firstInFlight
+        releaseFirst()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(bodies).toEqual([['growth'], ['growth', 'billing']])
+        expect(logic.values.localWorkflowTags).toEqual({ 'flow-1': ['growth', 'billing'] })
     })
 })

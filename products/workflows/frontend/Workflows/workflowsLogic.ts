@@ -223,6 +223,13 @@ export interface workflowsLogicActions {
         filters: Partial<WorkflowsFilters>
         replace: boolean | undefined
     }
+    setSavedWorkflowTags: (
+        id: string,
+        tags: string[]
+    ) => {
+        id: string
+        tags: string[]
+    }
     setTagsFilter: (
         tags: string[],
         source: 'filter' | 'tag_click'
@@ -302,6 +309,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
         clearArchivedWorkflowSelection: true,
         updateWorkflowTags: (workflow: HogFlow, tags: string[]) => ({ workflow, tags }),
+        setSavedWorkflowTags: (id: string, tags: string[]) => ({ id, tags }),
         setTagsFilter: (tags: string[], source: 'filter' | 'tag_click') => ({ tags, source }),
     }),
     reducers({
@@ -347,6 +355,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             {} as Record<string, string[]>,
             {
                 updateWorkflowTags: (state, { workflow, tags }) => ({ ...state, [workflow.id]: tags }),
+                setSavedWorkflowTags: (state, { id, tags }) => ({ ...state, [id]: tags }),
                 loadWorkflowsSuccess: () => ({}),
             },
         ],
@@ -502,7 +511,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             (selectedIds: Set<string>): number => selectedIds.size,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         selectTypeTab: ({ type }) => {
             actions.setFilters({ type })
             // pinned: analytics event name - renaming breaks dashboards
@@ -518,11 +527,20 @@ export const workflowsLogic = kea<workflowsLogicType>([
             posthog.capture('workflows tag filter changed', { tags_count: tags.length, source })
         },
         updateWorkflowTags: async ({ workflow, tags }) => {
-            try {
+            // Every pick in the open picker saves the whole list, so chain a workflow's saves: an
+            // earlier list landing last would drop the tags picked after it.
+            const pending: Record<string, Promise<void>> = cache.tagSaves ?? (cache.tagSaves = {})
+            const save = (pending[workflow.id] ?? Promise.resolve()).then(async () => {
                 // Only the tags go over the wire, so a row edit never touches the workflow's content.
-                await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, { tags })
+                const saved = await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, { tags })
                 posthog.capture('workflow tags updated', { source: 'workflows_list', tags_count: tags.length })
+                // The server lowercases and trims each name, so show what it stored, not what was typed.
+                actions.setSavedWorkflowTags(workflow.id, saved.tags ? [...saved.tags] : tags)
                 actions.loadTags()
+            })
+            pending[workflow.id] = save.catch(() => {})
+            try {
+                await save
             } catch (error: any) {
                 lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
                 actions.loadWorkflows()
