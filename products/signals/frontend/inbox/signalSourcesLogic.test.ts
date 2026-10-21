@@ -7,15 +7,23 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    AccessControlLevel,
+    ExternalDataJobStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    IntegrationType,
+} from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
+import type { InboxOnboardingDraftApi, InboxOnboardingStateApi } from '../generated/api.schemas'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
@@ -67,6 +75,15 @@ const githubIssuesConfig = {
     status: null,
 }
 
+const declinedJiraDraft: InboxOnboardingDraftApi = {
+    step: 'github',
+    sources: [{ source_product: 'jira', source_type: 'issue', enabled: false }],
+    scanner_ids: [],
+    suggestions: [],
+    automatic_implementation: false,
+    implementation_priority: 'P1',
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolvePromise!: (value: T) => void
     const promise = new Promise<T>((resolve) => {
@@ -78,11 +95,14 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 describe('signalSourcesLogic', () => {
     let logic: ReturnType<typeof signalSourcesLogic.build>
     let warehouseSources: ExternalDataSource[]
+    let onboardingState: InboxOnboardingStateApi
 
     beforeEach(() => {
         warehouseSources = []
+        onboardingState = { draft: null, completed_at: null, variant: null }
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/onboarding/': () => [200, onboardingState],
                 '/api/environments/:team_id/external_data_sources/': () => [
                     200,
                     { results: warehouseSources, count: warehouseSources.length, next: null, previous: null },
@@ -282,23 +302,99 @@ describe('signalSourcesLogic', () => {
         createConfig.mockRestore()
     })
 
-    // The roster shows what runs and the catalog shows the rest. A regression that lists the whole
-    // registry in the roster again, or filters the catalog wrong, fails here.
-    it('rosters connected sources and filters the catalog', () => {
+    it.each([
+        { status: 200, reason: 'integration' },
+        { status: 500, reason: 'default' },
+    ])('waits for integrations before recommending sources, with a $status response', async ({ status, reason }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const response = deferred<void>()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/': async () => {
+                    await response.promise
+                    return status === 200
+                        ? [200, { results: [{ id: 1, kind: 'github' }], next: null }]
+                        : [500, { detail: 'Server error' }]
+                },
+            },
+        })
+        integrationsLogic.actions.clearIntegrations()
+        integrationsLogic.actions.loadIntegrations()
         logic.actions.loadSourceConfigsSuccess([])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: [], next: null, previous: null })
+
+        expect(logic.values.visibleSourceRecommendations).toEqual([])
+
+        response.resolve()
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+        expect(logic.values.visibleSourceRecommendations.find(({ agent }) => agent.source === 'github')).toMatchObject({
+            reason,
+        })
+    })
+
+    // The roster shows what runs and the catalog shows the rest, with the recommendations built only
+    // once both the configs and the connections are known. A recommendation computed from a half-loaded
+    // picture would tell someone to connect a tool they already sync.
+    it('rosters connected sources, filters the catalog, and recommends by effort once everything has loaded', () => {
+        integrationsLogic.actions.loadIntegrationsSuccess([{ id: 1, kind: 'github' } as IntegrationType])
+        logic.actions.loadSourceConfigsSuccess([
+            {
+                ...githubIssuesConfig,
+                id: 'conversations_ticket',
+                source_product: SignalSourceProduct.Conversations,
+                source_type: SignalSourceType.Ticket,
+                enabled: true,
+            },
+        ])
+        expect(logic.values.recommendedSources).toEqual([])
+
+        const recommended = (): string[][] =>
+            logic.values.visibleSourceRecommendations.map(({ agent, reason }) => [agent.source, reason])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: [], next: null, previous: null })
+        expect(recommended()).toEqual([
+            ['github', 'integration'],
+            ['linear', 'default'],
+        ])
+
+        logic.actions.loadOnboardingStateSuccess({
+            draft: declinedJiraDraft,
+            completed_at: '2024-03-10T00:00:00Z',
+            variant: 'test-ui',
+        })
         sourcesDataLogic.actions.loadSourcesSuccess({
             results: [
-                { ...githubSource, source_type: 'Jira' },
-                { ...githubSource, id: 'source-gitea', source_type: 'Gitea' },
+                { ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' },
+                { ...githubSource, id: 'source-gitea', source_type: 'Gitea', created_at: '2024-03-20T00:00:00Z' },
             ],
             next: null,
             previous: null,
         })
-        expect(
-            logic.values.rosterGroups.find((group) => group.id === 'external')?.agents.map((agent) => agent.source)
-        ).toEqual(['jira', 'gitea'])
+        const external = (): string[] =>
+            logic.values.rosterGroups.find((group) => group.id === 'external')?.agents.map((agent) => agent.source) ??
+            []
+        expect(external()).toEqual(['jira', 'gitea'])
         expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
         expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
+        expect(recommended()).toEqual([
+            ['gitea', 'synced'],
+            ['github', 'integration'],
+        ])
+
+        const connectedSources = (['Gitea', 'Bugsnag', 'Honeybadger', 'Raygun'] as const).map((source_type) => ({
+            ...githubSource,
+            id: source_type,
+            source_type,
+        }))
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: connectedSources, next: null, previous: null })
+        expect(recommended()).toHaveLength(4)
+        logic.actions.hideSourceRecommendations()
+        expect(recommended()).toEqual([])
+        sourcesDataLogic.actions.loadSourcesSuccess({
+            results: [...connectedSources, { ...githubSource, id: 'rollbar', source_type: 'Rollbar' }],
+            next: null,
+            previous: null,
+        })
+        expect(recommended()).toEqual([['rollbar', 'synced']])
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true })
         expect(logic.values.sourceCategoryOptions).toContainEqual({ label: 'Engineering', value: 'Engineering' })
@@ -318,6 +414,55 @@ describe('signalSourcesLogic', () => {
         logic.actions.closeSourceCatalog()
         expect(logic.values.sourceCatalog.length).toBeGreaterThan(1)
         expect(logic.values.rosterGroups.find((group) => group.id === 'posthog')?.agents.length).toBeGreaterThan(0)
+    })
+
+    it.each([
+        { name: 'control completion', variant: 'control' as const, draft: null, expected: ['jira'] },
+        {
+            name: 'completion without a source choice',
+            variant: 'test-ui' as const,
+            draft: { ...declinedJiraDraft, sources: [] },
+            expected: ['jira'],
+        },
+        { name: 'an explicit source rejection', variant: 'test-ui' as const, draft: declinedJiraDraft, expected: [] },
+    ])('refreshes recommendations after $name', async (state) => {
+        warehouseSources = [{ ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' }]
+        onboardingState = { variant: state.variant, draft: state.draft, completed_at: null }
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
+        await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
+        expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(['jira'])
+
+        onboardingState = { ...onboardingState, completed_at: '2024-03-10T00:00:00Z' }
+        await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
+        expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(state.expected)
+    })
+
+    it.each(['project', 'user'])('isolates recommendation dismissals by %s across reloads', (scope) => {
+        const originalContext = window.POSTHOG_APP_CONTEXT!
+        logic.actions.hideSourceRecommendations()
+        expect(logic.values.sourceRecommendationsDismissal).toEqual([])
+        logic.unmount()
+
+        const otherTeam =
+            scope === 'project' ? { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 } : MOCK_DEFAULT_TEAM
+        window.POSTHOG_APP_CONTEXT = {
+            ...originalContext,
+            current_user: { ...originalContext.current_user!, uuid: 'another-user' },
+        }
+        if (scope === 'project') {
+            window.POSTHOG_APP_CONTEXT.current_user = originalContext.current_user
+        }
+        initKeaTests(true, otherTeam)
+        logic = signalSourcesLogic()
+        logic.mount()
+        expect(logic.values.sourceRecommendationsDismissal).toBeNull()
+        logic.unmount()
+
+        window.POSTHOG_APP_CONTEXT = originalContext
+        initKeaTests()
+        logic = signalSourcesLogic()
+        logic.mount()
+        expect(logic.values.sourceRecommendationsDismissal).toEqual([])
     })
 
     it('carries the card guidance onto an error tracking signal type turned on later', async () => {

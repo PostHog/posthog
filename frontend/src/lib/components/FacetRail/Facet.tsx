@@ -7,17 +7,27 @@ import { LemonButton, LemonCheckbox, LemonInput, Link, Tooltip } from '@posthog/
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
-import { FacetOption } from './facets'
-
 const ROW_HEIGHT = 33
+
+export interface FacetOption {
+    value: string
+    label: string
+    /** Tailwind bg class for a leading color swatch (e.g. severity colors). */
+    color?: string
+    /** Number of matching records; rendered right-aligned. Omitted when unavailable. */
+    count?: number
+}
 
 interface FacetProps {
     title: string
     options: FacetOption[]
     selected: string[]
-    /** Values in the excluded state — matching spans are filtered out. Disjoint from `selected`. */
+    /** Values in the excluded state — matching records are filtered out. Disjoint from `selected`. */
     excluded?: string[]
     onToggle: (value: string) => void
+    /** Prefix for every data-attr in the facet, e.g. `logs-facet`. These are frozen: autocapture and tests select on them. */
+    dataAttrPrefix: string
+    zeroCountReason: string
     loading?: boolean
     emptyLabel?: string
     /** When provided, renders a search box above the values (state owned by the caller). */
@@ -30,14 +40,14 @@ interface FacetProps {
     maxHeight?: number
     /** For fixed facets: render zero-count values dimmed, and disabled unless already selected. */
     dimZeroCounts?: boolean
-    /** The facet's latest fetch failed — show an inline error instead of pretending the list is fresh (suppresses emptyLabel). */
-    error?: boolean
-    /** Renders a Retry link next to the error message. */
-    onRetry?: () => void
     /** When set, renders a remove control in the header — for user-added custom facets only. */
     onRemove?: () => void
     /** Disables the remove control (with this explanation) while a custom-facet update is in flight. */
     removeDisabledReason?: string
+    /** The facet's latest fetch failed — show an error icon and line instead of pretending the list is fresh (suppresses emptyLabel). */
+    error?: boolean
+    /** Renders a Retry link next to the error message. */
+    onRetry?: () => void
 }
 
 /**
@@ -59,6 +69,8 @@ export function Facet({
     selected,
     excluded = [],
     onToggle,
+    dataAttrPrefix,
+    zeroCountReason,
     loading = false,
     emptyLabel = 'No values',
     searchValue,
@@ -73,12 +85,12 @@ export function Facet({
     onRemove,
     removeDisabledReason,
 }: FacetProps): JSX.Element {
-    const slug = slugify(title)
+    const dataAttr = `${dataAttrPrefix}-${slugify(title)}`
     const errorMessage = options.length > 0 ? "Couldn't refresh values." : "Couldn't load values."
 
     const rowProps = useMemo<FacetValueRowProps>(
-        () => ({ options, selected, excluded, slug, onToggle, dimZeroCounts }),
-        [options, selected, excluded, slug, onToggle, dimZeroCounts]
+        () => ({ options, selected, excluded, dataAttr, onToggle, dimZeroCounts, zeroCountReason }),
+        [options, selected, excluded, dataAttr, onToggle, dimZeroCounts, zeroCountReason]
     )
 
     return (
@@ -89,7 +101,7 @@ export function Facet({
                     onClick={onToggleCollapsed}
                     disabled={!onToggleCollapsed}
                     className="flex items-center gap-1 flex-1 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-secondary hover:text-default"
-                    data-attr={`tracing-facet-${slug}-header`}
+                    data-attr={`${dataAttr}-header`}
                 >
                     {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     <span className="truncate">{title}</span>
@@ -106,7 +118,7 @@ export function Facet({
                         onClick={onRemove}
                         disabledReason={removeDisabledReason}
                         tooltip="Remove custom facet"
-                        data-attr={`tracing-facet-${slug}-remove`}
+                        data-attr={`${dataAttr}-remove`}
                     />
                 )}
             </div>
@@ -124,10 +136,10 @@ export function Facet({
             )}
             {/* A failed fetch shows inline (options may be stale-but-usable below) rather than blanking the facet. */}
             {!collapsed && error && !loading && (
-                <div className="px-1 pb-1 text-xs text-secondary" data-attr={`tracing-facet-${slug}-error`}>
+                <div className="px-1 pb-1 text-xs text-secondary" data-attr={`${dataAttr}-error`}>
                     {errorMessage}{' '}
                     {onRetry && (
-                        <Link onClick={onRetry} data-attr={`tracing-facet-${slug}-retry`}>
+                        <Link onClick={onRetry} data-attr={`${dataAttr}-retry`}>
                             Retry
                         </Link>
                     )}
@@ -161,9 +173,10 @@ export function Facet({
                                         option={option}
                                         selected={selected.includes(option.value)}
                                         excluded={excluded.includes(option.value)}
-                                        slug={slug}
+                                        dataAttr={dataAttr}
                                         onToggle={onToggle}
                                         dimZeroCounts={dimZeroCounts}
+                                        zeroCountReason={zeroCountReason}
                                     />
                                 ))}
                             </div>
@@ -178,9 +191,10 @@ interface FacetValueRowProps {
     options: FacetOption[]
     selected: string[]
     excluded: string[]
-    slug: string
+    dataAttr: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
+    zeroCountReason: string
 }
 
 function FacetValueRow({
@@ -190,9 +204,10 @@ function FacetValueRow({
     options,
     selected,
     excluded,
-    slug,
+    dataAttr,
     onToggle,
     dimZeroCounts,
+    zeroCountReason,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
@@ -206,9 +221,10 @@ function FacetValueRow({
                 option={option}
                 selected={selected.includes(option.value)}
                 excluded={excluded.includes(option.value)}
-                slug={slug}
+                dataAttr={dataAttr}
                 onToggle={onToggle}
                 dimZeroCounts={dimZeroCounts}
+                zeroCountReason={zeroCountReason}
             />
         </div>
     )
@@ -218,42 +234,55 @@ function FacetValueButton({
     option,
     selected,
     excluded,
-    slug,
+    dataAttr,
     onToggle,
     dimZeroCounts,
+    zeroCountReason,
 }: {
     option: FacetOption
     selected: boolean
     excluded: boolean
-    slug: string
+    dataAttr: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
+    zeroCountReason: string
 }): JSX.Element {
     // A fixed facet value with no matches in the current scope: dim it, and disable it unless it's
-    // already selected or excluded (so an active-but-now-empty value can still be cycled off).
+    // already active (selected or excluded), so an active-but-now-empty value can still be cycled off.
+    const isActive = selected || excluded
     const isZero = dimZeroCounts && option.count === 0
+    // The tri-state is otherwise only visual (checkbox / red minus / line-through), so spell the
+    // current state out for screen readers — the button cycles included → excluded → not filtered.
+    const stateLabel = excluded ? 'excluded' : selected ? 'included' : 'not filtered'
     return (
         <LemonButton
             type="tertiary"
             size="small"
             fullWidth
             className={cn(isZero && 'opacity-50')}
-            disabledReason={isZero && !selected && !excluded ? 'No matching spans for the current filters' : undefined}
+            disabledReason={isZero && !isActive ? zeroCountReason : undefined}
+            aria-label={`${option.label}, ${stateLabel}`}
             icon={
                 excluded ? (
                     // Deliberately not LemonCheckbox's `indeterminate` — that means "partially
                     // selected", while this box means "negated".
-                    <span className="flex items-center justify-center w-4 h-4 rounded border-[1.5px] border-danger text-danger shrink-0 pointer-events-none">
+                    <span
+                        aria-hidden
+                        className="flex items-center justify-center w-4 h-4 rounded border-[1.5px] border-danger text-danger shrink-0 pointer-events-none"
+                    >
                         <IconMinusSmall className="text-sm" />
                     </span>
                 ) : (
-                    <LemonCheckbox checked={selected} className="pointer-events-none" />
+                    <span aria-hidden className="flex">
+                        <LemonCheckbox checked={selected} className="pointer-events-none" />
+                    </span>
                 )
             }
             onClick={() => onToggle(option.value)}
-            data-attr={`tracing-facet-${slug}-${slugify(option.value)}`}
+            data-attr={`${dataAttr}-${slugify(option.value)}`}
         >
             <span className="flex items-center gap-2 min-w-0 w-full">
+                {option.color && <span className={cn('w-1 h-3.5 rounded-full shrink-0', option.color)} />}
                 {/* Native title so a truncated value is still readable without popover cost per virtualized row. */}
                 <span className={cn('truncate flex-1', excluded && 'line-through text-muted')} title={option.label}>
                     {option.label}
