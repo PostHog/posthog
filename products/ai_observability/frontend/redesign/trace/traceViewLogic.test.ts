@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -84,6 +85,19 @@ describe('traceViewLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
+
+    // Regression: an override left behind on unmount keeps the nav collapsed on every other page.
+    it.each([
+        ['expanded', false],
+        ['collapsed', true],
+    ])('collapses the nav while open and restores it %s on close', async (_name, collapsedBefore) => {
+        panelLayoutLogic.mount()
+        panelLayoutLogic.actions.setLayoutNavCollapsedDesktop(collapsedBefore)
+        const logic = await mountedLogic()
+        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
+        logic.unmount()
+        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(collapsedBefore)
+    })
 
     it('loads the trace by its encoded id with the link timestamp as the hint and derives the summary', async () => {
         const logic = traceViewLogic({ traceId: 'a/b', timestampHint: '2026-09-01T10:15:00Z' })
