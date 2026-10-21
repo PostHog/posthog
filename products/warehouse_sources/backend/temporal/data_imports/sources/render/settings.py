@@ -12,7 +12,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class RenderEndpointConfig:
     name: str
     # Path relative to the API base. Fan-out children use a `{parent_id}` placeholder
