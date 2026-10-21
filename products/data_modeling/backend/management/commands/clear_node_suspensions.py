@@ -104,6 +104,9 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         node_ids: list[UUID] | None = options["node_ids"]
         saved_query_ids: list[UUID] | None = options["saved_query_ids"]
+        # An empty fragment is a substring of every reason, so it would select every marker.
+        if any(not fragment.strip() for fragment in options["reason_contains"]):
+            raise CommandError("--reason-contains cannot be empty.")
         if not (node_ids or saved_query_ids or options["reason_contains"]):
             raise CommandError("Name the set: pass --node-ids, --saved-query-ids or --reason-contains.")
 

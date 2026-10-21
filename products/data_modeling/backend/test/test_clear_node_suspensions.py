@@ -101,8 +101,22 @@ class TestClearNodeSuspensions(BaseTest):
         assert suspension_state(node) == {}
         assert is_node_suspended(other, CLICKHOUSE)
 
-    def test_refuses_to_run_without_naming_a_set(self) -> None:
-        self._node({CLICKHOUSE: (OVERFLOW, INCIDENT)})
+    @parameterized.expand(
+        [
+            ("no_selector", ["--engine", "clickhouse"], "Name the set"),
+            ("empty_reason", ["--reason-contains", ""], "empty"),
+            (
+                "blank_reason_among_others",
+                ["--reason-contains", "DECIMAL_OVERFLOW", "--reason-contains", "  "],
+                "empty",
+            ),
+        ]
+    )
+    def test_refuses_without_a_real_selector(self, _name: str, args: list[str], message: str) -> None:
+        node = self._node({CLICKHOUSE: (OVERFLOW, INCIDENT)})
 
-        with pytest.raises(CommandError, match="Name the set"):
-            self._run("--engine", "clickhouse", "--apply")
+        with pytest.raises(CommandError, match=message):
+            self._run(*args, "--apply")
+
+        node.refresh_from_db()
+        assert is_node_suspended(node, CLICKHOUSE)
