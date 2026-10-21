@@ -1,4 +1,4 @@
-export { isCloudRun } from "./cloud-run";
+export { CLOUD_WORKSPACE_PATH, isCloudRun } from "./cloud-run";
 export {
   readGithubTokenFromSandboxEnvFile,
   resolveGithubToken,

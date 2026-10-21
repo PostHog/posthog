@@ -862,7 +862,7 @@ describe("PiAgentServer", () => {
   });
 
   it("hydrates cloud artifacts into native Pi prompt inputs", async () => {
-    const repositoryPath = await mkdtemp(join(tmpdir(), "pi-attachments-"));
+    const workspacePath = await mkdtemp(join(tmpdir(), "pi-attachments-"));
     const sendCommand = vi.fn(
       async (
         _command: Record<string, unknown>,
@@ -873,7 +873,9 @@ describe("PiAgentServer", () => {
       .fn()
       .mockResolvedValueOnce(Buffer.from("notes"))
       .mockResolvedValueOnce(Buffer.from("image"));
-    const server = new PiAgentServer(config({ repositoryPath })) as unknown as {
+    const server = new PiAgentServer(
+      config({ repositoryPath: join(workspacePath, "repo"), workspacePath }),
+    ) as unknown as {
       posthogAPI: { downloadArtifact: typeof downloadArtifact };
       session: unknown;
       executeCommand(
@@ -913,7 +915,7 @@ describe("PiAgentServer", () => {
 
     const [command, options] = sendCommand.mock.calls[0];
     const attachmentsDir = join(
-      repositoryPath,
+      workspacePath,
       ".posthog",
       "attachments",
       "run-1",
@@ -951,7 +953,7 @@ describe("PiAgentServer", () => {
       ],
     });
 
-    await rm(repositoryPath, { recursive: true });
+    await rm(workspacePath, { recursive: true });
   });
 
   it("steers the streaming run in place instead of aborting it", async () => {

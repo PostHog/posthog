@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { CLOUD_WORKSPACE_PATH } from "../cloud-run";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 import {
   createSandboxPosthogClient,
@@ -152,21 +153,24 @@ function containsWholeTerm(text: string, term: string): boolean {
 }
 
 async function findAttachedLog(cwd: string): Promise<string | null> {
-  try {
-    const root = path.join(cwd, ATTACHMENTS_DIR);
-    const entries = await readdir(root, { recursive: true });
-    const candidates = entries
-      .map(String)
-      .filter((entry) => entry.endsWith(".jsonl"))
-      .sort(
-        (a, b) =>
-          Number(b.endsWith("run-log.jsonl")) -
-          Number(a.endsWith("run-log.jsonl")),
-      );
-    return candidates.length > 0 ? path.join(root, candidates[0]) : null;
-  } catch {
-    return null;
+  const roots = new Set([
+    path.join(cwd, ATTACHMENTS_DIR),
+    path.join(CLOUD_WORKSPACE_PATH, ATTACHMENTS_DIR),
+  ]);
+  const candidates: string[] = [];
+  for (const root of roots) {
+    try {
+      const entries = await readdir(root, { recursive: true });
+      for (const entry of entries.map(String)) {
+        if (entry.endsWith(".jsonl")) candidates.push(path.join(root, entry));
+      }
+    } catch {}
   }
+  candidates.sort(
+    (a, b) =>
+      Number(b.endsWith("run-log.jsonl")) - Number(a.endsWith("run-log.jsonl")),
+  );
+  return candidates[0] ?? null;
 }
 
 function collectStrings(value: unknown, sink: string[]): void {

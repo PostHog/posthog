@@ -16,7 +16,7 @@ activity through the `report_activity` tool, one call per activity, and nothing 
 files, no artifacts, no suggestions.
 
 The run log arrives as a file attachment on your task: a `.jsonl` file already on disk under
-`.posthog/attachments/<run-id>/<artifact-id>/run-log.jsonl`. You never fetch anything.
+`/tmp/workspace/.posthog/attachments/<run-id>/<artifact-id>/run-log.jsonl`. You never fetch anything.
 
 ## Two hard rules
 
@@ -33,7 +33,7 @@ evidence.
 
 ## Protocol
 
-1. **Locate the attached log**: `find .posthog/attachments -name '*.jsonl'`. Note its size
+1. **Locate the attached log**: `find /tmp/workspace/.posthog/attachments -name '*.jsonl'`. Note its size
    (`ls -lh <path>`) and its line count (`wc -l <path>`). The line count is the last line your
    activities must reach.
 2. **Detect the format and query the log** with

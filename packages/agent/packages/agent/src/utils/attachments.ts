@@ -16,13 +16,13 @@ export function safeArtifactFileName(name: string): string {
  * Every harness writes this layout, and the clients read the run and artifact ids back out of it.
  */
 export function attachmentFilePath(
-  repositoryPath: string | undefined,
+  workspacePath: string,
   runId: string,
   artifact: { id?: string; name: string },
 ): string {
   const safeName = safeArtifactFileName(artifact.name);
   return join(
-    repositoryPath ?? "/tmp/workspace",
+    workspacePath,
     ".posthog",
     "attachments",
     runId,

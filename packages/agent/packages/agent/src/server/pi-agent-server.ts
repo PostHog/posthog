@@ -21,6 +21,7 @@ import {
 import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
+import { CLOUD_WORKSPACE_PATH } from "@posthog/harness/extensions/local-tools";
 import {
   buildStoreSkillsInstructions,
   syncStoreSkills,
@@ -1202,7 +1203,7 @@ export class PiAgentServer {
       }
 
       const filePath = attachmentFilePath(
-        this.config.repositoryPath,
+        this.config.workspacePath ?? CLOUD_WORKSPACE_PATH,
         this.config.runId,
         artifact,
       );

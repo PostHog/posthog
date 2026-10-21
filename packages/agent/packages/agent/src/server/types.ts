@@ -19,6 +19,7 @@ export interface AgentServerConfig {
   selectProduct?: ProductSelector;
   agentStateDir?: string;
   repositoryPath?: string;
+  workspacePath?: string;
   repoReadyFile?: string;
   apiUrl: string;
   apiKey: string;

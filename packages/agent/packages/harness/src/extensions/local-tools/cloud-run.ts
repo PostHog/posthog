@@ -1,3 +1,5 @@
+export const CLOUD_WORKSPACE_PATH = "/tmp/workspace";
+
 export function isCloudRun(
   meta: { environment?: "local" | "cloud" } | undefined,
 ): boolean {

@@ -1,6 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { CLOUD_WORKSPACE_PATH } from "../cloud-run";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 import { createSandboxPosthogClient } from "../signed-commit-artefacts";
 import type { TaskToolsApiClient } from "../task-tools-client";
@@ -132,10 +133,14 @@ async function resolveAttachments(
   if (attachments.length === 0) {
     return [];
   }
-  const workspace = await realpath(cwd);
+  const allowedRoots = [await realpath(cwd)];
+  const cloudAttachments = await realpath(
+    path.join(CLOUD_WORKSPACE_PATH, ".posthog", "attachments"),
+  ).catch(() => null);
+  if (cloudAttachments) allowedRoots.push(cloudAttachments);
   const plan: ({ id: string } | { filePath: string })[] = [];
   for (const attachment of attachments) {
-    const resolved = await resolveWorkspaceFile(workspace, cwd, attachment);
+    const resolved = await resolveWorkspaceFile(allowedRoots, cwd, attachment);
     if (resolved === null) {
       plan.push({ id: attachment });
       continue;
@@ -184,7 +189,7 @@ interface ResolvedWorkspaceFile {
 
 /** The attachment as an existing file, or null when it names no file (an artifact id). */
 async function resolveWorkspaceFile(
-  workspace: string,
+  allowedRoots: string[],
   cwd: string,
   attachment: string,
 ): Promise<ResolvedWorkspaceFile | null> {
@@ -200,8 +205,10 @@ async function resolveWorkspaceFile(
   } catch {
     return null;
   }
-  const outsideWorkspace =
-    filePath !== workspace && !filePath.startsWith(`${workspace}${path.sep}`);
+  const outsideWorkspace = !allowedRoots.some(
+    (workspace) =>
+      filePath === workspace || filePath.startsWith(`${workspace}${path.sep}`),
+  );
   return { path: filePath, size, outsideWorkspace };
 }
 

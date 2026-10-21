@@ -49,7 +49,10 @@ import {
   BENJAMIN_UPSTREAM_COMMIT,
   isBenjaminEnabled,
 } from "@posthog/harness/extensions/benjamin";
-import { resolveGithubToken } from "@posthog/harness/extensions/local-tools";
+import {
+  CLOUD_WORKSPACE_PATH,
+  resolveGithubToken,
+} from "@posthog/harness/extensions/local-tools";
 import {
   compilePostHogExecPermissionRegex,
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
@@ -4218,7 +4221,7 @@ export class AgentServer {
 
     const safeSkillName = safeArtifactFileName(skillName);
     const skillRoot = join(
-      this.config.repositoryPath ?? "/tmp/workspace",
+      this.config.workspacePath ?? CLOUD_WORKSPACE_PATH,
       ".posthog",
       "skills",
       runId,
@@ -4349,7 +4352,7 @@ export class AgentServer {
     }
 
     const artifactPath = attachmentFilePath(
-      this.config.repositoryPath,
+      this.config.workspacePath ?? CLOUD_WORKSPACE_PATH,
       runId,
       artifact,
     );
