@@ -556,12 +556,14 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 github_workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
                 source_id=str(source.id),
+                repository="PostHog/posthog",
             ),
             JobSourceTables(
                 github_workflow_jobs="prsgithub_posthog_posthog_workflow_jobs",
                 github_workflow_runs="prsgithub_posthog_posthog_workflow_runs",
                 pull_requests="prsgithub_posthog_posthog_pull_requests",
                 source_id=str(with_prs.id),
+                repository="PostHog/posthog",
                 depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
             ),
             JobSourceTables(
@@ -569,6 +571,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 github_workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
                 pull_requests=None,
                 source_id=str(source.id),
+                repository="posthog/posthog.com",
             ),
         }
 
