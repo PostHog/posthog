@@ -1,7 +1,7 @@
 """LLM judge for auto-merging fingerprints whose nearest neighbour is too far for a distance-only merge.
 
 The rule: merge automatically when the embedding distance is below `auto_merge_threshold`; between
-that and `judge_max_distance`, ask Jeeves (a small classifier on the PostHog AI gateway) whether
+that and `judge_max_distance`, ask JevK5 (a small classifier on the PostHog AI gateway) whether
 the two error documents are the same issue and merge when its probability reaches `judge_cutoff`.
 
 Every knob comes from the `error-tracking-auto-merge-config` feature flag payload, evaluated per
@@ -27,7 +27,8 @@ logger = structlog.get_logger(__name__)
 
 AUTO_MERGE_CONFIG_FLAG = "error-tracking-auto-merge-config"
 DEFAULT_AUTO_MERGE_THRESHOLD = 0.019
-JUDGE_MODEL = "posthog/hogference/jeeves-0.1"
+# Scores move when the gateway model changes, so `judge_cutoff` has to be re-tuned with it.
+JUDGE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 JUDGE_PROMPT_VERSION = "v4"
 JUDGE_QUESTION_KEY = "same_issue"
 MAX_DOCUMENT_CHARS = 6000  # what the judge was evaluated with
@@ -193,7 +194,7 @@ class JudgeVerdict:
 
 
 def ask_judge(team_id: int, document: str, candidate_document: str, timeout_seconds: float) -> JudgeVerdict:
-    """Ask Jeeves for P(same issue). Raises JudgeUnavailableError when it can't answer."""
+    """Ask the judge model for P(same issue). Raises JudgeUnavailableError when it can't answer."""
     start = time.monotonic()
     try:
         client = build_system_one_client(

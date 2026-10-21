@@ -112,12 +112,14 @@ class TestAskJudge:
 
     def test_returns_the_noul_probability(self) -> None:
         verdict, build, client = self._ask(
-            SystemOneResult(model="jeeves-0.1", answers={"same_issue": NoulAnswer(probability=0.87)}, input_tokens=10)
+            SystemOneResult(
+                model="jevk5-fp8-0.2", answers={"same_issue": NoulAnswer(probability=0.87)}, input_tokens=10
+            )
         )
 
         assert verdict.score == pytest.approx(0.87)
         assert build.call_args.kwargs == {
-            "model": "posthog/hogference/jeeves-0.1",
+            "model": "posthog/hogference/jevk5-fp8-0.2",
             "ai_product": "error_tracking",
             "team_id": 7,
             "timeout": 3,
@@ -126,7 +128,10 @@ class TestAskJudge:
 
     @parameterized.expand(
         [
-            ("refusal", SystemOneResult(model="jeeves-0.1", answers={"same_issue": RefusalAnswer()}, input_tokens=1)),
+            (
+                "refusal",
+                SystemOneResult(model="jevk5-fp8-0.2", answers={"same_issue": RefusalAnswer()}, input_tokens=1),
+            ),
             ("not_configured", SystemOneNotConfigured("no gateway")),
             ("request_failed", SystemOneRequestFailed("rate limited", status_code=429)),
         ]
