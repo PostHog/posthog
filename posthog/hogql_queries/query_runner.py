@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -1998,13 +1998,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
         pass
 
+    def set_user(self, user: Optional[User]) -> None:
+        """Run as another user from now on, together with every runner this one built."""
+        if user is self.user:
+            return
+        self.user = user
+        self._on_user_changed()
+
+    def _child_runners(self) -> Iterable["QueryRunner"]:
+        """Runners this one built and runs, so a user change reaches them.
+
+        A lazy child that is not built yet reads the user when it is built, so it is not listed."""
+        return ()
+
     def _on_user_changed(self) -> None:
-        """Hook called by run() when self.user is updated after construction.
+        """Hook called by set_user() when self.user changes after construction.
 
         Drops the lazily built shared database so the next access rebuilds it for the new
-        user. Subclasses that override this to rebuild their own user-dependent state (e.g.
-        a cached HogQLContext / Database) must call super()._on_user_changed()."""
+        user, and passes the user to the child runners. Subclasses that override this to
+        rebuild their own user-dependent state (e.g. a cached HogQLContext / Database) must
+        call super()._on_user_changed()."""
         self._shared_database = None
+        for child in self._child_runners():
+            child.set_user(self.user)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2466,9 +2482,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # __init__; let them refresh it now that we know the real user. Only on an
         # actual change - re-running for the same user would needlessly rebuild that
         # state and drop a preloaded access-control snapshot.
-        if user is not None and user is not self.user:
-            self.user = user
-            self._on_user_changed()
+        if user is not None:
+            self.set_user(user)
         start_time = perf_counter()
         cache_key = self.get_cache_key()
         self._phase = RunPhase(name="prepare")
