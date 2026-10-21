@@ -36,7 +36,7 @@ export function removeSuggestedReviewer({
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: ReviewerEditActionEnumApi
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
     ) => void
 }): void {
     removeSuggestedReviewers({ report, surface, targets: [target], reviewers, updateReviewers })
@@ -56,7 +56,7 @@ export function removeSuggestedReviewers({
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: ReviewerEditActionEnumApi
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
     ) => void
 }): void {
     for (const target of targets) {
