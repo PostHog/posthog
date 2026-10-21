@@ -1,5 +1,7 @@
 import os
+import re
 import shlex
+import base64
 import logging
 import tempfile
 import subprocess
@@ -636,6 +638,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
         )
 
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            encoded_script = re.search(r"printf %s ([A-Za-z0-9+/=]+) \| base64 -d", command)
+            if encoded_script:
+                command = base64.b64decode(encoded_script.group(1)).decode()
             if "--taskId" in command:
                 launched.append(command)
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
