@@ -126,13 +126,24 @@ This is prompt guidance, not an enforced access control, and it does not validat
 
 ## Reviewer notifications
 
-Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
-
-The `signals-research-reviewer-selection` flag lets research choose reviewers and preserve its selected order.
+With `signals-research-reviewer-selection` enabled, the research agent chooses report recipients in relevance order.
+Ownership files, CODEOWNERS, code history, report findings, and human corrections supply evidence for that choice.
+They cannot replace it with an ownership-first or commit-count selection.
 Research first reads recent human corrections from the project profile, which is available on every plan.
 It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
 The existing limit remains three reviewers.
+
+A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
+An explicit empty decision clears an automatic list. Human choices, including an empty list, remain protected.
+The shared writer rechecks project access before saving; if all proposed candidates have become ineligible, it retains valid existing recipients.
+Report recipients need project access, but do not need GitHub accounts.
+Scout and custom-agent reports also preserve the agent's selected order through the shared writer.
+The saved list drives both the Inbox index and notification recipients; no later ownership selector reranks it.
+
+With research selection disabled, research uses the legacy ownership-and-commit selector.
+That rollback does not release human protection or bypass the shared writer.
+The legacy resolver also remains an independent task-runner permission check; selecting a report recipient does not authorize a task.
 
 The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
 A different explanation alone does not add a row. Human edits retain precedence.
