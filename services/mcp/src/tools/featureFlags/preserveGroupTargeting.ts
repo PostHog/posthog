@@ -83,7 +83,13 @@ import { isDeepStrictEqual } from 'node:util'
 import { ToolInputValidationError } from '@/lib/errors'
 import { canonicalJson, hasKey, isRecord } from '@/lib/plain-object'
 
-import { explicitlyClearsAggregation, isPresentGroupIndex, resolveGroupIndex, storedAggregation } from './aggregation'
+import {
+    explicitlyClearsAggregation,
+    flagLevelGroupIndex,
+    isPresentGroupIndex,
+    resolveGroupIndex,
+    storedAggregation,
+} from './aggregation'
 import { conditionId } from './conditionIds'
 
 export type FlagProperty = {
@@ -562,14 +568,15 @@ function staleConditionIdMessage(stale: number[]): string {
 
 function sourcesByConditionId(
     conditionIds: (string | undefined)[],
-    existingSets: (ExistingSet | undefined)[]
+    existingSets: (ExistingSet | undefined)[],
+    existingFlagGroupIndex: number | undefined
 ): (ExistingSet | undefined)[] {
     const storedById = new Map<string, ExistingSet>()
     for (const existingSet of existingSets) {
         if (!existingSet) {
             continue
         }
-        const id = conditionId(existingSet.group, existingSet.aggregation)
+        const id = conditionId(existingSet.group, existingFlagGroupIndex)
         if (!storedById.has(id)) {
             storedById.set(id, existingSet)
         }
@@ -653,9 +660,7 @@ export function preserveGroupTargetingFilters(
 
     const result: FlagFilters = { ...incoming }
 
-    const existingFlagGroupIndex = isPresentGroupIndex(existing?.aggregation_group_type_index)
-        ? existing.aggregation_group_type_index
-        : undefined
+    const existingFlagGroupIndex = flagLevelGroupIndex(existing)
 
     // An echo of the stored flag level decides nothing new. validate_filters in
     // products/feature_flags/backend/api/feature_flag.py re-derives the stored flag level from the
@@ -680,14 +685,14 @@ export function preserveGroupTargetingFilters(
     if (Array.isArray(result.groups)) {
         const existingSets = indexExistingSets(existing, existingFlagGroupIndex)
         const crossSetPropsByKey = indexPropertiesAcrossSets(existingSets)
-        const conditionIds: (string | undefined)[] = []
+        const conditionIds = result.groups.map((group) =>
+            isRecord(group) && typeof group.condition_id === 'string' ? group.condition_id : undefined
+        )
         result.groups = result.groups.map((group) => {
             if (!isRecord(group)) {
-                conditionIds.push(undefined)
                 return group
             }
-            const { condition_id, ...rest } = group
-            conditionIds.push(typeof condition_id === 'string' ? condition_id : undefined)
+            const { condition_id: _conditionId, ...rest } = group
             return rest
         })
         const carriesConditionIds = conditionIds.some((id) => id !== undefined)
@@ -699,7 +704,10 @@ export function preserveGroupTargetingFilters(
         const mixedAggregation = storedAggregations.size > 1
         const aggregatesOnPersonsOnly = storedAggregations.size === 1 && storedAggregations.has(null)
         const { sourceSets, matchedPersonSets }: SetSources = carriesConditionIds
-            ? { sourceSets: sourcesByConditionId(conditionIds, existingSets), matchedPersonSets: [] }
+            ? {
+                  sourceSets: sourcesByConditionId(conditionIds, existingSets, existingFlagGroupIndex),
+                  matchedPersonSets: [],
+              }
             : matchSetsByPositionAndContent(result.groups, existingSets, mixedAggregation)
         const personSources = sourceSets.map((sourceSet) => (sourceSet?.aggregation === null ? sourceSet : undefined))
 

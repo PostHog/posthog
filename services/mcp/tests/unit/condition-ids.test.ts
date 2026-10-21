@@ -54,7 +54,7 @@ function personAndCohortInOppositeOrders(aggregation: number | undefined): Merge
             { ...ownAggregation, properties: [person, cohort], rollout_percentage: 100 },
             { ...ownAggregation, properties: [cohort, person], rollout_percentage: 50 },
         ],
-        sent: (stored: FlagConditionGroup[]) => [
+        sent: (stored) => [
             echoWithId(stored[0]!),
             echoWithId(stored[1]!, {
                 properties: [
@@ -206,11 +206,11 @@ describe('condition ids', () => {
         expect(withoutConditionIds(result)).toEqual(withoutConditionIds(value))
     })
 
-    it.each([
+    it.each<MergeRow>([
         {
             name: 'two person sets on different group types trade places',
             stored: [planOn(0, 'enterprise'), planOn(1, 'pro')],
-            sent: (stored: FlagConditionGroup[]) => [echoWithId(stored[1]!), echoWithId(stored[0]!)],
+            sent: (stored) => [echoWithId(stored[1]!), echoWithId(stored[0]!)],
             expected: [
                 [null, ['group', 1]],
                 [null, ['group', 0]],
@@ -219,13 +219,13 @@ describe('condition ids', () => {
         {
             name: 'the first of two person sets is deleted',
             stored: [planOn(0, 'pro'), planOn(1, 'pro')],
-            sent: (stored: FlagConditionGroup[]) => [echoWithId(stored[1]!)],
+            sent: (stored) => [echoWithId(stored[1]!)],
             expected: [[null, ['group', 1]]],
         },
         {
             name: 'a set moves and changes its value',
             stored: [planOn(0, 'enterprise'), planOn(1, 'pro')],
-            sent: (stored: FlagConditionGroup[]) => [
+            sent: (stored) => [
                 echoWithId(stored[1]!, {
                     properties: [{ key: 'plan', operator: 'exact', value: 'business' }],
                 }),
@@ -239,7 +239,7 @@ describe('condition ids', () => {
         {
             name: 'two sets with different keys trade places',
             stored: [planOn(0, 'enterprise'), personPlan('free')],
-            sent: (stored: FlagConditionGroup[]) => [echoWithId(stored[1]!), echoWithId(stored[0]!)],
+            sent: (stored) => [echoWithId(stored[1]!), echoWithId(stored[0]!)],
             expected: [
                 [null, ['person', undefined], ['person', undefined]],
                 [null, ['group', 0]],
@@ -251,7 +251,7 @@ describe('condition ids', () => {
                 { ...personPlan('free'), aggregation_group_type_index: null },
                 { ...planOn(0, 'enterprise'), aggregation_group_type_index: 0 },
             ],
-            sent: (stored: FlagConditionGroup[]) => [echoWithId(stored[1]!), echoWithId(stored[0]!)],
+            sent: (stored) => [echoWithId(stored[1]!), echoWithId(stored[0]!)],
             expected: [
                 [0, ['group', 0]],
                 [null, ['person', undefined], ['person', undefined]],
@@ -260,7 +260,7 @@ describe('condition ids', () => {
         {
             name: 'the agent copies a condition and edits the copy',
             stored: [planOn(0, 'enterprise'), planOn(1, 'pro')],
-            sent: (stored: FlagConditionGroup[]) => [
+            sent: (stored) => [
                 echoWithId(stored[1]!),
                 echoWithId(stored[1]!, { properties: [{ key: 'plan', operator: 'exact', value: 'business' }] }),
                 echoWithId(stored[0]!),
@@ -274,7 +274,7 @@ describe('condition ids', () => {
         {
             name: 'a new set without an ID repeats a key that a stored person set holds as a group property',
             stored: [planOn(0, 'enterprise')],
-            sent: (stored: FlagConditionGroup[]) => [
+            sent: (stored) => [
                 echoWithId(stored[0]!),
                 { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 100 },
             ],
@@ -293,7 +293,7 @@ describe('condition ids', () => {
                     rollout_percentage: 100,
                 },
             ],
-            sent: (stored: FlagConditionGroup[]) => [
+            sent: (stored) => [
                 echoWithId(stored[0]!, {
                     properties: [
                         { key: 'plan', operator: 'exact', value: 'free' },
@@ -311,7 +311,7 @@ describe('condition ids', () => {
         {
             name: 'a new set without an ID goes in front of the stored sets',
             stored: [planOn(0, 'enterprise'), planOn(1, 'pro')],
-            sent: (stored: FlagConditionGroup[]) => [
+            sent: (stored) => [
                 { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 100 },
                 echoWithId(stored[0]!),
                 echoWithId(stored[1]!),
