@@ -349,47 +349,49 @@ def bulk_create_symbol_sets(
     id_url_map: dict[str, dict[str, Any]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
-    def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
-        storage_ptr = generate_symbol_set_file_key()
+    def issue_upload(existing: ErrorTrackingSymbolSet) -> None:
+        assert existing.storage_ptr is not None
         id_url_map[existing.ref] = {
-            **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
+            **generate_symbol_set_upload_presigned_urls(
+                existing.storage_ptr, new_symbol_set_map[existing.ref].content_length
+            ),
             "symbol_set_id": str(existing.id),
         }
-        existing.storage_ptr = storage_ptr
+
+    def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
+        existing.storage_ptr = generate_symbol_set_file_key()
         # bulk_finish_upload stores the hash once the new file is confirmed in object storage.
         existing.content_hash = None
+        issue_upload(existing)
 
     with transaction.atomic():
-        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
-        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_sets = list(set(chunk_ids) - set(existing_symbol_set_refs))
+        existing_symbol_set_refs = set(
+            ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids).values_list("ref", flat=True)
+        )
+        missing_sets = sorted(set(chunk_ids) - existing_symbol_set_refs)
 
-        symbol_sets_to_be_created = []
+        symbol_sets_to_be_created: dict[str, ErrorTrackingSymbolSet] = {}
         for chunk_id in missing_sets:
-            storage_ptr = generate_symbol_set_file_key()
-            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(
-                storage_ptr, new_symbol_set_map[chunk_id].content_length
-            )
-            # Note that on creation, we /do not set/ the content hash. We use content hashes included in
-            # the create request only to see if we can skip updated - we set the content hash when we
-            # get upload confirmation, during `bulk_finish_upload`, not before
-            to_create = ErrorTrackingSymbolSet(
+            symbol_sets_to_be_created[chunk_id] = ErrorTrackingSymbolSet(
                 team=team,
                 ref=chunk_id,
-                storage_ptr=storage_ptr,
+                storage_ptr=generate_symbol_set_file_key(),
                 release_id=new_symbol_set_map[chunk_id].release_id,
             )
-            symbol_sets_to_be_created.append(to_create)
 
-        # create missing symbol sets
-        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        # A losing request needs the winner's persisted ID and storage key after the insert race.
+        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created.values(), ignore_conflicts=True)
+        symbol_sets = (
+            ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids).order_by("ref").select_for_update()
+        )
 
-        for symbol_set in created_symbol_sets:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
-
-        # update existing symbol sets
         to_update = []
-        for existing in existing_symbol_sets:
+        for existing in symbol_sets:
+            created = symbol_sets_to_be_created.get(existing.ref)
+            if created is not None and existing.pk == created.pk:
+                issue_upload(existing)
+                continue
+
             upload = new_symbol_set_map[existing.ref]
             dirty = False
 
@@ -397,7 +399,10 @@ def bulk_create_symbol_sets(
                 existing.release_id = upload.release_id
                 dirty = True
 
-            if _needs_upload(existing, upload, team.id, force, skip_on_conflict):
+            if created is not None and existing.content_hash is None and existing.storage_ptr is not None:
+                # Keep the winning request's upload key valid for both concurrent clients.
+                issue_upload(existing)
+            elif _needs_upload(existing, upload, team.id, force, skip_on_conflict):
                 reissue_upload(existing)
                 dirty = True
 

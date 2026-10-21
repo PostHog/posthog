@@ -14,8 +14,11 @@ from django.db.utils import IntegrityError
 from parameterized import parameterized
 
 from posthog.models import Team, User
+from posthog.models.utils import uuid7
+from posthog.storage.object_storage import PresignedPostPair
 
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import latest_issue_state_watermark
+from products.error_tracking.backend.logic.symbol_sets import SymbolSetUpload, bulk_create_symbol_sets
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -433,6 +436,46 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
                 # Verify object storage delete was called with correct path
                 mock_delete.assert_called_once_with(file_name="test-storage-path")
+
+
+class TestErrorTrackingSymbolSetCreateConcurrency(NonAtomicBaseTest):
+    def test_concurrent_uploads_use_the_persisted_row_and_storage_key(self) -> None:
+        chunk_id = str(uuid7())
+        barrier = Barrier(2)
+
+        def generate_file_key() -> str:
+            barrier.wait(timeout=10)
+            return f"symbol-sets/{uuid7()}"
+
+        def presign(file_key: str, **kwargs: object) -> PresignedPostPair:
+            return PresignedPostPair(primary={"url": "https://example.com", "fields": {"key": file_key}}, fallback=None)
+
+        def start_upload() -> tuple[str, str]:
+            close_old_connections()
+            try:
+                id_map = bulk_create_symbol_sets(
+                    [SymbolSetUpload(chunk_id=chunk_id, release_id=None, content_hash="same-hash")], self.team
+                )
+                entry = id_map[chunk_id]
+                return str(entry["symbol_set_id"]), str(entry["presigned_url"]["fields"]["key"])
+            finally:
+                close_old_connections()
+
+        with (
+            patch(
+                "products.error_tracking.backend.logic.symbol_sets.generate_symbol_set_file_key",
+                side_effect=generate_file_key,
+            ),
+            patch("posthog.storage.object_storage.get_presigned_post_pair", side_effect=presign),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            first = executor.submit(start_upload)
+            second = executor.submit(start_upload)
+            results = [first.result(timeout=20), second.result(timeout=20)]
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id)
+        assert results == [(str(symbol_set.pk), symbol_set.storage_ptr)] * 2
+        assert ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=chunk_id).count() == 1
 
 
 class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBaseTest):
