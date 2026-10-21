@@ -31,7 +31,6 @@ from posthog.helpers.dashboard_templates import (
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
-from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
@@ -48,6 +47,7 @@ from products.feature_flags.backend.flag_analytics import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
 
 
 class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
@@ -945,8 +945,8 @@ class TestEnrichedAnalytics(BaseTest):
         )
 
         # create usage dashboard for f1 and f3
-        _create_usage_dashboard(f1, self.user)
-        _create_usage_dashboard(f3, self.user)
+        create_usage_dashboard(f1, self.user)
+        create_usage_dashboard(f3, self.user)
 
         # create some enriched analytics events
         _create_event(
@@ -1101,6 +1101,19 @@ class TestEnrichedAnalytics(BaseTest):
         end = datetime.datetime(2021, 1, 2, 0, 0, 0)
 
         find_flags_with_enriched_analytics(start, end)
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.has_enriched_analytics, True)
+
+    @parameterized.expand([("empty_row", ()), ("non_sequence_row", 1), ("missing_team", (999999, "test_flag"))])
+    def test_bad_row_does_not_stop_later_rows(self, _name: str, bad_row: object) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="test_flag", created_by=self.user)
+
+        with patch(
+            "products.feature_flags.backend.flag_analytics.sync_execute",
+            return_value=[bad_row, (self.team.id, "test_flag")],
+        ):
+            find_flags_with_enriched_analytics(datetime.datetime(2021, 1, 1), datetime.datetime(2021, 1, 2))
 
         flag.refresh_from_db()
         self.assertEqual(flag.has_enriched_analytics, True)

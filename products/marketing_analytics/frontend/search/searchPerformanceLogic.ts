@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, featureFlagLogicValues } from 'lib/logic/featureFlagLogic'
 import { teamLogic, teamLogicActions } from 'scenes/teamLogic'
 import {
     marketingAnalyticsLogic,
@@ -38,6 +40,9 @@ export interface searchPerformanceLogicValues extends Pick<
     | 'includeConversionGoals'
     | 'conversion_goals'
 > {
+    featureFlags: featureFlagLogicValues['featureFlags']
+    searchConversionsEnabled: boolean
+    includeSearchConversionGoals: boolean
     wrapText: boolean
     metrics: SearchMetrics
     hasPaidSources: boolean
@@ -85,6 +90,8 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     path(['products', 'marketingAnalytics', 'searchPerformanceLogic']),
     connect(() => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             marketingAnalyticsLogic,
             [
                 'dataWarehouseSources',
@@ -190,18 +197,33 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: MarketingAnalyticsSearchSource[]): boolean =>
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
+        searchConversionsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS],
+        ],
+        includeSearchConversionGoals: [
+            (s) => [s.searchConversionsEnabled, s.includeConversionGoals],
+            (enabled, includeConversionGoals): boolean => enabled && includeConversionGoals,
+        ],
         conversionsDisabledReason: [
-            (s) => [s.hasPaidSources, s.breakdown, s.includeConversionGoals, s.conversion_goals],
+            (s) => [
+                s.hasPaidSources,
+                s.breakdown,
+                s.includeSearchConversionGoals,
+                s.conversion_goals,
+                s.searchConversionsEnabled,
+            ],
             (
                 hasPaidSources: boolean,
                 breakdown: SearchBreakdown,
                 includeConversionGoals: boolean,
-                conversionGoals: ConversionGoalFilter[]
+                conversionGoals: ConversionGoalFilter[],
+                enabled: boolean
             ): string | null => {
                 if (hasPaidSources || (breakdown === 'page' && includeConversionGoals)) {
                     return null
                 }
-                if (breakdown !== 'page') {
+                if (!enabled || breakdown !== 'page') {
                     return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
                 }
                 return conversionGoals.length > 0
@@ -221,7 +243,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 s.querySearch,
                 s.compareFilter,
                 s.breakdown,
-                s.includeConversionGoals,
+                s.includeSearchConversionGoals,
                 s.displayMetrics,
             ],
             (

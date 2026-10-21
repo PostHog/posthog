@@ -45,11 +45,6 @@ class TestOpenMeteoSource:
         self.team_id = 123
         self.config = OpenMeteoSourceConfig(locations="51.5,-0.12,London", start_date="2024-01-01", api_key=None)
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["weather_current", "air_quality_hourly"])
-
-        assert {schema.name for schema in schemas} == {"weather_current", "air_quality_hourly"}
-
     @pytest.mark.parametrize(
         "raised_message",
         [

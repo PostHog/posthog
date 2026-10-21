@@ -359,9 +359,10 @@ def _requested_source_ids(source_ids: list[str], *, survivor_id: str) -> list[st
 def _mergeable_source(report: SignalReport | None, requested_id: str) -> SignalReport:
     if report is None:
         raise ReportMergeError(f"Report {requested_id} was not found in this project.")
-    if report.status not in MERGEABLE_STATUSES:
+    report_status = report.effective_status
+    if report_status not in MERGEABLE_STATUSES:
         raise ReportMergeError(
-            f"Report {requested_id} is {report.status} and cannot be merged. Only a live report can be a source."
+            f"Report {requested_id} is {report_status} and cannot be merged. Only a live report can be a source."
         )
     # The signal move reads one bounded page and never pages or retries, so a source past the cap
     # would leave the remainder pointing at itself while the survivor's counters already include
@@ -400,9 +401,10 @@ def merge_reports(
         if str(survivor.id) not in locked:
             raise ReportMergeError("The report to merge into was not found in this project.")
         survivor = locked[str(survivor.id)]
-        if survivor.status not in MERGEABLE_STATUSES:
+        survivor_status = survivor.effective_status
+        if survivor_status not in MERGEABLE_STATUSES:
             raise ReportMergeError(
-                f"The report to merge into is {survivor.status} and cannot take on duplicates. "
+                f"The report to merge into is {survivor_status} and cannot take on duplicates. "
                 "Only a live report can be the survivor."
             )
         sources = [_mergeable_source(locked.get(source_id), source_id) for source_id in ordered_ids]

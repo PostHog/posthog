@@ -195,6 +195,7 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                groupPadding: bandPadding === 0 ? 0 : undefined,
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 minBarSize,

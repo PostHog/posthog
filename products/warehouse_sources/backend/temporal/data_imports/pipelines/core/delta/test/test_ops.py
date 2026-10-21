@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 
 from django.test import override_settings
 
+import pyarrow as pa
 import deltalake
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
@@ -14,8 +16,64 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     ObjectStorePermissionDeniedError,
     delta_merge_spill_kwargs,
     execute_with_conflict_retry,
+    wide_row_target_file_size,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+
+
+def _permission_error_with_client_error_cause() -> PermissionError:
+    # Mirrors s3fs.errors.translate_boto_error: the message on the PermissionError it raises is the
+    # server's own (here generic) Message, while the original ClientError (which carries the real
+    # Code) is kept only as __cause__.
+    client_error = botocore.exceptions.ClientError(
+        {"Error": {"Code": "SignatureDoesNotMatch", "Message": "Invalid argument."}}, "PutObject"
+    )
+    permission_error = PermissionError("Invalid argument.")
+    permission_error.__cause__ = client_error
+    return permission_error
+
+
+_KiB = 1024
+_MiB = 1024 * 1024
+
+
+def _add_actions(files: list[tuple[int, int | None]]) -> pa.Table:
+    return pa.table(
+        {
+            "size_bytes": pa.array([size for size, _ in files], pa.int64()),
+            "num_records": pa.array([rows for _, rows in files], pa.int64()),
+        }
+    )
+
+
+class TestWideRowTargetFileSize:
+    @parameterized.expand(
+        [
+            ("empty_table", [], None),
+            ("narrow_rows", [(64 * _MiB, 64 * 1024)], None),
+            ("just_under_the_wide_threshold", [(64 * _MiB, 64 * _MiB // (8 * _KiB - 1))], None),
+            # 1,024 rows of 8 KiB is 8 MiB, which the lower bound raises to 16 MiB.
+            ("wide_threshold_clamps_to_the_lower_bound", [(64 * _MiB, 64 * _MiB // (8 * _KiB))], 16 * _MiB),
+            ("inside_the_band", [(100 * _MiB, 100 * _MiB // (20 * _KiB))], 20 * _MiB),
+            ("very_wide_rows_clamp_to_the_upper_bound", [(100 * _MiB, 100 * _MiB // (100 * _KiB))], 32 * _MiB),
+            # Bytes per row come from the whole table, not from the largest file.
+            ("weighted_over_files", [(80 * _MiB, 80 * _MiB // (40 * _KiB)), (20 * _MiB, 20 * 1024)], None),
+            ("small_wide_table_waits", [(31 * _MiB, 31 * _MiB // (100 * _KiB))], None),
+            # A file without a row count says nothing about bytes per row, so it does not count.
+            (
+                "files_without_row_counts_are_skipped",
+                [(100 * _MiB, 100 * _MiB // (20 * _KiB)), (500 * _MiB, None)],
+                20 * _MiB,
+            ),
+            ("no_file_records_its_rows", [(100 * _MiB, None)], None),
+            ("rounds_to_whole_mib", [(100 * _MiB, round(100 * _MiB / (20.3 * _KiB)))], 20 * _MiB),
+        ]
+    )
+    def test_target(self, _name: str, files: list[tuple[int, int | None]], expected: int | None) -> None:
+        assert wide_row_target_file_size(_add_actions(files)) == expected
+
+    def test_add_actions_without_row_counts(self) -> None:
+        assert wide_row_target_file_size(pa.table({"size_bytes": pa.array([100 * _MiB], pa.int64())})) is None
 
 
 class TestDeltaMergeSpillKwargs:
@@ -205,6 +263,12 @@ class TestExecuteWithConflictRetry:
                 "s3fs_invalid_access_key_id",
                 PermissionError("The AWS Access Key Id you provided does not exist in our records."),
             ),
+            # s3fs also collapses SignatureDoesNotMatch into PermissionError, but our backend returns
+            # a generic "Invalid argument." Message for it instead of AWS's usual signature-mismatch
+            # sentence, so none of the message needles above match it. Regression coverage for this
+            # refusal leaking as a raw, unclassified PermissionError instead of being read off the
+            # chained ClientError's actual code.
+            ("s3fs_signature_does_not_match", _permission_error_with_client_error_cause()),
         ]
     )
     @pytest.mark.asyncio

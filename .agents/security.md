@@ -134,7 +134,7 @@ queryset.filter(name__icontains=value)  # SAFE
 **Do not add new `pickle` usage.**
 Unpickling bytes that any other process could influence is arbitrary code execution — the pickle stream can name any importable callable and pass it arguments.
 This applies to the equivalents too: `cPickle`, `cloudpickle`, `dill`, `marshal`, `shelve`, `joblib`, `pandas.read_pickle`, and `numpy.load(..., allow_pickle=True)`.
-CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the diff-aware `semgrep ci` jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
+CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the security semgrep jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
 Pickle can also appear without the word `pickle`: Django's default cache backend (`cache.set` / `cache.get`) pickles values transparently, so treat the cache as a pickle boundary and only store JSON-serializable values in it.
 
 **Use JSON instead.**
@@ -192,6 +192,26 @@ semgrep --test .semgrep/rules/security/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
 
+## Out-of-band interaction domains
+
+`posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
+interactions, such as Interactsh and Burp Collaborator, and the DNS rebinding services.
+
+Today the guards only log a match. Nothing is refused yet.
+
+The warehouse guards emit the `oob_domain` stage of `data_imports.host_check`, which carries
+`team_id`, and the `oob_domain_resolved` stage when the caller resolved the host first. The HTTP
+adapter emits `security.oob_domain_seen` and takes its team from the activity's bound log context.
+`posthog/security/url_validation.py` emits the same event with no team at all, because no team is
+in scope there, so those lines are attributable to a host and not to a project.
+
+The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
+lookup alone confirms the path to whoever runs the collaborator.
+
+It stops the default scanner configuration. It does not stop a determined attacker, who points a
+CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
+the real controls.
+
 ## Content Security Policy
 
 `CSPMiddleware` in `posthog/csp_middleware.py` attaches a policy to every HTML response.
@@ -201,8 +221,8 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
-- **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, get the policy without `frame-ancestors`, because customers frame them on their own sites. Two routes in `REPORT_ONLY_ROUTES` stay report-only. The bare `/exporter` render document stays report-only, because a replay export can run an `eval` in a frame of the render, and an enforced policy would refuse it. It stays report-only until the caller of that `eval` is traced. `/external_surveys/<id>` stays report-only on a response that the survey view did not build.
+- **The admin policy** governs `/admin/`. It is enforced for every staff member, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
 ### What the app policy forbids
@@ -227,14 +247,12 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
-On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
-A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
+On PostHog Cloud, the app policy's `script-src`, `connect-src`, `style-src` and `font-src` name each PostHog host instead of `*.posthog.com`.
+A script, stylesheet or font from another PostHog subdomain, or a request to one, needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
-On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
-It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
-A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
-Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
-A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
+On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src`, without `https:` and with each PostHog host named instead of `*.posthog.com`.
+It blocks nothing, and its reports (`$csp_version` 7) list the image hosts that only `https:` or `*.posthog.com` admits.
+An image from another PostHog subdomain needs its host in the list in `img_src_shadow_policy()`, or each load of it reports.
 Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.

@@ -317,7 +317,10 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             // value can already differ if it changed while the save was in flight.
             const savedQuery = savedInsight.query as MetricsQuery | undefined
             posthog.capture('metrics insight saved', {
-                aggregation: viewerAggregationFromNode(savedQuery?.clauses?.[0]?.aggregation),
+                aggregation: viewerAggregationFromNode(
+                    savedQuery?.clauses?.[0]?.aggregation,
+                    savedQuery?.clauses?.[0]?.quantile
+                ),
                 range_function: savedQuery?.clauses?.[0]?.rangeFunction ?? null,
                 clause_count: savedQuery?.clauses?.length ?? null,
                 has_formula: !!savedQuery?.formula,

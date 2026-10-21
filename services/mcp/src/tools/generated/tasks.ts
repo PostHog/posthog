@@ -379,6 +379,7 @@ const tasksList = (): ToolBase<
                 pr_state: params.pr_state,
                 repository: params.repository,
                 search: params.search,
+                sources: params.sources,
                 stage: params.stage,
                 status: params.status,
             },

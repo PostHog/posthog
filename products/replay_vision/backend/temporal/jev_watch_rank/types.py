@@ -9,6 +9,7 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     # True when this region serves no decisions at all, in which case every other count is zero.
     decisions_unavailable: bool = False
     teams_seen: int = 0
+    teams_evaluated: int = 0
     teams_enrolled: int = 0
     # Enrolled in the flag, but the organization has not approved AI data processing.
     teams_without_consent: int = 0
@@ -37,3 +38,12 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     hit_team_cap: bool = False
     hit_scanner_cap: bool = False
     hit_time_budget: bool = False
+    estimated_prompt_tokens: int = 0
+    duration_seconds: float = 0.0
+    failed_reason_chunks: int = 0
+    scanners_seen: int = 0
+    scanners_inspected: int = 0
+    scanners_window_capped: int = 0
+    pending_observations: int = 0
+    oldest_pending_age_seconds: float = 0.0
+    backlog_complete: bool = False

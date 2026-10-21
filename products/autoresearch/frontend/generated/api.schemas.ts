@@ -8,6 +8,34 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `7` - 7
+ * * `14` - 14
+ * * `30` - 30
+ * * `60` - 60
+ * * `90` - 90
+ */
+export type ResearchIntervalDaysEnumApi = (typeof ResearchIntervalDaysEnumApi)[keyof typeof ResearchIntervalDaysEnumApi]
+
+export const ResearchIntervalDaysEnumApi = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number60: 60,
+    Number90: 90,
+} as const
+
+/**
+ * * `explore` - Explore
+ * * `maintain` - Maintain
+ */
+export type TrainingPhaseEnumApi = (typeof TrainingPhaseEnumApi)[keyof typeof TrainingPhaseEnumApi]
+
+export const TrainingPhaseEnumApi = {
+    Explore: 'explore',
+    Maintain: 'maintain',
+} as const
+
+/**
  * * `draft` - Draft
  * * `bootstrapping` - Bootstrapping
  * * `running` - Running
@@ -218,13 +246,33 @@ export interface AutoresearchPipelineApi {
      */
     cadence_days?: number
     /**
-     * Total training iterations allowed for the autoresearch loop.
+     * Deprecated: scheduled training no longer reads it. Use iterations_per_run.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     iteration_budget?: number
-    /** Iterations remaining in the current budget. */
+    /** Deprecated: scheduled training no longer reads or spends it. */
     readonly iteration_budget_remaining: number
+    /** Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. */
+    readonly iterations_per_run: number
+    /** Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more.
+     *
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `60` - 60
+     * * `90` - 90 */
+    readonly research_interval_days: ResearchIntervalDaysEnumApi | null
+    /** explore: a research run on each scoring day until a run does not promote a better model, or until 5 research runs have run. maintain: one research run every research_interval_days.
+     *
+     * * `explore` - Explore
+     * * `maintain` - Maintain */
+    readonly training_phase: TrainingPhaseEnumApi
+    /**
+     * Start of the UTC day from which the daily sweep can start the next scheduled research run. Null when research_interval_days is null.
+     * @nullable
+     */
+    readonly next_research_at: string | null
     /**
      * Target AUC threshold. Training stops early if this score is reached.
      * @nullable
@@ -387,11 +435,25 @@ export interface AutoresearchPipelineCreateApi {
      */
     cadence_days?: number
     /**
-     * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+     * Deprecated: scheduled training no longer reads it. Use iterations_per_run.
      * @minimum 1
      * @maximum 500
      */
     iteration_budget?: number
+    /**
+     * Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.
+     * @minimum 1
+     * @maximum 50
+     */
+    iterations_per_run?: number
+    /** Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.
+     *
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `60` - 60
+     * * `90` - 90 */
+    research_interval_days?: ResearchIntervalDaysEnumApi | null
     /**
      * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
      * @minimum 0
@@ -799,6 +861,22 @@ export interface RespondToSuggestionApi {
 }
 
 /**
+ * * `explore` - Explore
+ * * `scheduled` - Scheduled
+ * * `rescue` - Rescue
+ * * `manual` - Manual
+ */
+export type AutoresearchTrainingRunKickoffReasonEnumApi =
+    (typeof AutoresearchTrainingRunKickoffReasonEnumApi)[keyof typeof AutoresearchTrainingRunKickoffReasonEnumApi]
+
+export const AutoresearchTrainingRunKickoffReasonEnumApi = {
+    Explore: 'explore',
+    Scheduled: 'scheduled',
+    Rescue: 'rescue',
+    Manual: 'manual',
+} as const
+
+/**
  * One iteration referenced from a run summary's ladder or dead-ends list.
  */
 export interface TrainingRunSummaryLadderItemApi {
@@ -910,6 +988,11 @@ export interface IterationTrailApi {
      * @nullable
      */
     readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailApiModelSpec
 }
@@ -941,6 +1024,13 @@ export interface AutoresearchTrainingRunApi {
      * * `completed` - Completed
      * * `failed` - Failed */
     readonly status: ZendeskImportJobStatusEnumApi
+    /** Why the run started: explore (the first burst of daily runs), scheduled (the research interval), rescue (the champion cannot score) or manual (a person or an agent asked). Null for older runs.
+     *
+     * * `explore` - Explore
+     * * `scheduled` - Scheduled
+     * * `rescue` - Rescue
+     * * `manual` - Manual */
+    readonly kickoff_reason: AutoresearchTrainingRunKickoffReasonEnumApi | null
     /**
      * Maximum iterations allowed for this run.
      * @minimum -2147483648
@@ -961,6 +1051,11 @@ export interface AutoresearchTrainingRunApi {
      * @nullable
      */
     readonly reader_summary: string | null
+    /**
+     * Short title for this run, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /**
      * Short plain-language next steps for people, at most 5. Null if not written.
      * @nullable
@@ -997,7 +1092,7 @@ export interface PaginatedAutoresearchTrainingRunListApi {
  */
 export interface OpenTrainingRunApi {
     /**
-     * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+     * Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted.
      * @minimum 1
      * @maximum 500
      */
@@ -1101,6 +1196,11 @@ export interface CompleteTrainingRunApi {
      * @nullable
      */
     reader_summary?: string | null
+    /**
+     * A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
     /**
      * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
      * @maxItems 5
@@ -1206,6 +1306,11 @@ export interface RecordIterationApi {
      */
     summary?: string | null
     /**
+     * A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
      * Agent's self-assessed confidence (0-1) that this iteration helps.
      * @minimum 0
      * @maximum 1
@@ -1279,6 +1384,11 @@ export interface AutoresearchIterationApi {
      * @nullable
      */
     summary?: string | null
+    /**
+     * Short title for this experiment, for people.
+     * @nullable
+     */
+    headline?: string | null
     /**
      * Agent's self-assessed confidence 0–1
      * @nullable
@@ -1395,6 +1505,11 @@ export interface IterationTrailWithRecipeApi {
      * @nullable
      */
     readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailWithRecipeApiModelSpec
     /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -1505,11 +1620,25 @@ export interface PatchedAutoresearchPipelineCreateApi {
      */
     cadence_days?: number
     /**
-     * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+     * Deprecated: scheduled training no longer reads it. Use iterations_per_run.
      * @minimum 1
      * @maximum 500
      */
     iteration_budget?: number
+    /**
+     * Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.
+     * @minimum 1
+     * @maximum 50
+     */
+    iterations_per_run?: number
+    /** Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.
+     *
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `60` - 60
+     * * `90` - 90 */
+    research_interval_days?: ResearchIntervalDaysEnumApi | null
     /**
      * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
      * @minimum 0
@@ -1719,7 +1848,7 @@ export interface OnlinePerformanceApi {
 
 export interface StartTrainingRequestApi {
     /**
-     * Override the pipeline iteration budget for this training run.
+     * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
      * @minimum 1
      * @maximum 500
      */

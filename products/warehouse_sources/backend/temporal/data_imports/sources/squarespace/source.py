@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ SQUARESPACE_API_VERSION_V2 = "v2"
 
 @SourceRegistry.register
 class SquarespaceSource(ResumableSource[SquarespaceSourceConfig, SquarespaceResumeConfig]):
+    codebase_detection = detect(env=("^SQUARESPACE_",))
+
     supported_versions = (SQUARESPACE_API_VERSION_V1, SQUARESPACE_API_VERSION_V2)
     default_version = SQUARESPACE_API_VERSION_V2
     api_docs_url = "https://developers.squarespace.com/commerce-apis/changelog"
@@ -65,6 +68,7 @@ Create an **API key** in your Squarespace site under **Settings → Advanced →
 - **Orders** (orders, transactions)
 - **Products** (products, inventory, store pages)
 - **Profiles** (profiles)
+- **Discounts** (fulfillment options)
 
 The Commerce APIs (orders, inventory) require the merchant to be on a Commerce plan. Webhook subscriptions are not available with API-key auth, so this source polls on a schedule.""",
             iconPath="/static/services/squarespace.png",

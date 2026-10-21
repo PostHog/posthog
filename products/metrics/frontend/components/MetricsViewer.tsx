@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react'
 import { LemonBanner, LemonButton, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
@@ -63,6 +64,7 @@ export const MetricsViewer = (): JSX.Element => {
         metricsDisplay,
         heatmapEligible,
         histogramQueryNode,
+        metricsQueryNode,
     } = useValues(logic)
     const {
         setLiveRefresh,
@@ -94,6 +96,7 @@ export const MetricsViewer = (): JSX.Element => {
     )
     const insightEditorDisabledReason = getMetricsInsightEditorDisabledReason()
     const noQueryReason = hasQuery ? undefined : language === 'builder' ? 'Pick a metric first' : 'Write a query first'
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -114,15 +117,16 @@ export const MetricsViewer = (): JSX.Element => {
             : traceExemplars.map((exemplar) => ({
                   timeMs: dayjs(exemplar.timestamp).valueOf(),
                   tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).tz(timezone).format('D MMM HH:mm:ss')}. Click to view the trace.`,
-                  onClick: () => {
+                  onClick: (event) => {
                       exemplarDotClicked(!!exemplar.spanId)
-                      router.actions.push(
-                          traceUrl({
-                              traceId: exemplar.traceId,
-                              spanId: exemplar.spanId || null,
-                              ts: exemplar.timestamp,
-                          })
-                      )
+                      const trace = {
+                          traceId: exemplar.traceId,
+                          spanId: exemplar.spanId || null,
+                          ts: exemplar.timestamp,
+                      }
+                      if (!openTraceDialog(event, trace, { entryPoint: 'metric_exemplar' })) {
+                          router.actions.push(traceUrl(trace))
+                      }
                   },
               }))
         const spikeMarkers: MetricsExemplar[] =
@@ -141,6 +145,7 @@ export const MetricsViewer = (): JSX.Element => {
         traceExemplars,
         tracingDisabledReason,
         exemplarDotClicked,
+        openTraceDialog,
         errorSpikes,
         errorOverlaysEnabled,
         errorTrackingDisabledReason,
@@ -309,6 +314,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 fallbackName={formula || metricName || (language === 'promql' ? queryText : 'metric')}
                                 display={metricsDisplay}
                                 exemplars={chartMarkers}
+                                query={metricsQueryNode ?? undefined}
                             />
                         ) : !queryLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">

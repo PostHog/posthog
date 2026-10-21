@@ -1436,13 +1436,15 @@ class SocialAuthExceptionMiddleware:
 
 
 # Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
-# organization, which this check never judges. Settling the balance is how a member lifts a
-# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+# organization, which this check never judges. Partner consent can target an organization that the
+# partner pays for, which this check also never judges. Settling the balance is how a member lifts
+# a deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
-    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/", "/agentic/authorize"),
     "/organization-deactivated": (
         "/organization-deactivated",
         "/signup/",
+        "/agentic/authorize",
         "/organization/billing",
         "/billing/authorization_status",
     ),

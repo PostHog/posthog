@@ -82,7 +82,7 @@ jobs:
 
                   # Newest first: successful hourly runs on Depot CI that uploaded a full set of
                   # timing artifacts (>=38), up to N.
-                  run_ids=$(python3 .github/scripts/depot_scheduled_runs.py find \
+                  run_ids=$(python3 .github/scripts/depot_backend_runs.py find --trigger schedule \
                       --prefix timing_data- --min-artifacts 38 --limit "$N" | cut -d' ' -f1)
 
                   primary=$(echo "$run_ids" | head -1)
@@ -175,7 +175,7 @@ jobs:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
                   # Backend runs live on Depot CI, Dagster runs on GitHub Actions.
-                  depot_download() { python3 .github/scripts/depot_scheduled_runs.py download "$@"; }
+                  depot_download() { python3 .github/scripts/depot_backend_runs.py download "$@"; }
 
                   # Download backend timing artifacts. Use segment-specific patterns
                   # so we don't accidentally pull Dagster artifacts here when the same
@@ -445,11 +445,11 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   path: depot-reader
-                  sparse-checkout: .github/scripts/depot_scheduled_runs.py
+                  sparse-checkout: .github/scripts/depot_backend_runs.py
                   sparse-checkout-cone-mode: false
 
             - name: Keep the Depot run reader
-              run: cp depot-reader/.github/scripts/depot_scheduled_runs.py "$RUNNER_TEMP/depot_scheduled_runs.py"
+              run: cp depot-reader/.github/scripts/depot_backend_runs.py "$RUNNER_TEMP/depot_backend_runs.py"
 
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
@@ -461,7 +461,7 @@ jobs:
                   # Only the hourly runs on Depot CI that take the events_json rows record. A
                   # successful one carries every shard's recording, because a shard that wrote
                   # none fails.
-                  read -r id sha < <(python3 "$RUNNER_TEMP/depot_scheduled_runs.py" find \
+                  read -r id sha < <(python3 "$RUNNER_TEMP/depot_backend_runs.py" find --trigger schedule \
                       --prefix events-schema-record- --max-age-days 2) || true
                   if [ -n "${id:-}" ]; then
                       echo "Using run $id at $sha"
@@ -500,7 +500,7 @@ jobs:
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   RUN_ID: ${{ steps.find-run.outputs.run_id }}
-              run: python3 "$RUNNER_TEMP/depot_scheduled_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
+              run: python3 "$RUNNER_TEMP/depot_backend_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
 
             - name: Build the manifest
               if: steps.cached.outputs.cache-hit != 'true'

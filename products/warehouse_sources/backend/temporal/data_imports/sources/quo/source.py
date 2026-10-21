@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     supported_versions = (QUO_API_VERSION_V1, QUO_API_VERSION_2026_03_30)
@@ -124,7 +127,7 @@ You can generate an API key in your Quo workspace settings, under the API tab. Y
             keywords=["openphone", "phone", "sms", "calls"],
             iconPath="/static/services/quo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/quo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -289,30 +289,47 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    @parameterized.expand(
+        [
+            ("uninstalled", 404, {}, GitHubIntegrationError, True),
+            ("rate_limited", 429, {"retry-after": "30"}, GitHubRateLimitError, False),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_mint_scoped_installation_token_marks_uninstalled_installation(self, mock_client_request):
+    def test_mint_scoped_installation_token_failure(
+        self, _name, status_code, headers, expected_error, marked_unavailable, mock_client_request
+    ):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": 1704110400},
             {"access_token": "FULL_TOKEN"},
         )
-        mock_response = MagicMock(status_code=404, text="Not Found")
+        mock_response = MagicMock(status_code=status_code, headers=headers, text="Not Found")
         mock_response.json.return_value = {"message": "Not Found"}
         mock_client_request.return_value = mock_response
 
         github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
-        with pytest.raises(GitHubIntegrationError):
+        with pytest.raises(expected_error):
             github.mint_scoped_installation_token({"contents": "read"})
 
         # Without the permanently-gone marker, every scheduled run re-mints a dead installation
         # forever — the marker is what lets callers skip it until the customer reconnects.
         integration.refresh_from_db()
         assert (
-            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).installation_unavailable() is True
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).installation_unavailable()
+            is marked_unavailable
         )
-        assert "expires_in" not in integration.config
+        assert ("expires_in" not in integration.config) is marked_unavailable
 
+    @parameterized.expand(
+        [
+            ("permissions", {"contents": "read"}, None, {"permissions": {"contents": "read"}}),
+            ("repositories", None, ["api"], {"repositories": ["api"]}),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):
+    def test_mint_scoped_installation_token_downscopes_without_persisting(
+        self, _name, permissions, repositories, expected_body, mock_client_request
+    ):
         integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
         mock_response = MagicMock(status_code=201)
         mock_response.json.return_value = {"token": "SCOPED_TOKEN", "expires_at": "2024-01-01T13:00:00Z"}
@@ -320,12 +337,12 @@ class TestGitHubIntegrationModel(BaseTest):
 
         token = GitHubIntegration(
             integration, source="test", priority=Priority.CRITICAL
-        ).mint_scoped_installation_token({"contents": "read"})
+        ).mint_scoped_installation_token(permissions, repositories=repositories)
 
         assert token == "SCOPED_TOKEN"
         # Without the permissions body the mint returns a FULL-permission token — a silent
         # privilege escalation for every read-only sandbox.
-        assert mock_client_request.call_args.kwargs["json_body"] == {"permissions": {"contents": "read"}}
+        assert mock_client_request.call_args.kwargs["json_body"] == expected_body
         # The scoped token must never clobber the shared full-permission credential other flows read.
         integration.refresh_from_db()
         assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
@@ -932,12 +949,19 @@ class TestGitHubIntegrationModel(BaseTest):
                 self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
             )
         assert result is not None
-        mock_access.assert_called_once_with("PostHog/posthog")
+        mock_access.assert_called_once_with("PostHog/posthog", raise_on_transient=True)
+
+    def test_repository_access_probe_raises_after_transient_retries_are_exhausted(self):
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
+        with patch.object(github, "api_request", return_value=MagicMock(status_code=503)):
+            with pytest.raises(GitHubIntegrationError, match="failed transiently"):
+                github.installation_can_access_repository("PostHog/posthog", raise_on_transient=True)
 
     @parameterized.expand(
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
@@ -956,6 +980,7 @@ class TestGitHubIntegrationModel(BaseTest):
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
@@ -1941,9 +1966,10 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response"):
+        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 2
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1967,9 +1993,10 @@ class TestGitHubIntegrationModel(BaseTest):
         # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
         mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_repositories")

@@ -134,6 +134,7 @@ _SPECIAL_CALLS = frozenset(
         "jsonlength",
         "match",
         "md5",
+        "sha1",
         "notempty",
         "notin",
         "parsedatetime",

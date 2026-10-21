@@ -17,6 +17,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.recalculation import (
+    RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+)
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -60,7 +64,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             created_by=self.user,
             feature_flag=self._flag(flag_key),
             name="exp",
-            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            start_date=timezone.now() - timedelta(days=30),
         )
         exp.metrics = [_mean_metric("m1")]
         exp.save()
@@ -79,11 +83,36 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # POST /metrics_recalculation/
     # ------------------------------------------------------------------
 
+    @parameterized.expand(
+        [
+            # name, activity queue flag outcome, expected activity_task_queue
+            ("activity_queue_flag_off", False, None),
+            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+        ]
+    )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_creates_and_starts_workflow(self, mock_run, mock_connect):
+    def test_post_creates_and_starts_workflow(
+        self,
+        _name: str,
+        flag_outcome: bool | Exception,
+        expected_activity_task_queue: str | None,
+        mock_run,
+        mock_connect,
+    ):
+        def evaluate_flag(key: str, *args, **kwargs) -> bool:
+            if key != RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG:
+                return False
+            if isinstance(flag_outcome, Exception):
+                raise flag_outcome
+            return flag_outcome
+
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        with mock.patch(
+            "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+        ):
+            resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         body = resp.json()
         assert body["status"] == "pending"
@@ -92,7 +121,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         mock_connect.return_value.start_workflow.assert_called_once_with(
             "experiment-metrics-recalculation-workflow",
             ExperimentMetricsRecalculationWorkflowInputs(
-                recalculation_id=body["id"], fairness_key=str(self.organization.id)
+                recalculation_id=body["id"],
+                fairness_key=str(self.organization.id),
+                activity_task_queue=expected_activity_task_queue,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -175,6 +206,51 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert 170 <= int(resp["Retry-After"]) <= 180
         assert not mock_connect.called
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @mock.patch(
+        "products.experiments.backend.recalculation.feature_enabled_or_false",
+        side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    )
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_for_old_experiment_rejects_without_a_workflow_and_keeps_earlier_results(
+        self, mock_run, mock_connect, _mock_flag
+    ):
+        exp = self._launched_experiment()
+        exp.start_date = timezone.now() - timedelta(days=200)
+        exp.save()
+        previous_window = timezone.now() - timedelta(days=1)
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            metric_uuids=["m1"],
+            status="completed",
+            query_to=previous_window,
+            completed_at=previous_window,
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=_recalc_fingerprint(_calculation_key(exp, "m1")),
+            query_from=exp.start_date,
+            query_to=previous_window,
+            status="completed",
+            result={"ok": True},
+        )
+
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert body["is_existing"] is False
+        assert body["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
+        assert not mock_connect.called
+
+        latest = self.client.get(self._latest_url(exp.id)).json()
+        assert latest["id"] == body["id"]
+        assert latest["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
+        assert [(r["metric_uuid"], r["result"]) for r in latest["results"]] == [("m1", {"ok": True})]
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")

@@ -243,6 +243,11 @@ _CALLS = Counter(
     "Jev watch rank chunk requests by outcome.",
     ["outcome"],
 )
+_REQUESTS = Counter(
+    "replay_vision_jev_watch_rank_requests_total",
+    "Ranking requests by kind and HTTP status; non-HTTP failures use unknown",
+    ["kind", "status"],
+)
 _LATENCY = Histogram(
     "replay_vision_jev_watch_rank_latency_seconds",
     "Jev watch rank chunk request wall-clock latency.",
@@ -327,6 +332,7 @@ class WindowJudgment:
     stopped_early: bool
     input_tokens: int
     estimated_cost_usd: float
+    estimated_prompt_tokens: int = 0
 
 
 def _is_rate_limited(error: Exception) -> bool:
@@ -492,6 +498,7 @@ def judge_scanner_window(
     rate_limited = False
     input_tokens = 0
     estimated_cost = 0.0
+    estimated_prompt_tokens = 0
 
     def charge(result: Any) -> None:
         nonlocal input_tokens, estimated_cost
@@ -536,11 +543,14 @@ def judge_scanner_window(
         if out_of_time():
             break
         chunks_started += 1
+        estimated_prompt_tokens += state_tokens + len(chunk) * _WINDOW_QUESTION_TOKENS
         started = perf_counter()
         try:
             chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
+            status = str(error.status_code) if isinstance(error, DecisionGatewayError) else "unknown"
+            _REQUESTS.labels("judgment", status).inc()
             error_type = type(error).__name__
             _CALLS.labels(error_type).inc()
             failed_chunks += 1
@@ -567,6 +577,7 @@ def judge_scanner_window(
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("ok").inc()
+        _REQUESTS.labels("judgment", "200").inc()
         probabilities.update(chunk_probabilities)
         model = result.model
         charge(result)
@@ -581,6 +592,7 @@ def judge_scanner_window(
             # The judgments above still land; only the reasons are left off, as on a failed pick.
             break
         started = perf_counter()
+        estimated_prompt_tokens += state_tokens + len(watchable_ids) * _REASON_QUESTION_TOKENS
         try:
             chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)
         except Exception as error:
@@ -588,6 +600,8 @@ def judge_scanner_window(
             # not retried: the rows are judged, and the feed shows them without a reason.
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(f"reason_{type(error).__name__}").inc()
+            status = str(error.status_code) if isinstance(error, DecisionGatewayError) else "unknown"
+            _REQUESTS.labels("reason", status).inc()
             failed_reason_chunks += 1
             logger.warning(
                 "Jev watch reason chunk failed",
@@ -601,6 +615,7 @@ def judge_scanner_window(
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("reason_ok").inc()
+        _REQUESTS.labels("reason", "200").inc()
         reasons.update(chunk_reasons)
         charge(reason_result)
     return WindowJudgment(
@@ -617,6 +632,7 @@ def judge_scanner_window(
         stopped_early=stopped_early,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
+        estimated_prompt_tokens=estimated_prompt_tokens,
     )
 
 

@@ -31,10 +31,17 @@ EMPLOYEE_TABLE_EMPLOYEE_ID = "employeeId"
 # Goal comments are addressed by employee *and* goal, and the comment rows carry neither.
 GOAL_ID = "goalId"
 
+# List values are addressed by their custom field, and the value rows do not carry it.
+CUSTOM_FIELD_ID = "customFieldId"
+
+# Parent row key holding the percent-encoded copy of a fan-out parent id, for the child path.
+ENCODED_PARENT_ID = "_encoded_parent_id"
+
 # BambooHR's org locations endpoint is the only one that takes a page size.
 LOCATIONS_PAGE_SIZE = 500
 # The documented maximum page size of each newer collection endpoint.
 TIME_TRACKING_PAGE_SIZE = 200
+TIME_TRACKING_SETUP_PAGE_SIZE = 100
 HOLIDAYS_PAGE_SIZE = 100
 CUSTOM_FIELDS_PAGE_SIZE = 1000
 
@@ -70,6 +77,9 @@ class BambooHREndpointConfig:
     chunked_date_window: ChunkedDateWindow | None = None
     # Fan-out over a parent listing, for endpoints addressed by a single parent record.
     fanout: DependentEndpointConfig | None = None
+    # Parent field to percent-encode before the fan-out binds it into the child path, for ids
+    # that are not known to be numeric. The fan-out must resolve on ENCODED_PARENT_ID.
+    encode_parent_field: str | None = None
     # Set when the endpoint is two fan-out levels deep, which the single-hop helper cannot express.
     custom_iterator: Literal["goal_comments"] | None = None
     # Static query params every request for this endpoint carries.
@@ -136,6 +146,35 @@ def _time_tracking_endpoint(name: str, resource: str, sort: str) -> BambooHREndp
         # The default sort is newest first, so a row added during the walk would shift every
         # later page by one and skip a row at each page boundary.
         params={"sort": sort, "pageSize": TIME_TRACKING_PAGE_SIZE},
+    )
+
+
+_CUSTOM_FIELD_FANOUT = DependentEndpointConfig(
+    parent_name="custom_fields",
+    resolve_param=CUSTOM_FIELD_ID,
+    resolve_field=ENCODED_PARENT_ID,
+    include_from_parent=["id"],
+    parent_field_renames={"id": CUSTOM_FIELD_ID},
+    parent_params={"pageSize": CUSTOM_FIELDS_PAGE_SIZE},
+    # The listing has no type filter, so every custom field is asked for its list values. The
+    # docs answer 422 for an id the endpoint rejects, taken here as a field that is not list-type,
+    # and a field deleted after the listing 404s.
+    child_response_actions=[
+        {"status_code": 404, "action": "ignore", "message": None},
+        {"status_code": 422, "action": "ignore", "message": None},
+    ],
+)
+
+
+def _time_tracking_setup_endpoint(name: str, resource: str, order_by: str) -> BambooHREndpointConfig:
+    return BambooHREndpointConfig(
+        name=name,
+        path=f"v1/time-tracking/{resource}",
+        data_key="data",
+        primary_keys=["id"],
+        pagination="page_links",
+        # The default sort is by name, which a rename reorders mid-walk.
+        params={"orderBy": order_by, "pageSize": TIME_TRACKING_SETUP_PAGE_SIZE},
     )
 
 
@@ -287,6 +326,16 @@ BAMBOOHR_ENDPOINTS: dict[str, BambooHREndpointConfig] = {
     "timesheets": _time_tracking_endpoint("timesheets", "timesheets", "startDate asc"),
     "hour_entries": _time_tracking_endpoint("hour_entries", "hour-entries", "date asc"),
     "clock_entries": _time_tracking_endpoint("clock_entries", "clock-entries", "start asc"),
+    "time_tracking_employees": _time_tracking_setup_endpoint("time_tracking_employees", "employees", "employeeId asc"),
+    "time_tracking_configurations": _time_tracking_setup_endpoint(
+        "time_tracking_configurations", "configurations", "createdAt asc"
+    ),
+    # Kiosks can filter on updatedAt, but it stays null until the first edit, so a filter on it
+    # would never pick up a new kiosk.
+    "time_tracking_kiosks": _time_tracking_setup_endpoint("time_tracking_kiosks", "kiosks", "createdAt asc"),
+    "time_tracking_time_clocks": _time_tracking_setup_endpoint(
+        "time_tracking_time_clocks", "time-clocks", "serialNumber asc"
+    ),
     "holidays": BambooHREndpointConfig(
         name="holidays",
         path="v1/holidays",
@@ -310,6 +359,17 @@ BAMBOOHR_ENDPOINTS: dict[str, BambooHREndpointConfig] = {
         primary_keys=["id"],
         pagination="page_links",
         params={"pageSize": CUSTOM_FIELDS_PAGE_SIZE},
+    ),
+    "custom_field_list_values": BambooHREndpointConfig(
+        name="custom_field_list_values",
+        path="v1/hris/custom-fields/{customFieldId}/list-values",
+        data_key="values",
+        # A list value id is only documented as unique within its field.
+        primary_keys=[CUSTOM_FIELD_ID, "id"],
+        pagination="single",
+        fanout=_CUSTOM_FIELD_FANOUT,
+        # Custom field ids are strings, and the path binding applies no escaping.
+        encode_parent_field="id",
     ),
 }
 

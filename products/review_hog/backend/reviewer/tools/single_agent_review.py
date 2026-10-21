@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
     FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
@@ -246,6 +247,8 @@ class FlashSelection:
     lens_part_count: int
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool = False
+    # How many more findings the pull request could post before this turn, None outside the finding budget.
+    budget_left: int | None = None
 
 
 def _reported_level(issue: Issue) -> int:
@@ -274,7 +277,13 @@ def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str
 
 
 def compose_flash_findings(
-    main: list[Issue], lens: list[Issue], *, lens_part_count: int, group_levels: Mapping[str, int] | None = None
+    main: list[Issue],
+    lens: list[Issue],
+    *,
+    lens_part_count: int,
+    group_levels: Mapping[str, int] | None = None,
+    budget_left: int | None = None,
+    first_review: bool = False,
 ) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
@@ -282,24 +291,33 @@ def compose_flash_findings(
     `FLASH_MUST_FIX_CAP_MULTIPLIER` times the cap. P2 and then P3 findings fill the slots the must-fix
     findings leave under the cap. The rest drop with their rank.
 
+    `budget_left` is how many more findings the pull request may post (`finding_budget.py`), None when no
+    budget applies. Must-fix findings count toward it but always post. A finding that fits under the cap
+    but not under the budget drops as `budget`, the rest as `cap`. A first review gets
+    `FLASH_FIRST_REVIEW_CAP_MULTIPLIER` times the cap.
+
     The caller persists only the kept findings. A persisted finding that never posts counts as already
     raised, so every later turn would keep it off the PR too.
     """
-    cap = flash_max_findings(lens_part_count)
+    cap = flash_max_findings(lens_part_count) * (FLASH_FIRST_REVIEW_CAP_MULTIPLIER if first_review else 1)
     ranked = _flash_order(main, lens, group_levels)
     must_fix = [issue for issue in ranked if issue.priority == IssuePriority.MUST_FIX]
     must_fix = must_fix[: FLASH_MUST_FIX_CAP_MULTIPLIER * cap]
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
-    kept_ids = {issue.id for issue in [*must_fix, *others[: max(cap - len(must_fix), 0)]]}
+    under_cap = others[: max(cap - len(must_fix), 0)]
+    kept = under_cap if budget_left is None else under_cap[: max(budget_left - len(must_fix), 0)]
+    kept_ids = {issue.id for issue in [*must_fix, *kept]}
+    over_budget_ids = {issue.id for issue in under_cap} - kept_ids
     return FlashSelection(
         kept=[issue for issue in ranked if issue.id in kept_ids],
         dropped=[
-            DroppedIssue(issue=issue, disposition="cap", rank=rank)
+            DroppedIssue(issue=issue, disposition="budget" if issue.id in over_budget_ids else "cap", rank=rank)
             for rank, issue in enumerate(ranked, start=1)
             if issue.id not in kept_ids
         ],
         cap=cap,
         lens_part_count=lens_part_count,
+        budget_left=budget_left,
     )
 
 
@@ -326,13 +344,27 @@ class FlashTurnStats:
     kept: int
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool
+    budget_left: int | None = None
+    # A shadow measure for diff-only follow-ups, None without an earlier reviewed head: the lines that
+    # changed since that head, and the kept must-fix findings on and off them. A review that sees only the
+    # change would put the findings off it at risk.
+    changed_lines: int | None = None
+    must_fix_on_change: int | None = None
+    must_fix_off_change: int | None = None
 
 
-def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
+def flash_turn_stats(
+    candidates: list[Issue],
+    selection: FlashSelection,
+    *,
+    reviewable_lines: int,
+    changed_since: "ChangedSinceReview | None" = None,
+) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
     Must-fix counts read `reported_priority`, because a dedup survivor can be raised above what its
-    session reported.
+    session reported. The on and off change split reads the stored priority instead, because it counts
+    what the turn posts.
     """
     per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
     must_fix = dict(per_session)
@@ -341,7 +373,15 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         per_session[session] = per_session.get(session, 0) + 1
         if issue.reported_priority in ("P0", "P1"):
             must_fix[session] = must_fix.get(session, 0) + 1
-    cut = sum(1 for drop in selection.dropped if drop.disposition == "cap")
+    cut = sum(1 for drop in selection.dropped if drop.disposition in ("cap", "budget"))
+    changed_lines: int | None = None
+    must_fix_on_change: int | None = None
+    must_fix_off_change: int | None = None
+    if changed_since is not None:
+        kept_must_fix = [issue for issue in selection.kept if issue.priority == IssuePriority.MUST_FIX]
+        changed_lines = changed_since.reviewable_line_count()
+        must_fix_on_change = sum(1 for issue in kept_must_fix if changed_since.touches(issue))
+        must_fix_off_change = len(kept_must_fix) - must_fix_on_change
     return FlashTurnStats(
         cap=selection.cap,
         lens_part_count=selection.lens_part_count,
@@ -352,6 +392,10 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
+        budget_left=selection.budget_left,
+        changed_lines=changed_lines,
+        must_fix_on_change=must_fix_on_change,
+        must_fix_off_change=must_fix_off_change,
     )
 
 
@@ -526,11 +570,13 @@ def _diff_sequence(pr_file: PRFile) -> list[_DiffLine]:
     return sequence
 
 
-def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
-    """The head lines of the file's changes that the earlier diff did not have.
+def _diff_since(pr_file: PRFile, earlier: PRFile | None) -> tuple[set[int], int]:
+    """The head lines of the file's changes that the earlier diff did not have, and the changed diff line count.
 
     The two diffs are matched as sequences of lines with their context, so code that a base merge or a rebase
-    only moved stays old, and a repeated line matches the occurrence in the same place.
+    only moved stays old, and a repeated line matches the occurrence in the same place. The count takes the
+    added and removed diff lines on both sides of each mismatch, in the units of `PRFile.additions` plus
+    `PRFile.deletions`.
     """
     current = _diff_sequence(pr_file)
     before = _diff_sequence(earlier) if earlier is not None else []
@@ -540,15 +586,27 @@ def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
         None, [(line.kind, line.code) for line in before], [(line.kind, line.code) for line in current]
     )
     new_lines: set[int] = set()
+    changed_count = 0
     for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
         if tag == "equal":
             continue
+        changed_count += sum(1 for line in before[before_start:before_end] if line.kind != "context")
+        changed_count += sum(1 for line in current[current_start:current_end] if line.kind != "context")
         # Context lines count too, so a statement moved into new surroundings is changed code.
         new_lines.update(line.head_line for line in current[current_start:current_end])
         # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
         if any(line.kind != "context" for line in before[before_start:before_end]):
             new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])
-    return new_lines
+    return new_lines, changed_count
+
+
+def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
+    """The changed line count of a file whose patch is missing, from its addition and deletion counts."""
+    additions = pr_file.additions if pr_file is not None else 0
+    deletions = pr_file.deletions if pr_file is not None else 0
+    earlier_additions = earlier.additions if earlier is not None else 0
+    earlier_deletions = earlier.deletions if earlier is not None else 0
+    return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
 
 
 @frozen
@@ -557,19 +615,31 @@ class ChangedSinceReview:
 
     lines: dict[str, set[int]]
     files_without_patch: set[str]
+    # Per file, the diff lines added or removed since the earlier head, including files that left the PR.
+    changed_line_counts: dict[str, int]
 
     @classmethod
     def between(cls, earlier_files: list[PRFile], current_files: list[PRFile]) -> "ChangedSinceReview":
         earlier_by_name = {pr_file.filename: pr_file for pr_file in earlier_files}
         lines: dict[str, set[int]] = {}
         files_without_patch: set[str] = set()
+        changed_line_counts: dict[str, int] = {}
         for pr_file in current_files:
             earlier = earlier_by_name.get(pr_file.filename)
             if _patch_missing(pr_file) or (earlier is not None and _patch_missing(earlier)):
                 files_without_patch.add(pr_file.filename)
+                changed_line_counts[pr_file.filename] = _count_delta(pr_file, earlier)
             else:
-                lines[pr_file.filename] = _lines_new_since(pr_file, earlier)
-        return cls(lines=lines, files_without_patch=files_without_patch)
+                lines[pr_file.filename], changed_line_counts[pr_file.filename] = _diff_since(pr_file, earlier)
+        current_names = {pr_file.filename for pr_file in current_files}
+        for earlier in earlier_files:
+            if earlier.filename not in current_names:
+                changed_line_counts[earlier.filename] = _count_delta(None, earlier)
+        return cls(lines=lines, files_without_patch=files_without_patch, changed_line_counts=changed_line_counts)
+
+    def reviewable_line_count(self) -> int:
+        """How many diff lines of reviewable files changed, in the units of `flash_reviewable_lines`."""
+        return sum(count for filename, count in self.changed_line_counts.items() if is_reviewable_path(filename))
 
     def touches(self, issue: Issue) -> bool:
         """Whether the finding sits on or near a changed line, or in a file whose lines cannot be compared."""
@@ -585,15 +655,20 @@ class ChangedSinceReview:
         )
 
 
-def _old_code_findings(issues: list[Issue], changed_since: ChangedSinceReview | None) -> list[Issue]:
-    """A follow-up turn's P3 findings on code that did not change since the last reviewed head.
+def _old_code_findings(
+    issues: list[Issue], changed_since: ChangedSinceReview | None, *, changed_code_only: bool
+) -> list[Issue]:
+    """A follow-up turn's findings on code that did not change since the last reviewed head.
 
-    A P2 or higher on old code still goes through dedup: the earlier review may have missed it, and dedup
-    against earlier turns' findings already removes one that a turn posted before.
+    With `changed_code_only` the turn only comments on what the push changed, so a fix does not draw a new
+    opinion on code earlier turns already covered. It still posts a must-fix anywhere. Otherwise only P3
+    findings drop there: a P2 still goes through dedup, because the earlier review may have missed it, and
+    dedup against earlier turns' findings already removes one that a turn posted before.
     """
     if changed_since is None:
         return []
-    return [issue for issue in issues if issue.priority == IssuePriority.CONSIDER and not changed_since.touches(issue)]
+    dropped = {IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER} if changed_code_only else {IssuePriority.CONSIDER}
+    return [issue for issue in issues if issue.priority in dropped and not changed_since.touches(issue)]
 
 
 async def dedupe_flash_findings(
@@ -609,6 +684,9 @@ async def dedupe_flash_findings(
     workflow_id_prefix: str | None = None,
     fall_back_on_any_error: bool = False,
     changed_since: ChangedSinceReview | None = None,
+    budget_left: int | None = None,
+    changed_code_only: bool = False,
+    first_review: bool = False,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
@@ -619,9 +697,10 @@ async def dedupe_flash_findings(
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
-    On a follow-up turn, `changed_since` drops the P3 findings on unchanged code before dedup.
+    On a follow-up turn, `changed_since` drops findings on unchanged code before dedup: every finding below
+    must-fix with `changed_code_only`, otherwise only P3 findings.
     """
-    old_code = _old_code_findings(issues, changed_since)
+    old_code = _old_code_findings(issues, changed_since, changed_code_only=changed_code_only)
     old_code_ids = {issue.id for issue in old_code}
     reviewed = [issue for issue in issues if issue.id not in old_code_ids]
     main = [issue for issue in reviewed if issue.source_perspective == SINGLE_AGENT_SOURCE]
@@ -661,7 +740,14 @@ async def dedupe_flash_findings(
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
     group_levels = _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
-    composed = compose_flash_findings(kept_main, kept_lens, lens_part_count=lens_part_count, group_levels=group_levels)
+    composed = compose_flash_findings(
+        kept_main,
+        kept_lens,
+        lens_part_count=lens_part_count,
+        group_levels=group_levels,
+        budget_left=budget_left,
+        first_review=first_review,
+    )
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
         _dropped_duplicate(removal.duplicate, dedup_fallback=removal.fell_back, turn_issues=turn_issues)

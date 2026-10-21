@@ -6,8 +6,8 @@ import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/Analytic
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatBucketLabel } from 'lib/utils/timeBuckets'
-import { SampleDataState } from 'scenes/insights/EmptyStates/SampleDataState'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
+import { SampleDataTag } from 'scenes/insights/EmptyStates/SampleDataTag'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -101,9 +101,16 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
           ? 'No previous period data'
           : `vs. ${formatItem(previousValue, stat.kind)} prior`
 
-    const card = (
+    return (
         <AnalyticsMetricCard
             className="h-full w-full"
+            adornment={
+                shouldShowSampleData ? (
+                    <div className="flex justify-end px-3 pb-3">
+                        <SampleDataTag />
+                    </div>
+                ) : undefined
+            }
             title={label}
             ariaLabel={stat.title}
             onClick={onSelect}
@@ -127,6 +134,4 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             restingSubtitle={<span translate="no">{subtitle}</span>}
         />
     )
-
-    return shouldShowSampleData ? <SampleDataState>{card}</SampleDataState> : card
 }

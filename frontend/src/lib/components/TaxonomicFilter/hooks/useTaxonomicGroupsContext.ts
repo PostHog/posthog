@@ -52,6 +52,7 @@ export interface UseTaxonomicGroupsContextInput {
     /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
     includeHiddenEvents?: boolean
     propertyAllowList?: AllowedProperties
+    showNumericalPropsOnly?: boolean
     selectedProperties?: SelectedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
@@ -116,6 +117,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             propertyAllowList: input.propertyAllowList as
                 | Record<TaxonomicFilterGroupType, (string | number | null)[]>
                 | undefined,
+            showNumericalPropsOnly: input.showNumericalPropsOnly,
         }
         const hogQLExpressionComponentProps = {
             globals: input.hogQLGlobals,
@@ -183,6 +185,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         input.excludedProperties,
         input.includeHiddenEvents,
         input.propertyAllowList,
+        input.showNumericalPropsOnly,
         input.maxContextOptions,
         input.hideBehavioralCohorts,
         input.showCohortFlagTargeting,

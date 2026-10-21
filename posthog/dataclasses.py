@@ -34,8 +34,4 @@ def frozen(cls: Any = None, /, **kwargs: Any) -> Any:
     flag can be overridden per class, e.g. @frozen(slots=False) when the class needs
     functools.cached_property, or @frozen(frozen=False) for a mutable builder.
     """
-    kwargs.setdefault("frozen", True)
-    kwargs.setdefault("kw_only", True)
-    kwargs.setdefault("slots", True)
-    wrap = dataclass(**kwargs)
-    return wrap if cls is None else wrap(cls)
+    return dataclass(cls, **{"frozen": True, "kw_only": True, "slots": True, **kwargs})
