@@ -90,6 +90,18 @@ A failed refresh within the same range keeps the last successful data and shows 
 MCP clients get the same data through `managed-warehouse-trino-monitoring-get` and `managed-warehouse-trino-metric-history-get`, available when `managed-warehouse-trino-query` is enabled.
 An organization with both flags still sees the two DuckDB tools listed. Those calls return the 404 that names the Trino endpoints.
 
+## Backfill recovery status
+
+The Data ops Overview reports automatic recovery separately from failures that need intervention.
+Failed event and person backfills are retried by the managed pipeline up to three times, with increasing delays and jitter under the existing concurrency limits.
+This covers historical event months and older daily failures as well as full person imports.
+While a retry is pending, the dataset remains backfilling and explains that it is waiting to retry automatically.
+After the retry budget is exhausted, the dataset needs attention and explains that PostHog needs to investigate.
+Customers are not instructed to operate Dagster or retry an inaccessible run.
+
+Internal failure notifications use the existing Dagster job-owner routing.
+Delivery is independent of readiness, so the UI does not claim that an alert was delivered.
+
 ## Usage scope
 
 This first version reports operational activity and allocated capacity.

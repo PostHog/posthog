@@ -135,12 +135,13 @@ def dataset_status(
         for row in historical_partitions
     )
 
+    failed_partitions = [
+        row
+        for row in relevant_partitions
+        if row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.FAILED
+    ]
     failed = next(
-        (
-            row
-            for row in relevant_partitions
-            if row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.FAILED
-        ),
+        (row for row in failed_partitions if row.retry_at is None or row.retry_exhausted),
         None,
     )
     running = next(
@@ -155,8 +156,16 @@ def dataset_status(
 
     if failed is not None:
         readiness_state: ReadinessState = "needs_attention"
-        detail = "A backfill partition failed. Retry the failed warehouse backfill run."
+        detail = (
+            "Automatic retries for part of this import have stopped. PostHog needs to investigate."
+            if failed.retry_exhausted
+            else "Part of this import failed. PostHog manages recovery for this pipeline."
+        )
         current_partition = failed.partition_key
+    elif failed_partitions:
+        readiness_state = "backfilling"
+        detail = "Part of this import failed and is waiting to retry automatically."
+        current_partition = failed_partitions[0].partition_key
     elif running is not None:
         readiness_state = "backfilling"
         detail = "Historical data is being copied into the warehouse."

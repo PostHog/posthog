@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch
 
 import duckdb
 import psycopg
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.dags.common import JobOwners
@@ -1035,10 +1036,7 @@ class TestDailyBackfillSensor:
         result = self._run_daily([self._team(1)], now=datetime(2020, 3, 1, 12, 0, 0))
         assert result.run_requests == []
 
-    def test_retries_only_yesterday_not_older_days(self):
-        # All current-month days already exist and their last run failed, but only yesterday
-        # (2020-03-09) is retried — older caught-up days are left alone, keeping the per-tick
-        # run lookup to one query per team.
+    def test_discovery_leaves_failed_partitions_to_recovery_sensor(self):
         from dagster import DagsterRunStatus
 
         existing = [f"1_2020-03-0{d}" for d in range(1, 10)]  # 2020-03-01 .. 2020-03-09
@@ -1049,8 +1047,7 @@ class TestDailyBackfillSensor:
             [self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0), existing=existing, get_runs=[failed]
         )
         keys = [rr.partition_key for rr in result.run_requests]
-        assert keys == ["1_2020-03-09"]
-        assert result.run_requests[0].run_key == "1_2020-03-09_retry_deadbeef"
+        assert keys == []
 
     def test_catchup_is_bounded_per_tick_but_yesterday_always_emitted(self):
         # With the catch-up cap at 3 and two freshly enabled teams on 2020-03-05 (older days
@@ -1076,6 +1073,20 @@ class TestDailyBackfillSensor:
 
 
 class TestGetClusterRetry:
+    @parameterized.expand([("capacity", 202, True), ("network", 210, True), ("invalid_sql", 62, False)])
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_classifies_clickhouse_errors(self, _name, code, retryable, mock_get_cluster, _mock_sleep):
+        error = ServerException("synthetic failure", code=code)
+        cluster = MagicMock()
+        mock_get_cluster.side_effect = [error, cluster]
+        if retryable:
+            assert _get_cluster() is cluster
+        else:
+            with pytest.raises(ServerException):
+                _get_cluster()
+            assert mock_get_cluster.call_count == 1
+
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
     def test_retries_on_timeout_then_succeeds(self, mock_get_cluster, mock_sleep):

@@ -179,6 +179,20 @@ class TestDatasetStatus(SimpleTestCase):
         assert status["readiness_state"] == "waiting"
         assert status["total_partitions"] is None
 
+    @parameterized.expand([("scheduled", False, "backfilling"), ("exhausted", True, "needs_attention")])
+    def test_managed_recovery_status(self, _name: str, exhausted: bool, expected: ReadinessState) -> None:
+        partition = self._partition(
+            partition_key="1_2026-04", granularity=Granularity.MONTH, lifecycle_state=LifecycleState.FAILED
+        )
+        partition.retry_at = None if exhausted else datetime(2026, 7, 13, tzinfo=UTC)
+        partition.retry_exhausted = exhausted
+
+        status = dataset_status(dataset="events", backfill=self._backfill(), partitions=[partition])
+
+        assert status["readiness_state"] == expected
+        assert "Retry the failed" not in status["detail"]
+        assert ("PostHog needs to investigate" if exhausted else "retry automatically") in status["detail"]
+
 
 def _table(
     *,
