@@ -6,7 +6,8 @@ from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import Count, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -1333,6 +1334,32 @@ def send_warehouse_destination_paused(
 
 MAX_VIEWS_PER_DIGEST_EMAIL = 30
 MAX_ERROR_CHARS = 255
+DIGEST_SECTION_ORDER = ("action", "new", "ongoing")
+# Older than any job, so a view that never succeeded counts every failure in its streak.
+STREAK_FLOOR_BEFORE_ANY_RUN = datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)
+
+
+_DIGEST_SECTION_VERBS = {
+    "action": ("needs action", "need action"),
+    "new": ("started failing", "started failing"),
+    "ongoing": ("is still failing", "are still failing"),
+}
+
+
+def _matview_digest_summary(counts: dict[str, int]) -> str:
+    """Count each section, e.g. "1 materialized view needs action, 3 started failing"."""
+    parts = []
+    for key in DIGEST_SECTION_ORDER:
+        count = counts.get(key, 0)
+        if not count:
+            continue
+        verb = _DIGEST_SECTION_VERBS[key][count != 1]
+        if not parts:
+            noun = "materialized view" if count == 1 else "materialized views"
+            parts.append(f"{count} {noun} {verb}")
+        else:
+            parts.append(f"{count} {verb}")
+    return ", ".join(parts) or "Materialized view failures"
 
 
 @shared_task(ignore_result=True)
@@ -1419,7 +1446,29 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         return
 
     all_ids = list(set(failed_query_ids + suspended_query_ids))
-    queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
+    clickhouse_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("id"), engine=DataModelingJobEngine.CLICKHOUSE, last_run_at__isnull=False
+    )
+    last_success_at = (
+        clickhouse_jobs.filter(status=DataModelingJob.Status.COMPLETED).order_by("-last_run_at").values("last_run_at")
+    )
+    streak_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("id"),
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        status=DataModelingJob.Status.FAILED,
+        last_run_at__gt=OuterRef("streak_floor"),
+    )
+    queries = {
+        str(sq.id): sq
+        for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id).annotate(
+            streak_floor=Coalesce(Subquery(last_success_at[:1]), Value(STREAK_FLOOR_BEFORE_ANY_RUN)),
+            failing_since=Subquery(streak_jobs.order_by("last_run_at").values("last_run_at")[:1]),
+            failed_runs=Subquery(
+                streak_jobs.order_by().values("saved_query_id").annotate(n=Count("id")).values("n")[:1]
+            ),
+        )
+    }
+    new_failure_cutoff = timezone.now() - datetime.timedelta(hours=24)
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
@@ -1447,6 +1496,16 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
+        # Reverting clears the schedule, so promising a retry here would be false. `is not False`
+        # keeps a never-written flag on the retrying side, as `exclude(deleted=True)` does above.
+        scheduled = sq.is_materialized is not False
+        failing_since: datetime.datetime | None = getattr(sq, "failing_since", None) or run_at
+        if suspended or not scheduled:
+            section = "action"
+        elif failing_since is None or failing_since >= new_failure_cutoff:
+            section = "new"
+        else:
+            section = "ongoing"
         views.append(
             {
                 "id": str(sq.id),
@@ -1454,11 +1513,11 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "error": error,
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
+                "failing_since": failing_since.strftime("%b %d, %H:%M UTC") if failing_since else "Unknown",
+                "failed_runs": getattr(sq, "failed_runs", None) or 1,
+                "section": section,
                 "suspended": suspended,
-                # Reverting clears the schedule, so promising a retry here would be false. `is not
-                # False` keeps a never-written flag on the retrying side, as `exclude(deleted=True)`
-                # does above.
-                "scheduled": sq.is_materialized is not False,
+                "scheduled": scheduled,
                 "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
             }
         )
@@ -1467,8 +1526,14 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("No failed or suspended views found")
         return
 
-    # Rows needing action outrank rows that heal themselves, so the cap keeps them.
-    views.sort(key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])))
+    # Rows needing action outrank new failures, which outrank old ones, so the cap keeps them.
+    views.sort(
+        key=lambda v: (
+            DIGEST_SECTION_ORDER.index(v["section"]),
+            not v["suspended"],
+            -cast(float, v["last_run_at_ts"]),
+        )
+    )
     for v in views:
         v.pop("last_run_at_ts", None)
 
@@ -1479,15 +1544,21 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
         listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
 
+        counts = {key: sum(1 for v in visible_views if v["section"] == key) for key in DIGEST_SECTION_ORDER}
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=f"PostHog: Materialized view failures in {team.name}",
+            subject=f"PostHog: {_matview_digest_summary(counts)} in {team.name}",
             template_name="matview_failure_digest",
             template_context={
                 "team": team,
                 "views": listed_views,
+                "sections": [
+                    {"key": key, "views": [v for v in listed_views if v["section"] == key]}
+                    for key in DIGEST_SECTION_ORDER
+                    if any(v["section"] == key for v in listed_views)
+                ],
+                "summary": _matview_digest_summary(counts),
                 "has_suspended": any(v["suspended"] for v in listed_views),
-                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in listed_views),
                 "omitted_count": omitted_count,
                 "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
             },

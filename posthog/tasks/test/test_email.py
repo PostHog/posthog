@@ -2698,15 +2698,51 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
+        # A success breaks the streak, so only the three failures after it count.
+        ongoing = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="nightly_revenue_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(days=1),
+            is_materialized=True,
+        )
+        streak_started_at = timezone.now() - dt.timedelta(days=3)
+        for status, run_at in [
+            ("FAILED", timezone.now() - dt.timedelta(days=9)),
+            ("COMPLETED", timezone.now() - dt.timedelta(days=6)),
+            ("FAILED", streak_started_at),
+            ("FAILED", timezone.now() - dt.timedelta(days=2)),
+            ("FAILED", timezone.now() - dt.timedelta(hours=1)),
+        ]:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=ongoing,
+                status=getattr(DataModelingJob.Status, status),
+                error="Code: 60. DB::Exception: Unknown table expression identifier",
+                last_run_at=run_at,
+            )
+
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 1
-        html = mocked_email_messages[0].html_body
-        for name, _ in failed_cases + unscheduled_cases:
-            assert name in html
-        assert html.count("Will retry") == len(failed_cases)
-        assert html.count("Not scheduled") == len(unscheduled_cases)
-        assert "action required" not in html
+        message = mocked_email_messages[0]
+        assert message.subject == (
+            f"PostHog: 2 materialized views need action, 3 started failing, 1 is still failing in {self.team.name}"
+        )
+        sections = {s["key"]: [v["name"] for v in s["views"]] for s in message.properties["sections"]}
+        assert list(sections) == ["action", "new", "ongoing"]
+        assert sorted(sections["action"]) == sorted(name for name, _ in unscheduled_cases)
+        assert sorted(sections["new"]) == sorted(name for name, _ in failed_cases)
+        assert sections["ongoing"] == ["nightly_revenue_rollup"]
+        ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
+        assert ongoing_row["failed_runs"] == 3
+        assert ongoing_row["failing_since"] == streak_started_at.strftime("%b %d, %H:%M UTC")
+
+        html = message.html_body
+        assert html.count("Not scheduled.") == len(unscheduled_cases)
+        assert html.count("First failed") == len(failed_cases)
+        assert "3 failed runs" in html
+        assert "select Resume" not in html
 
     @parameterized.expand(
         [
@@ -2951,13 +2987,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
 
         html = mocked_email_messages[0].html_body
-        assert "Will retry" in html
+        assert "Started failing" in html
         if expected_has_suspended:
-            assert "action required" in html
+            assert "select Resume" in html
             assert "Memory limit (for query) exceeded" in html
             assert "has been suspended after" not in html
         else:
-            assert "action required" not in html
+            assert "select Resume" not in html
             assert "suspended_view" not in html
 
     def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:
