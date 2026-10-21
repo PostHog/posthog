@@ -187,19 +187,22 @@ def _tokens(length: int, horizon: int) -> int:
     return 2 * (math.ceil(length / PATCH) + math.ceil(horizon / PATCH))
 
 
-def forecast_tokens(spec: ForecastCall, values: list[object]) -> int:
-    """Transformer positions a forecast column costs, for the query budget."""
-    return sum(
-        _tokens(len(value[-MAX_CONTEXT:]), spec.horizon)
-        for value in values
+def _series(values: list[object]) -> dict[int, list[object]]:
+    """Each row's history, keyed by row index. Rows with fewer than two values get no forecast."""
+    if any(value is not None and not isinstance(value, list | tuple) for value in values):
+        raise QueryError("forecast values must be an array of numbers.")
+    return {
+        i: list(value[-MAX_CONTEXT:])
+        for i, value in enumerate(values)
         if isinstance(value, list | tuple) and len(value) >= 2
-    )
+    }
 
 
-def _batches(series: dict[int, list[float]], horizon: int) -> list[list[int]]:
+def _batches(series: dict[int, list[object]], horizon: int) -> list[list[int]]:
     """Row indexes in batches of at most RUN_TOKENS positions.
 
-    Rows are sorted by length, so each batch pads its shorter rows by little.
+    Rows are sorted by length, so each batch pads its shorter rows by little. A batch pads every row to its
+    last, longest row.
     """
     batches: list[list[int]] = []
     for i in sorted(series, key=lambda i: len(series[i])):
@@ -209,14 +212,14 @@ def _batches(series: dict[int, list[float]], horizon: int) -> list[list[int]]:
     return batches
 
 
+def forecast_tokens(spec: ForecastCall, values: list[object]) -> int:
+    """Transformer positions a forecast column costs, for the query budget, with the padding of its batches."""
+    series = _series(values)
+    return sum(len(batch) * _tokens(len(series[batch[-1]]), spec.horizon) for batch in _batches(series, spec.horizon))
+
+
 def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float) -> list[object]:
-    if any(value is not None and not isinstance(value, list | tuple) for value in values):
-        raise QueryError("forecast values must be an array of numbers.")
-    series = {
-        i: [np.nan if x is None else x for x in value[-MAX_CONTEXT:]]
-        for i, value in enumerate(values)
-        if isinstance(value, list | tuple) and len(value) >= 2
-    }
+    series = _series(values)
     out: list[object] = [([], [], []) for _ in values]
     for batch in _batches(series, spec.horizon):
         # NaN is missing, so shorter series are padded on the left.
@@ -224,9 +227,12 @@ def evaluate_forecast(spec: ForecastCall, values: list[object], deadline: float)
         context = np.full((len(batch), width), np.nan)
         try:
             for row, i in enumerate(batch):
-                context[row, width - len(series[i]) :] = series[i]
+                context[row, width - len(series[i]) :] = [np.nan if x is None else x for x in series[i]]
         except (TypeError, ValueError) as error:
             raise QueryError("forecast values must be an array of numbers.") from error
+        # The model reads Float32, so a larger value would become infinity and turn the whole forecast into NaN.
+        if np.any(np.abs(context[np.isfinite(context)]) > np.finfo(np.float32).max):
+            raise QueryError("forecast values must be between -3.4e38 and 3.4e38.")
         bands = _model().forecast(context, spec.horizon, deadline)[..., [P10, P50, P90]]
         for row, i in enumerate(batch):
             out[i] = tuple(band.tolist() for band in bands[row].T)

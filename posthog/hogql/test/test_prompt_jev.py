@@ -188,6 +188,7 @@ class TestPromptJev(SimpleTestCase):
             ("scalar_input", [123], 2, "array of numbers"),
             ("long_histories", [[1.0] * 8192] * 64, 2, "query budget"),
             ("long_horizon", [[1.0, 2.0]] * 1000, 1024, "query budget"),
+            ("float32_overflow", [[1e100, 2e100]], 2, "between -3.4e38 and 3.4e38"),
         ]
     )
     def test_forecast_rejects_before_inference(
@@ -210,6 +211,10 @@ class TestPromptJev(SimpleTestCase):
         runner = PromptJevRunner(team_id=1, distinct_id=None)
         with self.assertRaisesRegex(QueryError, "query budget"):
             runner.check_budget([(spec, values), (spec, values)])
+        # Each short row is padded to the long row in its batch, and the budget must count that padding.
+        padded: list[object] = [[1.0, 2.0]] * 8 + [[1.0] * 3584]
+        with self.assertRaisesRegex(QueryError, "query budget"):
+            runner.check_budget([(spec, padded)] * 20)
         with patch("posthog.hogql.transforms.forecast._model") as model:
             model.return_value.forecast.side_effect = lambda c, h, d: np.zeros((c.shape[0], h, 21))
             runner.evaluate(spec, values)
