@@ -142,8 +142,11 @@ class TestPlatformCutover(APIBaseTest):
     def test_a_dry_run_decides_as_a_real_run_and_changes_nothing(self) -> None:
         alert = self._alert()
 
-        (dry,) = cut_over_team(self.team.id, now=NOW, dry_run=True)
+        # Kafka is not transactional, so an event produced inside the dry run would outlive its rollback.
+        with patch("products.cdp.backend.internal_events.produce_internal_event") as produced:
+            (dry,) = cut_over_team(self.team.id, now=NOW, dry_run=True)
 
+        produced.assert_not_called()
         assert dry.skipped is None
         alert.refresh_from_db()
         assert (alert.owner, alert.owner_changed_at) == ("source", None)
