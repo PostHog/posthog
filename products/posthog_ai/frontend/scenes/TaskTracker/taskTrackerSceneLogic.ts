@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -1106,10 +1107,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
-                }
-                if (error instanceof CodexBillingUnresolvedError) {
+                } else if (error instanceof CodexBillingUnresolvedError) {
                     lemonToast.error("Couldn't confirm your ChatGPT plan for this run. Please try again.")
+                } else {
+                    lemonToast.error("Couldn't send your message. Please try again.")
                 }
+                posthog.captureException(error, {
+                    feature: 'posthog_ai_task_create',
+                    error_code: error instanceof ApiError ? error.code : null,
+                    status: error instanceof ApiError ? error.status : null,
+                })
                 cache.submittingTask = null
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             } finally {
