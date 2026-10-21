@@ -22,7 +22,8 @@ use crate::partition_budget::BudgetLimits;
 use crate::settlement::{Commit, Settlement};
 
 use capped::CappedPolling;
-pub(crate) use collector::{Collector, PollLimits};
+use collector::Collector;
+pub(crate) use collector::PollLimits;
 use continuous::ContinuousPolling;
 pub(crate) use poll::{
     debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, InFlightPoll,
@@ -40,132 +41,103 @@ pub(crate) enum Step {
     Fail(anyhow::Error),
 }
 
-enum Strategy {
-    Capped(CappedPolling),
+pub(crate) struct Parts {
+    pub(crate) limits: PollLimits,
+    pub(crate) settlement: Arc<dyn Settlement>,
+    pub(crate) group_id: String,
+    pub(crate) debug_recorder: Option<Arc<DebugRecorder>>,
+}
+
+pub(crate) enum PollingStrategy {
+    Capped(Box<CappedPolling>),
     Continuous(Box<ContinuousPolling>),
 }
 
-pub(crate) struct PollingStrategy {
-    collector: Collector,
-    settlement: Arc<dyn Settlement>,
-    strategy: Strategy,
-    accepting_new_batches: bool,
-    commit_due: bool,
-}
-
 impl PollingStrategy {
-    pub(crate) fn new(
-        selected: Selected,
-        limits: PollLimits,
-        settlement: Arc<dyn Settlement>,
-        group_id: String,
-        debug_recorder: Option<Arc<DebugRecorder>>,
-    ) -> Self {
-        let strategy = match selected {
+    pub(crate) fn new(selected: Selected, parts: Parts) -> Self {
+        match selected {
             Selected::Capped {
                 max_in_flight_polls,
-            } => Strategy::Capped(CappedPolling::new(
-                max_in_flight_polls,
-                group_id,
-                debug_recorder,
-            )),
-            Selected::Continuous { in_flight } => Strategy::Continuous(Box::new(
-                ContinuousPolling::new(in_flight, group_id, debug_recorder),
-            )),
-        };
-        Self {
-            collector: Collector::new(limits),
-            settlement,
-            strategy,
-            accepting_new_batches: true,
-            commit_due: false,
+            } => Self::Capped(Box::new(CappedPolling::new(parts, max_in_flight_polls))),
+            Selected::Continuous { in_flight } => {
+                Self::Continuous(Box::new(ContinuousPolling::new(parts, in_flight)))
+            }
         }
     }
 
     pub(crate) fn reading(&mut self) -> bool {
-        self.accepting_new_batches
-            && match &mut self.strategy {
-                Strategy::Capped(capped) => capped.admits(),
-                Strategy::Continuous(continuous) => continuous.admits(),
-            }
+        match self {
+            Self::Capped(capped) => capped.reading(),
+            Self::Continuous(continuous) => continuous.reading(),
+        }
     }
 
     pub(crate) fn deadline(&self) -> Option<Instant> {
-        self.collector.deadline()
+        match self {
+            Self::Capped(capped) => capped.deadline(),
+            Self::Continuous(continuous) => continuous.deadline(),
+        }
     }
 
     pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
-        self.collector.add(message, now);
+        match self {
+            Self::Capped(capped) => capped.received(message, now),
+            Self::Continuous(continuous) => continuous.received(message, now),
+        }
     }
 
     pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
-        let settlement = &*self.settlement;
-        match &mut self.strategy {
-            Strategy::Capped(capped) => capped.completed(completion, settlement)?,
-            Strategy::Continuous(continuous) => continuous.completed(completion, settlement)?,
+        match self {
+            Self::Capped(capped) => capped.completed(completion),
+            Self::Continuous(continuous) => continuous.completed(completion),
         }
-        self.commit_due = true;
-        Ok(())
     }
 
     pub(crate) fn ticked(&mut self) {
-        self.commit_due = true;
+        match self {
+            Self::Capped(capped) => capped.ticked(),
+            Self::Continuous(continuous) => continuous.ticked(),
+        }
     }
 
     /// Every message received before the revoke belongs to the old
     /// assignment: the batcher purges it, or Kafka delivers it again from the
     /// last commit.
     pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
-        let building = self.collector.remove_partitions(topic_partitions) as u64;
-        let in_flight = match &mut self.strategy {
-            Strategy::Capped(capped) => capped.revoked(topic_partitions),
-            Strategy::Continuous(continuous) => continuous.revoked(topic_partitions),
-        };
-        let stripped = building + in_flight;
-        if stripped > 0 {
-            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
-            info!(stripped, "Removed revoked partitions' messages");
+        match self {
+            Self::Capped(capped) => capped.revoked(topic_partitions),
+            Self::Continuous(continuous) => continuous.revoked(topic_partitions),
         }
     }
 
+    /// The poll in progress is not charged yet, so it is dropped and replays
+    /// from the last commit.
     pub(crate) fn shutdown(&mut self) {
-        self.accepting_new_batches = false;
-        // Its messages are not charged yet, so they replay from the last commit.
-        self.collector.discard();
+        match self {
+            Self::Capped(capped) => capped.shutdown(),
+            Self::Continuous(continuous) => continuous.shutdown(),
+        }
     }
 
     pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
-        match &mut self.strategy {
-            Strategy::Capped(capped) => capped.submitted(poll),
-            Strategy::Continuous(continuous) => continuous.submitted(poll),
+        match self {
+            Self::Capped(capped) => capped.submitted(poll),
+            Self::Continuous(continuous) => continuous.submitted(poll),
         }
     }
 
     pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
-        if let Strategy::Capped(capped) = &mut self.strategy {
-            while let Some(retired) = capped.retire_oldest_poll(&*self.settlement) {
-                if let Err(err) = retired {
-                    return Some(Step::Fail(err));
-                }
-                self.commit_due = true;
-            }
+        match self {
+            Self::Capped(capped) => capped.next_step(now),
+            Self::Continuous(continuous) => continuous.next_step(now),
         }
-        if std::mem::take(&mut self.commit_due) {
-            if let Some(commit) = self.settlement.take_due(now.into_std()) {
-                if let Strategy::Continuous(continuous) = &mut self.strategy {
-                    continuous.committed(&commit);
-                }
-                return Some(Step::Commit(commit));
-            }
-        }
-        if let Some(collected) = self.collector.take_ready(now) {
-            return Some(Step::Submit(collected));
-        }
-        let drained = match &self.strategy {
-            Strategy::Capped(capped) => capped.is_empty(),
-            Strategy::Continuous(continuous) => continuous.is_empty(),
-        };
-        (!self.accepting_new_batches && drained).then_some(Step::Stop)
+    }
+}
+
+fn report_revoked(stripped: u64) {
+    if stripped > 0 {
+        counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
+        info!(stripped, "Removed revoked partitions' messages");
     }
 }
 
@@ -251,10 +223,12 @@ mod tests {
             Self {
                 poller: PollingStrategy::new(
                     selected,
-                    limits,
-                    Arc::clone(&settlement),
-                    "test".to_string(),
-                    None,
+                    Parts {
+                        limits,
+                        settlement: Arc::clone(&settlement),
+                        group_id: "test".to_string(),
+                        debug_recorder: None,
+                    },
                 ),
                 settlement,
                 ledger,

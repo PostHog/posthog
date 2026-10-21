@@ -1,12 +1,14 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Instant;
 
 use common_kafka_consumer::{Charge, GroupCompletion, Offset, TopicPartition};
 use metrics::{counter, gauge};
+use rdkafka::message::Message;
+use tokio::time::Instant;
 use tracing::warn;
 
 use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries};
+use super::{report_revoked, Collector, Parts, Step};
 use crate::charge_limit::ChargeLimit;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::settlement::{Commit, Settlement};
@@ -14,39 +16,75 @@ use crate::settlement::{Commit, Settlement};
 /// Nothing waits on a submitted poll: the partition budget and the in-flight
 /// limit bound admission.
 pub(crate) struct ContinuousPolling {
+    collector: Collector,
+    settlement: Arc<dyn Settlement>,
     in_flight: InFlight,
     uncommitted: UncommittedCharges,
     limits: ChargeLimit,
     at_limit: bool,
+    accepting_new_batches: bool,
+    commit_due: bool,
 }
 
 impl ContinuousPolling {
-    pub(crate) fn new(
-        limits: ChargeLimit,
-        group_id: String,
-        debug_recorder: Option<Arc<DebugRecorder>>,
-    ) -> Self {
+    pub(crate) fn new(parts: Parts, limits: ChargeLimit) -> Self {
         Self {
-            in_flight: InFlight::new(group_id, debug_recorder),
+            collector: Collector::new(parts.limits),
+            settlement: parts.settlement,
+            in_flight: InFlight::new(parts.group_id, parts.debug_recorder),
             uncommitted: UncommittedCharges::default(),
             limits,
             at_limit: false,
+            accepting_new_batches: true,
+            commit_due: false,
         }
     }
 
     /// The poll in progress is not counted, so the uncommitted charge can
     /// pass the limit by one poll.
-    pub(crate) fn admits(&mut self) -> bool {
+    pub(crate) fn reading(&mut self) -> bool {
         let at_limit = self.limits.reached(self.uncommitted.total());
         if at_limit && !self.at_limit {
             counter!("ingestion_consumer_in_flight_limit_reached_total").increment(1);
         }
         self.at_limit = at_limit;
-        !at_limit
+        self.accepting_new_batches && !at_limit
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.in_flight.is_empty()
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        self.collector.deadline()
+    }
+
+    pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
+        self.collector.add(message, now);
+    }
+
+    pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
+        let settlement = &*self.settlement;
+        let processed = self
+            .in_flight
+            .apply(completion, |topic_partition, generation, run| {
+                settlement.settle_run(topic_partition, generation, run)
+            })?;
+        counter!("ingestion_consumer_messages_processed_total").increment(processed);
+        self.commit_due = true;
+        Ok(())
+    }
+
+    pub(crate) fn ticked(&mut self) {
+        self.commit_due = true;
+    }
+
+    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
+        let building = self.collector.remove_partitions(topic_partitions) as u64;
+        self.uncommitted.revoked(topic_partitions);
+        let in_flight = self.in_flight.drop_revoked(topic_partitions);
+        report_revoked(building + in_flight);
+    }
+
+    pub(crate) fn shutdown(&mut self) {
+        self.accepting_new_batches = false;
+        self.collector.discard();
     }
 
     pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
@@ -54,28 +92,17 @@ impl ContinuousPolling {
         self.in_flight.submitted(poll);
     }
 
-    pub(crate) fn completed(
-        &mut self,
-        completion: &GroupCompletion,
-        settlement: &dyn Settlement,
-    ) -> anyhow::Result<()> {
-        let processed = self
-            .in_flight
-            .apply(completion, |topic_partition, generation, run| {
-                settlement.settle_run(topic_partition, generation, run)
-            })?;
-        counter!("ingestion_consumer_messages_processed_total").increment(processed);
-        Ok(())
-    }
-
-    pub(crate) fn committed(&mut self, commit: &Commit) {
-        self.uncommitted.committed(commit);
-    }
-
-    /// Returns the messages removed.
-    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) -> u64 {
-        self.uncommitted.revoked(topic_partitions);
-        self.in_flight.drop_revoked(topic_partitions)
+    pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
+        if std::mem::take(&mut self.commit_due) {
+            if let Some(commit) = self.settlement.take_due(now.into_std()) {
+                self.uncommitted.committed(&commit);
+                return Some(Step::Commit(commit));
+            }
+        }
+        if let Some(collected) = self.collector.take_ready(now) {
+            return Some(Step::Submit(collected));
+        }
+        (!self.accepting_new_batches && self.in_flight.is_empty()).then_some(Step::Stop)
     }
 }
 
@@ -108,7 +135,7 @@ struct PollProgress {
     slices: usize,
     completed_slices: usize,
     accepted: u32,
-    dispatched_at: Instant,
+    dispatched_at: std::time::Instant,
     partitions: Vec<PartitionOffset>,
 }
 

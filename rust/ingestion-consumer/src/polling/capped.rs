@@ -3,41 +3,79 @@ use std::sync::Arc;
 
 use common_kafka_consumer::{GroupCompletion, Offset, TopicPartition};
 use metrics::{counter, gauge};
+use rdkafka::message::Message;
+use tokio::time::Instant;
 use tracing::warn;
 
 use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries};
+use super::{report_revoked, Collector, Parts, Step};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::settlement::Settlement;
 
 /// Admits up to `max_in_flight_polls` polls, and frees a slot only when the
 /// oldest poll is covered.
 pub(crate) struct CappedPolling {
+    collector: Collector,
+    settlement: Arc<dyn Settlement>,
     max_in_flight_polls: usize,
     in_flight_polls: VecDeque<InFlightPoll>,
+    accepting_new_batches: bool,
+    commit_due: bool,
     group_id: String,
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl CappedPolling {
-    pub(crate) fn new(
-        max_in_flight_polls: usize,
-        group_id: String,
-        debug_recorder: Option<Arc<DebugRecorder>>,
-    ) -> Self {
+    pub(crate) fn new(parts: Parts, max_in_flight_polls: usize) -> Self {
         Self {
+            collector: Collector::new(parts.limits),
+            settlement: parts.settlement,
             max_in_flight_polls: max_in_flight_polls.max(1),
             in_flight_polls: VecDeque::new(),
-            group_id,
-            debug_recorder,
+            accepting_new_batches: true,
+            commit_due: false,
+            group_id: parts.group_id,
+            debug_recorder: parts.debug_recorder,
         }
     }
 
-    pub(crate) fn admits(&self) -> bool {
-        self.in_flight_polls.len() < self.max_in_flight_polls
+    pub(crate) fn reading(&self) -> bool {
+        self.accepting_new_batches && self.in_flight_polls.len() < self.max_in_flight_polls
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.in_flight_polls.is_empty()
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        self.collector.deadline()
+    }
+
+    pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
+        self.collector.add(message, now);
+    }
+
+    pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
+        let settlement = &*self.settlement;
+        apply_completion(
+            &mut self.in_flight_polls,
+            completion,
+            |tp, generation, run| settlement.settle_run(tp, generation, run),
+        )?;
+        self.commit_due = true;
+        Ok(())
+    }
+
+    pub(crate) fn ticked(&mut self) {
+        self.commit_due = true;
+    }
+
+    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
+        let building = self.collector.remove_partitions(topic_partitions) as u64;
+        let in_flight = strip_revoked_partitions(&mut self.in_flight_polls, topic_partitions);
+        self.report_in_flight();
+        report_revoked(building + in_flight);
+    }
+
+    pub(crate) fn shutdown(&mut self) {
+        self.accepting_new_batches = false;
+        self.collector.discard();
     }
 
     pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
@@ -45,40 +83,32 @@ impl CappedPolling {
         self.report_in_flight();
     }
 
-    pub(crate) fn completed(
-        &mut self,
-        completion: &GroupCompletion,
-        settlement: &dyn Settlement,
-    ) -> anyhow::Result<()> {
-        apply_completion(
-            &mut self.in_flight_polls,
-            completion,
-            |tp, generation, run| settlement.settle_run(tp, generation, run),
-        )
-    }
-
-    /// Returns the messages removed.
-    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) -> u64 {
-        let stripped = strip_revoked_partitions(&mut self.in_flight_polls, topic_partitions);
-        self.report_in_flight();
-        stripped
-    }
-
-    /// Returns `None` while the oldest poll is not covered.
-    pub(crate) fn retire_oldest_poll(
-        &mut self,
-        settlement: &dyn Settlement,
-    ) -> Option<anyhow::Result<()>> {
-        if !self.in_flight_polls.front()?.is_complete() {
-            return None;
+    pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
+        while self
+            .in_flight_polls
+            .front()
+            .is_some_and(InFlightPoll::is_complete)
+        {
+            if let Err(err) = self.retire_oldest_poll() {
+                return Some(Step::Fail(err));
+            }
+            self.commit_due = true;
         }
-        Some(self.retire(settlement))
+        if std::mem::take(&mut self.commit_due) {
+            if let Some(commit) = self.settlement.take_due(now.into_std()) {
+                return Some(Step::Commit(commit));
+            }
+        }
+        if let Some(collected) = self.collector.take_ready(now) {
+            return Some(Step::Submit(collected));
+        }
+        (!self.accepting_new_batches && self.in_flight_polls.is_empty()).then_some(Step::Stop)
     }
 
-    fn retire(&mut self, settlement: &dyn Settlement) -> anyhow::Result<()> {
+    fn retire_oldest_poll(&mut self) -> anyhow::Result<()> {
         let poll = pop_committable(&mut self.in_flight_polls)?;
         self.report_in_flight();
-        settlement.settle_poll(&poll.charged_slices())?;
+        self.settlement.settle_poll(&poll.charged_slices())?;
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::PollCompleted {
             batch_id: poll.poll_id.clone(),

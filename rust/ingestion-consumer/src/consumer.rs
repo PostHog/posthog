@@ -25,7 +25,7 @@ use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::partition_budget::BudgetLimits;
 use crate::polling::{
     self, debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, InFlightPoll,
-    PartitionDeliveries, PollLimits, PollingStrategy, Selected, Step,
+    PartitionDeliveries, Parts, PollLimits, PollingStrategy, Selected, Step,
 };
 use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
 use crate::settlement::{self, Commit, Settlement};
@@ -315,14 +315,16 @@ impl IngestionConsumer {
 
         let mut poller = PollingStrategy::new(
             self.polling,
-            PollLimits {
-                batch_size: self.batch_size,
-                batch_size_bytes: self.batch_size_bytes,
-                batch_timeout: self.batch_timeout,
+            Parts {
+                limits: PollLimits {
+                    batch_size: self.batch_size,
+                    batch_size_bytes: self.batch_size_bytes,
+                    batch_timeout: self.batch_timeout,
+                },
+                settlement: Arc::clone(&self.settlement),
+                group_id: self.group_id.clone(),
+                debug_recorder: self.debug_recorder.clone(),
             },
-            Arc::clone(&self.settlement),
-            self.group_id.clone(),
-            self.debug_recorder.clone(),
         );
         self.run(&mut poller, completions, errors).await;
         if let Err(err) = self.commit_all() {
