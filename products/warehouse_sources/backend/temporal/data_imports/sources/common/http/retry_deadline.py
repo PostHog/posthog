@@ -89,7 +89,7 @@ def retry_with_deadline(
     """
     deadline_stop = stop_at_request_deadline(requested_wait)
     with_retries = tenacity.retry(
-        stop=deadline_stop if stop is None else tenacity.stop_any(stop, deadline_stop), **retry_kwargs
+        stop=deadline_stop if stop is None else tenacity.stop_any(cast(stop_base, stop), deadline_stop), **retry_kwargs
     )
 
     def decorate(fn: Callable[P, R]) -> Callable[P, R]:
