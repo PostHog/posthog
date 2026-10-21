@@ -388,6 +388,25 @@ dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locat
     -j inbox_ranking_nn_training_job --tags '{"dagster/partition": "2026-08-25"}'
 ```
 
+### Experiment families
+
+An experiment is a `MODEL_FAMILIES` entry with `experiment=True`, a `baseline` serving family and an `expires` day (`training/families.py`). It tests a modeling idea without a serving family's costs:
+
+- **Its own job.** `inbox_ranking_nn_experiments_job` (`nn/experiments.py`, on `signals_ml`) trains every live experiment, one after the other. It has its own runtime and memory tags, so it never uses the `nn` job's budget. Its schedule (08:00 UTC, after the `nn` job's 3h budget) skips when no experiment is live.
+- **No new examples.** It reads the day's `inbox_ranking_nn_examples` object. A day without that object is skipped, and so is a family after its `expires` day.
+- **Never served.** The serving manifest reads only `serving_families()`. The pin check refuses an experiment key, so the promote job, the served pointer and the pins cannot name one. To serve the recipe, register it as a serving family under a new `model_name`.
+- **Paired read.** The experiment and its baseline each fit once per seed in `EXPERIMENT_SEEDS`, on the same train rows. `metadata.json` holds a `vs_baseline` block per head: each seed's within-team and pooled holdout AUC for both arms, and the mean, min and max of the gaps. One `inbox_ranking_experiment_compared` event per head carries the gaps.
+- **Side inputs.** A side input beyond the report vectors needs a loader in `training/side_inputs.py`. The registry refuses a frame without a timezone-aware `as_of_column` and drops the rows known after the partition end. A feature set reads the frame through `rows_as_of`.
+
+The schedule is a fallback. To read an experiment on a chosen day, launch the job for that partition from the Dagster UI or the CLI:
+
+```bash
+dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals_ml \
+    -j inbox_ranking_nn_experiments_job --tags '{"dagster/partition": "2026-10-20"}'
+```
+
+The newest day you can launch is the newest day the `nn` job finished. Adjacent days share most of their train and holdout rows, so their reads are not independent. Judge a `vs_baseline` gap on spaced days, for example every 7th day.
+
 ## Configuration
 
 | Setting                                 | Default         | Meaning                                                                                                                                                                                                             |

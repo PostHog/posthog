@@ -129,33 +129,27 @@ def promotion_event(
 
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
-    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries their means."""
+    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
-    events: list[TrainingEvent] = []
-    for head, grade in (block.get("heads") or {}).items():
-        experiment_aucs = [auc for auc in grade.get("experiment_aucs", []) if auc is not None]
-        baseline_aucs = [auc for auc in grade.get("baseline_aucs", []) if auc is not None]
-        events.append(
-            TrainingEvent(
-                event=EXPERIMENT_COMPARED_EVENT,
-                properties={
-                    **context,
-                    "baseline": block.get("baseline"),
-                    "seeds": len(block.get("seeds", [])),
-                    "head": head,
-                    "holdout_rows": grade.get("holdout_rows"),
-                    "holdout_positives": grade.get("holdout_positives"),
-                    "paired_seeds": grade.get("paired_seeds"),
-                    "mean_delta_auc": grade.get("mean_delta_auc"),
-                    "delta_auc_std": grade.get("delta_auc_std"),
-                    "wins": grade.get("wins"),
-                    "mean_experiment_auc": sum(experiment_aucs) / len(experiment_aucs) if experiment_aucs else None,
-                    "mean_baseline_auc": sum(baseline_aucs) / len(baseline_aucs) if baseline_aucs else None,
+    return [
+        TrainingEvent(
+            event=EXPERIMENT_COMPARED_EVENT,
+            properties={
+                **context,
+                "baseline_model_name": block.get("baseline"),
+                "seeds": len(block.get("seeds", [])),
+                "head": head,
+                **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                **{
+                    f"{read}_{key}": (grade.get(read) or {}).get(key)
+                    for read in ("within_team", "pooled")
+                    for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
                 },
-            )
+            },
         )
-    return events
+        for head, grade in (block.get("heads") or {}).items()
+    ]
 
 
 def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:

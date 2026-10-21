@@ -297,7 +297,9 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
     if family.experiment:
         assert metadata["vs_baseline"]["baseline"] == NN_MODEL_NAME
         assert {
-            name: len(grade["experiment_aucs"]) == len(grade["baseline_aucs"]) == len(nn_dag.EXPERIMENT_SEEDS)
+            name: len(grade["within_team"]["experiment_aucs"])
+            == len(grade["within_team"]["baseline_aucs"])
+            == len(nn_dag.EXPERIMENT_SEEDS)
             for name, grade in metadata["vs_baseline"]["heads"].items()
         } == dict.fromkeys(NN_HEAD_NAMES, True)
     else:

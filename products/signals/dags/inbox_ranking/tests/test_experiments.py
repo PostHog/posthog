@@ -146,11 +146,12 @@ def test_a_side_input_without_a_registered_loader_is_refused(registered):
         load_side_inputs(None, "bucket", PREFIX, PARTITION, ["unregistered"])
 
 
-def test_vs_baseline_pairs_each_seed_on_the_same_holdout_rows():
-    # Two heads have holdout rows; the third has only negatives there, so no seed can pair on it.
+def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows():
+    # Team 1 ranks its own reports perfectly under the experiment's first seed, while the pooled
+    # order mixes the teams. The third head has only negatives on the holdout, so nothing pairs.
     labels = np.array([[1, 1, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float32)
     table = ExampleTable(
-        rows=pd.DataFrame({"report_id": ["a", "b", "c", "d"]}),
+        rows=pd.DataFrame({"report_id": ["a", "b", "c", "d"], "report_team_id": [1, 1, 2, 2]}),
         labels=labels,
         holdout=np.ones_like(labels, dtype=bool),
     )
@@ -166,16 +167,16 @@ def test_vs_baseline_pairs_each_seed_on_the_same_holdout_rows():
     )
 
     first, _, third = NN_HEAD_NAMES
-    assert block["heads"][first] == {
-        "holdout_rows": 4,
-        "holdout_positives": 2,
+    paired = {
         "experiment_aucs": [1.0, 0.0],
         "baseline_aucs": [0.0, 0.0],
         "paired_seeds": 2,
         "mean_delta_auc": 0.5,
-        "delta_auc_std": 0.5,
+        "min_delta_auc": 0.0,
+        "max_delta_auc": 1.0,
         "wins": 1,
     }
-    assert block["heads"][third]["paired_seeds"] == 0
-    assert block["heads"][third]["mean_delta_auc"] is None
-    assert block["baseline"] == NN_MODEL_NAME
+    assert block["heads"][first]["within_team"] == paired
+    assert block["heads"][first]["pooled"] == paired
+    assert block["heads"][third]["within_team"]["paired_seeds"] == 0
+    assert block["heads"][third]["within_team"]["mean_delta_auc"] is None
