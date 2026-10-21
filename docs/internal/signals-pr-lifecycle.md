@@ -203,6 +203,7 @@ A deliberate empty result clears automatic recipients but retains pins and confi
 Failed lookup or wholly invalid selection retains valid current recipients.
 Accepted recipients must be active members with project access.
 An unchanged retry creates no reviewer row or delivery work. A retry with old state can return a conflict.
+Research changes to explanations or display names alone also create no reviewer row or delivery work.
 Generic artefact PATCH and DELETE cannot change reviewer history, and clients cannot write correction records directly.
 
 ### Rollout and rollback
