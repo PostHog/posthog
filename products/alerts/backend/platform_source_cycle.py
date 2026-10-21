@@ -620,6 +620,7 @@ def _verdict(
     context: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
+    source_detail: dict[str, Any] | None
     if firing is not None and outcome.notification == NotificationAction.FIRE:
         source_detail = _firing_detail(check, *firing)
     elif outcome.notification != NotificationAction.NONE:
