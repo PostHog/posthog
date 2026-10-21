@@ -1,6 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 # Cohere versions its API in the URL path. Most list endpoints live only on /v1/, while batches
 # live only on /v2/, so the path version is fixed per endpoint rather than chosen by the user.
@@ -19,7 +21,7 @@ class CoherePagination(Enum):
     NONE = "none"
 
 
-@dataclass
+@frozen
 class CohereEndpointConfig:
     name: str
     path: str
