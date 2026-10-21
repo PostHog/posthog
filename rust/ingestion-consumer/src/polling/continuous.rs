@@ -471,8 +471,6 @@ impl InFlight {
     }
 }
 
-/// Each partition's uncommitted charge as the settlement last reported it:
-/// set when a poll is charged, lowered when a commit hands out offsets.
 #[derive(Default)]
 struct UncommittedCharges {
     partitions: HashMap<TopicPartition, PartitionCharge>,

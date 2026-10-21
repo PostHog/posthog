@@ -91,7 +91,6 @@ pub(crate) trait Admission: Send + Sync {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Pause;
 
-/// The partition's uncommitted charge after a charge.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Charged {
     pub(crate) uncommitted: Charge,
