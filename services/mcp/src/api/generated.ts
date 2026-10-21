@@ -114685,6 +114685,8 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export type TraceNodeIdsByAlias = {[key: string]: string};
+
     export interface TracePerson {
       distinctId: string;
       label: string;
@@ -114742,6 +114744,45 @@ export namespace Schemas {
       timeline: TraceTimelineRow[];
       totalMs: number;
       threadNodeIds: string[];
+      defaultNodeId: string;
+      nodeIdsByAlias: TraceNodeIdsByAlias;
+    }
+
+    export interface TraceNodeMetadata {
+      provider: string | null;
+      temperature: number | null;
+      sessionId: string | null;
+      promptName: string | null;
+      promptVersion: number | null;
+    }
+
+    export interface TraceNodeIOKeys {
+      input: string | null;
+      output: string | null;
+      tools: string | null;
+    }
+
+    /**
+     * The event's properties as ingested, including its input and output values.
+     */
+    export type TraceNodeEventProperties = { [key: string]: unknown };
+
+    export interface TraceNodeEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+      /** The event's properties as ingested, including its input and output values. */
+      properties: TraceNodeEventProperties;
+      /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
+      ioKeys: TraceNodeIOKeys;
+    }
+
+    export interface TraceNodeDetail {
+      id: string;
+      kind: TraceNodeKindEnum;
+      error: string | null;
+      metadata: TraceNodeMetadata;
+      event: TraceNodeEvent | null;
     }
 
     export interface TraceReviewCreate {
@@ -122933,6 +122974,13 @@ export namespace Schemas {
     } as const;
 
     export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
