@@ -170,7 +170,7 @@ type ExistingSet = { group: FlagConditionGroup; propsByKey: Map<string, FlagProp
 
 function indexExistingSets(
     existing: FlagFilters | null | undefined,
-    flagLevelGroupIndex: number | undefined
+    flagLevel: number | undefined
 ): (ExistingSet | undefined)[] {
     const groups = existing?.groups
     if (!Array.isArray(groups)) {
@@ -181,7 +181,7 @@ function indexExistingSets(
             ? {
                   group,
                   propsByKey: indexProperties(group.properties),
-                  aggregation: storedAggregation(group, flagLevelGroupIndex),
+                  aggregation: storedAggregation(group, flagLevel),
               }
             : undefined
     )

@@ -142,6 +142,7 @@ describe('condition ids', () => {
     })
 
     it.each([
+        { name: 'key', change: { key: 'tier' } },
         { name: 'type', change: { type: 'person', group_type_index: undefined } },
         { name: 'group_type_index', change: { group_type_index: 1 } },
         { name: 'value', change: { value: 'enterprise' } },
@@ -201,7 +202,7 @@ describe('condition ids', () => {
         const result = withConditionIds(structuredClone(value))
 
         expect(conditionsIn(result).map((group) => group.condition_id)).toEqual(
-            conditionsIn(value).map((group) => idOnRead(group))
+            conditionsIn(withoutConditionIds(value)).map((group) => idOnRead(group))
         )
         expect(withoutConditionIds(result)).toEqual(withoutConditionIds(value))
     })

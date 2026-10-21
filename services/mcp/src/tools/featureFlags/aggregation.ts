@@ -27,15 +27,6 @@ export function resolveGroupIndex(
 }
 
 /** A set with no index of its own aggregates on the flag level, which the API distributes on write. */
-export function storedAggregation(
-    group: Record<string, unknown>,
-    flagLevelGroupIndex: number | undefined
-): number | null {
-    return (
-        resolveGroupIndex(
-            explicitlyClearsAggregation(group),
-            group.aggregation_group_type_index,
-            flagLevelGroupIndex
-        ) ?? null
-    )
+export function storedAggregation(group: Record<string, unknown>, flagLevel: number | undefined): number | null {
+    return resolveGroupIndex(explicitlyClearsAggregation(group), group.aggregation_group_type_index, flagLevel) ?? null
 }
