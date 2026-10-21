@@ -47,6 +47,14 @@ class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RELEASE_OUTCOME_COMMITTED: _ClassVar[ReleaseOutcome]
     RELEASE_OUTCOME_ABORTED: _ClassVar[ReleaseOutcome]
 
+class RaiseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RAISE_OUTCOME_UNSPECIFIED: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_RAISED: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_AT_OR_ABOVE: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_NOT_LIVE: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_MISSING: _ClassVar[RaiseOutcome]
+
 DELETE_PERSONS_MODE_UNSPECIFIED: DeletePersonsMode
 DELETE_PERSONS_MODE_HARD: DeletePersonsMode
 DELETE_PERSONS_MODE_TOMBSTONE: DeletePersonsMode
@@ -61,6 +69,11 @@ LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
 RELEASE_OUTCOME_UNSPECIFIED: ReleaseOutcome
 RELEASE_OUTCOME_COMMITTED: ReleaseOutcome
 RELEASE_OUTCOME_ABORTED: ReleaseOutcome
+RAISE_OUTCOME_UNSPECIFIED: RaiseOutcome
+RAISE_OUTCOME_RAISED: RaiseOutcome
+RAISE_OUTCOME_AT_OR_ABOVE: RaiseOutcome
+RAISE_OUTCOME_NOT_LIVE: RaiseOutcome
+RAISE_OUTCOME_MISSING: RaiseOutcome
 
 class Person(_message.Message):
     __slots__ = (
@@ -1007,4 +1020,37 @@ class ListPersonsForTeamResponse(_message.Message):
         self,
         persons: _Optional[_Iterable[_Union[PersonListEntry, _Mapping]]] = ...,
         next_after_person_id: _Optional[int] = ...,
+    ) -> None: ...
+
+class RaisePersonVersionFloorsRequest(_message.Message):
+    __slots__ = ("team_id", "floors")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOORS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    floors: _containers.RepeatedCompositeFieldContainer[PersonVersionFloor]
+    def __init__(
+        self, team_id: _Optional[int] = ..., floors: _Optional[_Iterable[_Union[PersonVersionFloor, _Mapping]]] = ...
+    ) -> None: ...
+
+class RaisePersonVersionFloorResult(_message.Message):
+    __slots__ = ("person_uuid", "outcome", "version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    outcome: RaiseOutcome
+    version: int
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        outcome: _Optional[_Union[RaiseOutcome, str]] = ...,
+        version: _Optional[int] = ...,
+    ) -> None: ...
+
+class RaisePersonVersionFloorsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[RaisePersonVersionFloorResult]
+    def __init__(
+        self, results: _Optional[_Iterable[_Union[RaisePersonVersionFloorResult, _Mapping]]] = ...
     ) -> None: ...

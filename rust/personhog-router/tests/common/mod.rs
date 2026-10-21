@@ -54,7 +54,8 @@ use personhog_proto::personhog::types::v1::{
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
     ListPersonsForTeamResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    PersonsByDistinctIdsResponse, PersonsResponse, RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse, SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
     SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest,
     UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
@@ -562,6 +563,13 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<ListPersonsForTeamRequest>,
     ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
         Ok(Response::new(ListPersonsForTeamResponse::default()))
+    }
+
+    async fn raise_person_version_floors(
+        &self,
+        _request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(RaisePersonVersionFloorsResponse::default()))
     }
 }
 

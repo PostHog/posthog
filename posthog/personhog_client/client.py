@@ -90,6 +90,8 @@ from posthog.personhog_client.proto import (
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse,
     SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest,
@@ -283,6 +285,11 @@ class PersonHogClient:
         self, request: ListPersonsForTeamRequest, timeout: float | None = None
     ) -> ListPersonsForTeamResponse:
         return self._stub.ListPersonsForTeam(request, timeout=timeout or self._timeout)
+
+    def raise_person_version_floors(
+        self, request: RaisePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> RaisePersonVersionFloorsResponse:
+        return self._stub.RaisePersonVersionFloors(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

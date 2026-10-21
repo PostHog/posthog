@@ -674,3 +674,30 @@ message ListPersonsForTeamResponse {
   // Absent when this page is the last one.
   optional int64 next_after_person_id = 2;
 }
+
+// Raise live persons' versions for the person consistency repair. Tombstoned and
+// missing persons are left unchanged; EnsurePersonVersionFloors handles tombstones.
+message RaisePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated uuid.
+  repeated PersonVersionFloor floors = 2;
+}
+
+enum RaiseOutcome {
+  RAISE_OUTCOME_UNSPECIFIED = 0;
+  RAISE_OUTCOME_RAISED = 1;
+  RAISE_OUTCOME_AT_OR_ABOVE = 2;
+  RAISE_OUTCOME_NOT_LIVE = 3;
+  RAISE_OUTCOME_MISSING = 4;
+}
+
+message RaisePersonVersionFloorResult {
+  string person_uuid = 1;
+  RaiseOutcome outcome = 2;
+  // The version the row holds after the call; 0 when missing.
+  int64 version = 3;
+}
+
+message RaisePersonVersionFloorsResponse {
+  repeated RaisePersonVersionFloorResult results = 1;
+}

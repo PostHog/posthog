@@ -44,11 +44,12 @@ use personhog_proto::personhog::types::v1::{
     ListPersonsForTeamResponse, PersonDistinctIds, PersonListEntry as ProtoPersonListEntry,
     PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
-    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    PersonsResponse, RaiseOutcome as ProtoRaiseOutcome, RaisePersonVersionFloorResult,
+    RaisePersonVersionFloorsRequest, RaisePersonVersionFloorsResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
+    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
     VersionFloorOutcome as ProtoVersionFloorOutcome,
 };
@@ -1674,6 +1675,40 @@ impl PersonHogReplica for PersonHogReplicaService {
             next_after_person_id,
         }))
     }
+    async fn raise_person_version_floors(
+        &self,
+        request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        let req = request.into_inner();
+        check_floor_batch(
+            req.floors
+                .iter()
+                .map(|f| (f.person_uuid.as_str(), f.min_version)),
+        )?;
+        let floors: Vec<(Uuid, i64)> = req
+            .floors
+            .iter()
+            .map(|f| parse_uuid(&f.person_uuid).map(|uuid| (uuid, f.min_version)))
+            .collect::<Result<_, _>>()?;
+        reject_duplicate_uuids(floors.iter().map(|(uuid, _)| *uuid))?;
+
+        let results = self
+            .storage
+            .raise_person_version_floors(req.team_id, &floors)
+            .await
+            .map_err(|e| log_and_convert_error(e, "raise_person_version_floors"))?;
+
+        Ok(Response::new(RaisePersonVersionFloorsResponse {
+            results: results
+                .into_iter()
+                .map(|r| RaisePersonVersionFloorResult {
+                    person_uuid: r.uuid.to_string(),
+                    outcome: raise_outcome_to_proto(r.outcome) as i32,
+                    version: r.version,
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1739,5 +1774,28 @@ fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPer
                 version: did.version,
             })
             .collect(),
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn reject_duplicate_uuids(uuids: impl Iterator<Item = Uuid>) -> Result<(), Status> {
+    // Two spellings of one UUID pass the string check but lock the same row.
+    let mut seen = HashSet::new();
+    for uuid in uuids {
+        if !seen.insert(uuid) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {uuid}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn raise_outcome_to_proto(outcome: storage::types::RaiseOutcome) -> ProtoRaiseOutcome {
+    match outcome {
+        storage::types::RaiseOutcome::Raised => ProtoRaiseOutcome::Raised,
+        storage::types::RaiseOutcome::AtOrAbove => ProtoRaiseOutcome::AtOrAbove,
+        storage::types::RaiseOutcome::NotLive => ProtoRaiseOutcome::NotLive,
+        storage::types::RaiseOutcome::Missing => ProtoRaiseOutcome::Missing,
     }
 }

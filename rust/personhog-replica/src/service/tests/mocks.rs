@@ -1908,3 +1908,47 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         Ok(0)
     }
 }
+
+#[async_trait]
+impl storage::PersonRepair for FailingStorage {
+    async fn raise_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
+        Err(self.error.clone())
+    }
+}
+
+#[async_trait]
+impl storage::PersonRepair for SuccessStorage {
+    async fn raise_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl storage::PersonRepair for PopulatedStorage {
+    async fn raise_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl storage::PersonRepair for ConsistencyTrackingStorage {
+    async fn raise_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
+        Ok(Vec::new())
+    }
+}

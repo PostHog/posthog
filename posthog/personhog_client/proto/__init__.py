@@ -113,5 +113,7 @@ from personhog.types.v1.person_pb2 import (
     GetDistinctIdRowsResponse,
     ListPersonsForTeamRequest,
     ListPersonsForTeamResponse,
+    RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse,
     PersonVersionFloorResult,
 )

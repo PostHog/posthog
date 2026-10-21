@@ -72,6 +72,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListGroups",
     "ListPersonTombstoneQueue",
     "ListPersonsForTeam",
+    "RaisePersonVersionFloors",
     "ReleaseFence",
     "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",

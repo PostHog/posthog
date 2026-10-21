@@ -13,9 +13,10 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult, ReadOptions,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
-    TeamDistinctId, UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
+    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult, RaiseOutcome,
+    RaisePersonVersionFloorsRequest, ReadOptions, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1973,6 +1974,75 @@ async fn test_list_persons_for_team_rejects_bad_requests(
         .await
         .expect_err("rejected");
     assert_eq!(status.code(), code);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_repair_writes_round_trip_through_the_service() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_repair", None).await.unwrap();
+
+    let raised = ctx
+        .service
+        .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+            team_id: ctx.team_id,
+            floors: vec![PersonVersionFloor {
+                person_uuid: person.uuid.to_string(),
+                min_version: 5,
+            }],
+        }))
+        .await
+        .expect("raise")
+        .into_inner()
+        .results;
+    assert_eq!(
+        (raised[0].outcome, raised[0].version),
+        (RaiseOutcome::Raised as i32, 5)
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[derive(Debug, Clone, Copy)]
+enum BadRepairRequest {
+    TooManyFloors,
+    DuplicateFloorUuid,
+}
+
+#[rstest]
+#[case::too_many_floors(BadRepairRequest::TooManyFloors)]
+#[case::duplicate_floor_uuid(BadRepairRequest::DuplicateFloorUuid)]
+#[tokio::test]
+async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
+    let ctx = ServiceTestContext::new().await;
+    let uuid = Uuid::new_v4().to_string();
+    let floor = |u: String| PersonVersionFloor {
+        person_uuid: u,
+        min_version: 1,
+    };
+    let status = match bad {
+        BadRepairRequest::TooManyFloors => ctx
+            .service
+            .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+                team_id: ctx.team_id,
+                floors: (0..251)
+                    .map(|_| floor(Uuid::new_v4().to_string()))
+                    .collect(),
+            }))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::DuplicateFloorUuid => ctx
+            .service
+            .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+                team_id: ctx.team_id,
+                floors: vec![floor(uuid.clone()), floor(uuid.to_uppercase())],
+            }))
+            .await
+            .map(|_| ()),
+    }
+    .expect_err("rejected");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
 
     ctx.cleanup().await.ok();
 }
