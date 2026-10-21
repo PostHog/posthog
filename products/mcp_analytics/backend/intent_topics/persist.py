@@ -1,0 +1,148 @@
+"""Postgres side of the pipeline: topic registry updates, PCA basis storage and run bookkeeping."""
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+from django.utils import timezone
+
+import numpy as np
+
+from posthog.models.team.team import Team
+
+from products.mcp_analytics.backend.intent_topics.assignment_sql import PcaBasis, TopicVector
+from products.mcp_analytics.backend.intent_topics.clustering import FitOutput
+from products.mcp_analytics.backend.intent_topics.constants import TOPIC_ARCHIVE_AFTER_DAYS
+from products.mcp_analytics.backend.intent_topics.labeling import fallback_label
+from products.mcp_analytics.backend.intent_topics.topic_registry import ExistingTopic, MatchResult
+from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
+
+PCA_BASIS_PARAM = "pca_basis"
+
+
+@dataclass(frozen=True)
+class FitPersistResult:
+    topic_ids_by_cluster: dict[int, str] = field(default_factory=dict)
+    created: list[str] = field(default_factory=list)
+    archived: list[str] = field(default_factory=list)
+
+
+def existing_topics(team: Team) -> list[ExistingTopic]:
+    return [
+        ExistingTopic(id=str(topic.pk), centroid=topic.decoded_centroid())
+        for topic in MCPIntentTopic.active.filter(team=team).order_by("first_seen_at")
+    ]
+
+
+def active_topic_vectors(team: Team) -> list[TopicVector]:
+    return [
+        TopicVector(
+            topic_id=str(topic.pk),
+            centroid=topic.decoded_centroid().astype(float).tolist(),
+            outlier_distance=float(topic.outlier_distance),
+        )
+        for topic in MCPIntentTopic.active.filter(team=team).order_by("first_seen_at")
+    ]
+
+
+def start_run(
+    team: Team, *, kind: str, run_id: str, window_start: datetime, window_end: datetime
+) -> MCPIntentClusteringRun:
+    return MCPIntentClusteringRun.objects.create(
+        team=team, kind=kind, run_id=run_id, window_start=window_start, window_end=window_end
+    )
+
+
+def finish_run(run: MCPIntentClusteringRun, *, status: str, error_message: str = "", **counts: int) -> None:
+    run.status = status
+    run.error_message = error_message
+    for name, value in counts.items():
+        setattr(run, name, value)
+    run.finished_at = timezone.now()
+    run.save()
+
+
+def latest_pca_basis(team: Team) -> PcaBasis | None:
+    run = (
+        MCPIntentClusteringRun.objects.filter(
+            team=team, kind=MCPIntentClusteringRun.Kind.REFIT, status=MCPIntentClusteringRun.Status.SUCCEEDED
+        )
+        .order_by("-started_at")
+        .first()
+    )
+    if run is None or PCA_BASIS_PARAM not in run.params:
+        return None
+    stored = run.params[PCA_BASIS_PARAM]
+    return PcaBasis(mean=stored["mean"], pc1=stored["pc1"], pc2=stored["pc2"])
+
+
+def _member_centroid_2d(fit: FitOutput, cluster_idx: int) -> tuple[float, float]:
+    coords = fit.coords_2d[fit.labels == cluster_idx]
+    if len(coords) == 0:
+        return 0.0, 0.0
+    mean = coords.mean(axis=0)
+    return float(mean[0]), float(mean[1])
+
+
+def apply_fit(
+    team: Team, *, run: MCPIntentClusteringRun, fit: FitOutput, match: MatchResult, now: datetime
+) -> FitPersistResult:
+    """Write a weekly fit into the registry.
+
+    Reused clusters refresh their topic's centroid, outlier distance, 2D position and member count.
+    Created clusters become topics with a neutral fallback label (``label_topics`` names them next).
+    Topics no cluster matched are archived once they have been unmatched for ``TOPIC_ARCHIVE_AFTER_DAYS``.
+    The PCA basis is stored on the run so the nightly assignment can project new intents.
+    """
+    topic_ids: dict[int, str] = {}
+    created: list[str] = []
+
+    for cluster_idx, topic_id in match.reused.items():
+        topic = MCPIntentTopic.objects.get(team=team, pk=topic_id)
+        _write_cluster(topic, fit, cluster_idx, run.run_id)
+        topic.last_seen_at = now
+        topic.save()
+        topic_ids[cluster_idx] = topic_id
+
+    for cluster_idx in match.created:
+        topic = MCPIntentTopic(team=team, label="", centroid=b"")
+        _write_cluster(topic, fit, cluster_idx, run.run_id)
+        topic.label = fallback_label(str(topic.pk))
+        topic.save()
+        topic_ids[cluster_idx] = str(topic.pk)
+        created.append(str(topic.pk))
+
+    archived: list[str] = []
+    cutoff = now - timedelta(days=TOPIC_ARCHIVE_AFTER_DAYS)
+    for topic in MCPIntentTopic.active.filter(team=team, pk__in=match.unmatched_topics, last_seen_at__lt=cutoff):
+        topic.status = MCPIntentTopic.Status.ARCHIVED
+        topic.save(update_fields=["status"])
+        archived.append(str(topic.pk))
+
+    run.params = {
+        **run.params,
+        PCA_BASIS_PARAM: {
+            "mean": fit.pca_mean.astype(float).tolist(),
+            "pc1": fit.pca_components[0].astype(float).tolist(),
+            "pc2": fit.pca_components[1].astype(float).tolist(),
+        },
+    }
+    run.save(update_fields=["params"])
+    return FitPersistResult(topic_ids_by_cluster=topic_ids, created=created, archived=archived)
+
+
+def _write_cluster(topic: MCPIntentTopic, fit: FitOutput, cluster_idx: int, run_id: str) -> None:
+    topic.centroid = MCPIntentTopic.encode_centroid(fit.centroids[cluster_idx])
+    topic.outlier_distance = float(fit.outlier_distances[cluster_idx])
+    topic.centroid_x, topic.centroid_y = _member_centroid_2d(fit, cluster_idx)
+    topic.member_count = int(np.sum(fit.labels == cluster_idx))
+    topic.last_run_id = run_id
+
+
+def update_topic_labels(team: Team, labels: dict[str, tuple[str, str]]) -> None:
+    for topic_id, (label, summary) in labels.items():
+        MCPIntentTopic.objects.filter(team=team, pk=topic_id).update(label=label, summary=summary)
+
+
+def run_params(run: MCPIntentClusteringRun) -> dict[str, Any]:
+    return dict(run.params)
