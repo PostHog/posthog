@@ -144,6 +144,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-stats:
         schema_ref: MCPToolStatsQuery
         enabled: true
@@ -166,6 +167,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-daily-stats:
         schema_ref: MCPToolDailyStatsQuery
         enabled: true
@@ -188,6 +190,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-failures:
         schema_ref: MCPToolFailuresQuery
         enabled: true
@@ -213,6 +216,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-failure-occurrences:
         schema_ref: MCPToolFailureOccurrencesQuery
         enabled: true
@@ -238,6 +242,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-top-users:
         schema_ref: MCPToolTopUsersQuery
         enabled: true
@@ -259,6 +264,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-neighbors:
         schema_ref: MCPToolNeighborsQuery
         enabled: true
@@ -281,6 +287,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-sample-intents:
         schema_ref: MCPToolSampleIntentsQuery
         enabled: true
@@ -302,6 +309,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-tool-descriptions:
         schema_ref: MCPToolDescriptionsQuery
         enabled: true
@@ -323,6 +331,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events
     query-mcp-missing-capabilities:
         schema_ref: MCPMissingCapabilitiesQuery
         enabled: true
@@ -347,3 +356,4 @@ wrappers:
             - modifiers
             - version
             - tags
+        reads_ingested_data: events

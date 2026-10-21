@@ -4,9 +4,12 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import (
@@ -29,6 +32,20 @@ class TawkToApiError(Exception):
     """The API answered 2xx but with `{"ok": false, ...}` in the body."""
 
 
+class TawkToCredentialsError(Exception):
+    """tawk.to rejected the API key, with a message the user can act on."""
+
+
+INVALID_API_KEY_MESSAGE = (
+    "Your tawk.to API key is invalid or has been revoked. Generate a new REST API key in your tawk.to profile, "
+    "then reconnect."
+)
+API_KEY_FORBIDDEN_MESSAGE = (
+    "Your tawk.to API key can't read your properties. Check that tawk.to approved your REST API access and that "
+    "the key has read access, then reconnect."
+)
+
+
 @dataclasses.dataclass
 class TawkToResumeConfig:
     # Row offset within the property currently being paged through.
@@ -46,7 +63,7 @@ def _post(
     body: dict[str, Any],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((TawkToRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=wait_exponential_jitter(initial=1, max=60),
@@ -85,18 +102,26 @@ def _post(
 
 def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is valid. `property.list` with an empty body is the cheapest
-    authenticated probe (an invalid key gets `{"ok": false, "error": "auth_error"}` with 401)."""
-    try:
-        response = make_tracked_session(redact_values=(api_key,), capture=False).post(
-            f"{TAWK_TO_BASE_URL}/property.list",
-            json={},
-            auth=(api_key, ""),
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
-        return response.status_code == 200 and response.json().get("ok") is True
-    except Exception:
-        return False
+    authenticated probe (an invalid key gets `{"ok": false, "error": "auth_error"}` with 401).
+
+    Returns True for a working key and raises `TawkToCredentialsError` when tawk.to rejects it.
+    A rate limit or 5xx raises `TawkToRetryableError`, and transport errors propagate, so the
+    caller doesn't report a transient failure as a bad key."""
+    response = make_tracked_session(redact_values=(api_key,), capture=False).post(
+        f"{TAWK_TO_BASE_URL}/property.list",
+        json={},
+        auth=(api_key, ""),
+        headers={"Accept": "application/json"},
+        timeout=10,
+    )
+    if response.status_code == 429 or response.status_code >= 500:
+        raise TawkToRetryableError(f"tawk.to API error (retryable): status={response.status_code}")
+    # tawk.to grants REST API access by request, so a key can authenticate and still be refused data.
+    if response.status_code == 403:
+        raise TawkToCredentialsError(API_KEY_FORBIDDEN_MESSAGE)
+    if response.ok and response.json().get("ok") is True:
+        return True
+    raise TawkToCredentialsError(INVALID_API_KEY_MESSAGE)
 
 
 def _list_property_ids(session: requests.Session, api_key: str, logger: FilteringBoundLogger) -> list[str]:

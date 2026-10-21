@@ -43,6 +43,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 
 describe('aiObservabilityDatasetLogic', () => {
     const mockDataset: Dataset = {
+        tags: [],
         id: 'test-dataset-id',
         name: 'Test Dataset',
         description: 'Test description',

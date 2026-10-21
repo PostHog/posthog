@@ -553,7 +553,10 @@ async fn deployment_rollout_reassigns_partitions() {
     // answering from the scaffolding's watch, which is exactly how this
     // gap previously escaped the suite).
     let store = test_store("deploy-rollout-k3s").await;
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
+        .await
+        .unwrap());
 
     let coordinator_awareness = Arc::new(K8sAwareness::new(
         k8s_client.clone(),
@@ -746,7 +749,10 @@ async fn deployment_rollout_caps_first_new_pod_at_quota() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let store = test_store("deploy-quota-k3s").await;
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
+        .await
+        .unwrap());
 
     // Fresh awareness for the coordinator so the test exercises the lazy
     // watch bootstrap from pod registrations (see
@@ -963,7 +969,10 @@ async fn statefulset_rollout_pod_skips_drain() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let store = test_store("ss-drain-skip-k3s").await;
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
+        .await
+        .unwrap());
 
     let coord_cancel = CancellationToken::new();
     let _coord = start_coordinator_k8s(Arc::clone(&store), None, coord_cancel.clone());
@@ -1090,7 +1099,10 @@ async fn scale_down_pod_drains_normally() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let store = test_store("scale-down-k3s").await;
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    assert!(store
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
+        .await
+        .unwrap());
 
     let cancel = CancellationToken::new();
     let _coord = start_coordinator_k8s(

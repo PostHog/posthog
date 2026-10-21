@@ -2814,11 +2814,16 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         kwargs.setdefault("allow_unknown_events", True)
+        EventDefinition.objects.get_or_create(
+            team=self.team, project=self.project, name="$pageview", defaults={"last_seen_at": timezone.now()}
+        )
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
     def _create_launchable_experiment_on_flag_of_age(self, age: timedelta, **kwargs: Any) -> Experiment:
         experiment = self._create_launchable_experiment(**kwargs)
-        FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(created_at=timezone.now() - age)
+        FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(
+            created_at=timezone.now() - age, last_called_at=timezone.now() - timedelta(hours=1)
+        )
         experiment.feature_flag.refresh_from_db()
         return experiment
 
@@ -3180,18 +3185,30 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
         assert experiment.feature_flag_auto_archived is False
 
-    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
-        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
-        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
-        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+    @parameterized.expand(
+        [
+            ("no_feature_flag_write_scope", False, False),
+            ("flag_targets_deleted_cohort", True, True),
+        ]
+    )
+    def test_unarchive_experiment_leaves_flag_archived_when_flag_cannot_be_unarchived(
+        self, _name: str, can_write_feature_flag: bool, targets_deleted_cohort: bool
+    ):
+        # The bookkeeping stays so that a later unarchive can bring the flag back.
+        experiment = self._create_ended_experiment(name="Unarchive Blocked", feature_flag_key="unarchive-blocked")
         experiment.feature_flag.active = False
         experiment.feature_flag.save()
         service = self._service()
         service.archive_experiment(experiment)
         experiment.refresh_from_db()
         assert experiment.feature_flag_auto_archived is True
+        if targets_deleted_cohort:
+            cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+            FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(
+                filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]}
+            )
 
-        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+        service.unarchive_experiment(experiment, can_write_feature_flag=can_write_feature_flag)
 
         experiment.refresh_from_db()
         assert experiment.archived is False
@@ -3919,7 +3936,7 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0, [], [], [])],
+                [("launch_endpoint", 0, False, [], [], [], False)],
             ),
             (
                 "launch_endpoint_with_a_qa_override",
@@ -3931,9 +3948,11 @@ class TestExperimentService(APIBaseTest):
                     (
                         "launch_endpoint",
                         0,
+                        False,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
                         ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
+                        False,
                     )
                 ],
             ),
@@ -3943,7 +3962,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400, [], [], [])],
+                [("launch_endpoint", 266400, True, [], [], [], False)],
             ),
             (
                 "create_with_start_date",
@@ -3954,7 +3973,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0, ["no_metric"], [], ["no_metric::warning:"])],
+                [("create_request", 0, False, ["no_metric"], [], ["no_metric::warning:"], False)],
             ),
             (
                 "create_draft",
@@ -3970,7 +3989,28 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, [], [], [])],
+                [("update_start_date", 0, False, [], [], [], False)],
+            ),
+            (
+                "update_backdates_start_date_on_draft",
+                lambda self: self._create_launchable_experiment(name="Path B", feature_flag_key="path-backdate-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
+                ),
+                [("update_start_date", 0, False, [], [], [], True)],
+            ),
+            (
+                "update_imports_concluded_draft",
+                lambda self: self._create_launchable_experiment(name="Path I", feature_flag_key="path-import-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment,
+                    {
+                        "start_date": timezone.now() - timedelta(days=90),
+                        "end_date": timezone.now() - timedelta(days=30),
+                    },
+                    event_source=EventSource.API,
+                ),
+                [],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -3998,12 +4038,46 @@ class TestExperimentService(APIBaseTest):
             (
                 event["launch_path"],
                 event["flag_age_seconds"],
+                event["flag_called_before_launch"],
                 event["health_finding_codes"],
                 event["health_finding_subcodes"],
                 event["health_findings"],
+                event["is_backdated"],
             )
             for event in launched
         ] == expected
+
+    @parameterized.expand(
+        [
+            ("current", timedelta(0), None, False, [False]),
+            ("backdated_running", timedelta(days=90), None, False, [True]),
+            ("backdated_future_end", timedelta(days=90), timedelta(days=10), False, [True]),
+            ("imported_concluded", timedelta(days=90), timedelta(days=-30), True, []),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_with_dates_reports_imports_and_backdated_launches(
+        self, _name, start_ago, end_from_now, expected_imported, expected_backdated, mock_report_user_action
+    ):
+        now = timezone.now()
+        with time_machine.travel(now, tick=False), self.captureOnCommitCallbacks(execute=True):
+            self._service().create_experiment(
+                name=f"Imported {_name}",
+                feature_flag_key=f"imported-{_name.replace('_', '-')}",
+                start_date=now - start_ago,
+                end_date=now + end_from_now if end_from_now is not None else None,
+                event_source=EventSource.API,
+            )
+
+        events = {call.args[1]: call.args[2] for call in mock_report_user_action.call_args_list}
+        launched = [
+            call.args[2]["is_backdated"]
+            for call in mock_report_user_action.call_args_list
+            if call.args[1] == "experiment launched"
+        ]
+        assert events["experiment created"]["is_imported"] is expected_imported
+        assert events["experiment created"]["start_date"] == (now - start_ago).isoformat()
+        assert launched == expected_backdated
 
     @parameterized.expand(
         [

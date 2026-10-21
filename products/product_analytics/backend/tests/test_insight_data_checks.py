@@ -14,8 +14,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.models import PersonalAPIKey, PropertyDefinition
 from posthog.models.organization import OrganizationMembership
@@ -90,27 +91,34 @@ def checked(
     *,
     removed_by_filter: int = 0,
     missed_by_filter: int = 0,
-    local: int | None = 0,
+    counted: bool = True,
+    local: int = 0,
     bots: int = 0,
     repeats: int = 0,
     sample_rate: float = 1.0,
 ) -> CheckedEvents:
-    counted: CountedEvents | Skipped = Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS)
-    if local is not None:
-        counted = CountedEvents(
+    counted_events: CountedEvents | Skipped = Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS)
+    if counted:
+        counted_events = CountedEvents(
             events=round(sampled_events / sample_rate),
-            local=LocalEvents(count=local, top_hosts=[], top_events=[]),
             internal=InternalEvents(
-                removed_by_filter=removed_by_filter, missed_by_filter=missed_by_filter, top_events=[]
+                removed_by_filter=removed_by_filter,
+                missed_by_filter=missed_by_filter,
+                top_events=[],
+                distinct_missed_emails=0,
+                top_missed_emails=[],
+                missed_emails=[],
             ),
         )
     return CheckedEvents(
-        counted=counted,
+        counted=counted_events,
+        local=LocalEvents(count=local, distinct_hosts=1 if local else 0, top_hosts=[], top_events=[], hosts=[]),
         sample=SampledEvents(
             rate=sample_rate,
             events=sampled_events,
             distinct_ids=sampled_events,
             bot_events=bots,
+            distinct_bots=0,
             top_bots=[],
             top_bot_events=[],
             repeated_events=repeats,
@@ -127,8 +135,8 @@ class TestEvaluateDataChecks(SimpleTestCase):
             ("internal_fifth_is_a_problem", checked(1000, missed_by_filter=200), {INTERNAL: PROBLEM}),
             ("local_tiny_share_still_counts", checked(1_000_000, local=60), {LOCAL: WARNING}),
             ("local_under_50_events", checked(100, local=49), {}),
-            ("local_fifth_is_a_problem", checked(1000, local=200), {LOCAL: PROBLEM}),
-            ("too_many_events_to_count", checked(1000, local=None), {INTERNAL: SKIPPED, LOCAL: SKIPPED}),
+            ("local_fifth_is_still_a_warning", checked(1000, local=200), {LOCAL: WARNING}),
+            ("too_many_events_to_count_skips_only_internal_users", checked(1000, counted=False), {INTERNAL: SKIPPED}),
             ("bots_small_share_is_a_warning", checked(10_000, bots=200), {BOTS: WARNING}),
             (
                 "bots_under_50_sampled_events_but_over_50_in_the_range",
@@ -167,7 +175,7 @@ class TestEvaluateDataChecks(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("local_with_too_many_events_to_count", LOCAL, checked(1000, local=None), "too_many_events"),
+            ("internal_users_with_too_many_events_to_count", INTERNAL, checked(1000, counted=False), "too_many_events"),
             ("bots_with_too_few_sampled_events", BOTS, checked(500, sample_rate=0.1), "too_few_sampled_events"),
             (
                 "bots_when_the_insight_filters_on_traffic_type",
@@ -211,6 +219,7 @@ class TestEvaluateDataChecks(SimpleTestCase):
         checks = evaluate_data_checks(
             CheckedEvents(
                 counted=Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS),
+                local=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
                 sample=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
             )
         )
@@ -320,7 +329,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             query,
             team=self.team,
             user=self.user,
-            email_access=TeamEmailAccess(member_emails=True, verified_domains=True),
+            email_access=TeamEmailAccess(member_emails=True, verified_domains=True, person_emails=True),
         )
 
     def _internal_users(self, result: InsightDataChecks) -> InsightDataCheck:
@@ -346,11 +355,14 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             "bot_traffic": ("warning", 60),
             "duplicate_events": ("warning", 110),
         }
-        assert {check.key: (check.top_events, check.top_hosts, check.top_bots) for check in result.checks} == {
-            "internal_users": ([EVENT], [], []),
-            "local_development": ([EVENT], [LOCAL_HOST], []),
-            "bot_traffic": ([EVENT], [], ["Google fetcher", "Googlebot"]),
-            "duplicate_events": ([EVENT], [], []),
+        assert {
+            check.key: (check.top_events, check.top_hosts, check.distinct_hosts, check.top_bots)
+            for check in result.checks
+        } == {
+            "internal_users": ([EVENT], [], None, []),
+            "local_development": ([EVENT], [LOCAL_HOST], 1, []),
+            "bot_traffic": ([EVENT], [], None, ["Google fetcher", "Googlebot"]),
+            "duplicate_events": ([EVENT], [], None, []),
         }
 
     @parameterized.expand(
@@ -508,7 +520,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("events_on_every_day", range(20), "problem", 70),
+            ("events_on_every_day", range(20), "warning", 70),
             ("no_events_on_the_newest_days", range(10, 20), "no_events", 0),
         ]
     )
@@ -593,13 +605,17 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("insight_without_the_filter", True, {}, (60, "filter_internal_users")),
-            ("insight_with_the_filter", True, {"filterTestAccounts": True}, (0, None)),
-            ("project_without_a_filter", False, {}, (60, "open_filter_settings")),
+            ("insight_without_the_filter", True, {}, (60, "filter_internal_users", 60, 0)),
+            ("insight_with_the_filter", True, {"filterTestAccounts": True}, (0, None, 0, 0)),
+            ("project_without_a_filter", False, {}, (60, "open_filter_settings", 0, 60)),
         ]
     )
     def test_internal_users_check_follows_the_filter_in_place(
-        self, _name: str, project_has_a_filter: bool, source: dict[str, Any], expected: tuple[int, str | None]
+        self,
+        _name: str,
+        project_has_a_filter: bool,
+        source: dict[str, Any],
+        expected: tuple[int, str | None, int, int],
     ) -> None:
         if not project_has_a_filter:
             self.team.test_account_filters = []
@@ -607,7 +623,60 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         internal_users = self._internal_users(self._check(self._query(**source)))
 
-        assert (internal_users.events, internal_users.action) == expected
+        assert (
+            internal_users.events,
+            internal_users.action,
+            internal_users.removed_by_filter,
+            internal_users.missed_by_filter,
+        ) == expected
+
+    @parameterized.expand(
+        [
+            ("persons_are_on_events", "person_id_override_properties_on_events"),
+            ("persons_are_not_on_events", "disabled"),
+            ("persons_are_joined", "person_id_override_properties_joined"),
+        ]
+    )
+    def test_internal_users_suggested_rule_removes_the_emails_it_names(
+        self, _name: str, persons_on_events_mode: str
+    ) -> None:
+        _create_person(team=self.team, distinct_ids=["qa"], properties={"email": "QA@Example.com"})
+        self._events(60, distinct_id="qa", person_properties={"email": "Test@Example.com"})
+        flush_persons_and_events()
+        modifiers = {"personsOnEventsMode": persons_on_events_mode}
+        rule = self._internal_users(self._check(self._query(modifiers=modifiers))).filter_to_add
+        assert rule is not None
+        self.team.test_account_filters = [
+            *self.team.test_account_filters,
+            {"key": rule.key, "type": rule.type, "operator": rule.operator, "value": rule.value},
+        ]
+        self.team.save()
+
+        result = self._check(self._query(filterTestAccounts=True, modifiers=modifiers))
+
+        assert self._internal_users(result).missed_by_filter == 0
+
+    @parameterized.expand(
+        [
+            ("suggested_rule_with_the_insight_filter_off", {}),
+            ("suggested_rule_with_the_insight_filter_on", {"filterTestAccounts": True}),
+        ]
+    )
+    def test_local_development_check_counts_only_the_local_events_the_filter_keeps(
+        self, _name: str, source: dict[str, Any]
+    ) -> None:
+        found = next(check for check in self._check(self._query(**source)).checks if check.key == LOCAL)
+        assert found.filter_to_add is not None
+        rule = found.filter_to_add
+        self.team.test_account_filters = [
+            *self.team.test_account_filters,
+            {"key": rule.key, "type": rule.type, "operator": rule.operator, "value": rule.value},
+        ]
+        self.team.save()
+
+        local = next(check for check in self._check(self._query(**source)).checks if check.key == LOCAL)
+
+        assert (local.events, local.skip_reason) == (0, None)
 
     @parameterized.expand(
         [("without_a_project_filter", None), ("with_a_person_filter", "person"), ("with_a_cohort_filter", "cohort")]
@@ -686,9 +755,9 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_reports_why_nothing_was_checked(
-        self, _name: str, series: list[dict[str, Any]], max_bytes_read_per_shard: int, expected: str
+        self, _name: str, series: list[dict[str, Any]], max_bytes_read: int, expected: str
     ) -> None:
-        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ_PER_SHARD", max_bytes_read_per_shard):
+        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ", max_bytes_read):
             result = self._check(self._query(series))
 
         assert result.status == expected
@@ -790,36 +859,49 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("member_for_a_session_that_may_see_them", MEMBER_EMAIL, None, True, 80),
+            ("member_for_a_session_that_may_see_them", MEMBER_EMAIL, None, True, (80, [MEMBER_EMAIL])),
             (
                 "member_for_a_token_with_the_member_scope",
                 MEMBER_EMAIL,
+                [*CHECK_SCOPES, "person:read", "organization_member:read"],
+                True,
+                (80, [MEMBER_EMAIL]),
+            ),
+            (
+                "member_for_a_token_without_the_member_scope",
+                MEMBER_EMAIL,
+                [*CHECK_SCOPES, "person:read"],
+                True,
+                (0, []),
+            ),
+            ("member_for_a_session_that_may_not_see_them", MEMBER_EMAIL, None, False, (0, [])),
+            (
+                "member_for_a_token_without_the_person_scope",
+                MEMBER_EMAIL,
                 [*CHECK_SCOPES, "organization_member:read"],
                 True,
-                80,
+                (80, []),
             ),
-            ("member_for_a_token_without_the_member_scope", MEMBER_EMAIL, CHECK_SCOPES, True, 0),
-            ("member_for_a_session_that_may_not_see_them", MEMBER_EMAIL, None, False, 0),
             (
                 "verified_domain_for_a_token_with_the_organization_scope",
                 VERIFIED_DOMAIN_EMAIL,
-                [*CHECK_SCOPES, "organization:read"],
+                [*CHECK_SCOPES, "person:read", "organization:read"],
                 True,
-                80,
+                (80, [VERIFIED_DOMAIN_EMAIL]),
             ),
             (
                 "verified_domain_for_a_token_without_the_organization_scope",
                 VERIFIED_DOMAIN_EMAIL,
-                [*CHECK_SCOPES, "organization_member:read"],
+                [*CHECK_SCOPES, "person:read", "organization_member:read"],
                 True,
-                0,
+                (0, []),
             ),
             (
                 "member_for_a_token_confined_to_the_project",
                 MEMBER_EMAIL,
-                [*CHECK_SCOPES, "organization_member:read", "organization:read"],
+                [*CHECK_SCOPES, "person:read", "organization_member:read", "organization:read"],
                 True,
-                0,
+                (0, []),
                 True,
             ),
         ]
@@ -830,7 +912,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         email: str,
         scopes: list[str] | None,
         member_is_visible: bool,
-        internal_user_events: int,
+        expected: tuple[int, list[str]],
         confined_to_the_project: bool = False,
     ) -> None:
         self._create_user(MEMBER_EMAIL)
@@ -856,7 +938,13 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         internal_users = next(check for check in response.json()["checks"] if check["key"] == INTERNAL)
-        assert internal_users["events"] == internal_user_events
+        rule = internal_users["filter_to_add"]
+        events, named_emails = expected
+        assert (internal_users["events"], internal_users["top_emails"], rule["value"] if rule else []) == (
+            events,
+            named_emails,
+            named_emails,
+        )
 
     def _limit_the_member_list_to_project_members(self) -> None:
         self.organization.available_product_features = [
@@ -934,3 +1022,21 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/insights/data_checks/", body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_tags_the_check_queries_with_the_client_query_id_so_the_client_can_cancel_them(self) -> None:
+        tagged: list[str | None] = []
+
+        def cancelled(*args: Any, **kwargs: Any) -> None:
+            tagged.append(get_query_tag_value("client_query_id"))
+            raise CHQueryErrorQueryWasCancelled("Query was cancelled", code=394, code_name="query_was_cancelled")
+
+        with patch(f"{CHECKS_MODULE}.execute_hogql_query", side_effect=cancelled):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/data_checks/",
+                {"query": self._query(), "client_query_id": "checks-run-1"},
+                format="json",
+            )
+
+        assert tagged == ["checks-run-1"]
+        assert response.status_code == 499, response.content
+        assert response.content == b""

@@ -3,14 +3,9 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import {
-    getToolSourceItems,
-    isToolItem,
-    libraryRowProductLabels,
-    toolHrefForPath,
-    toolLabel,
-} from 'scenes/tools/toolsUtils'
+import { getToolSourceItems, isToolItem, toolLabel } from 'scenes/tools/toolsUtils'
 
+import { navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { initKeaTests } from '~/test/init'
 
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
@@ -28,18 +23,23 @@ describe('todayShellLogic', () => {
         ['/project/1/ai', 'spaces'],
         ['/project/1/ai/history', 'spaces'],
         ['/project/1/spaces/abc', 'spaces'],
-        ['/project/1/feature_flags/920847', 'products'],
-        ['/project/1/insights/abc', 'products'],
-        ['/project/1/feature_flags', 'products'],
+        ['/project/1/feature-flags/920847', 'products'],
+        ['/project/1/insights/abc', 'analytics'],
+        ['/project/1/insights', 'analytics'],
+        ['/project/1/feature-flags', 'products'],
         ['/project/1/data-management/destinations', 'products'],
+        ['/project/1/web', 'analytics'],
+        ['/project/1/marketing', 'analytics'],
+        ['/project/1/mcp-analytics', 'analytics'],
         ['/project/1/sql', 'products'],
-        ['/project/1/views', 'views'],
-        ['/project/1/canvases/abc', 'views'],
-        ['/project/1/canvases/new', 'views'],
-        ['/project/1/notebooks/abc', 'views'],
-        ['/project/1/dashboard/12', 'views'],
-        ['/project/1/notebooks', 'views'],
-        ['/project/1/dashboard', 'views'],
+        ['/project/1/analytics', 'analytics'],
+        ['/project/1/analytics/all', 'analytics'],
+        ['/project/1/canvases/abc', 'analytics'],
+        ['/project/1/canvases/new', 'analytics'],
+        ['/project/1/notebooks/abc', 'analytics'],
+        ['/project/1/dashboard/12', 'analytics'],
+        ['/project/1/notebooks', 'analytics'],
+        ['/project/1/dashboard', 'analytics'],
         ['/project/1/persons', 'products'],
         ['/project/1/activity/events', 'products'],
         ['/project/1/settings/project-replay', 'settings'],
@@ -57,9 +57,14 @@ describe('todayShellLogic', () => {
         ['/data-management/destinations/abc', '/data-management/destinations?tab=all'],
         ['/data-management/events', '/data-management'],
         ['/data-management-old', null],
-    ])('selects the tool for %s', (path, href) => {
-        const tools = [{ href: '/data-management' }, { href: '/data-management/destinations?tab=all' }]
-        expect(toolHrefForPath(path, tools)).toBe(href)
+        ['/replay/abc', '/replay/home'],
+    ])('selects the product for %s', (path, href) => {
+        const products = [
+            { path: 'Data management', href: '/data-management' },
+            { path: 'Destinations', href: '/data-management/destinations?tab=all' },
+            { path: 'Session replay', href: '/replay/home' },
+        ]
+        expect(navProductHrefForPath(path, products)).toBe(href)
     })
 
     test.each([
@@ -77,14 +82,10 @@ describe('todayShellLogic', () => {
         expect(rows.includes(label)).toBe(ownRow)
     })
 
-    it('finds the Insights row with a search for the Product analytics name', () => {
-        expect(libraryRowProductLabels('insight')).toContain('Product analytics')
-    })
-
     test.each([
         ['home', '/home'],
         ['spaces', '/spaces/new'],
-        ['views', '/airplane'],
+        ['analytics', '/airplane'],
         ['products', '/airplane'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
         const logic = todayShellLogic()
@@ -96,7 +97,19 @@ describe('todayShellLogic', () => {
         expect(logic.values.activePane).toBe(pane)
     })
 
-    test.each(['spaces', 'views', 'products'] as const)(
+    test.each([
+        ['products', 'products'],
+        ['home', 'analytics'],
+    ] as const)('opening Dashboards with the %s pane open shows the %s pane', (openPane, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane(openPane)
+        router.actions.push('/project/1/dashboard')
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each(['spaces', 'analytics', 'products'] as const)(
         'a second rail click on %s hides the sidebar it opened',
         (pane) => {
             const logic = todayShellLogic()
@@ -166,7 +179,7 @@ describe('todayShellLogic', () => {
         router.actions.push('/project/1/cohorts')
         expect(logic.values.sidebarVisible).toBe(false)
 
-        logic.actions.pickPane('views')
+        logic.actions.pickPane('analytics')
         expect(logic.values.sidebarVisible).toBe(true)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {

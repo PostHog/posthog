@@ -1,4 +1,4 @@
-import type { PointClickData, Series, TooltipConfig, ValueLabelFormatter } from '@posthog/quill-charts'
+import type { PointClickData, TooltipConfig, ValueLabelFormatter } from '@posthog/quill-charts'
 
 import { percentage } from 'lib/utils/numbers'
 
@@ -153,40 +153,18 @@ export function resolveFunnelStepClick(
 const SMALLEST_SHOWN_RATE = 0.001
 const LARGEST_SHOWN_RATE = 0.999
 
-function formatPreciseRate(rate: number): string {
-    if (rate > 0 && rate < SMALLEST_SHOWN_RATE) {
+// Always one decimal: funnels with close steps or low conversion need it, and per-label rules miss cases.
+export function formatFunnelStepRate(rate: number): string {
+    if (rate <= 0 || rate >= 1) {
+        return percentage(rate, 0)
+    }
+    if (rate < SMALLEST_SHOWN_RATE) {
         return `<${percentage(SMALLEST_SHOWN_RATE, 1)}`
     }
-    if (rate < 1 && rate > LARGEST_SHOWN_RATE) {
-        return percentage(LARGEST_SHOWN_RATE, 1)
-    }
-    return percentage(rate, 1)
+    return percentage(Math.min(rate, LARGEST_SHOWN_RATE), 1, true)
 }
 
-// Adds a decimal only where a whole percentage would hide a difference, from 0%, 100% or a neighboring step.
-export function formatFunnelStepRates(rates: number[]): string[] {
-    const wholes = rates.map((rate) => percentage(rate, 0))
-    return rates.map((rate, index) => {
-        const whole = wholes[index]
-        const hidesDifference =
-            (whole === '0%' && rate > 0) ||
-            (whole === '100%' && rate < 1) ||
-            [index - 1, index + 1].some(
-                (neighbor) => neighbor in rates && rates[neighbor] !== rate && wholes[neighbor] === whole
-            )
-        return hidesDifference ? formatPreciseRate(rate) : whole
-    })
-}
-
-export function formatFunnelStepRate(rate: number): string {
-    return formatFunnelStepRates([rate])[0]
-}
-
-export function buildFunnelStepBarLabelFormatter(series: Pick<Series, 'data'>[]): ValueLabelFormatter {
-    const labels = series.map((s) => formatFunnelStepRates(s.data.map((value) => value / RATE_TO_PERCENT)))
-    return (value, seriesIndex, dataIndex) =>
-        labels[seriesIndex]?.[dataIndex] ?? formatFunnelStepRate(value / RATE_TO_PERCENT)
-}
+export const formatFunnelStepBarLabel: ValueLabelFormatter = (value) => formatFunnelStepRate(value / RATE_TO_PERCENT)
 
 export function getConversionChipStepIndexes(
     steps: FunnelStepWithConversionMetrics[],

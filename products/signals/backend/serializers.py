@@ -1201,15 +1201,24 @@ class ReportSourceSuggestionSerializer(serializers.Serializer):
 
 class ReportRankingSerializer(serializers.Serializer):
     served_key = serializers.CharField(
-        help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
+        help_text=(
+            "Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users."
+        )
     )
-    model_name = serializers.CharField(help_text="Feature family of the served model.")
-    model_version = serializers.CharField(help_text="Training partition of the served model, as `YYYY-MM-DD`.")
-    manifest_version = serializers.CharField(help_text="Version of the serving manifest that chose the model.")
+    model_name = serializers.CharField(help_text="Feature family of the served model. Empty for non-staff users.")
+    model_version = serializers.CharField(
+        help_text="Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users."
+    )
+    manifest_version = serializers.CharField(
+        help_text="Version of the serving manifest that chose the model. Empty for non-staff users."
+    )
     scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
     scores = serializers.DictField(
         child=serializers.FloatField(),
-        help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+        help_text=(
+            "Outcome head name to its calibrated probability. Empty when the served model skipped the report, "
+            "and always empty for non-staff users."
+        ),
     )
     lifts = serializers.DictField(
         child=serializers.FloatField(),
@@ -1399,8 +1408,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     ranking = serializers.SerializerMethodField(
         help_text=(
-            "The served model's score from the latest ranking score artefact. Staff only: null for "
-            "other users, and null when the report has no score."
+            "The served model's score from the latest ranking score artefact. Null for users who are neither "
+            "staff nor in the inbox model sort rollout, and null when the report has no score."
         ),
     )
     source_suggestion = serializers.SerializerMethodField(
@@ -1651,7 +1660,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
     @extend_schema_field(ReportRankingSerializer(allow_null=True))
     def get_ranking(self, obj: SignalReport) -> dict | None:
         request = self.context.get("request")
-        if request is None or not request.user.is_staff:
+        if request is None:
+            return None
+        can_view = self.context.get("can_view_inbox_ranking")
+        if not (can_view() if can_view is not None else request.user.is_staff):
             return None
 
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
@@ -1692,13 +1704,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
         except (ValueError, KeyError, TypeError, AttributeError):
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
             return None
+        is_staff = request.user.is_staff
         return {
-            "served_key": score.served_key,
-            "model_name": served.model_name,
-            "model_version": served.model_version,
-            "manifest_version": score.manifest_version,
+            "served_key": score.served_key if is_staff else "",
+            "model_name": served.model_name if is_staff else "",
+            "model_version": served.model_version if is_staff else "",
+            "manifest_version": score.manifest_version if is_staff else "",
             "scored_at": score.scored_at,
-            "scores": served.scores,
+            "scores": served.scores if is_staff else {},
             "lifts": lifts,
             "readable_heads": readable_heads,
             "stale": is_stale_score(score, latest_edit_at),
@@ -1913,63 +1926,23 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "Defaults to true."
         ),
     )
-
-
-MAX_FOR_YOU_REPORTS = 20
-
-
-class SignalReportsForYouQuerySerializer(serializers.Serializer):
-    limit = serializers.IntegerField(
-        required=False,
-        default=5,
-        min_value=1,
-        max_value=MAX_FOR_YOU_REPORTS,
-        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
-    )
-    offset = serializers.IntegerField(
-        required=False,
-        default=0,
-        min_value=0,
-        help_text=(
-            "How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same "
-            "query are slices of one ranked list. Defaults to 0."
-        ),
-    )
     exclude = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),
         required=False,
         default=list,
-        max_length=MAX_FOR_YOU_REPORTS,
+        max_length=100,
         help_text=(
-            "Report ids to leave out of `results` and `count`, for example the reports a briefing already "
-            "shows, as repeated parameters or comma-separated. The other reports keep their order."
+            "Report ids to leave out of `results` and `count`, for example the reports a client already "
+            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
         ),
     )
-    include_unowned = serializers.BooleanField(
+    include_unlisted = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
-            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
-            "one person, so a surface that only shows a person's own work passes false. Defaults to true."
-        ),
-    )
-
-
-class SignalReportsForYouResponseSerializer(serializers.Serializer):
-    results = SignalReportListSerializer(
-        many=True,
-        help_text=(
-            "One page of the open, actionable reports that matter most to the current user, in the inbox "
-            "priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, "
-            "reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` "
-            "is false. The Today briefing ranks reports the same way."
-        ),
-    )
-    count = serializers.IntegerField(
-        help_text=(
-            "How many open, actionable reports are for the current user, on every page together, "
-            "without the `exclude` ids. Counted over the same set as `results`, so it follows "
-            "`include_unowned` too."
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
         ),
     )
 
@@ -2548,7 +2521,10 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
-        if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+        } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
 
         if (
@@ -2608,6 +2584,11 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             "observed_value": None,
             "baseline_value": None,
             "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+            **(
+                {"comparison": None, "matches": None, "error": None}
+                if obj.type == SignalReportArtefact.ArtefactType.CHECK_OBSERVATION
+                else {}
+            ),
         }
 
 
@@ -3058,6 +3039,7 @@ class SignalReportTaskActionSerializer(serializers.Serializer):
         choices=ReportTaskActionKind.choices,
         help_text=(
             "The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. "
+            "`make_it_green` fixes failing CI on the report's open pull request and stops without merging it. "
             "`suggested_prompt` sends one of the prompts the report suggests."
         ),
     )

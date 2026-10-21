@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconOpenSidebar, IconShare } from '@posthog/icons'
+import { IconOpenSidebar, IconShare, IconSidePanel } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
+import { DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -10,7 +11,11 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
+import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
+import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
 import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
@@ -22,6 +27,8 @@ import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
 import { Thread } from '../Thread'
 import { MaxNotConfigured } from './MaxNotConfigured'
+import { PhaiQuillOverflowMenu } from './PhaiQuillOverflowMenu'
+import { PhaiViewSwitchMenuItem } from './PhaiViewSwitchMenuItem'
 import { PhaiViewToggle } from './PhaiViewToggle'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
@@ -49,6 +56,13 @@ export function ChatHeader({
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
     const isTitleLoading = chatTitle === 'New chat'
+    const skin = useThreadSkin()
+    const copyLink = (): void => {
+        copyToClipboard(
+            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+            'conversation sharing link'
+        )
+    }
 
     return (
         <div
@@ -68,35 +82,50 @@ export function ChatHeader({
                 )}
             </div>
             <div className="flex items-center gap-2">
-                {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
-                {!hideViewToggle && <PhaiViewToggle variant="lemon" onChange={onViewChange} />}
-                {conversationId ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        sideIcon={<IconShare />}
-                        onClick={() => {
-                            copyToClipboard(
-                                urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
-                                'conversation sharing link'
-                            )
-                        }}
-                    >
-                        Copy link
-                    </LemonButton>
-                ) : undefined}
-                {tabId ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        sideIcon={<IconOpenSidebar />}
-                        onClick={() => {
-                            openSidePanelMax(conversationId ?? undefined)
-                        }}
-                    >
-                        Open in context panel
-                    </LemonButton>
-                ) : undefined}
+                {skin === 'quill' ? (
+                    <PhaiQuillOverflowMenu>
+                        {conversationId && (
+                            <DropdownMenuItem onClick={copyLink} data-attr="ai-copy-conversation-link">
+                                <IconShare />
+                                Copy link
+                            </DropdownMenuItem>
+                        )}
+                        {tabId && (
+                            <DropdownMenuItem
+                                onClick={() => openSidePanelMax(conversationId ?? undefined)}
+                                data-attr="ai-open-in-side-panel"
+                            >
+                                <IconSidePanel />
+                                Dock to the right
+                            </DropdownMenuItem>
+                        )}
+                        {(conversationId || tabId) && <DropdownMenuSeparator />}
+                        {isSandboxRuntime && <DebugLogsMenuItem parts={DROPDOWN_PARTS} />}
+                        {!hideViewToggle && <PhaiViewSwitchMenuItem onChange={onViewChange} />}
+                    </PhaiQuillOverflowMenu>
+                ) : (
+                    <>
+                        {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
+                        {!hideViewToggle && <PhaiViewToggle variant="lemon" onChange={onViewChange} />}
+                        {conversationId ? (
+                            <LemonButton size="small" type="secondary" sideIcon={<IconShare />} onClick={copyLink}>
+                                Copy link
+                            </LemonButton>
+                        ) : undefined}
+                        {tabId ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconOpenSidebar />}
+                                onClick={() => {
+                                    openSidePanelMax(conversationId ?? undefined)
+                                }}
+                            >
+                                Open in context panel
+                            </LemonButton>
+                        ) : undefined}
+                    </>
+                )}
             </div>
         </div>
     )
@@ -114,15 +143,36 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
     const skin = useThreadSkin()
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
 
     if (aiSceneView({ taskId, chatId, effectivePhaiView }) === 'runner') {
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
                 {!taskId && (
                     <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
-                        {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
-                        <DebugLogsMenu variant="lemon" />
-                        <PhaiViewToggle variant="lemon" />
+                        {skin === 'quill' ? (
+                            <PhaiQuillOverflowMenu>
+                                {/* Only desktop Today has the floating and docked panel to move the chat into. */}
+                                {todayRailEnabled && !phoneLayout && (
+                                    <>
+                                        <TodayPanelMoveMenuItems
+                                            parts={DROPDOWN_PARTS}
+                                            chat={null}
+                                            dataAttrPrefix="ai"
+                                        />
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
+                                <DebugLogsMenuItem parts={DROPDOWN_PARTS} />
+                                <PhaiViewSwitchMenuItem />
+                            </PhaiQuillOverflowMenu>
+                        ) : (
+                            <>
+                                {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
+                                <DebugLogsMenu variant="lemon" />
+                                <PhaiViewToggle variant="lemon" />
+                            </>
+                        )}
                     </div>
                 )}
                 <div className="flex flex-col flex-1 min-h-0">

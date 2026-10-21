@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink
+from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, ReportLink
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -96,6 +96,12 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == expected
+        if expected == SignalReport.Status.SUPPRESSED:
+            feedback = SignalReportArtefact.latest_content(
+                team_id=self.team.id, report_id=str(parent.id), model=Dismissal
+            )
+            assert feedback is not None
+            assert feedback.state == "suppressed"
 
     def test_a_plan_stays_open_while_any_step_is(self):
         parent = self._report("plan")

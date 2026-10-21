@@ -7,17 +7,23 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import (
     DOIT_INCREMENTAL_FIELDS,
     REPORT_ID_METADATA_KEY,
+    doit_endpoint_source,
     doit_list_reports,
     doit_source,
     resolve_report_id,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.doit.settings import DOIT_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -57,6 +63,15 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             for report in reports
         ]
 
+        # A report and a fixed table with the same normalized name would land in the same warehouse
+        # table. The report was there first, so it keeps the name.
+        report_names = {report.name for report in reports}
+        schemas.extend(
+            SourceSchema(name=endpoint, supports_incremental=False, supports_append=False, incremental_fields=[])
+            for endpoint in DOIT_ENDPOINTS
+            if NamingConvention.normalize_identifier(endpoint) not in report_names
+        )
+
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
@@ -77,7 +92,17 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             # DoIt answers 403 with this text for a key it no longer accepts. Only a new key fixes it,
             # so a retry cannot succeed.
             "invalid token: missing expiration": bad_key,
+            # The fixed tables go through the shared REST client, which raises `requests` HTTP errors.
+            "401 Client Error: Unauthorized for url: https://api.doit.com": bad_key,
+            "403 Client Error: Forbidden for url: https://api.doit.com": "DoIt refused access to this table. Check that your API key is still valid and that its user has permission to read this data in DoIt, then reconnect or deselect the table.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.doit.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_retryable_errors(self) -> set[str]:
         # `DOIT_RETRY` already retries a 429 at the transport level; this is DoIt's own account-wide
@@ -89,6 +114,9 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
         return {"exhausted; please wait for previous requests to complete"}
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        if inputs.schema_name in DOIT_ENDPOINTS:
+            return doit_endpoint_source(config, inputs.schema_name, inputs.team_id, inputs.job_id)
+
         report_id = resolve_report_id(config, inputs.schema_name, inputs.schema_metadata, logger=inputs.logger)
         return doit_source(
             config,
