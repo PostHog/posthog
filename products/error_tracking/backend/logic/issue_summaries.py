@@ -5,12 +5,12 @@ the stored summary when no new one is due, so callers need no freshness logic of
 """
 
 import json
+import time
 import hashlib
 from datetime import datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
 
-from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 
@@ -35,11 +35,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, refund
 
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
+from products.error_tracking.backend.facade.queries import run_error_tracking_query
 from products.error_tracking.backend.facade.query_utils import (
     TREND_VOLUME_RESOLUTION,
     as_record,
@@ -51,7 +51,6 @@ from products.error_tracking.backend.facade.query_utils import (
     to_number,
     truncate_text,
 )
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_BUDGET,
     ISSUE_SUMMARY_CATEGORY_MODEL,
@@ -73,12 +72,18 @@ from products.error_tracking.backend.logic.issue_summary_prompt import (
     ISSUE_SUMMARY_SYSTEM_PROMPT,
     IssueSummaryResponse,
 )
-from products.error_tracking.backend.logic.severity_inference import mechanism_handled, page_without_query
+from products.error_tracking.backend.logic.severity_inference import (
+    first_exception,
+    mechanism_handled,
+    page_without_query,
+)
+from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueSummary,
 )
+from products.error_tracking.backend.tasks.tasks import generate_error_tracking_issue_summary
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.ml_inference.backend.facade import api as ml_inference
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionRequest
@@ -92,6 +97,7 @@ ISSUE_SUMMARY_AI_PRODUCT = "error_tracking"
 PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 
 UNKNOWN = "unknown"
+WAIT_POLL_INTERVAL_SECONDS = 0.25
 
 
 class IssueSummaryOutcome(StrEnum):
@@ -132,21 +138,7 @@ class IssueSummaryInputs:
 
 
 def issue_summaries_enabled(team_id: int) -> bool:
-    # The analytics SDK is disabled in local dev, so the flag always reads as off there.
-    if settings.DEBUG:
-        return True
-    try:
-        return feature_enabled_or_false(
-            ISSUE_SUMMARY_FLAG,
-            str(team_id),
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.exception("error_tracking_issue_summary_flag_check_failed", team_id=team_id)
-        return False
+    return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
 
 
 def is_ai_data_processing_approved(team_id: int) -> bool:
@@ -166,13 +158,44 @@ def regeneration_due(summary: ErrorTrackingIssueSummary | None, now: datetime) -
 
 def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -> IssueSummaryOutcome | None:
     """The reason no generation can start now, or None when one can."""
+    # Checked first because it needs no network call or query, and most reads find a fresh summary.
+    if not regeneration_due(stored, timezone.now()):
+        return IssueSummaryOutcome.FRESH
     if not issue_summaries_enabled(team_id):
         return IssueSummaryOutcome.DISABLED
     if not is_ai_data_processing_approved(team_id):
         return IssueSummaryOutcome.AI_NOT_APPROVED
-    if not regeneration_due(stored, timezone.now()):
-        return IssueSummaryOutcome.FRESH
     return None
+
+
+def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
+    """Queue generation in the background when a summary may be due. Returns whether it queued a task.
+
+    False means nothing will change soon, so the caller should not wait.
+    """
+    if generation_blocked(team_id, get_issue_summary(team_id, issue_id)) is not None:
+        return False
+    generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
+    return True
+
+
+def wait_for_issue_summary(
+    team_id: int, issue_id: UUID | str, *, checked_after: datetime | None, timeout_seconds: float
+) -> ErrorTrackingIssueSummary | None:
+    """Poll for a summary generated or confirmed unchanged after `checked_after`, or any summary when it is None.
+
+    Pass the time taken just before `start_issue_summary_generation`. Returns None at the timeout.
+    The background task keeps running.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        summary = get_issue_summary(team_id, issue_id)
+        if summary is not None and (checked_after is None or summary.checked_at > checked_after):
+            return summary
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(WAIT_POLL_INTERVAL_SECONDS, remaining))
 
 
 def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
@@ -320,7 +343,7 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
     trend = build_trend(aggregated_issue, first_seen) or {}
     latest_release = extract_release(event_properties).get("version")
     first_release = extract_release(first_event_properties).get("version")
-    exception = _first_exception(event_properties)
+    exception = first_exception(event_properties)
     handled = mechanism_handled(event_properties)
 
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
@@ -364,13 +387,6 @@ def _text(value: object) -> str:
 def _count(value: object) -> str:
     number = to_number(value)
     return str(int(number)) if number is not None else UNKNOWN
-
-
-def _first_exception(event_properties: dict[str, object]) -> dict[str, object]:
-    exception_list = event_properties.get("$exception_list")
-    if isinstance(exception_list, list) and exception_list:
-        return as_record(exception_list[0]) or {}
-    return {}
 
 
 def _exception_event_properties(
@@ -421,8 +437,7 @@ def _aggregated_issue(team: Team, issue_id: UUID | str) -> dict[str, object]:
         withLastEvent=False,
         tags={"productKey": "error_tracking"},
     )
-    with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-        data = ErrorTrackingQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+    data = run_error_tracking_query(team, query)
     results = data.get("results")
     return (as_record(results[0]) or {}) if isinstance(results, list) and results else {}
 

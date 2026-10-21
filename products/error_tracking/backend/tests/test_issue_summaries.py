@@ -16,7 +16,7 @@ from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, 
 
 from products.error_tracking.backend.facade import summaries as summaries_facade
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
-from products.error_tracking.backend.logic import issue_summaries
+from products.error_tracking.backend.logic import issue_summaries, team_flags
 from products.error_tracking.backend.logic.issue_summaries import (
     IssueSummaryInputs,
     IssueSummaryOutcome,
@@ -83,6 +83,22 @@ class TestIssueSummaryParsing(SimpleTestCase):
         assert (compute_input_hash(**{**base, **before}) == compute_input_hash(**{**base, **after})) == same
 
 
+# Failures after the gates pass, which spend or try to spend a model call.
+FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
+    ("cap_denied", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
+    (
+        "llm_raises",
+        lambda test: test.completions.configure_mock(side_effect=TimeoutError("slow")),
+        IssueSummaryOutcome.MODEL_ERROR,
+    ),
+    (
+        "llm_invalid_output",
+        lambda test: test.completions.configure_mock(return_value=_completion("not json")),
+        IssueSummaryOutcome.INVALID_OUTPUT,
+    ),
+]
+
+
 class TestIssueSummaryGeneration(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -95,7 +111,7 @@ class TestIssueSummaryGeneration(BaseTest):
             json.dumps(SUMMARY_REPLY)
         )
         self.decide = MagicMock(return_value=_category_result("own_code"))
-        self.enterContext(patch.object(issue_summaries, "feature_enabled_or_false", return_value=True))
+        self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=MagicMock()))
         self.enterContext(patch.object(issue_summaries, "build_openai_client", return_value=self.client_mock))
         self.enterContext(
@@ -109,8 +125,12 @@ class TestIssueSummaryGeneration(BaseTest):
         super().tearDown()
 
     @property
+    def completions(self) -> MagicMock:
+        return self.client_mock.with_options.return_value.chat.completions.create
+
+    @property
     def llm_calls(self) -> int:
-        return self.client_mock.with_options.return_value.chat.completions.create.call_count
+        return self.completions.call_count
 
     def _release_lock(self) -> None:
         issue_summaries.get_client().delete(
@@ -136,7 +156,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert summary is not None
         assert summary.what_happened == SUMMARY_REPLY["what_happened"]
         assert summary.category == expected_category
-        request = self.client_mock.with_options.return_value.chat.completions.create.call_args.kwargs
+        request = self.completions.call_args.kwargs
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
         assert self.decide.call_args.args[0].privacy_mode is True
@@ -168,12 +188,11 @@ class TestIssueSummaryGeneration(BaseTest):
             (
                 "flag_off",
                 lambda test: test.enterContext(
-                    patch.object(issue_summaries, "feature_enabled_or_false", return_value=False)
+                    patch.object(team_flags, "feature_enabled_or_false", return_value=False)
                 ),
                 IssueSummaryOutcome.DISABLED,
             ),
             ("ai_not_approved", lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED),
-            ("cap_denied", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
             (
                 "gateway_unconfigured",
                 lambda test: test.enterContext(
@@ -181,20 +200,7 @@ class TestIssueSummaryGeneration(BaseTest):
                 ),
                 IssueSummaryOutcome.GATEWAY_UNCONFIGURED,
             ),
-            (
-                "llm_raises",
-                lambda test: test.client_mock.with_options.return_value.chat.completions.create.configure_mock(
-                    side_effect=TimeoutError("slow")
-                ),
-                IssueSummaryOutcome.MODEL_ERROR,
-            ),
-            (
-                "llm_invalid_output",
-                lambda test: test.client_mock.with_options.return_value.chat.completions.create.configure_mock(
-                    return_value=_completion("not json")
-                ),
-                IssueSummaryOutcome.INVALID_OUTPUT,
-            ),
+            *FAILURE_CASES,
         ]
     )
     def test_no_summary_when_blocked_or_failed(self, _name: str, arrange: Any, expected: IssueSummaryOutcome) -> None:
@@ -206,25 +212,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert result.summary is None
         assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
 
-    @parameterized.expand(
-        [
-            ("cap_denied", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
-            (
-                "llm_raises",
-                lambda test: test.client_mock.with_options.return_value.chat.completions.create.configure_mock(
-                    side_effect=TimeoutError("slow")
-                ),
-                IssueSummaryOutcome.MODEL_ERROR,
-            ),
-            (
-                "llm_invalid_output",
-                lambda test: test.client_mock.with_options.return_value.chat.completions.create.configure_mock(
-                    return_value=_completion("not json")
-                ),
-                IssueSummaryOutcome.INVALID_OUTPUT,
-            ),
-        ]
-    )
+    @parameterized.expand(FAILURE_CASES)
     def test_failure_keeps_stale_summary(self, _name: str, arrange: Any, expected: IssueSummaryOutcome) -> None:
         with time_machine.travel(NOW, tick=False):
             get_or_generate_issue_summary(self.team.id, self.issue.id)
@@ -246,7 +234,7 @@ class TestIssueSummaryGeneration(BaseTest):
             concurrent_outcomes.append(get_or_generate_issue_summary(self.team.id, self.issue.id).outcome)
             return _completion(json.dumps(SUMMARY_REPLY))
 
-        self.client_mock.with_options.return_value.chat.completions.create.side_effect = read_during_generation
+        self.completions.side_effect = read_during_generation
 
         result = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
@@ -270,7 +258,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
         with (
             time_machine.travel(NOW + later, tick=False),
-            patch.object(summaries_facade.generate_error_tracking_issue_summary, "delay") as delay,
+            patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay,
         ):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
             assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) is False
@@ -302,8 +290,8 @@ class TestIssueSummaryGeneration(BaseTest):
     )
     def test_start_generation_queues_only_when_it_can_generate(self, _name: str, flag: bool, queued: bool) -> None:
         with (
-            patch.object(issue_summaries, "feature_enabled_or_false", return_value=flag),
-            patch.object(summaries_facade.generate_error_tracking_issue_summary, "delay") as delay,
+            patch.object(team_flags, "feature_enabled_or_false", return_value=flag),
+            patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay,
         ):
             assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) == queued
         assert delay.called == queued
@@ -326,13 +314,6 @@ class TestIssueSummaryGeneration(BaseTest):
         )
 
         assert (summary is not None) == found
-
-    def test_start_generation_skips_a_fresh_summary(self) -> None:
-        get_or_generate_issue_summary(self.team.id, self.issue.id)
-
-        with patch.object(summaries_facade.generate_error_tracking_issue_summary, "delay") as delay:
-            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) is False
-        delay.assert_not_called()
 
 
 class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):

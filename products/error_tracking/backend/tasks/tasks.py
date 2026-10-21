@@ -6,7 +6,6 @@ from posthoganalytics import capture_exception
 
 from posthog.models.scoping import with_team_scope
 
-from products.error_tracking.backend.logic import issue_summaries
 from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 
@@ -96,4 +95,7 @@ def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[d
 )
 @with_team_scope()
 def generate_error_tracking_issue_summary(team_id: int, issue_id: str) -> None:
-    issue_summaries.get_or_generate_issue_summary(team_id, issue_id)
+    # The generator imports the LLM client and HogQL, so keep them off every worker's boot path.
+    from products.error_tracking.backend.logic.issue_summaries import get_or_generate_issue_summary  # noqa: PLC0415
+
+    get_or_generate_issue_summary(team_id, issue_id)

@@ -1,7 +1,6 @@
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -9,8 +8,8 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.ph_client import feature_enabled_or_false
 
+from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssue, sync_issues_to_clickhouse
 from products.ml_inference.backend.facade import api as ml_inference
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest
@@ -35,21 +34,7 @@ _SEVERITY_QUESTION = DecisionQuestion(
 
 
 def severity_inference_enabled(team_id: int) -> bool:
-    # The analytics SDK is disabled in local dev, so the flag always reads as off there.
-    if settings.DEBUG:
-        return True
-    try:
-        return feature_enabled_or_false(
-            SEVERITY_INFERENCE_FLAG,
-            str(team_id),
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.exception("error_tracking_severity_inference_flag_check_failed", team_id=team_id)
-        return False
+    return team_flag_enabled(SEVERITY_INFERENCE_FLAG, team_id)
 
 
 def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -> str:
@@ -69,12 +54,16 @@ def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -
     return "\n".join(lines)
 
 
-def mechanism_handled(event_properties: dict[str, object]) -> bool | None:
-    # Same source as cymbal's severity heuristic: the first exception's mechanism, not `$exception_handled`.
+def first_exception(event_properties: dict[str, object]) -> dict[str, object]:
     exception_list = event_properties.get("$exception_list")
     if not isinstance(exception_list, list) or not exception_list or not isinstance(exception_list[0], dict):
-        return None
-    mechanism = exception_list[0].get("mechanism")
+        return {}
+    return exception_list[0]
+
+
+def mechanism_handled(event_properties: dict[str, object]) -> bool | None:
+    # Same source as cymbal's severity heuristic: the first exception's mechanism, not `$exception_handled`.
+    mechanism = first_exception(event_properties).get("mechanism")
     handled = mechanism.get("handled") if isinstance(mechanism, dict) else None
     return handled if isinstance(handled, bool) else None
 
