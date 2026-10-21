@@ -205,6 +205,8 @@ Accepted recipients must be active members with project access.
 An unchanged retry creates no reviewer row or delivery work. A retry with old state can return a conflict.
 Research changes to explanations or display names alone also create no reviewer row or delivery work.
 Generic artefact PATCH and DELETE cannot change reviewer history, and clients cannot write correction records directly.
+If stored reviewer data is invalid, a person can replace the list with matching state, even with the writer flag off.
+The repair keeps the old rows and existing corrections. It does not confirm the list or clear the history-review marker.
 
 ### Rollout and rollback
 

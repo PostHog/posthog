@@ -264,8 +264,13 @@ class ReviewerRules:
     ) -> ReviewerUpdate:
         """Called by append_status while it holds the report lock."""
         snapshot = self.read()
-        if snapshot.invalid_reviewers:
-            raise ReviewerWriteError("Stored reviewer data is invalid. Correct it before changing reviewers.")
+        if edit is not None and attribution.kind != "user":
+            raise ReviewerWriteError("Only a person can change reviewer corrections.")
+        repairing = snapshot.invalid_reviewers
+        if repairing and (edit is None or edit.action != "replace"):
+            raise ReviewerWriteError(
+                "Stored reviewer data is invalid. A person must replace the list with current state."
+            )
         current = (
             SignalReportArtefact.objects.get(
                 team_id=self.team.id, report_id=self.report_id, id=snapshot.state.reviewers_id
@@ -275,10 +280,9 @@ class ReviewerRules:
         )
         enrolled = snapshot.state.corrections_id is not None
         corrections = snapshot.corrections
-        protected = self.enabled or enrolled
+        protected = self.enabled or enrolled or repairing
         proposed = tuple(content.root)
-        if edit is not None and attribution.kind != "user":
-            raise ReviewerWriteError("Only a person can change reviewer corrections.")
+        members_validated = False
         expected = edit.expected_state if edit else proposal.expected_state if proposal else None
         if protected:
             if edit is None and not self.enabled:
@@ -314,9 +318,12 @@ class ReviewerRules:
                 if protected and (checked.ineligible_user_uuids or checked.unresolved_candidates):
                     raise ReviewerWriteError("New reviewers must be active members with access to this project.")
                 additions = checked.reviewers if protected else additions
-                if protected:
+                if protected and not repairing:
                     corrections = correct_reviewers(corrections, additions, removals)
-                if edit.action == "add":
+                if repairing:
+                    proposed = additions
+                    members_validated = True
+                elif edit.action == "add":
                     proposed = snapshot.reviewers + tuple(
                         entry for entry in additions if not contains_reviewer(snapshot.reviewers, entry)
                     )
@@ -325,23 +332,33 @@ class ReviewerRules:
         elif protected and self.enabled:
             if proposal and proposal.outcome != "selected" and proposed:
                 raise ReviewerWriteError("An unsuccessful selection cannot supply reviewers.")
-            validated = self._validate_members(proposed)
             failed = proposal is not None and proposal.outcome == "lookup_failed"
-            invalid = bool(proposed) and not validated.reviewers
-            if corrections.confirmed or corrections.needs_review or failed or invalid:
+            if corrections.confirmed or corrections.needs_review or failed:
                 proposed = snapshot.reviewers
             else:
-                proposed = tuple(
-                    entry for entry in validated.reviewers if not contains_reviewer(corrections.excluded, entry)
-                )
-                proposed += tuple(entry for entry in corrections.pinned if not contains_reviewer(proposed, entry))
+                validated = self._validate_members(proposed)
+                if proposed and not validated.reviewers:
+                    proposed = snapshot.reviewers
+                else:
+                    proposed = tuple(
+                        entry for entry in validated.reviewers if not contains_reviewer(corrections.excluded, entry)
+                    )
+                    extra_pins = tuple(
+                        entry
+                        for entry in corrections.pinned
+                        if not contains_reviewer(validated.reviewers, entry)
+                        and entry.user_uuid not in validated.ineligible_user_uuids
+                        and not contains_reviewer(validated.unresolved_candidates, entry)
+                    )
+                    proposed += self._validate_members(extra_pins).reviewers if extra_pins else ()
+                    members_validated = True
         elif (
             proposal
             and proposal.source == "research"
             and (corrections.pinned or corrections.excluded or corrections.needs_review)
         ):
             proposed = snapshot.reviewers
-        if protected:
+        if protected and not members_validated:
             proposed = self._validate_members(proposed).reviewers
         reviewers = SuggestedReviewers(root=list(proposed))
         if current is not None and edit is None and proposal is not None and proposal.source == "research":
@@ -357,6 +374,8 @@ class ReviewerRules:
         return ReviewerUpdate(
             protected=protected,
             reviewers=reviewers,
-            corrections=corrections if protected and (not enrolled or corrections != snapshot.corrections) else None,
+            corrections=corrections
+            if protected and (repairing or not enrolled or corrections != snapshot.corrections)
+            else None,
             current=current,
         )

@@ -19,13 +19,17 @@ from products.signals.backend.artefact_schemas import (
     RelevantCommit,
     ReviewerEdit,
     ReviewerProposal,
+    ReviewerState,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     WorkClaim,
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.resolve_reviewers import (
+    get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
+)
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers, sync_suggested_reviewer_index
 
@@ -161,6 +165,24 @@ class TestReviewerRules(BaseTest):
         self.write(self.me, edit=ReviewerEdit(action="add"))
         self.write(proposal=ReviewerProposal(expected_state=self.rules.read().state, outcome="no_suitable_owner"))
         assert self.rules.read().reviewers == (self.me,)
+
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_automatic_writes_load_each_members_identity_once(self, pinned: bool, selected: bool) -> None:
+        self.write(self.me)
+        if pinned:
+            self.write(self.other, edit=ReviewerEdit(action="add"))
+        candidates = (self.me, self.other) if selected else (self.me,)
+        expected = (self.me, self.other) if pinned else (self.me,)
+        for _ in range(2):
+            with patch(
+                "products.signals.backend.reviewer_rules.get_org_member_github_logins_by_user_uuid",
+                wraps=get_org_member_github_logins_by_user_uuid,
+            ) as lookup:
+                self.write(*candidates)
+            assert sorted(user_uuid for call in lookup.call_args_list for user_uuid in call.args[1]) == sorted(
+                entry.user_uuid for entry in expected if entry.user_uuid
+            )
+            assert self.rules.read().reviewers == expected
 
     def test_access_checks_override_a_pin_and_confirmation(self) -> None:
         self.write(self.other, edit=ReviewerEdit(action="add"))
@@ -326,11 +348,58 @@ class TestReviewerRules(BaseTest):
         snapshot = self.rules.read()
         assert snapshot.invalid_reviewers
         assert snapshot.corrections.needs_review
-        with self.assertRaises(ReviewerWriteError):
-            self.write(self.other)
+        for enabled in (False, True):
+            with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=enabled):
+                with self.assertRaises(ReviewerWriteError):
+                    self.write(self.other)
+                for action in ("add", "remove", "confirm"):
+                    with self.assertRaises(ReviewerWriteError):
+                        self.write(self.other, edit=ReviewerEdit(action=action, expected_state=snapshot.state))
+                for expected in (None, ReviewerState()):
+                    with self.assertRaises(StaleReviewerProposal):
+                        self.write(self.other, edit=ReviewerEdit(action="replace", expected_state=expected))
+                with self.assertRaises(ReviewerWriteError):
+                    self.write(
+                        SuggestedReviewerEntry(github_login="unknown-example"),
+                        edit=ReviewerEdit(action="replace", expected_state=snapshot.state),
+                    )
+                with self.assertRaises(ReviewerWriteError):
+                    SignalReportArtefact.append_status(
+                        team_id=self.team.id,
+                        report_id=str(self.report.id),
+                        content=SuggestedReviewers(root=[self.other]),
+                        attribution=ArtefactAttribution.system(),
+                        reviewer_edit=ReviewerEdit(action="replace", expected_state=snapshot.state),
+                    )
         row.refresh_from_db()
         assert row.content == content
         assert self.report.artefacts.count() == 1
+
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_human_repair_preserves_corrections_and_history(self, enabled: bool, empty: bool) -> None:
+        self.write(self.me, self.other)
+        self.write(self.me, edit=ReviewerEdit(action="remove"))
+        self.write(self.other, edit=ReviewerEdit(action="add"))
+        row = SignalReportArtefact.objects.create(
+            team=self.team, report=self.report, type="suggested_reviewers", content="{"
+        )
+        snapshot = self.rules.read()
+        replacement = () if empty else (self.other,)
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=enabled):
+            self.write(*replacement, edit=ReviewerEdit(action="replace", expected_state=snapshot.state))
+            repaired = self.rules.read()
+            assert not repaired.invalid_reviewers
+            assert repaired.reviewers == replacement
+            assert repaired.corrections == snapshot.corrections
+            assert repaired.corrections.needs_review
+            assert not repaired.corrections.confirmed
+            assert repaired.state.corrections_id != snapshot.state.corrections_id
+            self.write(self.me, self.other)
+            assert self.rules.read() == repaired
+            self.write(edit=ReviewerEdit(action="confirm", expected_state=repaired.state))
+            assert not self.rules.read().corrections.needs_review
+        row.refresh_from_db()
+        assert row.content == "{"
 
     def test_login_exclusion_still_applies_after_member_resolution(self) -> None:
         UserSocialAuth.objects.create(

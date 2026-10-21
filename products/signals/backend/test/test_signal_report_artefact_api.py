@@ -134,9 +134,42 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         row = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid), "relevant_commits": None}])
         with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=enabled):
             assert not self._assignment(report)["needs_review"]
-            row.content = json.dumps([{"github_login": "valid-reviewer"}, {}])
+            commit = {"sha": "abcdef0", "url": "https://example.com/commit", "reason": "Fix"}
+            row.content = json.dumps(
+                [
+                    {
+                        "user_uuid": str(self.user.uuid),
+                        "relevant_commits": [commit, {}, "invalid"],
+                        "source_skill": {},
+                    },
+                    {},
+                ]
+            )
             row.save(update_fields=["content"])
-            assert self._assignment(report)["needs_review"]
+            assignment = self._assignment(report)
+            assert assignment["needs_review"]
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                {
+                    "action": "replace",
+                    "content": [{"user_uuid": str(self.user.uuid)}],
+                    "expected_reviewers": assignment["state"],
+                },
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
+            reviewers = self._latest_reviewers(report)
+            assert len(reviewers) == 1
+            assert reviewers[0]["user_uuid"] == str(self.user.uuid)
+            assert reviewers[0]["relevant_commits"] == [commit]
+            assert reviewers[0]["source_skill"] is None
+            repaired = self._assignment(report)
+            assert repaired["needs_review"]
+            assert not repaired["confirmed"]
+            assert self._reviewers_count(report) == 2
+            original = row.content
+            row.refresh_from_db()
+            assert row.content == original
 
     @parameterized.expand([True, False])
     def test_explicit_targets_preserve_people_missing_from_an_old_client_list(self, enabled: bool) -> None:
