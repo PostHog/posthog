@@ -165,7 +165,11 @@ export function reuseActivityGroups(previous: ThreadDisplayItem[], next: ThreadD
         return next
     }
     // A group's id comes from its first member, so earlier calls that load in front of it would rename it and
-    // remount it. A group that shares a member with a previous group keeps that group's id.
+    // remount it. A group that shares a member with a previous group keeps that group's id, unless a group in
+    // `next` already has that id, so a group that splits never gives two groups one key.
+    const reserved = new Set(
+        next.flatMap((item) => (item.type === 'activity_group' && previousGroups.has(item.id) ? [item.id] : []))
+    )
     const claimed = new Set<string>()
     return next.map((nextItem) => {
         if (nextItem.type !== 'activity_group') {
@@ -173,7 +177,9 @@ export function reuseActivityGroups(previous: ThreadDisplayItem[], next: ThreadD
         }
         const carried = previousGroups.has(nextItem.id)
             ? undefined
-            : nextItem.items.map((row) => groupOfMember.get(row.id)).find((id) => id !== undefined && !claimed.has(id))
+            : nextItem.items
+                  .map((row) => groupOfMember.get(row.id))
+                  .find((id) => id !== undefined && !claimed.has(id) && !reserved.has(id))
         const item = carried ? { ...nextItem, id: carried } : nextItem
         claimed.add(item.id)
         const old = previousGroups.get(item.id)

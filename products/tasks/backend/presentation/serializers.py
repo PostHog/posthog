@@ -3470,10 +3470,23 @@ class TaskRunLogsQuerySerializer(serializers.Serializer):
             "turns: pass the X-Log-Offset of the oldest page it holds."
         ),
     )
+    start = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "With tail_bytes, return every entry from this index to the end, with no preamble, so a client that "
+            "holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. "
+            "When those entries are too large, the response holds the latest turns as tail_bytes alone returns "
+            "them, and X-Log-Offset is greater than start."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
-        if "before" in attrs and "tail_bytes" not in attrs:
-            raise serializers.ValidationError("Use before together with tail_bytes.")
+        for field in ("before", "start"):
+            if field in attrs and "tail_bytes" not in attrs:
+                raise serializers.ValidationError(f"Use {field} together with tail_bytes.")
+        if "before" in attrs and "start" in attrs:
+            raise serializers.ValidationError("Use before or start, not both.")
         return attrs
 
 

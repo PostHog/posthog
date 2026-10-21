@@ -598,79 +598,82 @@ export interface HistoryPage {
     count: number
     preamble: number
     turnsBefore: number
+    /** False for a full log sent without paging headers: its entries carry no full-log index. */
+    indexed: boolean
 }
 
 /**
- * The loaded part of a run's resume-chain log. `entries` start at full-log index `offset`; `preamble` holds the
- * earlier frames that still set run state at that point (run start, session, usage, mode, open permissions).
+ * Where the loaded log starts in the run's resume-chain log. `offset` is the full-log index of the first loaded entry
+ * after the preamble, and `turnsBefore` counts the user turns before it, so turns keep the numbers the full log gives
+ * them. The client log is always the preamble of `offset`, then every entry from `offset` on, then live entries.
  */
-export interface HistoryWindow {
+export interface HistoryCursor {
     runId: string
     offset: number
-    /** User turns that start before `offset`, so turns keep the numbers the full log gives them. */
     turnsBefore: number
-    preamble: Record<string, any>[]
-    entries: Record<string, any>[]
+}
+
+/** Stream backlog entries (`log-N` frames) by their full-log index. */
+const backlogIndexes = new WeakMap<StoredLogEntry, number>()
+
+/** Whether a stream backlog entry is already in the loaded log, or in an older page before it. */
+function isLoadedBacklog(entry: StoredLogEntry, loadedEnd: number | undefined): boolean {
+    const index = backlogIndexes.get(entry)
+    return index !== undefined && loadedEnd !== undefined && index < loadedEnd
+}
+
+/** Entries a page carried in its preamble: state from before the page, not entries at their own position. */
+const historyPreambles = new WeakSet<StoredLogEntry>()
+
+/**
+ * Put an older page in front of the log. The page's preamble replaces the preamble at the head of the log, so the log
+ * stays what a read from the page's cut returns. Nothing replays: the latest page already set the current state.
+ */
+function prependHistoryPage(log: RunLog, page: StoredLogEntry[]): RunLog {
+    return appendToRunLog(emptyRunLog(), [
+        ...page.map((entry): StoredEntry => ({ entry, source: 'replay' })),
+        ...log.entries.filter(({ entry }) => !historyPreambles.has(entry)),
+    ])
+}
+
+/** The context-block lines of the user messages in an older page, which the send paths dedupe against. */
+function historyContextLines(entries: StoredLogEntry[]): string[] {
+    return entries.flatMap(({ notification }) => {
+        if (notification.method === '_posthog/user_message') {
+            const content = notification.params?.content
+            if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
+                return []
+            }
+            return contextBlockLinesFromUserMessage(extractUserMessageText(content))
+        }
+        const update = notification.params?.update
+        if (
+            notification.method === 'session/update' &&
+            isSessionUpdateUserMessage(update) &&
+            update.sessionUpdate === 'user_message' &&
+            !isHiddenUserContent(update.content)
+        ) {
+            return contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
+        }
+        return []
+    })
 }
 
 /**
- * Fold a fresh read of the latest turns into the loaded window. Older pages the reader already loaded stay, so a
- * recovery read never drops history from above the reader.
+ * `preamble` counts the leading entries that came in a page's preamble. `sourceRunId` names the run that owns the
+ * entries before the first run marker, for a read that continues a loaded log.
  */
-export function mergeHistoryWindow(
-    previous: HistoryWindow | undefined,
+function normalizeHistory(
+    entries: unknown[],
     runId: string,
-    page: HistoryPage
-): HistoryWindow {
-    const latest: HistoryWindow = {
-        runId,
-        offset: page.offset,
-        turnsBefore: page.turnsBefore,
-        preamble: page.entries.slice(0, page.preamble),
-        entries: page.entries.slice(page.preamble),
-    }
-    // A read that starts past the end of the loaded window leaves a gap nothing would fill, so it starts a
-    // new window and the older pages load again by paging.
-    const previousEnd = previous ? previous.offset + previous.entries.length : 0
-    if (!previous || previous.runId !== runId || previous.offset >= page.offset || previousEnd < page.offset) {
-        return latest
-    }
-    return {
-        runId,
-        offset: previous.offset,
-        turnsBefore: previous.turnsBefore,
-        preamble: previous.preamble,
-        entries: [...previous.entries.slice(0, page.offset - previous.offset), ...latest.entries],
-    }
-}
-
-/** Put an older page (the entries before `historyWindow.offset`) in front of the loaded window. */
-const backlogIndexes = new WeakMap<StoredLogEntry, number>()
-
-/** Whether a stream backlog entry (a `log-N` frame) lies before the loaded window. */
-function isBeforeHistoryWindow(entry: StoredLogEntry, historyWindow: HistoryWindow | undefined): boolean {
-    const index = backlogIndexes.get(entry)
-    return index !== undefined && historyWindow !== undefined && index < historyWindow.offset
-}
-
-export function prependHistoryPage(historyWindow: HistoryWindow, page: HistoryPage): HistoryWindow {
-    return {
-        runId: historyWindow.runId,
-        offset: page.offset,
-        turnsBefore: page.turnsBefore,
-        preamble: page.entries.slice(0, page.preamble),
-        entries: [
-            ...page.entries.slice(page.preamble, page.preamble + historyWindow.offset - page.offset),
-            ...historyWindow.entries,
-        ],
-    }
-}
-
-function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): StoredLogEntry[] {
+    resumed: boolean,
+    preamble = 0,
+    sourceRunId?: string
+): StoredLogEntry[] {
     // Match Desktop's run-marker scoping without changing the shared log payload or its deduplication keys.
     // A resume chain without a marker has unknown ownership; a single-run history belongs to its requested run.
-    let sourceRunId: string | undefined = resumed ? undefined : runId
-    return entries.flatMap((raw) => {
+    let source: string | undefined = sourceRunId ?? (resumed ? undefined : runId)
+    return entries.flatMap((raw, index) => {
         const entry = normalizeNotificationEntry(raw)
         if (!entry) {
             return []
@@ -683,9 +686,13 @@ function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): 
                   ? params?.runId
                   : undefined
         if (typeof marker === 'string') {
-            sourceRunId = marker
+            source = marker
         }
-        return [{ ...entry, source_run_id: sourceRunId }]
+        const normalized = { ...entry, source_run_id: source }
+        if (index < preamble) {
+            historyPreambles.add(normalized)
+        }
+        return [normalized]
     })
 }
 
@@ -2141,9 +2148,11 @@ export function foldLogFromCheckpoint(
         const { entry, source } = entries[index]
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
         const clientId = entry.notification.params?.clientId
+        // A saved message that replaces its streamed chunks keeps the first chunk's id, so its row keeps its key.
+        const eventKey = entry.first_event_id || entry.event_id
         entryKey =
-            typeof entry.event_id === 'string' && entry.event_id
-                ? entry.event_id
+            typeof eventKey === 'string' && eventKey
+                ? eventKey
                 : entry.notification.method === '_client/human_message' && typeof clientId === 'string'
                   ? `client-${clientId}`
                   : undefined
@@ -2561,271 +2570,314 @@ export interface runStreamLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface runStreamLogicActions {
-    markContextLinesSeen: (taskId: string, lines: string[]) => {
-        lines: string[];
-        taskId: string;
-    }; // attachedContextLogic
+    markContextLinesSeen: (
+        taskId: string,
+        lines: string[]
+    ) => {
+        lines: string[]
+        taskId: string
+    } // attachedContextLogic
     emitRunLifecycleEvent: (event: RunLifecycleEvent) => {
-        event: RunLifecycleEvent;
-    }; // toolStreamEventsLogic
+        event: RunLifecycleEvent
+    } // toolStreamEventsLogic
     emitToolEvent: (event: ToolStreamEvent) => {
-        event: ToolStreamEvent;
-    }; // toolStreamEventsLogic
+        event: ToolStreamEvent
+    } // toolStreamEventsLogic
     emitTurnCompleteEvent: (event: TurnCompleteEvent) => {
-        event: TurnCompleteEvent;
-    }; // toolStreamEventsLogic
+        event: TurnCompleteEvent
+    } // toolStreamEventsLogic
     appendEntries: (entries: StoredEntry[]) => {
-        entries: StoredEntry[];
-    };
+        entries: StoredEntry[]
+    }
     appendResumeBoundary: () => {
-        value: true;
-    };
-    attachOptimisticResume: (taskId: string, run: TaskRunDetailDTOApi) => {
-        run: TaskRunDetailDTOApi;
-        taskId: string;
-    };
-    autoApprovePermissionRequest: (record: PermissionRequestRecord, optionId: string) => {
-        optionId: string;
-        record: PermissionRequestRecord;
-    };
+        value: true
+    }
+    attachOptimisticResume: (
+        taskId: string,
+        run: TaskRunDetailDTOApi
+    ) => {
+        run: TaskRunDetailDTOApi
+        taskId: string
+    }
+    autoApprovePermissionRequest: (
+        record: PermissionRequestRecord,
+        optionId: string
+    ) => {
+        optionId: string
+        record: PermissionRequestRecord
+    }
     bootstrapLogReady: () => {
-        value: true;
-    };
+        value: true
+    }
     bootstrapReplayComplete: () => {
-        value: true;
-    };
+        value: true
+    }
     bootstrapRun: (payload: {
-        justCreatedRun?: boolean;
-        retainedMessage?: string;
-        runId: string;
-        taskId: string;
-        taskRuntime?: string | null;
-        traceId?: string;
+        justCreatedRun?: boolean
+        /** Read the latest turns first and load older turns in pages, for a thread that can show them. */
+        pagedHistory?: boolean
+        retainedMessage?: string
+        runId: string
+        taskId: string
+        taskRuntime?: string | null
+        traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined;
-        retainedMessage?: string | undefined;
-        runId: string;
-        taskId: string;
-        taskRuntime?: string | null | undefined;
-        traceId?: string | undefined;
-    };
+        justCreatedRun?: boolean | undefined
+        pagedHistory?: boolean | undefined
+        retainedMessage?: string | undefined
+        runId: string
+        taskId: string
+        taskRuntime?: string | null | undefined
+        traceId?: string | undefined
+    }
     cancelPermissionDelivery: () => {
-        value: true;
-    };
-    cancelRun: (run?: {
-        runId: string;
-        taskId: string;
-    }) => {
-        run: {
-            runId: string;
-            taskId: string;
-        } | undefined;
-    };
+        value: true
+    }
+    cancelRun: (run?: { runId: string; taskId: string }) => {
+        run:
+            | {
+                  runId: string
+                  taskId: string
+              }
+            | undefined
+    }
     clearPermissionRequest: () => {
-        value: true;
-    };
+        value: true
+    }
     closeSse: () => {
-        value: true;
-    };
-    deliverPermission: (record: PermissionRequestRecord, optionId: string, customInput?: string, answers?: Record<string, string>, automatic?: boolean) => {
-        answers: Record<string, string> | undefined;
-        automatic: boolean;
-        customInput: string | undefined;
-        optionId: string;
-        record: PermissionRequestRecord;
-    };
-    handleStreamError: (envelope: StreamErrorEnvelope) => StreamErrorEnvelope;
+        value: true
+    }
+    deliverPermission: (
+        record: PermissionRequestRecord,
+        optionId: string,
+        customInput?: string,
+        answers?: Record<string, string>,
+        automatic?: boolean
+    ) => {
+        answers: Record<string, string> | undefined
+        automatic: boolean
+        customInput: string | undefined
+        optionId: string
+        record: PermissionRequestRecord
+    }
+    handleStreamError: (envelope: StreamErrorEnvelope) => StreamErrorEnvelope
     handleTerminalStatus: (status: {
-        errorMessage?: string | null;
-        replayedFromHistory?: boolean;
-        status: RunStatus;
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
+        status: RunStatus
     }) => {
-        errorMessage?: string | null | undefined;
-        replayedFromHistory?: boolean | undefined;
-        status: RunStatus;
-    };
-    ingestAcpFrame: (entry: StoredLogEntry, source?: FrameSource) => {
-        entry: StoredLogEntry;
-        source: FrameSource;
-    };
-    ingestPermissionRequest: (record: PermissionRequestRecord, replayedFromHistory?: boolean) => {
-        record: PermissionRequestRecord;
-        replayedFromHistory: boolean;
-    };
+        errorMessage?: string | null | undefined
+        replayedFromHistory?: boolean | undefined
+        status: RunStatus
+    }
+    ingestAcpFrame: (
+        entry: StoredLogEntry,
+        source?: FrameSource
+    ) => {
+        entry: StoredLogEntry
+        source: FrameSource
+    }
+    ingestPermissionRequest: (
+        record: PermissionRequestRecord,
+        replayedFromHistory?: boolean
+    ) => {
+        record: PermissionRequestRecord
+        replayedFromHistory: boolean
+    }
     loadOlderHistory: () => {
-        value: true;
-    };
-    loadTurnSuggestionLedger: (taskId: string, attempt?: number) => {
-        attempt: number;
-        taskId: string;
-    };
+        value: true
+    }
+    loadTurnSuggestionLedger: (
+        taskId: string,
+        attempt?: number
+    ) => {
+        attempt: number
+        taskId: string
+    }
     markBootstrapResumeRun: (value: boolean) => {
-        value: boolean;
-    };
+        value: boolean
+    }
     markPermissionRequestResolved: (requestId: string) => {
-        requestId: string;
-    };
+        requestId: string
+    }
     markPermissionRequestSeen: (requestId: string) => {
-        requestId: string;
-    };
+        requestId: string
+    }
     markRunStarted: () => {
-        value: true;
-    };
+        value: true
+    }
     markTurnComplete: (isReplay?: boolean) => {
-        isReplay: boolean;
-    };
+        isReplay: boolean
+    }
     markTurnStarted: () => {
-        value: true;
-    };
+        value: true
+    }
     markTurnSuggestionAccepted: (turnIndex: number) => {
-        turnIndex: number;
-    };
+        turnIndex: number
+    }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
-        partial: Partial<RunArtifacts>;
-    };
-    openSseForRun: (payload: {
-        runId: string;
-        startLatest?: boolean;
-        taskId: string;
-        traceId?: string;
-    }) => {
-        runId: string;
-        startLatest?: boolean | undefined;
-        taskId: string;
-        traceId?: string | undefined;
-    };
+        partial: Partial<RunArtifacts>
+    }
+    openSseForRun: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
+        runId: string
+        startLatest?: boolean | undefined
+        taskId: string
+        traceId?: string | undefined
+    }
     permissionResponseFailed: (requestId: string) => {
-        requestId: string;
-    };
+        requestId: string
+    }
     permissionRunChanged: () => {
-        value: true;
-    };
+        value: true
+    }
     prepareResumeRun: () => {
-        value: true;
-    };
+        value: true
+    }
     pushConversationCleared: () => {
-        value: true;
-    };
-    pushErrorItem: (errorMessage: string, variant?: "crash" | "error") => {
-        errorMessage: string;
-        variant: "crash" | "error";
-    };
-    pushHumanMessage: (content: string, stagedAttachments?: StagedAttachment[]) => {
-        content: string;
-        stagedAttachments: StagedAttachment[] | undefined;
-    };
-    recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => {
-        outcome: string;
-        turnIndex: number;
-    };
-    recoveryProgress: (phase: RecoveryPhase, attempt: number, maxAttempts: number) => {
-        attempt: number;
-        maxAttempts: number;
-        phase: RecoveryPhase;
-    };
+        value: true
+    }
+    pushErrorItem: (
+        errorMessage: string,
+        variant?: 'crash' | 'error'
+    ) => {
+        errorMessage: string
+        variant: 'crash' | 'error'
+    }
+    pushHumanMessage: (
+        content: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
+        content: string
+        stagedAttachments: StagedAttachment[] | undefined
+    }
+    recordTurnSuggestionOutcome: (
+        turnIndex: number,
+        outcome: string
+    ) => {
+        outcome: string
+        turnIndex: number
+    }
+    recoveryProgress: (
+        phase: RecoveryPhase,
+        attempt: number,
+        maxAttempts: number
+    ) => {
+        attempt: number
+        maxAttempts: number
+        phase: RecoveryPhase
+    }
     recoveryRunChanged: () => {
-        value: true;
-    };
+        value: true
+    }
     replaceLog: (log: RunLog) => {
-        log: RunLog;
-    };
+        log: RunLog
+    }
     reset: () => {
-        value: true;
-    };
+        value: true
+    }
     resetRecoveryBudget: () => {
-        value: true;
-    };
+        value: true
+    }
     respondToPermission: (payload: {
-        answers?: Record<string, string>;
-        customInput?: string;
-        optionId: string;
-        requestId: string;
+        answers?: Record<string, string>
+        customInput?: string
+        optionId: string
+        requestId: string
     }) => {
-        answers?: Record<string, string> | undefined;
-        customInput?: string | undefined;
-        optionId: string;
-        requestId: string;
-    };
+        answers?: Record<string, string> | undefined
+        customInput?: string | undefined
+        optionId: string
+        requestId: string
+    }
     retryConnection: () => {
-        value: true;
-    };
+        value: true
+    }
     rollbackOptimisticResume: () => {
-        value: true;
-    };
-    routePermissionRequest: (record: PermissionRequestRecord, replayedFromHistory?: boolean) => {
-        record: PermissionRequestRecord;
-        replayedFromHistory: boolean;
-    };
+        value: true
+    }
+    routePermissionRequest: (
+        record: PermissionRequestRecord,
+        replayedFromHistory?: boolean
+    ) => {
+        record: PermissionRequestRecord
+        replayedFromHistory: boolean
+    }
     setAvailableCommands: (commands: AgentCommand[]) => {
-        commands: AgentCommand[];
-    };
+        commands: AgentCommand[]
+    }
     setContextUsage: (usage: ContextUsage) => {
-        usage: ContextUsage;
-    };
+        usage: ContextUsage
+    }
     setConversationClearSupported: (supported: boolean) => {
-        supported: boolean;
-    };
+        supported: boolean
+    }
     setCurrentMode: (mode: string) => {
-        mode: string;
-    };
+        mode: string
+    }
     setCurrentProgress: (progress: string | null) => {
-        progress: string | null;
-    };
+        progress: string | null
+    }
     setCurrentStage: (stage: string | null) => {
-        stage: string | null;
-    };
+        stage: string | null
+    }
     setHistoryComplete: (complete: boolean) => {
-        complete: boolean;
-    };
+        complete: boolean
+    }
     setHistoryTurnBase: (base: number) => {
-        base: number;
-    };
+        base: number
+    }
     setOlderHistoryState: (state: OlderHistoryState) => {
-        state: OlderHistoryState;
-    };
+        state: OlderHistoryState
+    }
     setPendingRunMessage: (message: PendingRunMessage | null) => {
-        message: PendingRunMessage | null;
-    };
+        message: PendingRunMessage | null
+    }
     setRunOpening: (opening: boolean) => {
-        opening: boolean;
-    };
+        opening: boolean
+    }
     setSdkSession: (session: SdkSession) => {
-        session: SdkSession;
-    };
+        session: SdkSession
+    }
     setStreamHasEnded: (ended: boolean) => {
-        ended: boolean;
-    };
+        ended: boolean
+    }
     setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => {
-        ledger: TurnSuggestionLedger;
-    };
+        ledger: TurnSuggestionLedger
+    }
     sseConnecting: () => {
-        value: true;
-    };
+        value: true
+    }
     sseDropped: () => {
-        value: true;
-    };
+        value: true
+    }
     sseOpened: () => {
-        value: true;
-    };
+        value: true
+    }
     sseReconnecting: (attempt: number) => {
-        attempt: number;
-    };
-    startOptimisticResume: (message: string, stagedAttachments?: StagedAttachment[]) => {
-        message: string;
-        stagedAttachments: StagedAttachment[] | undefined;
-    };
-    startOptimisticRun: (message?: string, stagedAttachments?: StagedAttachment[]) => {
-        message: string | undefined;
-        stagedAttachments: StagedAttachment[] | undefined;
-    };
+        attempt: number
+    }
+    startOptimisticResume: (
+        message: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
+        message: string
+        stagedAttachments: StagedAttachment[] | undefined
+    }
+    startOptimisticRun: (
+        message?: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
+        message: string | undefined
+        stagedAttachments: StagedAttachment[] | undefined
+    }
     streamEnded: () => {
-        value: true;
-    };
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface runStreamLogicMeta {
-    key: string;
+    key: string
     __keaTypeGenInternalSelectorTypes: {
         respondingToPermission: (
             permissionResponseRequestIds: Set<string>,
@@ -2891,7 +2943,12 @@ export interface runStreamLogicMeta {
     }
 }
 
-export type runStreamLogicType = MakeLogicType<runStreamLogicValues, runStreamLogicActions, RunStreamLogicProps, runStreamLogicMeta>;
+export type runStreamLogicType = MakeLogicType<
+    runStreamLogicValues,
+    runStreamLogicActions,
+    RunStreamLogicProps,
+    runStreamLogicMeta
+>
 
 /**
  * Owns the SSE connection to the products/tasks stream endpoint (a `fetch` reader driven by
@@ -2964,6 +3021,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             traceId?: string
             retainedMessage?: string
             taskRuntime?: string | null
+            /** Read the latest turns first and load older turns in pages, for a thread that can show them. */
+            pagedHistory?: boolean
         }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /**
@@ -3154,6 +3213,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 setOlderHistoryState: (_, { state }) => state,
                 reset: () => 'none' as OlderHistoryState,
+            },
+        ],
+        pagedHistory: [
+            false,
+            {
+                bootstrapRun: (state, { pagedHistory }) => pagedHistory ?? state,
+                reset: () => false,
             },
         ],
         streamHasEnded: [
@@ -3994,16 +4060,30 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.recoveryStartedAt = undefined
             }
         }
-        const readLatestHistory = (session: RunStreamRecovery, signal: AbortSignal): Promise<HistoryPage> =>
+        /** The latest turns of a paged log, or every entry from `start` on; the full log when the log is not paged. */
+        const readHistory = (session: RunStreamRecovery, signal: AbortSignal, start?: number): Promise<HistoryPage> =>
             api.tasks.runs.getLogPage(session.taskId, session.runId, {
                 signal,
                 projectId: session.projectId,
-                tailBytes: HISTORY_TAIL_BYTES,
+                ...(values.pagedHistory ? { tailBytes: HISTORY_TAIL_BYTES, start } : {}),
             })
+        const stopHistoryPaging = (): void => {
+            cache.disposables.dispose('older-history-request')
+            cache.disposables.dispose('older-history-retry')
+            cache.disposables.dispose('older-history-preload')
+            cache.olderHistoryRequest = undefined
+            cache.olderHistoryFailures = 0
+        }
+        const setHistoryCursor = (cursor: HistoryCursor | undefined): void => {
+            stopHistoryPaging()
+            cache.historyCursor = cursor
+            actions.setHistoryTurnBase(cursor?.turnsBefore ?? 0)
+            actions.setOlderHistoryState(cursor && cursor.offset > 0 ? 'idle' : 'none')
+        }
         const startHistoryPrefetch = (session: RunStreamRecovery): void => {
             dropHistoryPrefetch()
             const controller = new AbortController()
-            const entries = readLatestHistory(session, controller.signal)
+            const entries = readHistory(session, controller.signal)
             entries.catch(() => {})
             cache.disposables.add(() => () => controller.abort(), 'history-prefetch', { pauseOnPageHidden: false })
             cache.historyPrefetch = {
@@ -4064,11 +4144,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (replayContextUsage) {
                     actions.setContextUsage(replayContextUsage)
                 }
-                const replayMode = cache.replayMode as string | undefined
-                cache.replayMode = undefined
-                if (replayMode !== undefined && replayMode !== values.currentMode) {
-                    actions.setCurrentMode(replayMode)
-                }
             }
         }
         const rememberLegacyBacklog = (session: RunStreamRecovery, entries: unknown[], offset: number): void => {
@@ -4086,7 +4161,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (session.phase !== 'finalization') {
                 session.phase = 'history'
             }
-            let prefetched = takeHistoryPrefetch(session)
+            // A log this run already loaded needs only the entries after it, so the pages above the reader stay.
+            const cursor = cache.historyCursor as HistoryCursor | undefined
+            const loadedEnd =
+                values.pagedHistory && cursor?.runId === session.runId
+                    ? (cache.historyEnd as number | undefined)
+                    : undefined
+            let prefetched = loadedEnd === undefined ? takeHistoryPrefetch(session) : undefined
+            if (loadedEnd !== undefined) {
+                dropHistoryPrefetch()
+            }
             const page = await readWithRetry(session, () =>
                 session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
                     const pending = prefetched
@@ -4097,22 +4181,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         })
                         return pending
                     }
-                    return readLatestHistory(session, signal)
+                    return readHistory(session, signal, loadedEnd)
                 })
             )
             session.check()
+            const continues = loadedEnd !== undefined && page.indexed && page.offset === loadedEnd
             rememberLegacyBacklog(session, page.entries.slice(page.preamble), page.offset)
-            const historyWindow = mergeHistoryWindow(
-                cache.historyWindow as HistoryWindow | undefined,
+            if (page.indexed) {
+                // A stream backlog replays the run log from its start; the read already holds everything before its end.
+                session.buffer = session.buffer.filter((entry) => !isLoadedBacklog(entry, page.count))
+            }
+            const kept = continues ? values.log.entries.filter(({ source }) => source === 'replay') : []
+            const history = normalizeHistory(
+                page.entries,
                 session.runId,
-                page
+                values.isBootstrapResumeRun,
+                page.preamble,
+                kept[kept.length - 1]?.entry.source_run_id
             )
-            cache.historyWindow = historyWindow
-            actions.setHistoryTurnBase(historyWindow.turnsBefore)
-            // A stream backlog replays the run log from its start; entries before the window arrive by paging.
-            session.buffer = session.buffer.filter((entry) => !isBeforeHistoryWindow(entry, historyWindow))
-            const entries = [...historyWindow.preamble, ...historyWindow.entries]
-            const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
             const echo = cache.retainedMessage
                 ? values.log.entries.findLast(
                       ({ entry }) =>
@@ -4126,8 +4212,22 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     (entry) =>
                         entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
                 )
-            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
-            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
+            // A paged log keeps its saved entries apart: only live and client entries meet the new read.
+            const tail = values.pagedHistory
+                ? values.log.entries.filter(({ source }) => source !== 'replay')
+                : values.log.entries
+            const retained = echoPersisted ? tail.filter((stored) => stored !== echo) : tail
+            const reconciled = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
+            const log = continues ? appendToRunLog(emptyRunLog(), [...kept, ...reconciled.entries]) : reconciled
+            if (values.pagedHistory && page.indexed) {
+                cache.historyEnd = page.count
+                if (!continues) {
+                    setHistoryCursor({ runId: session.runId, offset: page.offset, turnsBefore: page.turnsBefore })
+                }
+            } else {
+                cache.historyEnd = undefined
+                setHistoryCursor(undefined)
+            }
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             replayRunLog(
@@ -4140,6 +4240,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             )
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
+                ...kept.map(({ entry }) => entry),
                 ...history,
                 ...retained.map(({ entry }) => entry),
                 ...session.buffer,
@@ -4178,9 +4279,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     task_id: session.taskId,
                     run_id: session.runId,
                     run_status: values.currentRunStatus,
-                    entry_count: page.count || entries.length,
-                    loaded_entry_count: historyWindow.entries.length,
-                    partial: historyWindow.offset > 0,
+                    entry_count: page.count || history.length,
+                    loaded_entry_count: page.entries.length - page.preamble,
+                    partial: page.indexed && page.offset > 0,
                     duration_ms: Math.round(performance.now() - cache.bootstrapStartedAt),
                     execution_type: 'sandbox',
                 })
@@ -4189,10 +4290,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (session.phase !== 'finalization') {
                 recordRecovery(session)
             }
-            actions.setOlderHistoryState(historyWindow.offset > 0 ? 'idle' : 'none')
-            if (historyWindow.offset > 0) {
+            const loaded = cache.historyCursor as HistoryCursor | undefined
+            if (!continues && loaded && loaded.offset > 0) {
                 cache.disposables.add(() => {
-                    const timer = setTimeout(() => actions.loadOlderHistory(), OLDER_HISTORY_PRELOAD_DELAY_MS)
+                    const timer = setTimeout(() => {
+                        // Fired once: a tab that hides and shows again must not load another page on its own.
+                        cache.disposables.dispose('older-history-preload')
+                        actions.loadOlderHistory()
+                    }, OLDER_HISTORY_PRELOAD_DELAY_MS)
                     return () => clearTimeout(timer)
                 }, 'older-history-preload')
             }
@@ -4239,15 +4344,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return
             }
             actions.setContextUsage(fold(values.contextUsage))
-        }
-        // A replay lands the mode once at its end, and only when it changed: every mode action clears an unsent
-        // composer selection, and an older page replays modes the run already left behind.
-        const foldCurrentMode = (mode: string): void => {
-            if (cache.coalesceReplay) {
-                cache.replayMode = mode
-                return
-            }
-            actions.setCurrentMode(mode)
         }
         const ingestFrame = (entry: StoredLogEntry, source: FrameSource): void => {
             const notification = entry?.notification
@@ -4453,7 +4549,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (method === 'session/new') {
                 const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
                 if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
-                    foldCurrentMode(meta.permissionMode)
+                    actions.setCurrentMode(meta.permissionMode)
                 }
                 return
             }
@@ -4504,7 +4600,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.markTurnStarted()
             }
             if (update.sessionUpdate === 'current_mode_update') {
-                foldCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
                 return
             }
             if (update.sessionUpdate === 'tool_call') {
@@ -4800,17 +4896,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         if (Number.isSafeInteger(backlogIndex)) {
                             backlogIndexes.set(entry, backlogIndex)
                         }
-                        if (isBeforeHistoryWindow(entry, cache.historyWindow as HistoryWindow | undefined)) {
-                            return
-                        }
+                        // An entry the loaded log already holds is not ingested, but it still moves the resume cursor below.
+                        const fresh = !isLoadedBacklog(entry, cache.historyEnd as number | undefined)
                         const savedBacklog = !entry.event_id && id ? session.legacyBacklog.get(id) : undefined
                         const matchesSavedBacklog =
                             savedBacklog &&
                             savedBacklog.timestamp === entry.timestamp &&
                             JSON.stringify(savedBacklog.notification) === JSON.stringify(entry.notification)
-                        if (session.buffering) {
+                        if (fresh && session.buffering) {
                             session.buffer.push(entry)
-                        } else if (!matchesSavedBacklog && !(cache.eventCoverage as RunEventCoverage).covers(entry)) {
+                        } else if (
+                            fresh &&
+                            !session.buffering &&
+                            !matchesSavedBacklog &&
+                            !(cache.eventCoverage as RunEventCoverage).covers(entry)
+                        ) {
                             ;(cache.eventCoverage as RunEventCoverage).add(entry)
                             if (entry.first_event_id) {
                                 const log = mergeCoalescedRunLog(values.log, entry)
@@ -5352,8 +5452,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.disposables.dispose('event-source')
             },
             reset: () => {
-                cache.historyWindow = undefined
-                cache.olderHistoryFailures = 0
+                stopHistoryPaging()
+                cache.historyCursor = undefined
+                cache.historyEnd = undefined
                 if (!props.replayOnly) {
                     liveRunStreams().delete(props.streamKey)
                 }
@@ -5437,6 +5538,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 cache.optimisticResume = undefined
+                const cursor = cache.historyCursor as HistoryCursor | undefined
+                if (cursor) {
+                    // The successor's chain holds this run's chain at the same indexes, so the loaded log stays valid.
+                    cache.historyCursor = { ...cursor, runId: run.id }
+                }
                 actions.closeSse()
                 actions.prepareResumeRun()
                 actions.permissionRunChanged()
@@ -5508,59 +5614,111 @@ export const runStreamLogic = kea<runStreamLogicType>([
             },
             ingestAcpFrame: ({ entry, source }) => ingestFrame(entry, source),
             loadOlderHistory: async () => {
-                const session = sessionNow()
-                const historyWindow = cache.historyWindow as HistoryWindow | undefined
-                if (!session || !historyWindow || historyWindow.offset === 0 || values.olderHistoryState !== 'idle') {
+                const cursor = cache.historyCursor as HistoryCursor | undefined
+                const projectId = values.currentProjectId
+                const taskId = values.bootstrappedTaskId
+                if (
+                    !cursor ||
+                    cursor.offset === 0 ||
+                    values.olderHistoryState !== 'idle' ||
+                    projectId === null ||
+                    !taskId
+                ) {
                     return
                 }
+                cache.disposables.dispose('older-history-preload')
                 actions.setOlderHistoryState('loading')
+                // Paging owns its request, so a stream that reconnects, fails or moves to a successor run leaves it
+                // running. A new cursor, a reset or an unmount cancels it.
+                const request = {}
+                cache.olderHistoryRequest = request
+                const controller = new AbortController()
+                cache.disposables.add(
+                    () => {
+                        const timer = setTimeout(() => controller.abort(), STREAM_HISTORY_TIMEOUT_MS)
+                        return () => {
+                            clearTimeout(timer)
+                            controller.abort()
+                        }
+                    },
+                    'older-history-request',
+                    { pauseOnPageHidden: false }
+                )
+                const startedAt = performance.now()
+                const owned = (): HistoryCursor | undefined => {
+                    const current = cache.historyCursor as HistoryCursor | undefined
+                    return !cache.disposables.isDisposed &&
+                        cache.olderHistoryRequest === request &&
+                        current?.offset === cursor.offset
+                        ? current
+                        : undefined
+                }
+                const capture = (outcome: 'loaded' | 'failed', fields: Record<string, unknown>): void => {
+                    posthog.capture('sandbox_run_older_history_loaded', {
+                        conversation_id: props.conversationId,
+                        task_id: taskId,
+                        run_id: cursor.runId,
+                        outcome,
+                        duration_ms: Math.round(performance.now() - startedAt),
+                        execution_type: 'sandbox',
+                        ...fields,
+                    })
+                }
                 try {
-                    const page = await session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) =>
-                        // The window's own run: a successor attached without a history read shares its chain prefix.
-                        api.tasks.runs.getLogPage(session.taskId, historyWindow.runId, {
-                            signal,
-                            projectId: session.projectId,
-                            tailBytes: HISTORY_PAGE_BYTES,
-                            before: historyWindow.offset,
-                        })
-                    )
-                    if (sessionNow() !== session || cache.historyWindow !== historyWindow) {
+                    const page = await api.tasks.runs.getLogPage(taskId, cursor.runId, {
+                        signal: controller.signal,
+                        projectId,
+                        tailBytes: HISTORY_PAGE_BYTES,
+                        before: cursor.offset,
+                    })
+                    const current = owned()
+                    if (!current) {
                         return
                     }
-                    rememberLegacyBacklog(session, page.entries.slice(page.preamble), page.offset)
-                    const next = prependHistoryPage(historyWindow, page)
-                    cache.historyWindow = next
-                    const history = normalizeHistory(
-                        [...next.preamble, ...next.entries],
-                        next.runId,
-                        values.isBootstrapResumeRun
+                    cache.olderHistoryRequest = undefined
+                    cache.disposables.dispose('older-history-request')
+                    if (!page.indexed || page.offset >= cursor.offset) {
+                        actions.setOlderHistoryState('none')
+                        return
+                    }
+                    const entries = normalizeHistory(
+                        page.entries.slice(0, page.preamble + cursor.offset - page.offset),
+                        current.runId,
+                        values.isBootstrapResumeRun,
+                        page.preamble
                     )
-                    // Live and client entries were already reconciled against the latest turns; matching them
-                    // against older history by text would drop a pending send that repeats an earlier message.
-                    const retained = values.log.entries.filter(({ source }) => source !== 'replay')
-                    const log = appendToRunLog(reconcileRunLog(history, [], []), retained)
-                    replayRunLog(log, session.runId, () => false)
-                    actions.replaceLog(log)
-                    actions.setHistoryTurnBase(next.turnsBefore)
-                    cache.eventCoverage = new RunEventCoverage([...history, ...retained.map(({ entry }) => entry)])
+                    const lines = historyContextLines(entries)
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(taskId, lines)
+                    }
+                    cache.historyCursor = { ...current, offset: page.offset, turnsBefore: page.turnsBefore }
                     cache.olderHistoryFailures = 0
-                    actions.setOlderHistoryState(next.offset > 0 ? 'idle' : 'none')
+                    actions.replaceLog(prependHistoryPage(values.log, entries))
+                    actions.setHistoryTurnBase(page.turnsBefore)
+                    actions.setOlderHistoryState(page.offset > 0 ? 'idle' : 'none')
+                    capture('loaded', { entry_count: entries.length - page.preamble, remaining: page.offset > 0 })
                 } catch (error) {
-                    if (sessionNow() !== session || cache.historyWindow !== historyWindow) {
+                    if (!owned()) {
                         return
                     }
-                    // Every failure waits before the state rearms, so a short thread's automatic load cannot
-                    // loop; a refused or missing log never loads, so it stops at once.
+                    cache.olderHistoryRequest = undefined
+                    cache.disposables.dispose('older-history-request')
                     const failures = ((cache.olderHistoryFailures as number | undefined) ?? 0) + 1
                     cache.olderHistoryFailures = failures
                     const status = (error as { status?: number } | null)?.status
+                    capture('failed', { http_status: status, failures })
+                    // A refused or missing log never loads, so it stops at once.
                     if (status === 403 || status === 404 || failures >= OLDER_HISTORY_MAX_FAILURES) {
                         actions.setOlderHistoryState('none')
                         return
                     }
+                    // Every failure waits before the state rearms, so a short thread's automatic load cannot loop.
                     cache.disposables.add(() => {
                         const timer = setTimeout(
-                            () => actions.setOlderHistoryState('idle'),
+                            () => {
+                                cache.disposables.dispose('older-history-retry')
+                                actions.setOlderHistoryState('idle')
+                            },
                             OLDER_HISTORY_RETRY_DELAY_MS * 2 ** (failures - 1)
                         )
                         return () => clearTimeout(timer)

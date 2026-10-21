@@ -243,7 +243,7 @@ TURN_COMPLETE_METHOD = "_posthog/turn_complete"
 RESUME_CONTEXT_PREFIX = "You are resuming a previous conversation."
 
 
-def _human_text(method: str | None, params: dict[str, Any]) -> tuple[str, bool] | None:
+def human_text(method: str | None, params: dict[str, Any]) -> tuple[str, bool] | None:
     """The user's text in a ``_posthog/user_message`` frame, paired with ``True``, or in a
     ``session/update`` user message, paired with ``False``. ``None`` for any other frame.
 
@@ -265,6 +265,32 @@ def _human_text(method: str | None, params: dict[str, Any]) -> tuple[str, bool] 
     return strip_context_blocks(text if isinstance(text, str) else ""), False
 
 
+def is_turn_text(text: str) -> bool:
+    """Whether a human text can open a turn. An empty text and the resume prompt never render."""
+    return bool(text) and not text.startswith(RESUME_CONTEXT_PREFIX)
+
+
+class HumanTurnCounter:
+    """Decides which human texts open a turn, the way the thread folds them.
+
+    A ``_posthog/user_message`` opens a turn and leaves a credit for its text. A later ``session/update`` user
+    message with the same text spends the credit and opens nothing, so a turn persisted in both wire forms
+    counts once.
+    """
+
+    def __init__(self) -> None:
+        self._credits: Counter[str] = Counter()
+
+    def opens_turn(self, text: str, is_user_message: bool) -> bool:
+        if is_user_message:
+            self._credits[text] += 1
+            return True
+        if self._credits[text] > 0:
+            self._credits[text] -= 1
+            return False
+        return True
+
+
 def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     """Fold stream entries into the transcript of the turn after the last user message.
 
@@ -273,7 +299,7 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     counts once.
     """
     human_messages: list[str] = []
-    remembered_texts: Counter[str] = Counter()
+    turns = HumanTurnCounter()
     earlier_turns: list[EarlierTurn] = []
     # Assistant text by message id, in arrival order. Chunks append; a closing `agent_message`
     # carries the whole text and replaces them, matching how the thread fold finalizes a bubble.
@@ -316,17 +342,11 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
         assistant_messages[key] = assistant_messages.get(key, "") + text
 
     for method, params in _notifications(entries):
-        human = _human_text(method, params)
+        human = human_text(method, params)
         if human is not None:
             text, is_user_message = human
-            if not text or text.startswith(RESUME_CONTEXT_PREFIX):
-                continue
-            if is_user_message:
-                remembered_texts[text] += 1
-            elif remembered_texts[text] > 0:
-                remembered_texts[text] -= 1
-                continue
-            start_turn(text)
+            if is_turn_text(text) and turns.opens_turn(text, is_user_message):
+                start_turn(text)
             continue
         if method == TURN_COMPLETE_METHOD:
             latest_turn_complete = bool(human_messages)

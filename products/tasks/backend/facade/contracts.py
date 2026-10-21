@@ -755,7 +755,8 @@ class TaskRunLogSliceDTO:
 
     ``content`` is JSONL. ``offset`` is the index in the full log of the first entry after the
     ``preamble`` entries, ``count`` is the number of entries in the full log, and ``turns_before`` is the
-    number of user turns that start before ``offset``.
+    number of user turns that start before ``offset``. ``sliced`` is false when the run's log cannot be read
+    in parts, so ``content`` is the full log and the other fields carry no index.
     """
 
     content: str
@@ -763,6 +764,7 @@ class TaskRunLogSliceDTO:
     count: int
     preamble: int = 0
     turns_before: int = 0
+    sliced: bool = True
 
 
 @dataclass(frozen=True)

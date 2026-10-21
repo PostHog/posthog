@@ -1,9 +1,13 @@
 import json
-from collections.abc import Callable, Sequence
+import hashlib
+from collections.abc import Callable, Iterator, Sequence
 
 from posthog.dataclasses import frozen
 
+from products.posthog_ai.backend.turn_suggestions.transcript import HumanTurnCounter, human_text, is_turn_text
+
 TAIL_TURN_SLACK_FACTOR = 4
+START_READ_MAX_BYTES = 8 * 1024 * 1024
 
 STATE_METHODS = frozenset({"_posthog/run_started", "_posthog/sdk_session", "session/new"})
 STATE_SESSION_UPDATES = frozenset({"current_mode_update", "available_commands_update"})
@@ -12,7 +16,10 @@ USAGE_SESSION_UPDATE = "usage_update"
 PERMISSION_REQUEST = "_posthog/permission_request"
 PERMISSION_RESOLVED = "_posthog/permission_resolved"
 TURN_COMPLETE = "_posthog/turn_complete"
+USER_MESSAGE_METHOD = "_posthog/user_message"
+PROMPT_METHOD = "session/prompt"
 USER_SESSION_UPDATES = frozenset({"user_message_chunk", "user_message"})
+TOOL_SESSION_UPDATES = frozenset({"tool_call", "tool_call_update"})
 STATE_MARKERS = (
     *STATE_METHODS,
     *STATE_SESSION_UPDATES,
@@ -34,13 +41,24 @@ class LogSlice:
 
 
 @frozen
+class HumanEntry:
+    """A human message in a log part as the turn rule reads it: its index in the part, a digest of its text, and
+    whether it is the ``_posthog/user_message`` form."""
+
+    index: int
+    text_key: str
+    user_message: bool
+
+
+@frozen
 class LogPartSummary:
-    """What one log part contributes to a preamble, so a slice never reads a part that lies before it.
+    """What one log part contributes to a slice, so a slice never reads a part that lies before it.
 
     ``state`` maps each state key to the last entry in the part that set it, as its index in the part and its
     line; ``requests`` holds the part's permission requests the same way, with their ids; ``resolved`` holds
     the request ids the part resolves. ``last_turn_complete`` is the index of its last turn completion, which
-    closes every request before it, and ``user_turns`` counts the user turns that start in it.
+    closes every request before it. ``human`` lists the human messages that the turn rule reads, and ``size``
+    is the byte size of the part's entries.
     """
 
     count: int
@@ -48,19 +66,24 @@ class LogPartSummary:
     requests: list[tuple[int, str, str]]
     resolved: frozenset[str]
     last_turn_complete: int | None = None
-    user_turns: int = 0
+    human: tuple[HumanEntry, ...] = ()
+    size: int = 0
 
 
 @frozen
 class LogPart:
-    """One storage object of a resume-chain log: its entries, and a summary that may come from a cache."""
+    """One storage object of a resume-chain log: its summary, and its entries, which load on first use."""
 
+    summary: LogPartSummary
     entries: Callable[[], list[str]]
-    summary: Callable[[], LogPartSummary]
 
 
 def log_entries(content: str) -> list[str]:
     return [line for line in content.split("\n") if line.strip().startswith("{")]
+
+
+def log_part(entries: list[str]) -> LogPart:
+    return LogPart(summary=summarize_log_part(entries), entries=lambda: entries)
 
 
 def _entry(line: str) -> dict:
@@ -76,6 +99,11 @@ def _notification(line: str) -> dict:
     return notification if isinstance(notification, dict) else {}
 
 
+def _method(notification: dict) -> str | None:
+    method = notification.get("method")
+    return method if isinstance(method, str) else None
+
+
 def _session_update(notification: dict) -> dict:
     params = notification.get("params")
     update = params.get("update") if isinstance(params, dict) else None
@@ -87,34 +115,48 @@ def _session_update_type(notification: dict) -> str | None:
     return session_update if isinstance(session_update, str) else None
 
 
-def _is_user_message(line: str) -> bool:
-    """A user turn in any log format the chat reads: the ACP chunk or whole-message update, the PostHog
-    notification, or a legacy Pi event."""
+def _is_user_entry(line: str) -> bool:
+    """Any entry of a user message, in either wire form, including a hidden prompt and an attached file."""
     if "user_message" not in line:
         return False
-    entry = _entry(line)
-    event = entry.get("event")
-    if entry.get("type") == "pi_event" and isinstance(event, dict):
-        return event.get("type") == "user_message"
-    notification = entry.get("notification")
-    if not isinstance(notification, dict):
-        return False
-    if notification.get("method") == "_posthog/user_message":
-        return True
-    return notification.get("method") == "session/update" and _session_update_type(notification) in USER_SESSION_UPDATES
-
-
-def _is_tool_call_start(line: str) -> bool:
-    """A top-level tool call. A subagent's nested call renders under its parent card, so a slice that
-    started at one would show nothing until the parent loads."""
-    if '"tool_call"' not in line:
-        return False
     notification = _notification(line)
-    if notification.get("method") != "session/update" or _session_update_type(notification) != "tool_call":
-        return False
-    meta = _session_update(notification).get("_meta")
+    method = _method(notification)
+    if method == USER_MESSAGE_METHOD:
+        return True
+    return method == "session/update" and _session_update_type(notification) in USER_SESSION_UPDATES
+
+
+def _is_prompt(line: str) -> bool:
+    return PROMPT_METHOD in line and _method(_notification(line)) == PROMPT_METHOD
+
+
+def _human_entry(index: int, line: str) -> HumanEntry | None:
+    if "user_message" not in line:
+        return None
+    notification = _notification(line)
+    params = notification.get("params")
+    human = human_text(_method(notification), params if isinstance(params, dict) else {})
+    if human is None or not is_turn_text(human[0]):
+        return None
+    return HumanEntry(index=index, text_key=hashlib.sha256(human[0].encode()).hexdigest(), user_message=human[1])
+
+
+def _tool_frame(line: str) -> tuple[str, str, str | None] | None:
+    """The kind, the tool call id, and the parent tool call id of a tool call frame."""
+    if '"tool_call' not in line:
+        return None
+    notification = _notification(line)
+    if _method(notification) != "session/update":
+        return None
+    update = _session_update(notification)
+    kind = update.get("sessionUpdate")
+    call_id = update.get("toolCallId")
+    if kind not in TOOL_SESSION_UPDATES or not isinstance(call_id, str) or not call_id:
+        return None
+    meta = update.get("_meta")
     claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
-    return not (isinstance(claude_code, dict) and claude_code.get("parentToolCallId"))
+    parent = claude_code.get("parentToolCallId") if isinstance(claude_code, dict) else None
+    return str(kind), call_id, parent if isinstance(parent, str) and parent else None
 
 
 def _request_id(notification: dict) -> str | None:
@@ -125,7 +167,7 @@ def _request_id(notification: dict) -> str | None:
 
 def _state_keys(notification: dict) -> list[str]:
     """The state keys an entry sets. Usage folds field by field, so each usage field is its own key."""
-    method = notification.get("method")
+    method = _method(notification)
     if method in STATE_METHODS:
         return [str(method)]
     if method == USAGE_METHOD:
@@ -144,14 +186,14 @@ def summarize_log_part(entries: Sequence[str]) -> LogPartSummary:
     requests: list[tuple[int, str, str]] = []
     resolved: set[str] = set()
     last_turn_complete: int | None = None
-    user_turns = 0
+    human: list[HumanEntry] = []
     for index, line in enumerate(entries):
         if not any(marker in line for marker in STATE_MARKERS):
             continue
-        if _is_user_message(line) and (index == 0 or not _is_user_message(entries[index - 1])):
-            user_turns += 1
+        if (human_entry := _human_entry(index, line)) is not None:
+            human.append(human_entry)
         notification = _notification(line)
-        method = notification.get("method")
+        method = _method(notification)
         if method == PERMISSION_REQUEST and (request_id := _request_id(notification)) is not None:
             requests.append((index, request_id, line))
         elif method == PERMISSION_RESOLVED and (request_id := _request_id(notification)) is not None:
@@ -166,122 +208,208 @@ def summarize_log_part(entries: Sequence[str]) -> LogPartSummary:
         requests=requests,
         resolved=frozenset(resolved),
         last_turn_complete=last_turn_complete,
-        user_turns=user_turns,
+        human=tuple(human),
+        size=sum(len(line) + 1 for line in entries),
     )
 
 
-def slice_log_parts_tail(parts: Sequence[LogPart], tail_bytes: int, before: int | None = None) -> LogSlice:
-    """The latest entries of a multi-part JSONL log, cut where a user turn starts.
+class _Chain:
+    """The parts of a resume-chain log, read by full-log index. A part's entries load only when a read needs them."""
 
-    The slice is the shortest suffix that starts at a user turn and holds at least ``tail_bytes``. A turn
-    that alone grows past ``TAIL_TURN_SLACK_FACTOR`` times the budget is cut before one of its tool calls
-    instead, so one long turn cannot bring back the full download. ``before`` ends the window at that
-    entry index, so a client can page back through older turns. ``offset`` is the index of the first
-    returned entry in the full log, the same index that ``log-N`` stream cursors use. The slice starts with
-    ``preamble`` entries from before the cut that still set run state there. Only the parts that overlap
-    the window are read; the parts before it contribute through their summaries.
-    """
-    summaries = [part.summary() for part in parts]
-    starts: list[int] = []
-    total = 0
-    for summary in summaries:
-        starts.append(total)
-        total += summary.count
-    end = total if before is None else min(max(before, 0), total)
-    cap = tail_bytes * TAIL_TURN_SLACK_FACTOR
-    loaded: dict[int, list[str]] = {}
-    size = 0
-    tool_cut: int | None = None
-    cut = 0
-    for part_index in range(len(parts) - 1, -1, -1):
-        start = starts[part_index]
-        if start >= end:
-            continue
-        entries = loaded[part_index] = parts[part_index].entries()
-        found = False
-        for local in range(min(len(entries), end - start) - 1, -1, -1):
-            line = entries[local]
-            size += len(line) + 1
-            if size < tail_bytes:
-                continue
-            if _is_user_message(line) and (local == 0 or not _is_user_message(entries[local - 1])):
-                cut, found = start + local, True
-                break
-            if tool_cut is None and _is_tool_call_start(line):
-                tool_cut = start + local
-            if size > cap and tool_cut is not None:
-                cut, found = tool_cut, True
-                break
-        if found:
-            break
-
-    window: list[str] = []
-    for part_index in sorted(loaded):
-        start = starts[part_index]
-        window += loaded[part_index][max(cut - start, 0) : max(min(end - start, len(loaded[part_index])), 0)]
-    preamble = _preamble(summaries, starts, loaded, cut) if cut else []
-    return LogSlice(
-        content=_join([*preamble, *window]),
-        offset=cut,
-        count=total,
-        preamble=len(preamble),
-        turns_before=_turns_before(summaries, starts, loaded, cut),
-    )
-
-
-def _turns_before(
-    summaries: Sequence[LogPartSummary], starts: Sequence[int], loaded: dict[int, list[str]], cut: int
-) -> int:
-    turns = 0
-    for part_index, summary in enumerate(summaries):
-        start = starts[part_index]
-        if start >= cut:
-            break
-        if start + summary.count > cut:
-            summary = summarize_log_part(loaded[part_index][: cut - start])
-        turns += summary.user_turns
-    return turns
-
-
-def _preamble(
-    summaries: Sequence[LogPartSummary], starts: Sequence[int], loaded: dict[int, list[str]], cut: int
-) -> list[str]:
-    """The entries before ``cut`` that still set run state there: the latest entry for each state key (run
-    start, SDK session, starting mode, mode, commands, each usage field) and the permission requests nobody
-    resolved."""
-    resolved = frozenset().union(*(summary.resolved for summary in summaries))
-    # A turn completion closes every request before it, resolved or not.
-    closed_before = max(
-        (
-            starts[part_index] + summary.last_turn_complete
-            for part_index, summary in enumerate(summaries)
-            if summary.last_turn_complete is not None
-        ),
-        default=-1,
-    )
-    latest: dict[str, tuple[int, str]] = {}
-    requests: list[tuple[int, str]] = []
-    for part_index, summary in enumerate(summaries):
-        start = starts[part_index]
-        if start >= cut:
-            break
-        part = summarize_log_part(loaded[part_index][: cut - start]) if start + summary.count > cut else summary
-        for key, (index, line) in part.state.items():
-            latest[key] = (start + index, line)
-        requests += [
-            (start + index, line)
-            for index, request_id, line in part.requests
-            if request_id not in resolved and start + index > closed_before
+    def __init__(self, parts: Sequence[LogPart]) -> None:
+        self._parts = parts
+        self._loaded: dict[int, list[str]] = {}
+        self.starts: list[int] = []
+        total = 0
+        for part in parts:
+            self.starts.append(total)
+            total += part.summary.count
+        self.count = total
+        self._human = [
+            (self.starts[part_index] + entry.index, entry)
+            for part_index, part in enumerate(parts)
+            for entry in part.summary.human
         ]
-    return [line for _, line in sorted({*latest.values(), *requests})]
+
+    def _entries(self, part_index: int) -> list[str]:
+        if part_index not in self._loaded:
+            self._loaded[part_index] = self._parts[part_index].entries()
+        return self._loaded[part_index]
+
+    def lines_backward(self, end: int) -> Iterator[tuple[int, str]]:
+        for part_index in range(len(self._parts) - 1, -1, -1):
+            start = self.starts[part_index]
+            if start >= end:
+                continue
+            entries = self._entries(part_index)
+            last = min(self._parts[part_index].summary.count, len(entries), end - start)
+            for local in range(last - 1, -1, -1):
+                yield start + local, entries[local]
+
+    def lines(self, begin: int, end: int) -> list[str]:
+        lines: list[str] = []
+        for part_index, part in enumerate(self._parts):
+            start = self.starts[part_index]
+            stop = start + part.summary.count
+            if stop <= begin or start >= end:
+                continue
+            lines += self._entries(part_index)[max(begin - start, 0) : min(end, stop) - start]
+        return lines
+
+    def size_after_part_of(self, index: int) -> int:
+        """The byte size of the parts that start after the part that holds ``index``."""
+        return sum(part.summary.size for part_index, part in enumerate(self._parts) if self.starts[part_index] > index)
+
+    def turns_before(self, cut: int) -> int:
+        counter = HumanTurnCounter()
+        return sum(
+            1 for index, entry in self._human if index < cut and counter.opens_turn(entry.text_key, entry.user_message)
+        )
+
+    def echo_safe(self, cut: int) -> bool:
+        """Whether the turn rule reads every human message from ``cut`` on the same way with or without the
+        messages before it. A ``_posthog/user_message`` before the cut whose echo comes after the cut fails."""
+        full = HumanTurnCounter()
+        page = HumanTurnCounter()
+        for index, entry in self._human:
+            opens_in_full = full.opens_turn(entry.text_key, entry.user_message)
+            if index >= cut and page.opens_turn(entry.text_key, entry.user_message) != opens_in_full:
+                return False
+        return True
+
+    def preamble(self, cut: int) -> list[str]:
+        """The entries before ``cut`` that still set run state there: the latest entry for each state key (run
+        start, SDK session, starting mode, mode, commands, each usage field) and the permission requests that
+        nobody resolved."""
+        summaries = [part.summary for part in self._parts]
+        resolved = frozenset().union(*(summary.resolved for summary in summaries))
+        # A turn completion closes every request before it, resolved or not.
+        closed_before = max(
+            (
+                self.starts[part_index] + summary.last_turn_complete
+                for part_index, summary in enumerate(summaries)
+                if summary.last_turn_complete is not None
+            ),
+            default=-1,
+        )
+        latest: dict[str, tuple[int, str]] = {}
+        requests: list[tuple[int, str]] = []
+        for part_index, summary in enumerate(summaries):
+            start = self.starts[part_index]
+            if start >= cut:
+                break
+            if start + summary.count > cut:
+                summary = summarize_log_part(self._entries(part_index)[: cut - start])
+            for key, (index, line) in summary.state.items():
+                latest[key] = (start + index, line)
+            requests += [
+                (start + index, line)
+                for index, request_id, line in summary.requests
+                if request_id not in resolved and start + index > closed_before
+            ]
+        return [line for _, line in sorted({*latest.values(), *requests})]
+
+
+def _find_cut(chain: _Chain, end: int, tail_bytes: int) -> int:
+    """The latest safe cut that leaves at least ``tail_bytes`` before ``end``, or 0 when the log has none.
+
+    A cut starts a user turn: the first user entry of a run of user entries and prompts, so both wire forms of
+    one message stay on one side. A turn that grows past ``TAIL_TURN_SLACK_FACTOR`` times the budget can be
+    cut before a top-level tool call instead. A cut is safe when every tool frame after it has its call, and
+    its parent's call, after it too, and when the turn rule reads the messages after it the same way.
+    """
+    cap = tail_bytes * TAIL_TURN_SLACK_FACTOR
+    size = 0
+    started: set[str] = set()
+    missing: set[str] = set()
+    turn_start: int | None = None
+    tool_cut: int | None = None
+
+    def safe(index: int) -> bool:
+        return not missing and chain.echo_safe(index)
+
+    for index, line in chain.lines_backward(end):
+        if _is_user_entry(line):
+            turn_start = index
+        elif turn_start is not None and not _is_prompt(line):
+            if size >= tail_bytes and safe(turn_start):
+                return turn_start
+            turn_start = None
+        size += len(line) + 1
+        if (frame := _tool_frame(line)) is not None:
+            kind, call_id, parent = frame
+            if kind == "tool_call":
+                started.add(call_id)
+                missing.discard(call_id)
+            elif call_id not in started:
+                missing.add(call_id)
+            if parent is not None and parent not in started:
+                missing.add(parent)
+            if kind == "tool_call" and parent is None and tool_cut is None and size >= tail_bytes and safe(index):
+                tool_cut = index
+        if size > cap and tool_cut is not None:
+            return tool_cut
+    return 0
 
 
 def _join(entries: Sequence[str]) -> str:
     return "".join(f"{entry}\n" for entry in entries)
 
 
+def _tail(chain: _Chain, tail_bytes: int, before: int | None) -> LogSlice:
+    end = chain.count if before is None else min(max(before, 0), chain.count)
+    cut = _find_cut(chain, end, tail_bytes)
+    preamble = chain.preamble(cut) if cut else []
+    return LogSlice(
+        content=_join([*preamble, *chain.lines(cut, end)]),
+        offset=cut,
+        count=chain.count,
+        preamble=len(preamble),
+        turns_before=chain.turns_before(cut),
+    )
+
+
+def slice_log_parts_tail(parts: Sequence[LogPart], tail_bytes: int, before: int | None = None) -> LogSlice:
+    """The latest entries of a multi-part JSONL log, from the latest safe cut (see ``_find_cut``).
+
+    ``before`` ends the window at that entry index, so a client can page back through older turns. ``offset``
+    is the index of the first returned entry in the full log, the same index that ``log-N`` stream cursors use.
+    The slice starts with ``preamble`` entries from before the cut that still set run state there. Only the
+    parts that overlap the window are read; the parts before it contribute through their summaries.
+    """
+    return _tail(_Chain(parts), tail_bytes, before)
+
+
+def slice_log_parts_from(
+    parts: Sequence[LogPart], start: int, tail_bytes: int, max_bytes: int = START_READ_MAX_BYTES
+) -> LogSlice:
+    """Every entry from index ``start`` to the end, with no preamble, for a client that holds the entries
+    before ``start``. When they are more than ``max_bytes``, the latest entries as ``slice_log_parts_tail``
+    returns them, so the client starts again from them."""
+    chain = _Chain(parts)
+    start = min(max(start, 0), chain.count)
+    if chain.size_after_part_of(start) <= max_bytes:
+        lines = chain.lines(start, chain.count)
+        if sum(len(line) + 1 for line in lines) <= max_bytes:
+            return LogSlice(
+                content=_join(lines), offset=start, count=chain.count, turns_before=chain.turns_before(start)
+            )
+    tail = _tail(chain, tail_bytes, None)
+    if tail.offset > start:
+        return tail
+    return LogSlice(
+        content=_join(chain.lines(start, chain.count)),
+        offset=start,
+        count=chain.count,
+        turns_before=chain.turns_before(start),
+    )
+
+
 def slice_log_tail(content: str, tail_bytes: int, before: int | None = None) -> LogSlice:
     """``slice_log_parts_tail`` over a log held in one string."""
-    entries = log_entries(content)
-    part = LogPart(entries=lambda: entries, summary=lambda: summarize_log_part(entries))
-    return slice_log_parts_tail([part], tail_bytes, before)
+    return slice_log_parts_tail([log_part(log_entries(content))], tail_bytes, before)
+
+
+def slice_log_from(content: str, start: int, tail_bytes: int, max_bytes: int = START_READ_MAX_BYTES) -> LogSlice:
+    """``slice_log_parts_from`` over a log held in one string."""
+    return slice_log_parts_from([log_part(log_entries(content))], start, tail_bytes, max_bytes)

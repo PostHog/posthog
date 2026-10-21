@@ -1770,7 +1770,7 @@ describe('maxThreadLogic', () => {
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
             const logsSpy = jest
                 .spyOn(api.tasks.runs, 'getLogPage')
-                .mockResolvedValue({ entries: [], offset: 0, count: 0, preamble: 0, turnsBefore: 0 })
+                .mockResolvedValue({ entries: [], offset: 0, count: 0, preamble: 0, turnsBefore: 0, indexed: false })
             const runSpy = jest
                 .spyOn(tasksApi, 'tasksRunsRetrieve')
                 .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)

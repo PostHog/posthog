@@ -114,8 +114,8 @@ from products.tasks.backend.logic.log_slice import (
     LogPart,
     LogPartSummary,
     log_entries,
+    slice_log_parts_from,
     slice_log_parts_tail,
-    slice_log_tail,
     summarize_log_part,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
@@ -5264,36 +5264,55 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
 _LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
 
 
-def _conversation_log_part(log_url: str, *, settled: bool) -> LogPart:
-    """One run's log as a slice part. A settled log (an ancestor's) caches its summary by object size, so
-    paging through older turns stops rereading every ancestor; the newest log is summarized from what this
-    request reads, so its count always matches its entries."""
+def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]]) -> LogPartSummary:
+    """A run log's summary, cached by object size. A log only grows, so its size identifies its content. The
+    cache is an optimization: a cache error counts as a miss, and the summary comes from the log itself."""
     from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
-    read: list[list[str]] = []
+    head = object_storage.head_object(log_url)
+    size = int(head.get("ContentLength", 0)) if head else 0
+    if not size:
+        return summarize_log_part(entries())
+    key = f"tasks:log-part-summary:v3:{hashlib.sha256(log_url.encode()).hexdigest()}:{size}"
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("task_log_part_summary_cache_read_failed", exc_info=True)
+        cached = None
+    if isinstance(cached, LogPartSummary):
+        return cached
+    summary = summarize_log_part(entries())
+    try:
+        cache.set(key, summary, timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+    except Exception:
+        logger.warning("task_log_part_summary_cache_write_failed", exc_info=True)
+    return summary
 
-    def entries() -> list[str]:
-        if not read:
-            read.append(log_entries(object_storage.read(log_url, missing_ok=True) or ""))
-        return read[0]
 
-    def summary() -> LogPartSummary:
-        if not settled:
-            return summarize_log_part(entries())
-        head = object_storage.head_object(log_url)
-        size = int(head.get("ContentLength", 0)) if head else 0
-        key = f"tasks:log-part-summary:v2:{hashlib.sha256(log_url.encode()).hexdigest()}:{size}"
-        cached = cache.get(key) if size else None
-        if isinstance(cached, LogPartSummary):
-            return cached
-        result = summarize_log_part(entries())
-        if size:
-            cache.set(key, result, timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
-        return result
+def _conversation_log_parts(log_urls: list[str]) -> list[LogPart]:
+    """The run logs of a resume chain as slice parts. The summaries load in parallel, and a part's entries load
+    only when the slice needs them."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
-    return LogPart(entries=entries, summary=summary)
+    def loader(log_url: str) -> Callable[[], list[str]]:
+        read: list[list[str]] = []
+
+        def entries() -> list[str]:
+            if not read:
+                read.append(log_entries(object_storage.read(log_url, missing_ok=True) or ""))
+            return read[0]
+
+        return entries
+
+    loaders = [loader(log_url) for log_url in log_urls]
+    pairs = list(zip(log_urls, loaders))
+    if len(pairs) == 1:
+        summaries = [_conversation_log_part_summary(*pairs[0])]
+    else:
+        summaries = list(_TASK_LOG_READ_EXECUTOR.map(lambda pair: _conversation_log_part_summary(*pair), pairs))
+    return [LogPart(summary=summary, entries=entries) for summary, entries in zip(summaries, loaders)]
 
 
 def read_task_run_conversation_log_slice(
@@ -5303,26 +5322,26 @@ def read_task_run_conversation_log_slice(
     *,
     tail_bytes: int,
     before: int | None = None,
+    start: int | None = None,
 ) -> contracts.TaskRunLogSliceDTO | None:
-    """The latest turns of the conversation log that end before index ``before``, at least ``tail_bytes`` long.
+    """Part of the conversation log, read from the run logs that overlap it.
 
-    Reads only the run logs that overlap the returned window. A Pi chain interleaves run markers between
-    its runs, so it reads the whole conversation log as before.
+    With ``start``, every entry from that index to the end, or the latest turns when they are too many. Else the
+    latest turns that end before index ``before``, at least ``tail_bytes`` long. A Pi chain puts run markers
+    between its runs, so its indexes change when the chain grows: it returns the full log, not sliced.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    chain = run.get_history_chain()
-    if len(chain) >= 2 and run.task.runtime == Task.Runtime.PI:
+    if run.task.runtime == Task.Runtime.PI:
         content = read_task_run_conversation_logs(run_id, task_id, team_id)
         if content is None:
             return None
-        sliced = slice_log_tail(content, tail_bytes, before)
+        return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
+    parts = _conversation_log_parts([ancestor.log_url for ancestor in run.get_history_chain()])
+    if start is not None:
+        sliced = slice_log_parts_from(parts, start, tail_bytes)
     else:
-        parts = [
-            _conversation_log_part(ancestor.log_url, settled=index < len(chain) - 1)
-            for index, ancestor in enumerate(chain)
-        ]
         sliced = slice_log_parts_tail(parts, tail_bytes, before)
     return contracts.TaskRunLogSliceDTO(
         content=sliced.content,

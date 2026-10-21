@@ -152,12 +152,6 @@ export function ThreadView({
         historyTurnBase,
     } = useValues(runStreamLogic)
     const { loadOlderHistory } = useActions(runStreamLogic)
-    // A flow thread has no scroll of its own to bring the reader near the top, so it reads every older page.
-    useEffect(() => {
-        if (!virtualized && olderHistoryState === 'idle') {
-            loadOlderHistory()
-        }
-    }, [virtualized, olderHistoryState, loadOlderHistory])
     const turnCancelled = currentRunStatus === 'cancelled'
     // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
     // still going, so it keeps the softer title.

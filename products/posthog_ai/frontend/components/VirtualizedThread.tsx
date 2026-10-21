@@ -664,22 +664,37 @@ function Root<T>({
         if (start === undefined || Math.abs(start - topRow.start) <= UNPIN_SLACK) {
             return
         }
+        // A reader's scroll whose event has not dispatched yet still moved the view: the correction keeps that
+        // movement, and the hold ends so a later measurement cannot reverse it.
+        const pending = hasUnseenScroll(el, lastSeenTopRef.current) ? el.scrollTop - lastSeenTopRef.current : 0
         if (itemsChanged) {
             rowsLandedAboveRef.current = true
+        }
+        if (pending !== 0) {
+            prependHoldRef.current = { from: 0, until: 0 }
+        } else if (itemsChanged) {
             prependHoldRef.current = { from: performance.now(), until: performance.now() + PREPEND_HOLD_MS }
         }
         topRowRef.current = { ...topRow, start }
-        if (Math.abs(el.scrollTop - (start - topRow.offset)) > UNPIN_SLACK) {
-            el.scrollTop = start - topRow.offset
+        const target = start - topRow.offset + pending
+        if (Math.abs(el.scrollTop - target) > UNPIN_SLACK) {
+            el.scrollTop = target
             noteProgrammaticScroll()
         }
     }, [items, totalSize, virtualized, virtualizer, findVirtualIndexForKey, noteProgrammaticScroll])
 
     // A thread shorter than its viewport has no scroll to bring the reader near the top, so ask for older
-    // rows directly until it fills the viewport or the caller has none left.
+    // rows directly until it fills the viewport or the caller has none left. A reader who scrolled near the
+    // top and stays there sends no scroll event when older rows become available again (after a failed
+    // load waits and rearms), so that reader asks too.
     useEffect(() => {
         const el = scrollRef.current
-        if (virtualized && el && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight + UNPIN_SLACK) {
+        if (!virtualized || !el || el.clientHeight === 0) {
+            return
+        }
+        const short = el.scrollHeight <= el.clientHeight + UNPIN_SLACK
+        const readerNearTop = lastUserScrollAtRef.current > 0 && el.scrollTop < el.clientHeight
+        if (short || readerNearTop) {
             onNearTopRef.current?.()
         }
     }, [items, onNearTop, virtualized])

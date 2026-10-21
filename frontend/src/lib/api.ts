@@ -5063,38 +5063,50 @@ const api = {
                 return parseLogEntries(await response.text())
             },
             /**
-             * Fetch the latest turns of a run's resume-chain log (at least `tailBytes`, cut at a user turn) that
-             * end before entry index `before`. The page starts with `preamble` earlier entries that still set run
-             * state; `offset` is the full-log index of the first entry after them, `count` is the full-log size, and
-             * `turnsBefore` counts the user turns before `offset`.
+             * Fetch part of a run's resume-chain log. With `tailBytes`, the latest turns (at least `tailBytes`, from a
+             * cut where a user turn starts) that end before entry index `before`, or with `start`, every entry from
+             * that index on. The page starts with `preamble` earlier entries that still set run state; `offset` is
+             * the full-log index of the first entry after them, `count` is the full-log size, and `turnsBefore`
+             * counts the user turns before `offset`. Without `tailBytes`, or for a log the server does not page, the
+             * response is the full log and `indexed` is false.
              */
             async getLogPage(
                 taskId: Task['id'],
                 runId: TaskRun['id'],
-                options: { signal?: AbortSignal; projectId?: TeamType['id']; tailBytes: number; before?: number }
+                options: {
+                    signal?: AbortSignal
+                    projectId?: TeamType['id']
+                    tailBytes?: number
+                    before?: number
+                    start?: number
+                }
             ): Promise<{
                 entries: Record<string, any>[]
                 offset: number
                 count: number
                 preamble: number
                 turnsBefore: number
+                indexed: boolean
             }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
                     .withQueryString({
-                        tail_bytes: options.tailBytes,
+                        ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),
+                        ...(options.start !== undefined ? { start: options.start } : {}),
                     })
                     .getResponse({ signal: options.signal })
                 const entries = parseLogEntries(await response.text())
+                const indexed = response.headers.get('X-Log-Offset') !== null
                 const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
                 return {
                     entries,
                     offset: header('X-Log-Offset'),
-                    count: header('X-Log-Count'),
+                    count: indexed ? header('X-Log-Count') : entries.length,
                     preamble: header('X-Log-Preamble'),
                     turnsBefore: header('X-Log-Turns-Before'),
+                    indexed,
                 }
             },
             /**
