@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    DestinationSend,
     HandbackRefusal,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -26,7 +27,12 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
+from products.alerts_platform.backend.logic import (
+    destination_sends,
+    platform_lifecycle,
+    platform_reads,
+    platform_writes,
+)
 
 
 def due_checks(
@@ -193,3 +199,10 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
     platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def recent_destination_sends(
+    *, team_id: int, destination_ids: Collection[str], limit: int
+) -> tuple[DestinationSend, ...]:
+    """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
+    return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
