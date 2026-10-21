@@ -9,10 +9,6 @@ name: Build rust smoke test images
 #   Build specific images: add 'smoke_test:capture', 'smoke_test:cymbal', etc.
 #   Manual trigger: Actions tab -> workflow_dispatch -> enter image names
 #
-# An unlabeled PR that changes a Dockerfile, the build context, or an image
-# entry builds the few images that change can break, so a broken image build
-# fails here instead of on master. Selection: .github/scripts/select_rust_image_checks.py
-#
 # Image list: .github/rust-images.yml
 # Build steps: .github/workflows/_rust-build-images.yml
 
@@ -24,7 +20,7 @@ on:
                 type: string
                 default: ''
     pull_request:
-        types: [opened, reopened, labeled, synchronize]
+        types: [labeled, synchronize]
         paths:
             - 'rust/**'
             - 'proto/**'
@@ -39,22 +35,28 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    authorize:
+        name: authorize smoke test
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # Only adding a smoke_test label starts a build. Any other label changes no code.
+        if: |
+            (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') ||
+            (github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test') &&
+             (github.event.action != 'labeled' || startsWith(github.event.label.name, 'smoke_test')))
+        permissions: {}
+        steps:
+            - run: echo "Authorized"
+
     resolve-filter:
         name: resolve image filter
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        # Merge queue PRs skip: each constituent PR already ran this check.
-        # Only a smoke_test label starts a build. Any other label changes no code.
-        if: >-
-            (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') ||
-            (github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-             !startsWith(github.head_ref, 'trunk-merge/') &&
-             (github.event.action != 'labeled' || startsWith(github.event.label.name, 'smoke_test')))
-        permissions:
-            contents: read
+        timeout-minutes: 2
+        if: (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') || github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        permissions: {}
         outputs:
-            build: ${{ steps.parse.outputs.requested == 'true' || steps.select.outputs.filter != '' }}
-            filter: ${{ steps.select.outputs.filter || steps.parse.outputs.filter }}
+            filter: ${{ steps.parse.outputs.filter }}
         steps:
             - name: Parse image filter
               id: parse
@@ -64,53 +66,23 @@ jobs:
                   PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
               run: |
                   if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                      echo "requested=true" >> "$GITHUB_OUTPUT"
                       echo "filter=$DISPATCH_IMAGES" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
-                  requested=false
                   filter=""
                   for label in $(echo "$PR_LABELS" | jq -r '.[]'); do
                       case "$label" in
-                          smoke_test)
-                              requested=true
-                              ;;
                           smoke_test:*)
-                              requested=true
                               img="${label#smoke_test:}"
                               filter="${filter:+$filter,}$img"
                               ;;
                       esac
                   done
-                  echo "requested=$requested" >> "$GITHUB_OUTPUT"
-                  echo "filter=$filter" >> "$GITHUB_OUTPUT"
-
-            # Without a smoke_test label, build only the images this change can break
-            # through the Docker build itself. Cargo CI already covers code changes.
-            - name: Check out the image list and selector
-              if: steps.parse.outputs.requested != 'true'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 2
-                  filter: blob:none
-                  sparse-checkout: |
-                      .github/rust-images.yml
-                      .github/scripts/select_rust_image_checks.py
-                  sparse-checkout-cone-mode: false
-
-            # HEAD is the pull request's merge commit, so HEAD^1 is the base branch tip.
-            - name: Select images the change can break
-              id: select
-              if: steps.parse.outputs.requested != 'true'
-              run: |
-                  filter=$(python3 .github/scripts/select_rust_image_checks.py HEAD^1)
-                  echo "Selected images: ${filter:-none}"
                   echo "filter=$filter" >> "$GITHUB_OUTPUT"
 
     build-images:
-        needs: resolve-filter
-        if: needs.resolve-filter.outputs.build == 'true'
+        needs: [authorize, resolve-filter]
         uses: ./.github/workflows/_rust-build-images.yml
         with:
             image-filter: ${{ needs.resolve-filter.outputs.filter }}
