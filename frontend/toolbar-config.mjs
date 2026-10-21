@@ -71,7 +71,7 @@ const deniedPatterns = [/scenes\/billing/]
  * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source
  * budget), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
  */
-function createToolbarModulePlugin(dirname) {
+function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
     // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
     // `./teamLogic`), otherwise the real logic and its whole app graph leak into the bundle.
     // Map each shimmed module's extensionless absolute path to its shim.
@@ -101,7 +101,8 @@ function createToolbarModulePlugin(dirname) {
                 }
 
                 const shouldDeny =
-                    deniedPaths.includes(args.path) || deniedPatterns.some((pattern) => pattern.test(args.path))
+                    deniedPaths.includes(args.path) ||
+                    [...deniedPatterns, ...extraDeniedPatterns].some((pattern) => pattern.test(args.path))
                 if (shouldDeny) {
                     return { path: args.path, namespace: 'empty-module', sideEffects: false }
                 }
@@ -250,7 +251,8 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 // The browser extension ships one panel bundle in a folder per browser. Only the manifest differs:
 //
 //   dist/toolbar-extension/<browser>/manifest.json
-//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, assets/, icons/
+//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, content.js, content.css,
+//   assets/, icons/
 //
 // Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
 const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
@@ -311,15 +313,28 @@ export function getToolbarExtensionBuildConfig(dirname) {
     }
 }
 
-/** Firefox doesn't run a module as a background script, so the background script is one classic script. */
+/**
+ * The panel injects content.js into the tab with `scripting.executeScript`, which runs a file as a classic script, and
+ * Firefox doesn't run a module as a background script. So each of these scripts is one self-contained IIFE.
+ */
 export function getToolbarExtensionScriptsBuildConfig(dirname) {
     return {
         ...toolbarExtensionBaseConfig(dirname),
         name: 'Toolbar extension scripts',
-        entryPoints: { background: 'src/toolbar/extension/background.ts' },
+        entryPoints: {
+            background: 'src/toolbar/extension/background.ts',
+            content: 'src/toolbar/extension/content.tsx',
+        },
         format: 'iife',
         splitting: false,
-        extraPlugins: [createToolbarModulePlugin(dirname)],
+        // An IIFE inlines every lazy import. The content script never runs hedgehog mode (pixi needs `new Function`,
+        // which Manifest V3 forbids) or the product tours editor, so they stay out of every page it's injected into.
+        extraPlugins: [
+            createToolbarModulePlugin(dirname, [
+                /^@posthog\/hedgehog-mode$/,
+                /product-tours\/editor\/generateStepHtml$/,
+            ]),
+        ],
     }
 }
 
@@ -336,8 +351,9 @@ function buildToolbarExtensionManifest(browser) {
             default_title: 'Open PostHog',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
-        permissions: ['storage'],
+        permissions: ['scripting', 'storage'],
         host_permissions: ['http://*/*', 'https://*/*'],
+        web_accessible_resources: [{ resources: ['content.css', 'assets/*'], matches: ['http://*/*', 'https://*/*'] }],
     }
     if (browser === 'firefox') {
         manifest.sidebar_action = {

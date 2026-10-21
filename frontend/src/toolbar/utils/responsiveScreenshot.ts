@@ -3,7 +3,7 @@ import { BLANK_IMAGE } from 'lib/utils/captureElementImage'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
-import { TOOLBAR_ID, toError } from '~/toolbar/utils'
+import { TOOLBAR_ROOT_ATTRIBUTE, toError } from '~/toolbar/utils'
 import { captureElementScreenshot } from '~/toolbar/utils/screenshot'
 
 export const RESPONSIVE_CAPTURE_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
@@ -36,7 +36,7 @@ function populateIframe(iframe: HTMLIFrameElement): void {
     const importedHtml = doc.importNode(document.documentElement, true)
 
     importedHtml.querySelectorAll('script, noscript').forEach((node) => node.remove())
-    importedHtml.querySelector(`#${TOOLBAR_ID}`)?.remove()
+    importedHtml.querySelectorAll(`[${TOOLBAR_ROOT_ATTRIBUTE}]`).forEach((node) => node.remove())
 
     let head = importedHtml.querySelector('head')
     if (!head) {

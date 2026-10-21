@@ -1,62 +1,36 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
-import { IconBolt, IconCursorClick, IconExternal, IconFlask, IconPieChart, IconToggle } from '@posthog/icons'
+import { IconExternal } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { ToolbarFeatureGateStatus, toolbarFeatureGateStatus } from '~/toolbar/toolbarEntitlementsLogic'
-import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
-
-import { EXTENSION_FEATURE_ENTRY_POINTS, ExtensionFeatureEntryPoint, ExtensionFeatureKey } from './extensionFeatures'
+import { PAGE_TOOLS } from './extensionPageTools'
 import { extensionPanelLogic } from './extensionPanelLogic'
-
-const FEATURE_ICONS: Record<ExtensionFeatureKey, JSX.Element> = {
-    heatmaps: <IconCursorClick />,
-    actions: <IconBolt />,
-    'feature-flags': <IconToggle />,
-    'web-vitals': <IconPieChart />,
-    experiments: <IconFlask />,
-}
-
-const GATE_DISABLED_REASONS: Record<ToolbarFeatureGateStatus, string | null> = {
-    available: null,
-    checking: 'Checking plan access…',
-    unknown: "Couldn't check plan access. Close and open the panel to try again.",
-    locked: 'Needs a pay-as-you-go subscription',
-}
-
-function ExtensionFeatureButton({ entryPoint }: { entryPoint: ExtensionFeatureEntryPoint }): JSX.Element {
-    const { entitlements } = useValues(extensionPanelLogic)
-    const { openFeature } = useActions(extensionPanelLogic)
-    // Hooks run unconditionally, so features without a gate read the flag and ignore it.
-    const rolloutEnabled = useToolbarFeatureFlag(entryPoint.gate?.rolloutFlag ?? FEATURE_FLAGS.TOOLBAR_PAID_HEATMAPS)
-    const gateStatus = entryPoint.gate
-        ? toolbarFeatureGateStatus(entryPoint.gate.feature, rolloutEnabled, entitlements, false)
-        : 'available'
-
-    return (
-        <LemonButton
-            fullWidth
-            icon={FEATURE_ICONS[entryPoint.key]}
-            sideIcon={<IconExternal />}
-            disabledReason={GATE_DISABLED_REASONS[gateStatus]}
-            tooltip={`${entryPoint.description}. Opens in PostHog.`}
-            onClick={() => openFeature(entryPoint.key, entryPoint.path)}
-            data-attr={`toolbar-extension-feature-${entryPoint.key}`}
-        >
-            {entryPoint.label}
-        </LemonButton>
-    )
-}
+import { usePageToolDisabledReason } from './usePageToolDisabledReason'
 
 export function ExtensionFeatureList({ origin }: { origin: string }): JSX.Element {
+    const { openFeature } = useActions(extensionPanelLogic)
+    const disabledReason = usePageToolDisabledReason()
+
     return (
         <div className="flex flex-col gap-1">
-            <div className="text-secondary text-xs">Toolbar tools for {new URL(origin).host}</div>
-            {EXTENSION_FEATURE_ENTRY_POINTS.map((entryPoint) => (
-                <ExtensionFeatureButton key={entryPoint.key} entryPoint={entryPoint} />
-            ))}
+            <div className="text-secondary text-xs">Open in PostHog for {new URL(origin).host}</div>
+            {PAGE_TOOLS.map(({ feature, ...tool }) =>
+                feature ? (
+                    <LemonButton
+                        key={feature.key}
+                        fullWidth
+                        icon={tool.icon}
+                        sideIcon={<IconExternal />}
+                        disabledReason={disabledReason({ ...tool, feature })}
+                        tooltip={`${tool.description}. Opens in PostHog.`}
+                        onClick={() => openFeature(feature.key, feature.path)}
+                        data-attr={`toolbar-extension-feature-${feature.key}`}
+                    >
+                        {tool.label}
+                    </LemonButton>
+                ) : null
+            )}
         </div>
     )
 }

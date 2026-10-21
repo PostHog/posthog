@@ -4,7 +4,7 @@ import { elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { TOOLBAR_ID } from '~/toolbar/utils'
+import { isToolbarRootElement } from '~/toolbar/utils'
 import { ElementType } from '~/types'
 
 interface ElementFingerprint {
@@ -90,7 +90,7 @@ function createFingerprint(
 }
 
 export function hasNonToolbarShadowRoots(pageElements: HTMLElement[]): boolean {
-    return pageElements.some((el) => !!el.shadowRoot && el.id !== TOOLBAR_ID)
+    return pageElements.some((el) => !!el.shadowRoot && !isToolbarRootElement(el))
 }
 
 export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
@@ -131,7 +131,7 @@ export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
             addToIndex(index.byHref, href, element)
         }
 
-        if (element.shadowRoot && element.id !== TOOLBAR_ID) {
+        if (element.shadowRoot && !isToolbarRootElement(element)) {
             index.hasShadowRoots = true
         }
     }
