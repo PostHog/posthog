@@ -15,6 +15,7 @@ from posthog.models import ActivityLog, Team
 
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
+from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
 from products.signals.backend.activity_summary.prompt import SYSTEM_PROMPT
 from products.signals.backend.activity_summary.render import (
     MAX_SUMMARY_CHARS,
@@ -76,12 +77,17 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
     One row holds the latest update of a pair, so an earlier update of the same pair in the same 24
     hours is not counted. With the minimum update interval that happens only after a failure.
     A row without a cost counts as the most one update can cost, so missing usage cannot pass the cap.
+    An update that raised before it called the model is not counted, unless the row holds an earlier paid update.
     """
-    # nosemgrep: idor-lookup-without-team (the daily caps are global over all teams, with no user input)
-    rows = UserActivitySummary.all_teams.filter(status__in=_CALLED_MODEL, updated_at__gte=now - DAY).aggregate(
-        updates=Count("id"),
-        unpriced=Count("id", filter=Q(cost_usd__isnull=True)),
-        cost=Sum("cost_usd"),
+    rows = (
+        # nosemgrep: idor-lookup-without-team (the daily caps are global over all teams, with no user input)
+        UserActivitySummary.all_teams.filter(status__in=_CALLED_MODEL, updated_at__gte=now - DAY)
+        .exclude(error__startswith=EXCEPTION_ERROR_PREFIX, cost_usd=0)
+        .aggregate(
+            updates=Count("id"),
+            unpriced=Count("id", filter=Q(cost_usd__isnull=True)),
+            cost=Sum("cost_usd"),
+        )
     )
     return DailyUsage(
         updates=rows["updates"],
