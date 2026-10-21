@@ -70,6 +70,9 @@ export function HogFlowEditorPanel({
         ),
         key: mode,
     }))
+    // A docked panel is too narrow for every tab, and Variables has its own button beside the canvas.
+    const shownTabs = layout === 'docked' ? tabs.filter((tab) => tab.key !== 'variables') : tabs
+    const title = view?.title ?? (shownTabs.some((tab) => tab.key === mode) ? null : capitalizeFirstLetter(mode))
 
     return (
         <div
@@ -121,15 +124,14 @@ export function HogFlowEditorPanel({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                        {layout === 'docked' ? (
-                            <h3 className="m-0 truncate py-2 text-sm font-semibold">
-                                {view?.title ?? capitalizeFirstLetter(mode)}
-                            </h3>
+                        {title ? (
+                            <h3 className="m-0 truncate py-2 text-sm font-semibold">{title}</h3>
                         ) : (
                             <LemonTabs
                                 activeKey={mode}
                                 onChange={(key) => setMode(key)}
-                                tabs={tabs}
+                                tabs={shownTabs}
+                                size={layout === 'docked' ? 'small' : undefined}
                                 barClassName="-mb-px "
                             />
                         )}
