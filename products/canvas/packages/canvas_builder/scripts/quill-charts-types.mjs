@@ -48,12 +48,13 @@ const ENTRIES = {
     SlopeChart: ['SlopeChart'],
     Sparkline: ['Sparkline'],
     MetricCard: ['MetricCard'],
-    Chart: ['Chart'],
+    Chart: ['Chart', 'applyChartDefaults'],
     RadialChart: ['RadialChart'],
     ReferenceLine: ['ReferenceLine', 'ReferenceLines'],
     HighlightedRange: ['HighlightedRange'],
     ValueLabels: ['ValueLabels'],
     AxisTitles: ['AxisTitles'],
+    Tooltip: ['DefaultTooltip', 'TooltipSurface', 'TooltipSwatch', 'TooltipFooter'],
 }
 
 const { version } = JSON.parse(readFileSync(path.join(packageDirectory, 'package.json'), 'utf8'))

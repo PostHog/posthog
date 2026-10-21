@@ -1,7 +1,7 @@
-// Types of `Chart`. Shared types it uses, declared in core.d.ts: Series, ChartConfig, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, ResolvedSeries, LabelRange, ValueDomain.
+// Types of `Chart`. Shared types it uses, declared in core.d.ts: ChartConfig, Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, SeriesType, ResolvedSeries, LabelRange, ValueDomain.
 // Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
-// Importable from '@posthog/quill-charts': Chart, ChartProps, CreateScalesFn, ChartDrawArgs, AreaSelectData, ChartScales, ResolveValueFn, ChartDimensions, DragRect, YAxisScale.
+// Importable from '@posthog/quill-charts': Chart, applyChartDefaults, ChartProps, CreateScalesFn, ChartDrawArgs, AreaSelectData, ChartScales, ResolveValueFn, ChartDimensions, DragRect, YAxisScale.
 // Other declarations here are shapes to match, not names to import.
 
 export declare function Chart<Meta = unknown>({
@@ -28,6 +28,12 @@ export declare function Chart<Meta = unknown>({
     wrapClickData,
     resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement
+
+/** Layers `DEFAULT_CHART_CONFIG` under a chart's config: any field the consumer sets wins, an
+ *  unset or explicitly `undefined` field falls back to the default, and `tooltip` merges key by key
+ *  — dropping `undefined` at both levels — so setting one tooltip field never drops
+ *  `placement: 'cursor'`. */
+export declare function applyChartDefaults<T extends ChartConfig>(config?: T): T
 
 export interface ChartProps<Meta = unknown> {
     series: Series<Meta>[]
