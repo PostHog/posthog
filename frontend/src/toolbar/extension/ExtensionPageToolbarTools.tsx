@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconExternal, IconX } from '@posthog/icons'
 
@@ -6,7 +7,12 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
+import { SelectorCountContext, SelectorMatchCounter } from '~/toolbar/actions/SelectorCountContext'
+
+import { ExtensionActionEditor } from './ExtensionActionEditor'
+import { ExtensionActionsList } from './ExtensionActionsList'
 import { ExtensionFeatureList } from './ExtensionFeatureList'
+import { ExtensionFlagsMenu } from './ExtensionFlagsMenu'
 import { ExtensionHeatmapMenu } from './ExtensionHeatmapMenu'
 import { ExtensionInspectedElement } from './ExtensionInspectedElement'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
@@ -19,6 +25,8 @@ type PanelTool = PageToolDefinition & { mode: PageToolMode }
 const PANEL_TOOLS = PAGE_TOOLS.filter((tool): tool is PanelTool => !!tool.mode)
 
 function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
+    const { selectedActionId } = useValues(extensionPageToolbarConnectionLogic)
+
     switch (mode) {
         case 'inspect':
             return (
@@ -32,6 +40,10 @@ function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
             )
         case 'heatmap':
             return <ExtensionHeatmapMenu />
+        case 'actions':
+            return selectedActionId !== null ? <ExtensionActionEditor /> : <ExtensionActionsList />
+        case 'flags':
+            return <ExtensionFlagsMenu />
     }
 }
 
@@ -65,66 +77,73 @@ function ToolHeader({ tool }: { tool: PanelTool }): JSX.Element {
 
 export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.Element {
     useMountedLogic(extensionPageToolbarConnectionLogic)
-    const { mode, connectionStatus } = useValues(extensionPageToolbarConnectionLogic)
-    const { setMode, connectPage } = useActions(extensionPageToolbarConnectionLogic)
+    const { mode, connectionStatus, selectorCounter } = useValues(extensionPageToolbarConnectionLogic)
+    const { setMode, connectPage, requestSelectorCount } = useActions(extensionPageToolbarConnectionLogic)
     const disabledReason = usePageToolDisabledReason()
     const activeTool = PANEL_TOOLS.find((tool) => tool.mode === mode)
+    // The page counts selector matches for every editor in the panel.
+    const counter = useMemo<SelectorMatchCounter>(
+        () => ({ count: selectorCounter.count, request: requestSelectorCount }),
+        [selectorCounter, requestSelectorCount]
+    )
 
     return (
-        <div className="flex flex-col gap-2">
-            <LemonSegmentedButton
-                fullWidth
-                size="small"
-                value={activeTool?.mode}
-                onChange={(toolMode) => setMode(toolMode === mode ? 'none' : toolMode)}
-                options={PANEL_TOOLS.map((tool) => ({
-                    value: tool.mode,
-                    icon: tool.icon,
-                    tooltip: tool.label,
-                    disabledReason: disabledReason(tool) ?? undefined,
-                    'data-attr': `toolbar-extension-mode-${tool.mode}`,
-                }))}
-            />
-            {connectionStatus === 'failed' ? (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        children: 'Try again',
-                        onClick: connectPage,
-                        'data-attr': 'toolbar-extension-reconnect',
-                    }}
-                >
-                    The extension couldn't reach this page. Reload the page and try again.
-                </LemonBanner>
-            ) : activeTool ? (
-                <>
-                    <ToolHeader tool={activeTool} />
-                    <ToolBody mode={activeTool.mode} />
-                </>
-            ) : (
-                <>
-                    <div className="flex flex-col gap-1">
-                        {PANEL_TOOLS.map((tool) => (
-                            <LemonButton
-                                key={tool.mode}
-                                fullWidth
-                                icon={tool.icon}
-                                disabledReason={disabledReason(tool)}
-                                onClick={() => setMode(tool.mode)}
-                                data-attr={`toolbar-extension-open-${tool.mode}`}
-                            >
-                                <span className="flex min-w-0 flex-col">
-                                    <span>{tool.label}</span>
-                                    <span className="text-xs font-normal text-secondary whitespace-normal">
-                                        {tool.description}
+        <SelectorCountContext.Provider value={counter}>
+            <div className="flex flex-col gap-2">
+                <LemonSegmentedButton
+                    fullWidth
+                    size="small"
+                    value={activeTool?.mode}
+                    onChange={(toolMode) => setMode(toolMode === mode ? 'none' : toolMode)}
+                    options={PANEL_TOOLS.map((tool) => ({
+                        value: tool.mode,
+                        icon: tool.icon,
+                        tooltip: tool.label,
+                        disabledReason: disabledReason(tool) ?? undefined,
+                        'data-attr': `toolbar-extension-mode-${tool.mode}`,
+                    }))}
+                />
+                {connectionStatus === 'failed' ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Try again',
+                            onClick: connectPage,
+                            'data-attr': 'toolbar-extension-reconnect',
+                        }}
+                    >
+                        The extension couldn't reach this page. Reload the page and try again.
+                    </LemonBanner>
+                ) : activeTool ? (
+                    <>
+                        <ToolHeader tool={activeTool} />
+                        <ToolBody mode={activeTool.mode} />
+                    </>
+                ) : (
+                    <>
+                        <div className="flex flex-col gap-1">
+                            {PANEL_TOOLS.map((tool) => (
+                                <LemonButton
+                                    key={tool.mode}
+                                    fullWidth
+                                    icon={tool.icon}
+                                    disabledReason={disabledReason(tool)}
+                                    onClick={() => setMode(tool.mode)}
+                                    data-attr={`toolbar-extension-open-${tool.mode}`}
+                                >
+                                    <span className="flex min-w-0 flex-col">
+                                        <span>{tool.label}</span>
+                                        <span className="text-xs font-normal text-secondary whitespace-normal">
+                                            {tool.description}
+                                        </span>
                                     </span>
-                                </span>
-                            </LemonButton>
-                        ))}
-                    </div>
-                    <ExtensionFeatureList origin={origin} />
-                </>
-            )}
-        </div>
+                                </LemonButton>
+                            ))}
+                        </div>
+                        <ExtensionFeatureList origin={origin} />
+                    </>
+                )}
+            </div>
+        </SelectorCountContext.Provider>
     )
 }

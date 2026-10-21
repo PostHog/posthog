@@ -39,12 +39,14 @@ export const PAGE_TOOLS: PageToolDefinition[] = [
         gate: AvailableFeature.TOOLBAR_HEATMAPS,
     },
     {
+        mode: 'actions',
         label: 'Actions',
         description: 'Create and edit actions from elements on the page',
         icon: <IconBolt />,
         feature: { key: 'actions', path: urls.actions() },
     },
     {
+        mode: 'flags',
         label: 'Feature flags',
         description: 'Override feature flags on this page',
         icon: <IconToggle />,

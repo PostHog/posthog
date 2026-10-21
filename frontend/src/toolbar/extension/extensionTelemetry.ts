@@ -1,7 +1,17 @@
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 // pinned: sent as the `tool` property of `toolbar extension page tool used`
-type PageToolKey = 'heatmap' | 'inspect' | 'save-heatmap'
+type PageToolKey =
+    | 'heatmap'
+    | 'inspect'
+    | 'save-heatmap'
+    | 'actions'
+    | 'create-action'
+    | 'save-action'
+    | 'flags'
+    | 'override-flag'
+    | 'clear-flag-overrides'
+    | 'impersonate-flags'
 
 export function capturePageToolUsed(tool: PageToolKey, properties?: Record<string, unknown>): void {
     // pinned: analytics event name

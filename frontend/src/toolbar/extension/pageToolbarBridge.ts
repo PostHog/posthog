@@ -5,10 +5,13 @@ import type {
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
 
-import type { ActionStepType } from '~/types'
+import type { ActionForm } from '~/toolbar/types'
+import type { ActionStepType, ElementType } from '~/types'
 
+import type { PageActionsCommand } from './extensionPageActionsLogic'
+import type { PageFlagsCommand } from './extensionPageFlagsLogic'
 import type { PageHeatmapCommand } from './extensionPageHeatmapLogic'
-import type { PageInspectCommand, PageSessionCommand } from './extensionPageToolbarLogic'
+import type { PageInspectCommand, PageSessionCommand, PageSelectorsCommand } from './extensionPageToolbarLogic'
 
 /**
  * The content script runs the toolbar's own logics in the page, signed in with the extension's OAuth tokens. The panel
@@ -18,7 +21,7 @@ import type { PageInspectCommand, PageSessionCommand } from './extensionPageTool
 // pinned: extension port name, the panel and an already injected content script must agree on it
 export const PAGE_TOOLBAR_PORT = 'posthog-toolbar-page'
 
-export type PageToolbarMode = 'none' | 'heatmap' | 'inspect'
+export type PageToolbarMode = 'none' | 'heatmap' | 'inspect' | 'actions' | 'flags'
 
 /** What the content script reads from the page's posthog-js through the page agent. */
 export interface PageAnalyticsInfo {
@@ -28,6 +31,13 @@ export interface PageAnalyticsInfo {
     scrollRootSelector: string | string[] | null
     /** Null when the posthog-js version has no heatmaps module. */
     heatmapsEnabled: boolean | null
+    featureFlags: PageFeatureFlagsSnapshot
+}
+
+export interface PageFeatureFlagsSnapshot {
+    overrides: Record<string, string | boolean>
+    variants: Record<string, string | boolean>
+    groups: Record<string, string>
 }
 
 export interface PageToolbarTokens {
@@ -45,7 +55,10 @@ export interface PageToolbarSession extends PageToolbarTokens {
 export interface PageToolCommands {
     session: PageSessionCommand
     inspect: PageInspectCommand
+    selectors: PageSelectorsCommand
     heatmap: PageHeatmapCommand
+    actions: PageActionsCommand
+    flags: PageFlagsCommand
 }
 
 export type PageToolName = keyof PageToolCommands
@@ -111,10 +124,57 @@ export type HeatmapSaveResult =
     | { status: 'saved'; shortId: string; savedWidths: number; totalWidths: number }
     | { status: 'failed'; error: string }
 
+export type ActionSaveResult =
+    | { status: 'saved'; actionId: number; name: string | null }
+    | { status: 'failed'; error: string }
+
+export interface PageToolbarActionsState {
+    allActionsLoading: boolean
+    actions: { id: number; name: string | null }[]
+    selectedActionId: number | 'new' | null
+    actionForm: ActionForm
+    /** Goes up when the page changes the form itself, for example when the user picks an element for a step. */
+    formRevision: number
+    actionFormElementsChains: Record<number, ElementType[]>
+    inspectingElement: number | null
+    saving: boolean
+    saveResult: ActionSaveResult | null
+}
+
+export interface FlagInfo {
+    key: string
+    id: number | null
+    /** The value PostHog evaluates for the signed-in user. Choosing it again removes the override. */
+    value: string | boolean
+    currentValue: string | boolean
+    hasOverride: boolean
+    variants: { key: string; name: string | null; rolloutPercentage: number | null }[]
+    payloadOverride: unknown
+}
+
+export interface PageToolbarFlagsState {
+    /** False when the page has no `window.posthog`, so overrides can't reach it. */
+    available: boolean
+    loading: boolean
+    flags: FlagInfo[]
+    countFlagsOverridden: number
+    impersonatedDistinctId: string | null
+    payloadErrors: Record<string, string | null>
+    /** True from the moment the page sends an override until the page's posthog-js applies it or the wait times out. */
+    mutationPending: boolean
+    mutationError: string | null
+    /** Goes up when the page finishes applying an override, whether it worked or not. */
+    mutationRevision: number
+}
+
 export interface PageToolbarState {
     mode: PageToolbarMode
     inspect: PageToolbarInspectState
+    /** Matches on the page for the selectors the panel asked about. `null` marks an invalid selector. */
+    selectorCounts: Record<string, number | null>
     heatmap: PageToolbarHeatmapState
+    actions: PageToolbarActionsState
+    flags: PageToolbarFlagsState
 }
 
 export type PageToolbarMessage =

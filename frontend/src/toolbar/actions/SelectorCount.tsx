@@ -1,30 +1,32 @@
-import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import { useMemo } from 'react'
+import { useContext, useEffect, useMemo } from 'react'
 
 import { pluralize } from 'lib/utils/strings'
+
+import { SelectorCountContext } from './SelectorCountContext'
 
 interface SelectorCountProps {
     selector: string | null
 }
 
 export function SelectorCount({ selector }: SelectorCountProps): JSX.Element | null {
-    const [matches, selectorError] = useMemo(() => {
-        let _selectorError = false
-        let _matches = 0
-        if (selector) {
-            try {
-                _matches = querySelectorAllDeep(selector).length
-            } catch {
-                _selectorError = true
-            }
-        }
-        return [_matches, _selectorError]
-    }, [selector])
+    const counter = useContext(SelectorCountContext)
 
-    return selector === null ? null : (
+    useEffect(() => {
+        if (selector) {
+            counter.request(selector)
+        }
+    }, [counter, selector])
+
+    const count = useMemo(() => (selector ? counter.count(selector) : 0), [counter, selector])
+
+    if (selector === null || count === undefined) {
+        return null
+    }
+
+    return (
         <>
-            <small className={`float-right ${selectorError && 'text-danger'}`}>
-                {selectorError ? 'Invalid selector' : `Matches ${pluralize(matches, 'element')}`}
+            <small className={`float-right ${count === null && 'text-danger'}`}>
+                {count === null ? 'Invalid selector' : `Matches ${pluralize(count, 'element')}`}
             </small>
         </>
     )

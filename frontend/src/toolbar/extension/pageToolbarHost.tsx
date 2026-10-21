@@ -6,6 +6,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarProps } from '~/types'
 
 import { ExtensionPort, extensionFileUrl, onPageToolbarConnect } from './extensionBrowser'
+import { extensionPageFlagsLogic } from './extensionPageFlagsLogic'
 import { extensionPageToolbarLogic, getPageToolbarState } from './extensionPageToolbarLogic'
 import { PagePosthogBridge, onPagePosthogAppeared, requestPageAnalytics } from './pagePosthogBridge'
 import {
@@ -115,7 +116,11 @@ export class PageToolbarHost {
         }
         this.stop()
         const pageAnalytics = await requestPageAnalytics()
-        this.posthogBridge = pageAnalytics ? new PagePosthogBridge(pageAnalytics) : null
+        this.posthogBridge = pageAnalytics
+            ? new PagePosthogBridge(pageAnalytics, (status) =>
+                  extensionPageFlagsLogic.findMounted()?.actions.setFlagMutationStatus(status)
+              )
+            : null
         const props: ToolbarProps = {
             source: 'extension',
             uiHost: session.uiHost,
@@ -155,6 +160,7 @@ export class PageToolbarHost {
         this.overlayRoot = null
         this.unmountLogics?.()
         this.unmountLogics = null
+        this.posthogBridge?.dispose()
         this.posthogBridge = null
         this.uiHost = null
         this.lastState = null

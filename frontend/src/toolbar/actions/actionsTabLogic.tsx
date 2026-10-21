@@ -404,8 +404,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                       })
 
                 if (!result.ok) {
-                    actions.submitActionFormFailure(new Error(result.error.detail), {})
-                    return
+                    // Throwing makes the form report a failure instead of a successful submit.
+                    throw new Error(result.error.detail)
                 }
                 const response = result.data
                 breakpoint() // guard against stale async after unmount
@@ -536,7 +536,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     actions.showButtonActions()
                 }
 
-                toolbarLogic.actions.setVisibleMenu('actions')
+                // The browser extension runs this logic without the floating toolbar's bar.
+                toolbarLogic.findMounted()?.actions.setVisibleMenu('actions')
             }
         },
         inspectElementSelected: ({ element, index }) => {

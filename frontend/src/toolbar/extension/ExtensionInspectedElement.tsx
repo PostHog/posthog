@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,12 +9,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
 import { urls } from '~/toolbar/urls'
 
+import { extensionActionsLogic } from './extensionActionsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { extensionPanelLogic } from './extensionPanelLogic'
 
 export function ExtensionInspectedElement(): JSX.Element | null {
     const { inspect, heatmap } = useValues(extensionPageToolbarConnectionLogic)
     const { sendCommand } = useActions(extensionPageToolbarConnectionLogic)
+    const { newAction } = useActions(extensionActionsLogic)
     const { projectUrl } = useValues(extensionPanelLogic)
     const element = inspect?.element
     if (!element) {
@@ -75,6 +77,17 @@ export function ExtensionInspectedElement(): JSX.Element | null {
                     ))
                 )}
             </div>
+            {inspect.isSelected && (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconPlus />}
+                    onClick={() => newAction(true)}
+                    data-attr="toolbar-extension-create-action-from-element"
+                >
+                    Create action from this element
+                </LemonButton>
+            )}
         </div>
     )
 }

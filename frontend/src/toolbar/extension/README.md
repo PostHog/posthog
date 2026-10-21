@@ -60,6 +60,8 @@ The page tools run the floating toolbar's own logics in the content script, and 
 
 - `elementsLogic` for Inspect.
 - `heatmapToolbarMenuLogic`, `heatmapDataLogic` and `heatmapCaptureLogic` for the heatmap.
+- `actionsLogic` and `actionsTabLogic` for actions.
+- `flagsToolbarLogic` for feature flags.
 
 The panel shows their controls. It sends each command to the tool it belongs to, and gets their state back through a port.
 
@@ -87,6 +89,10 @@ flowchart LR
 - **posthog-js.** The content script can't reach the page's `window.posthog`, so the panel injects `page-agent.js` into the page's world with the content script.
   The content script asks the page agent for the page's posthog-js settings when the page tools start, and stands in for posthog-js with them.
   When a page loads posthog-js later, the page agent reports it, and the page tools start again with it.
+  For flag overrides the page agent calls posthog-js and reports the flag state back. A change it doesn't answer fails after 5 seconds.
+- **Forms.** The panel edits its own copy of the action form, so typing doesn't wait for the page, and sends the form after a short pause.
+  It sends the form right away before any command that changes it on the page, and takes the page's copy only when the page changed the form itself, for example when the user picks an element.
+  The page counts the matches of the selectors the panel shows, and counts again when the page changes.
 - **Injection.** The panel injects the content script on first use. The script answers a ping, so the panel doesn't inject it twice.
 - **Navigation.** When a single-page app changes the URL, the port stays open and the page tools follow the new URL.
   A new document closes the port. The panel then connects again and turns the mode the user picked back on.
@@ -100,5 +106,9 @@ Use a site in the project's authorized URLs. Do these steps in Chrome and in Fir
 2. Click the Inspect icon and hover an element. The panel shows its selector and actions. Click the element to keep it selected.
 3. Click **Heatmap**. Check the clickmap counts, the heatmap canvas, the scroll depth type, **Filter to area**, **Load all**, and **Save to PostHog**.
 4. Reload the page. The heatmap comes back.
-5. Switch to a tab with another site, then back. The panel shows the state of each tab.
-6. Switch the project in the panel. The panel connects the toolbar to the new project.
+5. In Inspect, select an element and click **Create action from this element**. Name the action, check the match count, and save it.
+6. Click **Actions**, open an action, add an element with **Select Element**, and save.
+7. Click **Flags**. Turn a flag on, pick a variant, save a payload, and turn a multivariate flag off. The page reacts to each change. Click **Clear overrides**.
+8. Open a page that doesn't load posthog-js as `window.posthog`. **Flags** says that it can't override flags there.
+9. Switch to a tab with another site, then back. The panel shows the state of each tab.
+10. Switch the project in the panel. The panel connects the toolbar to the new project.
