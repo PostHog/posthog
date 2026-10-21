@@ -11,8 +11,11 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 
+EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
+
 # TODO: Remove the per-query rollout option after the events cluster migration is complete.
 _query_host: ContextVar[list[str | None] | None] = ContextVar("new_events_cluster_host", default=None)
+_query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
 
 
 def get_new_events_cluster_host() -> str | None:
@@ -39,9 +42,6 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         _query_host.reset(token)
 
 
-EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
-
-
 def strip_events_route(query: dict[str, Any], *, drop_empty: bool = False) -> list[dict[str, Any]]:
     """Remove the events route modifiers from a serialized query and every source it wraps.
 
@@ -64,7 +64,25 @@ def strip_events_route(query: dict[str, Any], *, drop_empty: bool = False) -> li
     return nodes
 
 
-_query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
+def pin_events_table(query: dict[str, Any], use_new_events_schema: bool) -> None:
+    """Write the resolved events table into the outermost node of a serialized query that carries modifiers."""
+    node: Any = query
+    while isinstance(node, dict) and "modifiers" not in node:
+        node = node.get("source")
+    if isinstance(node, dict):
+        node["modifiers"] = {**(node["modifiers"] or {}), "useNewEventsSchema": use_new_events_schema}
+
+
+def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: bool) -> dict[str, Any]:
+    """Remove the route values that a legacy-table query resolves to, so its cache key does not change.
+
+    A query that reads no events table never has the events table in its cache key.
+    """
+    if modifiers.get("useNewEventsSchema") is False or not reads_events:
+        modifiers.pop("useNewEventsSchema", None)
+    if not modifiers.get("useNewEventsCluster"):
+        modifiers.pop("useNewEventsCluster", None)
+    return modifiers
 
 
 def get_events_route() -> "HogQLQueryModifiers | None":
