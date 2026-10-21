@@ -19,7 +19,7 @@ from temporalio.converter import DataConverter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models import ActivityLog, Organization, Team, User
+from posthog.models import ActivityLog, FileSystemViewLog, Organization, Team, User
 
 from products.signals.backend.activity_summary import (
     schedule as tick_schedule,
@@ -219,7 +219,7 @@ class TestActivitySummaryQueue(BaseTest):
         self._changes(cold, 1)
         tasks = [UserTaskTime(team_id=self.team.id, user_id=busy.id, created_at=NOW - datetime.timedelta(hours=1))]
 
-        assert self._select(tasks=tasks) == [
+        assert self._select(self._config(min_units=1), tasks=tasks) == [
             (self.team.id, cold.id),
             (self.team.id, busy.id),
             (self.team.id, stale.id),
@@ -361,7 +361,9 @@ class TestActivitySummaryQueue(BaseTest):
             emit_embeddings=True,
             capture_events=True,
         )
-        assert self._select() == [(self.team.id, self.user.id)]
+        # The queue picks a pair with fewer rows than the update's `min_units`, so the update skips it.
+        config = self._config(min_units=1)
+        assert self._select(config) == [(self.team.id, self.user.id)]
 
         with (
             patch("products.signals.backend.activity_summary.logic.gateway_client", **gateway),
@@ -374,7 +376,7 @@ class TestActivitySummaryQueue(BaseTest):
             result = run_pair(pair_input)
 
         assert (result.status, result.called_model) == (status, called_model)
-        assert self._select(seed=False) == []
+        assert self._select(config, seed=False) == []
         if called_model:
             assert result.cost_usd
             usage = daily_usage(NOW)
@@ -407,6 +409,19 @@ class TestActivitySummaryQueue(BaseTest):
         assert self._select(seed=False) == []
         assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
 
+    @parameterized.expand([("counted", True, 1), ("not counted", False, 0)])
+    def test_viewed_objects_make_a_pair_due_when_views_count(self, _name: str, count_views: bool, due: int) -> None:
+        for index in range(3):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=str(index),
+                viewed_at=NOW - datetime.timedelta(hours=index + 1),
+            )
+
+        assert self._select(self._config(count_views=count_views)) == [(self.team.id, self.user.id)][:due]
+
     def test_the_feed_reads_each_row_once_and_an_ok_update_clears_the_pending_units(self) -> None:
         config = self._config()
         with patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]):
@@ -438,7 +453,7 @@ class TestActivitySummaryQueue(BaseTest):
             time_machine.travel(later, tick=False),
             patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
         ):
-            self._changes(self.user, 1, days_ago=-0.1)
+            self._changes(self.user, 3, days_ago=-0.1)
             feed_queue(config, later)
         assert self._select(seed=False, now=later) == [(self.team.id, self.user.id)]
 

@@ -352,8 +352,9 @@ def sync_pair_state(team_id: int, user_id: int) -> None:
 def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> list[ActivitySummaryPair]:
     """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
 
-    A pair is due when it has pending units with a row in the last `window_days`, and its due time is
-    empty or past. Pairs with no summary come first, then the pairs with the most pending units, then
+    A pair is due when it has at least `min_units` pending units with a row in the last `window_days`,
+    and its due time is empty or past. One unit never comes from less than one row, so a pair with
+    fewer rows would only skip. Pairs with no summary come first, then the pairs with the most pending units, then
     the oldest summaries.
     """
     team_ids = enrolled_team_ids(config)
@@ -363,7 +364,9 @@ def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: i
     rows = (
         # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
         UserActivitySummaryQueueState.all_teams.filter(
-            team_id__in=team_ids, pending_units__gt=0, last_activity_at__gte=window_start
+            team_id__in=team_ids,
+            pending_units__gte=max(1, config.min_units),
+            last_activity_at__gte=window_start,
         )
         .filter(Q(due_at__isnull=True) | Q(due_at__lte=now))
         .order_by(*_QUEUE_ORDER)
