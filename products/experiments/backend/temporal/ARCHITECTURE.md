@@ -204,11 +204,27 @@ Red nodes advance the window; blue nodes reuse it.
 
 #### Retriable failures
 
-A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`.
+A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, calculation_key, timestamp}`. `calculation_key` is null when the failure happened before the metric's calculation config existed.
 `error_type` is the same taxonomy as the `experiment metric error` event (`classify_experiment_query_error`).
 `retriable` is the backend's own decision, not a frontend mapping of `error_type`: it is true when a transient error (`timeout`, `rate_limited`, `server_error`) used its final attempt, and false when the calc activity failed permanently (`validation_error`, `out_of_memory`, `byte_limit`, `insufficient_data`, a `ValueError`, or a discovery failure) or the request was rejected (`recalculation_window_too_long`).
 A retriable failure reads as a gap, so the page load heals it; a non-retriable one waits for the user, because a new run with the same inputs fails the same way.
 An entry without the flag predates it and counts as non-retriable, so an old run never heals in a loop.
+
+#### Skipped metrics
+
+Discovery can skip a metric that is certain to fail again.
+It reads the latest two terminal runs of the experiment in one query and builds a `MetricHistory` for each metric: the current calculation key, the trigger, and the metric's outcome in each run.
+`skip_recalculation.find_metric_skips` runs the checks in `skip_recalculation_checks` in order, and the first skip wins.
+Both modules are pure, so the loader in discovery is the only database read.
+A check that raises returns no skip, and an error anywhere in skip planning skips nothing, so the metric runs.
+The only check skips a metric whose latest failure is a `validation_error` with the same calculation key as now.
+A `manual_retry` run ("Try again") never skips.
+
+With the `experiments-recalculations-skip-failing-metrics` organization flag on, discovery writes a `metric_errors` entry with `step: "skipped"`, `error_type: "metric_skipped"`, `skipped_error_type`, `skip_reason`, `failed_recalculation_id` and `failed_at`.
+The entry keeps the frontend from reading the metric as a gap and healing it in a loop.
+The calc activity finds the entry, sends `experiment metric error` with `error_type: "metric_skipped"`, and fails the metric before any query, so the run ends failed.
+A later run reads the skip entry as the failure it skipped, so the skip holds until the metric changes.
+With the flag off, discovery sends `experiment metric would skip` instead and the metric runs as usual.
 
 #### The cold-start payload
 
