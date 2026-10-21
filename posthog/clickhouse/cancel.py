@@ -12,7 +12,10 @@ from posthog.clickhouse.client.connection import default_client
 from posthog.clickhouse.metadata_worker import PHYSICAL_QUERY_ID_PREDICATE, physical_query_id_prefix
 from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.models.event.new_events_schema import get_new_events_cluster_host, native_events_cluster_ineligibility
+from posthog.models.event.new_events_schema import (
+    get_new_events_cluster_host_or_none,
+    native_events_cluster_ineligibility,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 # The pooled clients run with an effectively unbounded send/receive timeout, so a kill issued through them
@@ -33,12 +36,12 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     statsd.incr("clickhouse.query.cancellation.requested", tags={"team_id": team_id})
     # Cleanup queries must not appear among the queries they discover or cancel.
     with tags_context(team_id=None, client_query_id=None):
+        native_host = get_new_events_cluster_host_or_none()
         try:
-            native_host = get_new_events_cluster_host()
             # Only projects enabled for the native cluster can have queries there.
             native_enabled = bool(native_host) and native_events_cluster_ineligibility(team_id) is None
         except Exception:
-            logger.exception("Failed to resolve native query cancellation host")
+            logger.exception("Failed to resolve native query cancellation eligibility")
             native_enabled = False
         if not native_host or not native_enabled:
             _cancel_legacy_query(team_id, client_query_id)
