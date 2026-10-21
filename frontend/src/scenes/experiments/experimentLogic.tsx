@@ -74,11 +74,13 @@ import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentSt
 import { experimentsHealthRetrieve, experimentsMigrateCreate } from 'products/experiments/frontend/generated/api'
 import type { ExperimentHealthApi } from 'products/experiments/frontend/generated/api.schemas'
 import {
+    type ExperimentHealthChecksOpenedFrom,
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
     type ExperimentHealthFindingOpenKind,
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
+    captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
@@ -86,6 +88,12 @@ import {
     experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import {
+    type ExposureChecksState,
+    type HealthPanelCheck,
+    exposureChecksState,
+    healthPanelChecks,
+} from 'products/experiments/frontend/health/healthPanelChecks'
 import { type HealthPanelFinding, healthPanelFindings } from 'products/experiments/frontend/health/healthPanelFindings'
 import {
     experimentsLogic,
@@ -365,6 +373,8 @@ export interface experimentLogicValues {
     freezeExposureLoading: boolean
     hasMetrics: boolean
     hasMinimumExposureForResults: boolean
+    healthChecks: HealthPanelCheck[] | null
+    healthExposureChecks: ExposureChecksState
     healthFindings: HealthPanelFinding[] | null
     healthPending: boolean
     healthUi: ExperimentHealthUi
@@ -745,6 +755,9 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
+        openedFrom: ExperimentHealthChecksOpenedFrom
+    }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
         actionKind: ExperimentHealthFindingActionKind
@@ -970,6 +983,16 @@ export interface experimentLogicMeta {
             exposures: any,
             isExperimentDraft: boolean
         ) => HealthPanelFinding[] | null
+        healthChecks: (
+            shownHealth: ExperimentHealthApi | null,
+            exposures: any,
+            isExperimentDraft: boolean
+        ) => HealthPanelCheck[] | null
+        healthExposureChecks: (
+            isExperimentLaunched: boolean,
+            exposures: any,
+            exposuresLoading: boolean
+        ) => ExposureChecksState
         usesNewQueryRunner: (experiment: Experiment) => boolean
         hasMinimumExposureForResults: (exposures: any, usesNewQueryRunner: boolean) => boolean
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
@@ -1059,6 +1082,7 @@ export const experimentLogic = kea<experimentLogicType>([
             finding: ExperimentHealthFinding,
             actionKind: ExperimentHealthFindingActionKind
         ) => ({ finding, actionKind }),
+        reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1543,6 +1567,15 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
+        },
+        reportHealthChecksOpened: ({ openedFrom }) => {
+            captureExperimentHealthChecksOpened(
+                values.experiment,
+                values.healthChecks ?? [],
+                values.healthFindings?.length ?? 0,
+                values.healthUi,
+                openedFrom
+            )
         },
         setExperiment: () => {
             // A save returns the whole experiment, so compare values: only a changed input makes the findings stale.
@@ -2454,7 +2487,11 @@ export const experimentLogic = kea<experimentLogicType>([
             null as ExperimentHealthApi | null,
             {
                 loadExperimentHealth: async (trigger: ExperimentHealthLoadTrigger, breakpoint) => {
-                    if (typeof values.experimentId !== 'number' || values.currentProjectId === null) {
+                    if (
+                        typeof values.experimentId !== 'number' ||
+                        values.experimentMissing ||
+                        values.currentProjectId === null
+                    ) {
                         return null
                     }
                     if (trigger === 'experiment_update') {
@@ -2825,6 +2862,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 isExperimentDraft: boolean
             ): HealthPanelFinding[] | null =>
                 healthPending ? [] : healthPanelFindings(shownHealth, exposures, isExperimentDraft),
+        ],
+        healthChecks: [
+            (s) => [s.shownHealth, s.exposures, s.isExperimentDraft],
+            (
+                shownHealth: ExperimentHealthApi | null,
+                exposures: any,
+                isExperimentDraft: boolean
+            ): HealthPanelCheck[] | null => healthPanelChecks(shownHealth, exposures, isExperimentDraft),
+        ],
+        healthExposureChecks: [
+            (s) => [s.isExperimentLaunched, s.exposures, s.exposuresLoading],
+            (isExperimentLaunched: boolean, exposures: any, exposuresLoading: boolean): ExposureChecksState =>
+                exposureChecksState(isExperimentLaunched, exposures, exposuresLoading),
         ],
         usesNewQueryRunner: [
             (s) => [s.experiment],

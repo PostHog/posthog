@@ -636,6 +636,11 @@ def _trim_trailing_settings(sql: str) -> str:
     return sql[: sql.rfind("SETTINGS")]
 
 
+# Every INSERT creates a new part. Callers that add a few people per call, such as a workflow step that runs once
+# per person, would create one part per person, so ClickHouse buffers small inserts into shared parts instead.
+STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
+
+
 def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(
         product=ProductKey.COHORTS,
@@ -654,7 +659,12 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         }
         for person_uuid in person_uuids
     ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+    # wait_for_async_insert returns only after the buffer is flushed, so a failed write still raises and a
+    # following membership read sees the row.
+    insert_settings = (
+        {"async_insert": 1, "wait_for_async_insert": 1} if len(persons) <= STATIC_COHORT_ASYNC_INSERT_MAX_ROWS else None
+    )
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=insert_settings)
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):

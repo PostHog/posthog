@@ -2,7 +2,7 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, MagicMock, PropertyMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
 from django.test import override_settings
@@ -29,30 +29,9 @@ from products.product_analytics.backend.facade.models import Insight
 
 
 class TestDashboardWidgets(APIBaseTest):
-    _WIDGETS_FLAG_PATCH_TARGETS = (
-        "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-        "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-    )
-
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self._widgets_flag_patchers = [patch(target, return_value=True) for target in self._WIDGETS_FLAG_PATCH_TARGETS]
-        for patcher in self._widgets_flag_patchers:
-            patcher.start()
-
-    def tearDown(self) -> None:
-        for patcher in self._widgets_flag_patchers:
-            patcher.stop()
-        super().tearDown()
-
-    def _stop_widgets_flag_patchers(self) -> None:
-        for patcher in self._widgets_flag_patchers:
-            patcher.stop()
-
-    def _start_widgets_flag_patchers(self) -> None:
-        for patcher in self._widgets_flag_patchers:
-            patcher.start()
 
     @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
@@ -258,30 +237,6 @@ class TestDashboardWidgets(APIBaseTest):
         assert "widget_type cannot be changed" in response.json()["detail"]
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_rejects_widget_update_via_dashboard_patch_when_feature_flag_disabled(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
-        tile = dashboard_json["tiles"][0]
-        tile["widget"]["config"] = {"limit": 12}
-
-        self._stop_widgets_flag_patchers()
-        try:
-            with patch(
-                "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-                return_value=False,
-            ):
-                response = self.client.patch(
-                    f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-                    {"tiles": [tile]},
-                )
-        finally:
-            self._start_widgets_flag_patchers()
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "widget"
-        assert "not enabled" in response.json()["detail"].lower()
-
-    @override_settings(IN_UNIT_TESTING=True)
     def test_duplicate_dashboard_without_deep_clone_still_clones_widgets(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 7})
@@ -464,24 +419,6 @@ class TestDashboardWidgets(APIBaseTest):
         assert not DashboardWidget.all_teams.filter(team_id=self.team.id).exists()
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_create_from_template_json_widget_rejects_when_flag_disabled(self) -> None:
-        self._stop_widgets_flag_patchers()
-        try:
-            with patch(
-                "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-                return_value=False,
-            ):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
-                    {"template": self._widget_template_payload()},
-                )
-        finally:
-            self._start_widgets_flag_patchers()
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
-
-    @override_settings(IN_UNIT_TESTING=True)
     def test_create_from_template_json_widget_rejects_unknown_widget_type(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
@@ -652,25 +589,6 @@ class TestDashboardWidgets(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
             {"widgets": [{"widget_type": "unknown", "config": {}}]},
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    @override_settings(IN_UNIT_TESTING=True)
-    def test_widgets_batch_endpoint_requires_feature_flag(self) -> None:
-        self._stop_widgets_flag_patchers()
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-
-        try:
-            with patch(
-                "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-                return_value=False,
-            ):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
-                    {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 5}}]},
-                )
-        finally:
-            self._start_widgets_flag_patchers()
-
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(IN_UNIT_TESTING=True)
@@ -1192,19 +1110,9 @@ class TestDashboardWidgets(APIBaseTest):
 
 
 class TestDashboardWidgetsBatchUpdate(APIBaseTest):
-    _WIDGETS_FLAG_PATCH_TARGETS = TestDashboardWidgets._WIDGETS_FLAG_PATCH_TARGETS
-
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self._widgets_flag_patchers = [patch(target, return_value=True) for target in self._WIDGETS_FLAG_PATCH_TARGETS]
-        for patcher in self._widgets_flag_patchers:
-            patcher.start()
-
-    def tearDown(self) -> None:
-        for patcher in self._widgets_flag_patchers:
-            patcher.stop()
-        super().tearDown()
 
     def _batch_update(self, dashboard_id: int, widgets: list[dict[str, Any]], team_id: int | None = None) -> Any:
         team_id = team_id or self.team.id
@@ -1389,27 +1297,6 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_requires_feature_flag(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
-        tile = dashboard_json["tiles"][0]
-
-        for patcher in self._widgets_flag_patchers:
-            patcher.stop()
-        try:
-            with patch(
-                "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-                return_value=False,
-            ):
-                response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
-        finally:
-            for patcher in self._widgets_flag_patchers:
-                patcher.start()
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled" in response.json()["detail"].lower()
-
-    @override_settings(IN_UNIT_TESTING=True)
     def test_rejects_empty_list(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
@@ -1474,11 +1361,7 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
         tile = dashboard_json["tiles"][0]
 
-        with patch(
-            "posthog.user_permissions.UserDashboardPermissions.can_edit",
-            new_callable=PropertyMock,
-            return_value=False,
-        ):
+        with patch.object(UserAccessControl, "check_access_level_for_object", return_value=False):
             response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -1526,16 +1409,6 @@ class TestDashboardWidgetOpenApiSchema(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self._widgets_flag_patchers = [
-            patch(target, return_value=True) for target in TestDashboardWidgets._WIDGETS_FLAG_PATCH_TARGETS
-        ]
-        for patcher in self._widgets_flag_patchers:
-            patcher.start()
-
-    def tearDown(self) -> None:
-        for patcher in self._widgets_flag_patchers:
-            patcher.stop()
-        super().tearDown()
 
     def test_add_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
         schema = SchemaGenerator().get_schema(request=None, public=True)

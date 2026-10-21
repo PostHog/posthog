@@ -44,7 +44,7 @@ class PayFitSource(ResumableSource[PayFitSourceConfig, PayFitResumeConfig]):
             name=ExternalDataSourceType.PAYFIT,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="PayFit",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your PayFit API key to pull your HR and payroll data into the PostHog Data warehouse.
 
 You can create an API key from the **API access** tab on the [integrations page](https://app.payfit.com/integrations/hub/api) of your PayFit admin account. Grant it the `collaborators:read`, `contracts:read`, `time:read`, and `contracts:payslips:read` scopes so every table can sync.
