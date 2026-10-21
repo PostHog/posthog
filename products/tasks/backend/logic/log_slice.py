@@ -151,6 +151,15 @@ def _human_entry(index: int, line: str) -> HumanEntry | None:
 
 
 @frozen
+class EchoSpan:
+    """A ``_posthog/user_message`` at ``first`` and the later ``session/update`` form of it at ``last``. A cut in
+    ``(first, last]`` separates the two."""
+
+    first: int
+    last: int
+
+
+@frozen
 class ToolFrame:
     """A tool call frame: ``tool_call`` or ``tool_call_update``, its call id, and the call id of its parent."""
 
@@ -315,6 +324,7 @@ class _Chain:
             for entry in part.summary.human
         ]
         self._echo_spans = self._unsafe_echo_spans()
+        self._echo_firsts = [span.first for span in self._echo_spans]
 
     def _entries(self, part_index: int) -> list[str]:
         if part_index not in self._loaded:
@@ -351,10 +361,10 @@ class _Chain:
             1 for index, entry in self._human if index < cut and counter.opens_turn(entry.text_key, entry.user_message)
         )
 
-    def _unsafe_echo_spans(self) -> list[tuple[int, int]]:
-        """The index ranges ``(first, last]`` where a cut separates a ``_posthog/user_message`` from the later
-        ``session/update`` form that ``HumanTurnCounter`` pairs with it, merged and sorted. Each later form spends
-        the oldest credit of its text, which pairs the same counts the counter keeps."""
+    def _unsafe_echo_spans(self) -> list[EchoSpan]:
+        """The spans where a cut separates a ``_posthog/user_message`` from the later ``session/update`` form that
+        ``HumanTurnCounter`` pairs with it, merged and sorted. Each later form spends the newest credit of its
+        text, which keeps the same counts the counter keeps."""
         credits: defaultdict[str, list[int]] = defaultdict(list)
         spans: list[tuple[int, int]] = []
         for index, entry in self._human:
@@ -363,19 +373,19 @@ class _Chain:
             elif credits[entry.text_key]:
                 # The newest credit: an older message whose echo never came leaves a credit the counter never spends.
                 spans.append((credits[entry.text_key].pop(), index))
-        merged: list[tuple[int, int]] = []
+        merged: list[EchoSpan] = []
         for first, last in sorted(spans):
-            if merged and first < merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], last))
+            if merged and first < merged[-1].last:
+                merged[-1] = EchoSpan(first=merged[-1].first, last=max(merged[-1].last, last))
             else:
-                merged.append((first, last))
+                merged.append(EchoSpan(first=first, last=last))
         return merged
 
     def echo_safe(self, cut: int) -> bool:
         """Whether the turn rule reads every human message from ``cut`` on the same way with or without the
         messages before it. A ``_posthog/user_message`` before the cut whose echo comes after the cut fails."""
-        position = bisect.bisect_left(self._echo_spans, (cut, cut)) - 1
-        return position < 0 or not (self._echo_spans[position][0] < cut <= self._echo_spans[position][1])
+        position = bisect.bisect_left(self._echo_firsts, cut) - 1
+        return position < 0 or not (self._echo_spans[position].first < cut <= self._echo_spans[position].last)
 
     def preamble(self, cut: int) -> list[str]:
         """The entries before ``cut`` that still set run state there: the latest entry for each state key (run
