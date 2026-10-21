@@ -8,9 +8,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook, transition_events
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
+from products.alerts_platform.backend.delivery.evaluation import (
+    LIVE_DELIVERY_FLAG,
+    deliver_evaluation,
+    emit_transition_events,
+)
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
@@ -27,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
     SourceKind,
+    TransitionEvent,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
@@ -476,14 +481,110 @@ class TestDeliverEvaluation(APIBaseTest):
         # which would send grandfathered teams the Alertmanager body without any error.
         assert legacy_webhook.body_for(SourceKind.LOGS) is not None
         assert delivery_paths.emitter_for(SourceKind.LOGS) is not None
+        assert SourceKind.LOGS in transition_events._source_facts
 
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
         assert delivery_paths._chooser is not None
+        assert transition_events._producer is not None
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
         )
+
+
+class TestTransitionEvents(APIBaseTest):
+    def _emit(
+        self,
+        announced: EvaluationAnnouncement | None,
+        *,
+        transition_flag: bool = True,
+        live: bool = False,
+        owned_by_platform: bool = True,
+        sends_messages: bool = True,
+        facts: Any = None,
+    ) -> list[TransitionEvent]:
+        produced: list[TransitionEvent] = []
+
+        def produce(*, team_id: int, configuration_id: str, events: list[TransitionEvent]) -> None:
+            produced.extend(events)
+
+        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            return transition_flag if flag == transition_events.TRANSITION_EVENT_FLAG else live
+
+        with (
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                side_effect=flag_enabled,
+            ),
+            patch(f"{_MODULE}.announcement", return_value=announced),
+            patch.object(transition_events, "_producer", produce),
+            patch.dict(transition_events._source_facts, {SourceKind.LOGS: facts} if facts else {}, clear=True),
+        ):
+            emitted = emit_transition_events(
+                _request(self.team.id, owned_by_platform=owned_by_platform, sends_messages=sends_messages)
+            )
+        assert emitted == len(produced)
+        return produced
+
+    @parameterized.expand(
+        [
+            ("platform_owned", {}, 1),
+            ("flag_off", {"transition_flag": False}, 0),
+            ("source_still_delivers", {"owned_by_platform": False}, 0),
+            ("source_owned_on_live_delivery", {"owned_by_platform": False, "live": True}, 1),
+            ("incident_only_delivery", {"sends_messages": False}, 0),
+        ]
+    )
+    def test_an_alert_emits_only_where_the_platform_contacts_its_team(
+        self, _name: str, gates: dict[str, bool], expected: int
+    ) -> None:
+        assert len(self._emit(_announcement(_transition(AlertEventKind.FIRING)), **gates)) == expected
+
+    def test_each_transition_carries_the_platform_fields_and_the_source_facts(self) -> None:
+        firing = replace(_transition(AlertEventKind.FIRING), value=12.0, labels={"service": "api"})
+        errored = replace(_transition(AlertEventKind.ERRORED, episode_started_at=None), error_message="timeout")
+        announced = replace(_announcement(firing, errored), consecutive_failures=2)
+
+        def facts(*, transition: AnnouncedTransition, **_kwargs: Any) -> dict[str, Any]:
+            return {"alert_id": "legacy-1", "result_count": transition.value}
+
+        events = self._emit(announced, facts=facts)
+
+        assert [event.properties for event in events] == [
+            {
+                "alert_configuration_id": "cfg-1",
+                "alert_name": "API errors",
+                "source_kind": "logs",
+                "transition": "firing",
+                "occurred_at": FIRING.isoformat(),
+                "episode_started_at": FIRING.isoformat(),
+                "value": 12.0,
+                "labels": {"service": "api"},
+                "grouping_key": "",
+                "error_message": None,
+                "consecutive_failures": None,
+                "url": "",
+                "source": {"alert_id": "legacy-1", "result_count": 12.0},
+            },
+            {
+                "alert_configuration_id": "cfg-1",
+                "alert_name": "API errors",
+                "source_kind": "logs",
+                "transition": "errored",
+                "occurred_at": FIRING.isoformat(),
+                "episode_started_at": None,
+                "value": None,
+                "labels": {},
+                "grouping_key": "",
+                "error_message": "timeout",
+                "consecutive_failures": 2,
+                "url": "",
+                "source": {"alert_id": "legacy-1", "result_count": None},
+            },
+        ]
+        assert [event.uuid for event in events] == [event.uuid for event in self._emit(announced, facts=facts)]
+        assert events[0].uuid != events[1].uuid
 
 
 class TestDeliveryPath(APIBaseTest):
