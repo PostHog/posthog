@@ -7,15 +7,9 @@ from temporalio import activity
 
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.mcp_analytics.intent_topics.constants import (
-    ASSIGN_OVERLAP,
-    ASSIGN_WINDOW,
-    REFIT_REASSIGN_WINDOW,
-    SYNC_OVERLAP,
-    SYNC_WINDOW,
-)
+from posthog.temporal.mcp_analytics.intent_topics.constants import ASSIGN_OVERLAP, ASSIGN_WINDOW, REFIT_REASSIGN_WINDOW
 from posthog.temporal.mcp_analytics.intent_topics.models import IntentTopicsRunResult, IntentTopicsWorkflowInputs
 
 from products.mcp_analytics.backend.intent_topics import pipeline
@@ -41,15 +35,17 @@ def _result(team_id: int, outcome: pipeline.RunOutcome) -> IntentTopicsRunResult
     )
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _run_sync(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)
         now = _now(inputs)
-        return _result(team.pk, pipeline.run_sync(team, window_start=now - SYNC_WINDOW - SYNC_OVERLAP, window_end=now))
+        return _result(
+            team.pk, pipeline.run_sync(team, window_start=pipeline.sync_window_start(team, now=now), window_end=now)
+        )
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _run_assign(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)
@@ -59,14 +55,14 @@ def _run_assign(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
         )
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _run_refit(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)
         return _result(team.pk, pipeline.run_refit(team, now=_now(inputs)))
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _run_reassign_after_refit(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)

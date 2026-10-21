@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -45,33 +46,50 @@ WHERE event = '$mcp_tool_call'
   AND notEmpty(toString(properties.{INTENT_PROPERTY}))
 GROUP BY intent_hash
 ORDER BY calls DESC, intent_hash
-LIMIT {{limit}}
+LIMIT {{page_size}}
+OFFSET {{offset}}
 """
 
 
 def fetch_distinct_intents(
-    team: Team, *, since: datetime, until: datetime, limit: int = MAX_NEW_INTENTS_PER_SYNC
+    team: Team,
+    *,
+    since: datetime,
+    until: datetime,
+    limit: int = MAX_NEW_INTENTS_PER_SYNC,
+    page_size: int = MAX_SELECT_RETURNED_ROWS,
 ) -> list[DistinctIntent]:
-    """Distinct intent texts called in [since, until), most called first."""
-    query = parse_select(
-        _DISTINCT_INTENTS_SQL,
-        placeholders={
-            "since": ast.Constant(value=since),
-            "until": ast.Constant(value=until),
-            "limit": ast.Constant(value=limit),
-        },
-    )
-    response = execute_hogql_query(query=query, team=team)
-    return [
-        DistinctIntent(
-            hash=row[0],
-            text=row[1],
-            calls=int(row[2]),
-            top_tool=(row[3] or [""])[0] or "",
-            intent_source=row[4] or "",
+    """Distinct intent texts called in [since, until), most called first.
+
+    A single HogQL query returns at most MAX_SELECT_RETURNED_ROWS rows, so larger windows are read in
+    pages ordered by a stable key.
+    """
+    intents: list[DistinctIntent] = []
+    while len(intents) < limit:
+        size = min(page_size, limit - len(intents))
+        query = parse_select(
+            _DISTINCT_INTENTS_SQL,
+            placeholders={
+                "since": ast.Constant(value=since),
+                "until": ast.Constant(value=until),
+                "page_size": ast.Constant(value=size),
+                "offset": ast.Constant(value=len(intents)),
+            },
         )
-        for row in response.results
-    ]
+        rows = execute_hogql_query(query=query, team=team).results or []
+        intents.extend(
+            DistinctIntent(
+                hash=row[0],
+                text=row[1],
+                calls=int(row[2]),
+                top_tool=(row[3] or [""])[0] or "",
+                intent_source=row[4] or "",
+            )
+            for row in rows
+        )
+        if len(rows) < size:
+            break
+    return intents
 
 
 _SEEN_HASHES_SQL = """
@@ -82,6 +100,7 @@ WHERE model_name = {model}
   AND document_type = {document_type}
   AND timestamp >= {since}
   AND document_id IN {hashes}
+LIMIT {limit}
 """
 
 
@@ -105,6 +124,7 @@ def fetch_seen_hashes(team: Team, hashes: Sequence[str], *, now: datetime) -> se
                 "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
                 "since": ast.Constant(value=since),
                 "hashes": ast.Constant(value=list(chunk)),
+                "limit": ast.Constant(value=len(chunk)),
             },
         )
         response = execute_hogql_query(query=query, team=team)

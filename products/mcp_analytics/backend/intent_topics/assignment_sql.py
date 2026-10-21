@@ -49,7 +49,7 @@ SELECT
     toFloat32(arraySum(arrayMap((v, m, p) -> (v - m) * p, embedding, %(pca_mean)s, %(pca_pc1)s))) AS x,
     toFloat32(arraySum(arrayMap((v, m, p) -> (v - m) * p, embedding, %(pca_mean)s, %(pca_pc2)s))) AS y,
     if(arrayElement(dists, best) > arrayElement(%(thresholds)s, best), 1, 0) AS is_outlier,
-    substring(content, 1, %(max_text_length)s) AS intent_text,
+    substringUTF8(content, 1, %(max_text_length)s) AS intent_text,
     toUInt32(JSONExtractUInt(metadata, 'calls')) AS calls_in_run,
     now64(3) AS timestamp
 FROM (

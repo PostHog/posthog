@@ -6,6 +6,7 @@ them as they are.
 """
 
 import asyncio
+from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
@@ -37,14 +38,28 @@ from posthog.temporal.mcp_analytics.intent_topics.coordinator import IntentTopic
 
 logger = structlog.get_logger(__name__)
 
-SCHEDULES: list[tuple[str, str, timedelta]] = [
-    (SYNC_SCHEDULE_ID, "sync", SYNC_INTERVAL),
-    (ASSIGN_SCHEDULE_ID, "assign", ASSIGN_INTERVAL),
-    (REFIT_SCHEDULE_ID, "refit", REFIT_INTERVAL),
+
+@dataclass(frozen=True)
+class TopicsSchedule:
+    schedule_id: str
+    kind: str
+    every: timedelta
+    # Off the top of the hour, where every other schedule fires.
+    offset: timedelta
+
+
+SCHEDULES: list[TopicsSchedule] = [
+    TopicsSchedule(schedule_id=SYNC_SCHEDULE_ID, kind="sync", every=SYNC_INTERVAL, offset=timedelta(minutes=7)),
+    TopicsSchedule(
+        schedule_id=ASSIGN_SCHEDULE_ID, kind="assign", every=ASSIGN_INTERVAL, offset=timedelta(hours=2, minutes=17)
+    ),
+    TopicsSchedule(
+        schedule_id=REFIT_SCHEDULE_ID, kind="refit", every=REFIT_INTERVAL, offset=timedelta(hours=1, minutes=37)
+    ),
 ]
 
 
-def _schedule_for(kind: str, every: timedelta, schedule_id: str) -> Schedule:
+def _schedule_for(kind: str, every: timedelta, offset: timedelta, schedule_id: str) -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
             COORDINATOR_WORKFLOW_NAME,
@@ -53,7 +68,7 @@ def _schedule_for(kind: str, every: timedelta, schedule_id: str) -> Schedule:
             task_queue=settings.MCPA_TASK_QUEUE,
             execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=every)]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=every, offset=offset)]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -64,16 +79,16 @@ async def create_intent_topics_schedules(client: Client) -> None:
         if not check_succeeded:
             logger.info("mcpa.intent_topics.schedule.feature_flag_check_failed_preserving_state")
             return
-        for schedule_id, _, _ in SCHEDULES:
-            if await a_schedule_exists(client, schedule_id):
-                logger.info("mcpa.intent_topics.schedule.disabled_removing_existing", schedule_id=schedule_id)
-                await a_delete_schedule(client, schedule_id)
+        for entry in SCHEDULES:
+            if await a_schedule_exists(client, entry.schedule_id):
+                logger.info("mcpa.intent_topics.schedule.disabled_removing_existing", schedule_id=entry.schedule_id)
+                await a_delete_schedule(client, entry.schedule_id)
         return
 
-    for schedule_id, kind, every in SCHEDULES:
-        schedule = _schedule_for(kind, every, schedule_id)
-        if await a_schedule_exists(client, schedule_id):
-            await a_update_schedule(client, schedule_id, schedule)
+    for entry in SCHEDULES:
+        schedule = _schedule_for(entry.kind, entry.every, entry.offset, entry.schedule_id)
+        if await a_schedule_exists(client, entry.schedule_id):
+            await a_update_schedule(client, entry.schedule_id, schedule)
         else:
-            await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)
-        logger.info("mcpa.intent_topics.schedule.registered", schedule_id=schedule_id, every=str(every))
+            await a_create_schedule(client, entry.schedule_id, schedule, trigger_immediately=False)
+        logger.info("mcpa.intent_topics.schedule.registered", schedule_id=entry.schedule_id, every=str(entry.every))

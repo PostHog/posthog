@@ -16,9 +16,6 @@ SYNC_INTERVAL = timedelta(hours=1)
 ASSIGN_INTERVAL = timedelta(days=1)
 REFIT_INTERVAL = timedelta(days=7)
 
-# Each sync looks one hour back plus an overlap, so a late event is not missed between runs.
-SYNC_WINDOW = timedelta(hours=1)
-SYNC_OVERLAP = timedelta(minutes=15)
 # The nightly assignment covers yesterday plus an overlap for vectors that landed after midnight.
 ASSIGN_WINDOW = timedelta(days=1)
 ASSIGN_OVERLAP = timedelta(hours=2)

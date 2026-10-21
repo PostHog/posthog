@@ -4,6 +4,8 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime
 
 from posthog.api.embedding_worker import emit_embedding_request
+from posthog.kafka_client.routing import get_producer
+from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
@@ -26,21 +28,36 @@ def ensure_embedding_allowed(team: Team) -> None:
         raise IntentGenerationUnavailable("AI data processing is not approved for this organization")
 
 
+DELIVERY_BATCH_SIZE = 5_000
+DELIVERY_TIMEOUT_SECONDS = 30.0
+
+
 def emit_intent_embeddings(team: Team, intents: Sequence[DistinctIntent], *, now: datetime) -> int:
-    """Emit one embedding request per intent. Returns the number emitted."""
+    """Emit one embedding request per intent and wait for Kafka to acknowledge each batch.
+
+    A delivery failure raises, so the run fails and its retry emits the same intents again; an
+    unconfirmed run would otherwise age the window out and lose them.
+    """
     if not intents:
         return 0
     ensure_embedding_allowed(team)
-    for intent in intents:
-        emit_embedding_request(
-            content=intent.text,
-            team_id=team.pk,
-            product=EMBEDDING_PRODUCT,
-            document_type=EMBEDDING_DOCUMENT_TYPE,
-            rendering=EMBEDDING_RENDERING,
-            document_id=intent.hash,
-            models=[EMBEDDING_MODEL],
-            timestamp=now,
-            metadata={"calls": intent.calls, "tool": intent.top_tool, "intent_source": intent.intent_source},
-        )
+    producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
+    for start in range(0, len(intents), DELIVERY_BATCH_SIZE):
+        results = [
+            emit_embedding_request(
+                content=intent.text,
+                team_id=team.pk,
+                product=EMBEDDING_PRODUCT,
+                document_type=EMBEDDING_DOCUMENT_TYPE,
+                rendering=EMBEDDING_RENDERING,
+                document_id=intent.hash,
+                models=[EMBEDDING_MODEL],
+                timestamp=now,
+                metadata={"calls": intent.calls, "tool": intent.top_tool, "intent_source": intent.intent_source},
+            )
+            for intent in intents[start : start + DELIVERY_BATCH_SIZE]
+        ]
+        producer.flush(DELIVERY_TIMEOUT_SECONDS)
+        for result in results:
+            result.get(timeout=DELIVERY_TIMEOUT_SECONDS)
     return len(intents)

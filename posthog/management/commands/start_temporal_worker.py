@@ -585,10 +585,8 @@ _task_queue_specs = [
         # defaultdict merge below folds these into the general-purpose
         # registration; the env override routes them to a dedicated worker.
         settings.MCPA_TASK_QUEUE,
-        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
-        MCP_ANALYTICS_INTENT_TOPICS_WORKFLOWS,
-        MCP_ANALYTICS_INTENT_TOPICS_ACTIVITIES,
+        [*MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS, *MCP_ANALYTICS_INTENT_TOPICS_WORKFLOWS],
+        [*MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES, *MCP_ANALYTICS_INTENT_TOPICS_ACTIVITIES],
     ),
     (
         settings.ERROR_TRACKING_TASK_QUEUE,
