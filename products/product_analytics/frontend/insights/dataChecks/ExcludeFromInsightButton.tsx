@@ -1,0 +1,43 @@
+import { useActions, useValues } from 'kea'
+
+import { Button } from '@posthog/quill'
+
+import type { AnyPropertyFilter, InsightLogicProps } from '~/types'
+
+import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
+
+import { insightDataChecksLogic } from './insightDataChecksLogic'
+import { withPropertyFilter } from './withPropertyFilter'
+
+export function ExcludeFromInsightButton({
+    insightProps,
+    check,
+}: {
+    insightProps: InsightLogicProps
+    check: InsightDataCheckApi
+}): JSX.Element | null {
+    const logic = insightDataChecksLogic(insightProps)
+    const { querySource } = useValues(logic)
+    const { excludeFromInsight } = useActions(logic)
+
+    if (!check.filter_to_add) {
+        return null
+    }
+    const fits = withPropertyFilter(querySource?.properties, check.filter_to_add as AnyPropertyFilter) !== null
+
+    return (
+        <Button
+            variant="outline"
+            size="sm"
+            disabledReason={
+                fits
+                    ? undefined
+                    : "This insight's filters use OR groups. Add the rule in the insight's filters instead."
+            }
+            onClick={() => excludeFromInsight(check)}
+            data-attr="insight-data-check-exclude-from-insight"
+        >
+            Exclude from this insight
+        </Button>
+    )
+}

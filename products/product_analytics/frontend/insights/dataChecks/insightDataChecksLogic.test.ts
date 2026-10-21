@@ -299,6 +299,19 @@ describe('insightDataChecksLogic', () => {
     const addTheRule = (): void => {
         logic.actions.addFilterRule({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
     }
+    it("adds the check's rule to this insight's filters, then checks the filtered chart", async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            logic.actions.excludeFromInsight({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
+        ).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.properties).toEqual([rule])
+        expect(sentSources.at(-1)?.properties).toEqual([rule])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+    })
+
     it("adds the check's rule to the project's filter, then checks again", async () => {
         const existing = teamLogic.values.currentTeam?.test_account_filters ?? []
         dataChecks.mockImplementation(answer([200, checksOf('warning')]))
