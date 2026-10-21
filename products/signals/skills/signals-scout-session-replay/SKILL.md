@@ -268,11 +268,13 @@ Friction where the page fights back — errors and failed requests tied to inter
 
 ```sql
 SELECT replaceRegexpAll(cutQueryStringAndFragment(r.first_url), '[0-9]+', ':id') AS url,
-       uniq(f.session_id) AS sessions, uniq(f.distinct_id) AS users,
+       uniq(f.session_id) AS sessions,
+       uniqIf(f.session_id, p.mapped = 1) AS mapped_sessions,
+       uniqIf(p.person_id, p.mapped = 1) AS persons,
        sum(f.errors_after_click) AS errors_after_click,
        sum(f.failed_requests) AS failed_requests
 FROM (
-    SELECT session_id, any(distinct_id) AS distinct_id,
+    SELECT session_id,
            sum(console_error_after_click_count) AS errors_after_click,
            sum(network_failed_request_count) AS failed_requests
     FROM posthog.session_replay_features
@@ -288,13 +290,30 @@ JOIN (
       AND min_first_timestamp <= now() + INTERVAL 1 DAY
     GROUP BY session_id
 ) r ON r.session_id = f.session_id
+LEFT JOIN (
+    SELECT properties.$session_id AS session_id, argMax(person_id, timestamp) AS person_id, 1 AS mapped
+    FROM events
+    WHERE timestamp >= now() - INTERVAL 1 DAY
+      AND timestamp <= now() + INTERVAL 1 DAY
+      AND properties.$session_id IN (
+          SELECT session_id
+          FROM posthog.session_replay_features
+          WHERE min_first_timestamp >= now() - INTERVAL 1 DAY
+            AND min_first_timestamp <= now() + INTERVAL 1 DAY
+          GROUP BY session_id
+          HAVING sum(console_error_after_click_count) > 0 OR sum(network_failed_request_count) > 0
+      )
+    GROUP BY session_id
+) p ON p.session_id = f.session_id
 GROUP BY url
-HAVING sessions >= 10 AND users >= 5
+HAVING sessions >= 10
 ORDER BY sessions DESC
 LIMIT 20
 ```
 
-Keep both sides pre-aggregated and pre-filtered exactly like this — a raw join runs out of memory on high-volume projects, and footguns #2–#3 (per-session pre-aggregation, `argMinMerge`) both bite here. Failed-request-only sessions (no console error) are in scope by design — a silently failing API is broken too — but they're ad-blocker-prone: require the step-change comparison and corroboration before treating one as a candidate.
+Keep every side pre-aggregated and pre-filtered exactly like this — a raw join runs out of memory on high-volume projects, and footguns #2–#3 (per-session pre-aggregation, `argMinMerge`) both bite here. The events side reads only the candidate sessions (the `IN` list), in the same window as the recordings, so it stays bounded. Failed-request-only sessions (no console error) are in scope by design — a silently failing API is broken too — but they're ad-blocker-prone: require the step-change comparison and corroboration before treating one as a candidate.
+
+**Count people with `persons`, never with distinct IDs.** One person carries several distinct IDs (an anonymous ID before identify, one per device or browser), so `uniq(distinct_id)` counts one person several times and lets a single user pass the persons gate. The events side maps each candidate session to one `person_id`, and `persons` counts each person once across all of their sessions. Only `persons >= ~5` passes the persons gate. `mapped_sessions / sessions` is the mapping coverage: a session with no event in the window has no person. Gate on `p.mapped` when you adapt the query, never on `p.session_id` or `p.person_id`: an unmatched session gets NULL or the zero UUID there, and the zero UUID counts as one extra person. State the coverage in the finding, for example "6 persons across 9 of 12 sessions". When `mapped_sessions` is 0, or the events read fails, report session counts only, say the people are unverified, and treat the URL as below the persons gate (a `pattern:` memory, not a report).
 
 Compare each URL against its own prior-13-day rate (same query, earlier window) — the reportable case is a step-change, not a steady grumble.
 
