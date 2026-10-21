@@ -9287,10 +9287,10 @@ Today (7): `articles`, `companies`, `journalists`, `people`, `sources`, `stories
 
 Diffed against: <https://storage.googleapis.com/stainless-sdk-openapi-specs/perigon/perigon-sdk-11255e240e6346feeab8ff10dddcfb4348205d0b8f69aaedc564ec7a637b85c2.yml>
 
-- [ ] `GET /v1/stories/history` — time-series evolution of the story clusters already synced (medium)
-- [ ] `GET /v1/stories/stats` — story count statistics bucketed by hour/day/week/month for volume trending (medium)
-- [ ] `GET /v1/api/sourceGroups` — named groupings of the sources already synced, useful as a source dimension (medium)
-- [ ] `GET /v1/wikipedia/all` — the Wikipedia corpus, a distinct queryable dataset alongside articles (low)
+- [x] `GET /v1/stories/history` — time-series evolution of the story clusters already synced (medium)
+- [x] `GET /v1/stories/stats` — story count statistics bucketed by hour/day/week/month for volume trending (medium)
+- [x] `GET /v1/api/sourceGroups` — named groupings of the sources already synced, useful as a source dimension (medium)
+- [x] `GET /v1/wikipedia/all` — the Wikipedia corpus, a distinct queryable dataset alongside articles (low)
 - [ ] `GET /v1/api/watchlists` — org watchlists of people and companies, a lookup over entities already synced (low)
 
 Note: docs.perigon.io is a client-rendered SPA that returns the same shell for every path (including llms.txt and sitemap.xml), so the doc URLs in the payload 404 to curl. I resolved the real spec via the vendor's official Go SDK (goperigon/perigon-go-sdk .stats.yml -> openapi_spec_url), which lists 20 paths. Coverage of the listable news/entity resources is nearly complete - all 7 synced tables map 1:1 to /v1/{articles,stories,journalists,sources,people,companies,topics}/all. Remaining endpoints are two story sub-resources, the Wikipedia corpus, and two org-owned saved-filter collections; the vector and summarize endpoints are query-time POSTs, not syncable tables.
