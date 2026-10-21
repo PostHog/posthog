@@ -2158,7 +2158,18 @@ jobs:
               # Also skipped when the token step failed: its output is then
               # empty and the check-runs POST would fall back to the ambient
               # Depot token.
+              #
+              # The check-runs API sometimes answers with an error status and an
+              # empty body, which gh reports only as "unexpected end of JSON input".
+              # A retry repeats the same POST, so at worst GitHub records the same
+              # verdict twice and shows the newer one. continue-on-error: a lost
+              # check must not fail Validate migrations, because the analyzer step
+              # above already fails the job on Blocked migrations.
               if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
+              continue-on-error: true
+              retry:
+                  retries: 3
+                  backoff: exponential
               env:
                   GH_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
