@@ -96,7 +96,7 @@ impl EvaluationMetadata {
     /// Drops every reference to a flag outside `kept_flag_ids`, and marks a kept
     /// flag that depends on a dropped one as missing a dependency, so it fails
     /// closed like any other flag whose dependency Django cannot resolve.
-    /// A no-op while both sides agree, which is every payload Django writes.
+    /// Changes nothing when `kept_flag_ids` holds every flag id that the metadata names.
     pub fn retain_flags(&mut self, kept_flag_ids: &HashSet<i32>) {
         self.flags_with_missing_deps
             .retain(|id| kept_flag_ids.contains(id));
@@ -111,6 +111,9 @@ impl EvaluationMetadata {
 
         self.transitive_deps
             .retain(|id, _| kept_flag_ids.contains(id));
+        for deps in self.transitive_deps.values_mut() {
+            deps.retain(|dep| kept_flag_ids.contains(dep));
+        }
         for stage in &mut self.dependency_stages {
             stage.retain(|id| kept_flag_ids.contains(id));
         }

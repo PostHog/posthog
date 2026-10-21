@@ -79,11 +79,12 @@ fn record_dropped_flags(dropped: u64) {
 }
 
 /// A flags array that skips an element it cannot deserialize, instead of
-/// failing the whole array. Counts the skips so the caller can report them.
+/// failing the whole array. Keeps the key and parse error of each skipped flag,
+/// because the caller knows the team id and the deserializer does not.
 #[derive(Debug)]
 pub struct LenientFlags {
     flags: Vec<FeatureFlag>,
-    skipped: u64,
+    skipped: Vec<(String, serde_json::Error)>,
 }
 
 impl<'de> Deserialize<'de> for LenientFlags {
@@ -91,29 +92,26 @@ impl<'de> Deserialize<'de> for LenientFlags {
     where
         D: Deserializer<'de>,
     {
-        // This buffers each flag as raw JSON first, because serde cannot resume a
-        // sequence after one element fails. A borrowed RawValue fails unless the
-        // deserializer reads a string or byte slice, as the hypercache reader's
-        // `serde_json::from_str` does.
+        // This first splits the array into one borrowed JSON slice per flag, because
+        // serde cannot resume a sequence after one element fails. A borrowed RawValue
+        // fails unless the deserializer reads a string or byte slice, as the
+        // hypercache reader's `serde_json::from_str` does.
         let raw_flags: Vec<&'de RawValue> = Vec::deserialize(deserializer)?;
 
         let mut flags = Vec::with_capacity(raw_flags.len());
+        let mut skipped = Vec::new();
         for raw in &raw_flags {
             match serde_json::from_str::<FeatureFlag>(raw.get()) {
                 Ok(flag) => flags.push(flag),
                 Err(e) => {
                     let flag_key = serde_json::from_str::<serde_json::Value>(raw.get())
                         .ok()
-                        .and_then(|v| v["key"].as_str().map(str::to_owned));
-                    tracing::warn!(
-                        "Failed to deserialize cached flag {}: {}",
-                        flag_key.as_deref().unwrap_or("<unknown>"),
-                        e
-                    );
+                        .and_then(|v| v["key"].as_str().map(str::to_owned))
+                        .unwrap_or_else(|| "<unknown>".to_owned());
+                    skipped.push((flag_key, e));
                 }
             }
         }
-        let skipped = (raw_flags.len() - flags.len()) as u64;
         Ok(LenientFlags { flags, skipped })
     }
 }
@@ -131,14 +129,17 @@ impl LenientHypercacheFlagsWrapper {
             cohorts,
         } = self;
 
-        if flags.skipped > 0 {
-            tracing::warn!(
-                "Skipped {} unparseable cached flags for team {}, kept {}",
-                flags.skipped,
-                team_id,
-                flags.flags.len()
-            );
-            record_dropped_flags(flags.skipped);
+        if !flags.skipped.is_empty() {
+            for (flag_key, e) in &flags.skipped {
+                tracing::warn!(
+                    "Failed to deserialize cached flag {} in team {}: {}",
+                    flag_key,
+                    team_id,
+                    e
+                );
+            }
+            let dropped = flags.skipped.len() as u64;
+            record_dropped_flags(dropped);
             // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
             counter!(
                 TOMBSTONE_COUNTER,
@@ -146,7 +147,7 @@ impl LenientHypercacheFlagsWrapper {
                 "operation" => "hypercache_flag_deserialization_error",
                 "component" => "feature_flag_list",
             )
-            .increment(flags.skipped);
+            .increment(dropped);
 
             // Django computes the metadata over every flag, so it still points at
             // the flags we just skipped.
@@ -995,6 +996,7 @@ mod tests {
         assert_eq!(metadata.dependency_stages, vec![vec![1], vec![3]]);
         assert_eq!(metadata.flags_with_missing_deps, vec![3]);
         assert!(!metadata.transitive_deps.contains_key(&2));
+        assert!(metadata.transitive_deps[&3].is_empty());
 
         assert_eq!(
             counter_total(&snapshotter, FLAG_MALFORMED_FILTER_COUNTER, &[]),
