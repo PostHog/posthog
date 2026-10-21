@@ -54,6 +54,7 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     context=("Insight: Signups",),
                     data_link=LINK,
                     image=MessageImage(url="https://example.com/chart.png", alt_text="Insight chart"),
+                    slack_elements=(snooze_select("01900000-0000-0000-0000-000000000001"),),
                 ),
             ),
             # The platform states a failure in its own words, so only the insight's name and link are added.
