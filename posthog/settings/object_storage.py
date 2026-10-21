@@ -136,6 +136,9 @@ INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
+# Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
+# flag payload gates the work and holds the caps, so the schedule ticks in every environment.
+ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

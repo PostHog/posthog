@@ -535,6 +535,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     REPLYIO = "ReplyIo", "ReplyIo"
     RETAILEXPRESS = "RetailExpress", "RetailExpress"
     RETENTLY = "Retently", "Retently"
+    RETREAVER = "Retreaver", "Retreaver"
     REVOLUTMERCHANT = "RevolutMerchant", "RevolutMerchant"
     ROCKETCHAT = "RocketChat", "RocketChat"
     ROCKETLANE = "Rocketlane", "Rocketlane"

@@ -6288,6 +6288,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

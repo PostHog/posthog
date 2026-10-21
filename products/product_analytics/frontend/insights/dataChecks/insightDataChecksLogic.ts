@@ -42,7 +42,15 @@ import type {
     InsightDataChecksStatusEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import type {
+    PathsQuery,
+    PathsV2Query,
+    RetentionQuery,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+} from '../../../../../frontend/src/queries/schema/schema-general'
 import { isFinding, postHogAIPromptOf, removesBotTraffic } from './dataCheckText'
+import { withPropertyFilter } from './withPropertyFilter'
 
 /** The insight query the server checks. The server reads the events from the query this chart runs. */
 export interface DataChecksQuery {
@@ -62,6 +70,17 @@ export interface insightDataChecksLogicValues {
     query: Node | null // insightDataLogic
     hasOverrides: boolean // insightLogic
     insightDataLoading: boolean // insightVizDataLogic
+    querySource:
+        | FunnelsQuery
+        | LifecycleQuery
+        | PathsQuery
+        | PathsV2Query
+        | RetentionQuery
+        | StickinessQuery
+        | TrendsQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | null // insightVizDataLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -180,6 +199,9 @@ export interface insightDataChecksLogicActions {
     closeLabel: () => {
         value: true
     }
+    excludeFromInsight: (check: InsightDataCheckApi) => {
+        check: InsightDataCheckApi
+    }
     fixWithPostHogAI: (check: InsightDataCheckApi) => {
         check: InsightDataCheckApi
     }
@@ -262,7 +284,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             insightDataLogic(props),
             ['query'],
             insightVizDataLogic(props),
-            ['insightDataLoading'],
+            ['insightDataLoading', 'querySource'],
             insightLogic(props),
             ['hasOverrides'],
             featureFlagLogic,
@@ -292,6 +314,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             check,
         }),
         fixWithPostHogAI: (check: InsightDataCheckApi) => ({ check }),
+        excludeFromInsight: (check: InsightDataCheckApi) => ({ check }),
         reportDataChecksViewed: true,
     }),
     loaders(({ cache }) => ({
@@ -459,8 +482,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         ],
         labelOpen: [
             (s) => [s.status, s.labelHeldOpen],
+            // A finding keeps its label, because the icon alone does not say what the person needs to look at.
             (status: InsightDataChecksStatus, labelHeldOpen: boolean): boolean =>
-                status === 'checking' || labelHeldOpen,
+                status === 'checking' || status === 'warning' || status === 'problem' || labelHeldOpen,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -512,6 +536,20 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             }
             actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(postHogAIPromptOf(check)))
             posthog.capture('insight data check fix applied', { check: check.key, fix: 'posthog_ai' })
+        },
+        excludeFromInsight: ({ check }) => {
+            // The checks still show the finding until they run again, so a second click would add the rule twice.
+            if (values.status === 'checking') {
+                return
+            }
+            const properties =
+                check.filter_to_add &&
+                withPropertyFilter(values.querySource?.properties, check.filter_to_add as AnyPropertyFilter)
+            if (!properties) {
+                return
+            }
+            actions.updateQuerySource({ properties })
+            posthog.capture('insight data check fix applied', { check: check.key, fix: 'exclude_from_insight' })
         },
         addFilterRule: ({ check }) => {
             if (!check.filter_to_add) {
