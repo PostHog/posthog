@@ -363,6 +363,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen
@@ -402,12 +405,14 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
+    API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    grouping: Grouping
 
 
 @frozen
@@ -582,6 +587,10 @@ class PlatformAlertOutcome:
     # A team's checks with the same group are due in one slot, so a source that answers them with
     # one query can do so. None spreads the configuration by its own id.
     schedule_group: str | None = None
+    # The id the source's own stack times this configuration's checks by. The platform then checks
+    # at the minute that stack does, because a metric read at another minute can breach where the
+    # source's own check does not. None times the checks by the configuration's own id.
+    schedule_key: str | None = None
     # The grouping the check ran under. An edit can change it while the check is in flight, and the
     # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
     # dropped. None when the outcome carries no groups to drop.
@@ -875,6 +884,10 @@ class InvalidPlatformAlertEdit(ValueError):
 
 class PlatformAlertNotEditable(Exception):
     """A configuration the platform does not own, so its source's own API writes it."""
+
+
+class UnknownPlatformAlertGroup(LookupError):
+    """A grouping key the configuration has no instance for."""
 
 
 class SourceEditMirror(Protocol):
@@ -1423,3 +1436,19 @@ class SourceCorrespondence(Protocol):
     intentional_divergences: tuple[IntentionalDivergence, ...]
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]: ...
+
+
+@frozen
+class DestinationSend:
+    """One message sent to one destination, on either delivery path, with how it went.
+
+    `destination_id` is the HogFunction the send was for, which names its event kind.
+    `error` is set only for a failed native send. A HogFunction failure has none, because its log
+    lines can quote credential-bearing inputs.
+    """
+
+    destination_id: str
+    sent_at: datetime
+    path: DeliveryPath
+    succeeded: bool
+    error: str | None

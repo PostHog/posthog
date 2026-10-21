@@ -235,7 +235,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Destinations already told about the overflow, so each hears it once, on its first message.
     noticed: set[str] = set()
     for event_id, transitions in _by_subscription(request, announced).items():
-        for target in _destinations(request, event_id):
+        for subscribed_destination in _destinations(request, event_id):
+            target = subscribed_destination.data
             overflowed = 0
             destination = json.dumps(target, sort_keys=True)
             owns_notice = request.parts <= 1 or any(
@@ -257,7 +258,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                         team_id=request.team_id,
                         configuration_id=request.configuration_id,
                         provider=WebhookTransport.provider,
+                        destination_id=subscribed_destination.id,
                         succeeded=False,
+                        error=str(error),
                     )
                 failures.append(str(error))
                 first_refusal = first_refusal or error
@@ -270,6 +273,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
+                    destination_id=subscribed_destination.id,
                     announcement=replace(announced, transitions=transitions, overflowed=overflowed),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
@@ -379,8 +383,8 @@ def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertE
             first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
     keys: dict[str, str] = {}
     for event_id, first in first_by_event_id.items():
-        for target in _destinations(request, event_id):
-            destination = json.dumps(target, sort_keys=True)
+        for subscribed_destination in _destinations(request, event_id):
+            destination = json.dumps(subscribed_destination.data, sort_keys=True)
             keys[destination] = min(keys.get(destination, first), first)
     return keys
 
@@ -422,7 +426,14 @@ def _subscribed_events(request: AlertDeliveryRequest, transition: AnnouncedTrans
     )
 
 
-def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationData]:
+@frozen
+class _SubscribedDestination:
+    # The HogFunction that subscribed this destination to the event, which its sends are recorded under.
+    id: str | None
+    data: AlertDestinationData
+
+
+def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[_SubscribedDestination]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
@@ -433,4 +444,8 @@ def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDes
         alert_id=request.destination_alert_id,
         allowed_event_ids=[event_id],
     )
-    return [group.data for group in groups if group.fully_enabled]
+    return [
+        _SubscribedDestination(id=str(min(group.hog_function_ids)) if group.hog_function_ids else None, data=group.data)
+        for group in groups
+        if group.fully_enabled
+    ]
