@@ -204,6 +204,24 @@ class TestHarvestTransport:
         expected = "2026-05-04T09:30:00Z" if last_value is not None and config.supports_updated_since else None
         assert [r.param("updated_since") for r in child_requests] == [expected, expected]
 
+    @parameterized.expand([("invoice_payments", "invoices", "invoice_id"), ("user_cost_rates", "users", "user_id")])
+    def test_fanout_skips_a_parent_deleted_mid_sync(self, endpoint: str, parent: str, parent_key: str) -> None:
+        config = HARVEST_ENDPOINTS[endpoint]
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    f"/v2/{parent}": [_page([{"id": 10}, {"id": 20}], data_key=HARVEST_ENDPOINTS[parent].data_key)],
+                    f"/v2/{config.path.format(**{parent_key: 10})}": [ScriptedResponse(status=404)],
+                    f"/v2/{config.path.format(**{parent_key: 20})}": [_page([{"id": 2}], data_key=config.data_key)],
+                }
+            ),
+        )
+
+        # One 404 must not abort the fan-out and drop every later parent's rows.
+        assert result.raised is None
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [(20, 2)]
+
     def test_fanout_resume_skips_completed_parents(self) -> None:
         result = _driver().run(
             "invoice_payments",

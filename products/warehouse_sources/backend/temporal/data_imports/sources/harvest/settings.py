@@ -4,6 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -41,6 +42,11 @@ class HarvestEndpointConfig:
     @property
     def default_incremental_field(self) -> Optional[str]:
         return "updated_at" if self.supports_updated_since else None
+
+
+# A parent deleted between the parent listing and its child fetch answers 404. Treat it as an
+# empty child so one deleted invoice or user doesn't abort the whole fan-out.
+_MISSING_PARENT_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
 HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
@@ -102,6 +108,7 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "invoice_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
         ),
         description="Payments recorded against each invoice, including partial payments.",
     ),
@@ -180,6 +187,7 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "user_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
         ),
         description="Each user's cost rate history, with the dates each rate was in effect. Full refresh "
         "only - the endpoint has no server-side modified-since filter. Needs an administrator.",

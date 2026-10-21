@@ -35,7 +35,7 @@ HARVEST_USER_AGENT = "PostHog (https://posthog.com)"
 REQUEST_TIMEOUT = (10.0, 60.0)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HarvestResumeConfig:
     # Absolute URL of the next page, taken from the response's `links.next`. Harvest's own
     # docs tell integrators to follow that link rather than rebuild page/cursor params, since
