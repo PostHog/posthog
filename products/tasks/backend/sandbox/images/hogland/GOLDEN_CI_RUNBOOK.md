@@ -8,8 +8,14 @@ box from.
 
 This runbook covers the hogland-team dependencies each cluster needs **before**
 the workflow can run. Until they exist and the arming variables are set, the
-workflow is a deliberate no-op (the job `if` gates on `HOG_TASKS_GOLDEN_ENABLED`)
-so a merged-but-unprovisioned workflow never sits red.
+workflow is a deliberate no-op (the job `if` gates on `CD_DEPLOY_ENABLED` and
+`HOG_TASKS_GOLDEN_ENABLED`) so a merged-but-unprovisioned workflow never sits red.
+
+The bake only runs in the repository that deploys to production, the one with
+`CD_DEPLOY_ENABLED=true` (the same gate the image CD workflows use). Everything
+below that names a repository (the TrustMapping, the tailnet client, the
+variables and secrets) refers to that repository. When the deploying repository
+changes, redo those steps for the new one.
 
 Modal / `Dockerfile.sandbox-base` is untouched by this workflow — it bakes the
 same contents into a hogland snapshot, it does not change the container image.
@@ -79,17 +85,28 @@ For **each** cluster the workflow targets (dev, then prod-us):
    `POST /v1/service-accounts` on that cluster's hogplane. This endpoint is
    admin-only and has no CLI; it mints a name of the form `svc-<slug>-<rand>`, so
    the random suffix is expected — do **not** read it as a failure.
-2. **`github_oidc` TrustMapping.** Map this repo's workflow to that principal:
-   `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml}` →
-   `svc-ci-tasks-golden`. TrustMappings are per-cluster runtime data — the dev
-   mapping grants nothing in prod-us, so create it again per cluster. Without it
-   the OIDC mint succeeds and hogplane returns 401. **Pin `ref: refs/heads/master`
-   once hogplane's TrustMapping schema supports it** (PostHog/hogland#414, durable
-   fix PostHog/hogland#424) — this is the durable fix for the branch-dispatch
-   class of attack. The workflow's own
-   `validate_ref` job + per-job `github.ref == 'refs/heads/master'` gates raise
-   the bar, but a branch copy of the workflow can strip in-file gates, so the
-   TrustMapping ref pin is the backstop that cannot be bypassed from the repo.
+2. **`github_oidc` TrustMapping.** Map the deploying repository's workflow to
+   that principal: `{repo: <deploying repo>, workflow: cd-tasks-golden-snapshot.yml,
+ref: refs/heads/master}` → `svc-ci-tasks-golden`. TrustMappings are per-cluster
+   runtime data — the dev mapping grants nothing in prod-us, so create it again
+   per cluster. Without it the OIDC mint succeeds and hogplane returns 401. The
+   `ref` pin is the backstop for the branch-dispatch class of attack: the
+   workflow's own `validate_ref` job + per-job `github.ref == 'refs/heads/master'`
+   gates raise the bar, but a branch copy of the workflow can strip in-file gates,
+   and the pin cannot be bypassed from the repo. The create route is admin-only
+   (`POST /v1/principals/{id}/trust-mappings`):
+
+   ```bash
+   curl -sS -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H 'Content-Type: application/json' \
+     -d '{"kind":"github_oidc","match_criteria":{"repo":"<deploying repo>","workflow":"cd-tasks-golden-snapshot.yml","ref":"refs/heads/master"}}' \
+     "$HOG_HOST/v1/principals/$PRINCIPAL_ID/trust-mappings"
+   ```
+
+   hogplane's auth seed (`hogplane.authSeed`) only reconciles `k8s_sa` mappings,
+   so this row and the principal exist only as in-cluster records. A cluster
+   rebuild or a `hog` namespace wipe drops them; recreate both afterwards.
+
 3. **OIDC audience.** The mint audience is the per-cluster literal in the
    workflow's matrix, kept equal to `hogplane.githubOIDCAudience` in that
    cluster's values file:
@@ -100,10 +117,12 @@ For **each** cluster the workflow targets (dev, then prod-us):
    | prod-us | `https://hogland.hedgehog-kitefin.ts.net`     | `hogland.prod-us.posthog.dev`  |
 
 4. **Tailnet admittance.** The workflow joins as `tag:hogland-ci`, reusing the
-   `TS_HOGLAND_CI_CLIENT_ID` + `TS_HOGLAND_CI_AUDIENCE` repo variables that
+   `TS_HOGLAND_CI_CLIENT_ID` + `TS_HOGLAND_CI_AUDIENCE` variables that
    `hogbox-preview-env.yml` already uses. One join reaches the `tag:hogplane`
-   device serving each cluster's API, so if preview is already provisioned no
-   extra tailnet onboarding is needed for the API calls.
+   device serving each cluster's API. The join is GitHub OIDC (workload identity
+   federation), so that Tailscale OAuth client must trust the deploying
+   repository's OIDC subject (`repo:<deploying repo>:...`) for `tag:hogland-ci`;
+   preview being provisioned in another repository does not cover it.
 5. **Tailnet route to the box VPC (required for `--access-type ssh-private`).**
    The bake and smoke reach the seed/smoke box over its VPC IP, not the public
    internet. `tag:hogland-ci` reaches `tag:hogplane` today, but **not** a box's
@@ -119,9 +138,16 @@ For **each** cluster the workflow targets (dev, then prod-us):
    a repo change. Do not arm any cluster before it lands, or every bake fails on
    the SSH reachability wait.
 
-## Repo config (PostHog/posthog)
+## Repo config (the deploying repository)
+
+Set these on the repository with `CD_DEPLOY_ENABLED=true`. Several are
+organization variables or secrets with selected-repository visibility: for
+those, add the deploying repository to the variable's or secret's repository
+list rather than creating a repository-level copy.
 
 - **Variables** (Settings → Secrets and variables → Actions → Variables):
+  - `CD_DEPLOY_ENABLED=true` — already set wherever image CD runs. Without it
+    the bake jobs skip, whatever the arming variables say.
   - `HOG_TASKS_GOLDEN_ENABLED=true` — master arm. Until set, the whole job is a
     no-op. Set it once the dev prerequisites (steps 1–5, including the tailnet route to the box VPC) exist.
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
@@ -139,13 +165,16 @@ For **each** cluster the workflow targets (dev, then prod-us):
     (a racing rollout only wastes a run, it cannot corrupt the alias). Adding a
     cluster means adding its rollout workflow file to the matrix.
   - `TS_HOGLAND_CI_CLIENT_ID`, `TS_HOGLAND_CI_AUDIENCE` — shared with
-    `hogbox-preview-env.yml`; already present if preview is provisioned.
+    `hogbox-preview-env.yml`. They must be visible to the deploying repository,
+    and the OAuth client must trust that repository (prerequisite 4).
 - **Secrets** — the workflow checks out `PostHog/hogland` to build the CLI with
   the existing `GH_APP_HOGLAND_DEPLOYER` GitHub App (org secrets
-  `GH_APP_HOGLAND_DEPLOYER_APP_ID` + `GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY`),
-  minted read-only: `contents: read` for the checkout, `actions: read` so the
-  quiet-window guard can list hogland rollout runs. The App must be installed on
-  `PostHog/hogland` with both.
+  `GH_APP_HOGLAND_DEPLOYER_APP_ID` + `GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY`, which
+  must be visible to the deploying repository), minted read-only: `contents: read`
+  for the checkout, `actions: read` so the quiet-window guard can list hogland
+  rollout runs. The App must be installed on `PostHog/hogland` with both; the
+  token is minted for `PostHog/hogland` only, so the deploying repository does not
+  need the App installed on it.
 
 ## Running it
 
@@ -197,9 +226,8 @@ and recovery model.
 
 1. Provision the prerequisites above in the prod-eu cluster: a
    `svc-ci-tasks-golden` principal, a `github_oidc` TrustMapping
-   `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml}` (pin
-   `ref: refs/heads/master` once PostHog/hogland#414 lands), and the audience
-   `hogland.prod-eu.posthog.dev`.
+   `{repo: <deploying repo>, workflow: cd-tasks-golden-snapshot.yml,
+ref: refs/heads/master}`, and the audience `hogland.prod-eu.posthog.dev`.
 2. Append a matrix entry in the workflow (host + audience + the EU rollout
    workflow file) and confirm the prod arming gate covers it.
 3. Confirm `tag:hogland-ci` reaches the prod-eu `tag:hogplane` device.
@@ -259,13 +287,13 @@ ancestor-checks the `ref` input before any credentialed checkout, and every
 privileged job gates on `github.ref == 'refs/heads/master'`. The residual, durable
 gap is hogland-owned:
 
-- **Branch dispatch — durable fix is hogland-side (PostHog/hogland#414, durable
-  fix PostHog/hogland#424).** The in-file `github.ref == 'refs/heads/master'` gates
-  raise the bar, but a branch copy of the workflow can strip them. The fix that
-  cannot be bypassed from the repo is pinning `ref: refs/heads/master` in each
-  cluster's `github_oidc` TrustMapping. Until #414 lands and the mapping is pinned,
-  treat the in-workflow gates as the only barrier and keep dispatch discipline
-  (dispatch only from `master`).
+- **Branch dispatch — durable fix is the TrustMapping `ref` pin
+  (PostHog/hogland#414, landed in PostHog/hogland#424).** The in-file
+  `github.ref == 'refs/heads/master'` gates raise the bar, but a branch copy of the
+  workflow can strip them. The fix that cannot be bypassed from the repo is
+  pinning `ref: refs/heads/master` in each cluster's `github_oidc` TrustMapping
+  (prerequisite 2). A mapping created without the pin leaves the in-workflow gates
+  as the only barrier, so recreate any unpinned mapping with it.
 - **Alias namespace is global and unprotected (PostHog/hogland#415, durable fix
   PostHog/hogland#426).** Alias PUT checks only new-snapshot ownership and DELETE
   checks nothing, so a `svc-ci-tasks-golden` principal on prod-us could repoint or
@@ -279,8 +307,8 @@ gap is hogland-owned:
 Items owned by the hogland team, filed from this review. Not blockers for merging
 the workflow (it is a no-op until armed), but referenced above:
 
-- **PostHog/hogland#414** — `github_oidc` TrustMapping cannot pin a `ref` (durable
-  branch-dispatch fix, PR PostHog/hogland#424). Gates arming prod-us safely.
+- **PostHog/hogland#414** — `github_oidc` TrustMapping `ref` pin (durable
+  branch-dispatch fix). Done in PostHog/hogland#424; create mappings with the pin.
 - **PostHog/hogland#415** — alias namespace PUT/DELETE unprotected (durable fix PR
   PostHog/hogland#426). With #426 merged, `svc-ci` adopts `posthog-tasks-default`
   on its first PUT (a new alias is owned by its creator), so no extra
