@@ -80,6 +80,11 @@ pub struct EvaluationMetadata {
         serialize_with = "serialize_string_keyed_i32_map"
     )]
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
+    /// True when the serving read skipped a cached flag that it could not parse.
+    /// The response then sets `errorsWhileComputingFlags`, so an SDK merges the
+    /// response into its stored flags and keeps the skipped flag's last value.
+    #[serde(skip)]
+    pub has_unparseable_flags: bool,
 }
 
 impl EvaluationMetadata {
@@ -761,6 +766,7 @@ mod mock_impls {
                 dependency_stages: vec![],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::new(),
+                ..Default::default()
             }
         }
     }

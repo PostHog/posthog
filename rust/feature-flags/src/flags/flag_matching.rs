@@ -714,6 +714,7 @@ impl FeatureFlagMatcher {
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
+        let has_unparseable_flags = feature_flags.evaluation_metadata.has_unparseable_flags;
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
         self.preloaded_cohorts = feature_flags.cohorts;
 
@@ -816,7 +817,8 @@ impl FeatureFlagMatcher {
 
         let has_errors = flag_hash_key_override_error
             || flags_response.errors_while_computing_flags
-            || has_cycle_errors;
+            || has_cycle_errors
+            || has_unparseable_flags;
 
         eval_timer
             .label("outcome", if has_errors { "error" } else { "success" })

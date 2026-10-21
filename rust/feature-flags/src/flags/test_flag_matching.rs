@@ -234,6 +234,25 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_skipped_unparseable_flag_reports_errors_while_computing_flags() {
+        let (_context, mut matcher, team_id) = matcher_for_team("test_user").await;
+
+        let flag = mock!(FeatureFlag, team_id: team_id);
+        let mut flags = flag_list_with_metadata(vec![flag]);
+        Arc::make_mut(&mut flags.evaluation_metadata).has_unparseable_flags = true;
+
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+        assert!(result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
+    }
+
     // The injected `distinct_id` case passes `Some(HashMap::new())` so the
     // only way the override can be populated is the matcher's own injection
     // of `self.distinct_id`.
@@ -8516,6 +8535,7 @@ mod tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8609,6 +8629,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -8714,6 +8735,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8813,6 +8835,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -9009,6 +9032,7 @@ mod tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::from([1, 2])),
                 ]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -10247,6 +10271,7 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -10336,6 +10361,7 @@ mod tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             ..Default::default()
         };

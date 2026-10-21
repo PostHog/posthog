@@ -1335,6 +1335,7 @@ pub fn flag_list_with_metadata_and_filter(
         dependency_stages: stages,
         flags_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     });
 
     FeatureFlagList {

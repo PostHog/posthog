@@ -149,6 +149,7 @@ impl LenientHypercacheFlagsWrapper {
             )
             .increment(dropped);
 
+            evaluation_metadata.has_unparseable_flags = true;
             // Django computes the metadata over every flag, so it still points at
             // the flags we just skipped.
             let kept_flag_ids: HashSet<i32> = flags.flags.iter().map(|f| f.id).collect();
@@ -994,7 +995,8 @@ mod tests {
         let keys: Vec<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
         assert_eq!(keys, vec!["healthy_flag", "dependent_flag"]);
         assert_eq!(metadata.dependency_stages, vec![vec![1], vec![3]]);
-        assert_eq!(metadata.flags_with_missing_deps, vec![3]);
+        assert_eq!(metadata.flags_with_missing_deps, vec![1, 3]);
+        assert!(metadata.has_unparseable_flags);
         assert!(!metadata.transitive_deps.contains_key(&2));
         assert!(metadata.transitive_deps[&3].is_empty());
 
