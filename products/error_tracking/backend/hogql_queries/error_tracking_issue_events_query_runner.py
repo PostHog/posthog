@@ -131,7 +131,13 @@ class ErrorTrackingIssueEventsQueryRunner(
             if matched
             else None
         )
-        return self._response(source, response, has_more=not exhausted, next_cursor=None if exhausted else cursor)
+        return self._response(
+            source,
+            response,
+            has_more=not exhausted,
+            next_cursor=None if exhausted else cursor,
+            checked_count=scanned,
+        )
 
     def _last_row_cursor(self, source: EventsQuery, response: EventsQueryResponse) -> str | None:
         if not response.hasMore or not response.results:
@@ -147,6 +153,7 @@ class ErrorTrackingIssueEventsQueryRunner(
         *,
         has_more: bool,
         next_cursor: str | None,
+        checked_count: int | None = None,
     ) -> ErrorTrackingIssueEventsQueryResponse:
         return ErrorTrackingIssueEventsQueryResponse(
             results=response.results if response else [],
@@ -154,6 +161,7 @@ class ErrorTrackingIssueEventsQueryRunner(
             types=list(response.types) if response and response.types else [],
             hasMore=has_more,
             nextCursor=next_cursor,
+            checkedCount=checked_count,
             timings=self.timings.to_list(),
             modifiers=self.modifiers,
         )

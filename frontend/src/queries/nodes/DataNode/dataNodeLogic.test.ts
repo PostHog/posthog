@@ -682,19 +682,29 @@ describe('dataNodeLogic', () => {
                 requiredLinkedData: ['logs'],
             }),
         })
-        mockedQuery.mockResolvedValueOnce({ results: [['first']], hasMore: true, nextCursor: 'cursor-1' })
+        mockedQuery.mockResolvedValueOnce({
+            results: [['first']],
+            hasMore: true,
+            nextCursor: 'cursor-1',
+            checkedCount: 2000,
+        })
         logic.mount()
         await expectLogic(logic).delay(0)
         await expectLogic(logic).toMatchValues({
             nextQuery: partial({ source: { ...source, before: 'cursor-1' } }),
         })
 
-        mockedQuery.mockResolvedValueOnce({ results: [['second']], hasMore: true, nextCursor: 'cursor-2' })
+        mockedQuery.mockResolvedValueOnce({
+            results: [['second']],
+            hasMore: true,
+            nextCursor: 'cursor-2',
+            checkedCount: 500,
+        })
         logic.actions.loadNextData()
         await expectLogic(logic).delay(0)
 
         await expectLogic(logic).toMatchValues({
-            response: partial({ results: [['first'], ['second']] }),
+            response: partial({ results: [['first'], ['second']], checkedCount: 2500 }),
             nextQuery: partial({ source: { ...source, before: 'cursor-2' } }),
         })
     })

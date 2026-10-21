@@ -41196,6 +41196,8 @@ export namespace Schemas {
     } as const;
 
     export interface ErrorTrackingIssueEventsQueryResponse {
+      /** How many exceptions this page checked for linked logs. Set only with a logs requirement. */
+      checkedCount?: number | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -94395,6 +94397,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative18 {
+      /** How many exceptions this page checked for linked logs. Set only with a logs requirement. */
+      checkedCount?: number | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;

@@ -13,6 +13,7 @@ import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsEmptyState } from './IssueEventsEmptyState'
 import { IssueEventsToolbar } from './IssueEventsToolbar'
 import { issueLinkedDataLogic } from './issueLinkedDataLogic'
+import { linkedLogsCheckLogic } from './linkedLogsCheckLogic'
 
 export function IssueEventsPanel(): JSX.Element {
     const { issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
@@ -41,6 +42,9 @@ function LoadedIssueEventsPanel(): JSX.Element {
     const dataSource = eventsSourceLogic({ query: issueEventsQuery, queryKey: issueEventsQueryKey })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadData, loadNextData } = useActions(dataSource)
+    const linkedLogsCheck = linkedLogsCheckLogic({ query: issueEventsQuery, queryKey: issueEventsQueryKey })
+    const { status: linkedLogsCheckStatus, checkedCount } = useValues(linkedLogsCheck)
+    const { checkOlderExceptions } = useActions(linkedLogsCheck)
     const nextDateRange = getNextErrorTrackingDateRange(dateRange)
     const previousEventsQueryKey = useRef(issueEventsQueryKey)
 
@@ -65,12 +69,13 @@ function LoadedIssueEventsPanel(): JSX.Element {
             loading={itemsLoading}
             onReload={() => loadData('force_blocking')}
             onScrollNearEnd={() => {
-                if (canLoadNextData && !itemsLoading) {
+                // An empty list belongs to linkedLogsCheckLogic, which loads older pages up to its limit.
+                if (canLoadNextData && !itemsLoading && items.length > 0) {
                     loadNextData()
                 }
             }}
         >
-            {!itemsLoading && items.length === 0 ? (
+            {items.length === 0 && (!itemsLoading || linkedLogsCheckStatus === 'checking') ? (
                 <IssueEventsEmptyState
                     nextDateRangeLabel={nextDateRange?.label ?? null}
                     hasActiveFilters={hasActiveFilters || requiredLinks.length > 0}
@@ -84,9 +89,11 @@ function LoadedIssueEventsPanel(): JSX.Element {
                         clearNonDateFilters()
                         clearRequiredLinks()
                     }}
-                    // A logs filter checks a bounded number of exceptions per request, so an empty
-                    // page can still have older matches.
-                    onCheckOlder={canLoadNextData ? loadNextData : undefined}
+                    linkedLogsCheck={
+                        linkedLogsCheckStatus
+                            ? { status: linkedLogsCheckStatus, checkedCount, onCheckOlder: checkOlderExceptions }
+                            : undefined
+                    }
                 />
             ) : (
                 <EventsTable

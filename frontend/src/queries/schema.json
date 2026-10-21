@@ -8659,6 +8659,10 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "checkedCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many exceptions this page checked for linked logs. Set only with a logs requirement."
+                },
                 "columns": {
                     "items": {},
                     "type": "array"
@@ -23664,6 +23668,10 @@
         "ErrorTrackingIssueEventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "checkedCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many exceptions this page checked for linked logs. Set only with a logs requirement."
+                },
                 "columns": {
                     "items": {},
                     "type": "array"
@@ -43285,6 +43293,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "checkedCount": {
+                            "$ref": "#/definitions/integer",
+                            "description": "How many exceptions this page checked for linked logs. Set only with a logs requirement."
+                        },
                         "columns": {
                             "items": {},
                             "type": "array"

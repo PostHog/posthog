@@ -12354,6 +12354,10 @@ class CachedErrorTrackingIssueEventsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    checkedCount: int | None = Field(
+        default=None,
+        description=("How many exceptions this page checked for linked logs. Set only with a logs requirement."),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -18384,6 +18388,10 @@ class ErrorTrackingIssueEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    checkedCount: int | None = Field(
+        default=None,
+        description=("How many exceptions this page checked for linked logs. Set only with a logs requirement."),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -21621,6 +21629,10 @@ class QueryResponseAlternative16(BaseModel):
 class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    checkedCount: int | None = Field(
+        default=None,
+        description=("How many exceptions this page checked for linked logs. Set only with a logs requirement."),
     )
     columns: list
     error: str | None = Field(

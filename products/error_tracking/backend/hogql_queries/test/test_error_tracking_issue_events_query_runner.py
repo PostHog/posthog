@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from posthog.schema import ErrorTrackingIssueEventsQuery, ErrorTrackingLinkedDataKind, EventsQuery
 
@@ -94,23 +95,27 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    @patch(f"{ErrorTrackingIssueEventsQueryRunner.__module__}.PAGE_SCAN_BUDGET", 2)
     def test_logs_filter_pages_through_every_exception_with_logs(self) -> None:
         traces = [uuid4().hex for _ in range(6)]
         exceptions = [self._exception(hours_ago=index + 1, trace_id=trace) for index, trace in enumerate(traces)]
-        for index in (0, 2, 3, 5):
+        for index in (0, 3, 5):
             self._log(hours_ago=index + 1, trace_id=traces[index])
         flush_persons_and_events()
 
-        seen: list[str] = []
+        pages: list[list[str]] = []
+        checked = 0
         source = self._source(limit=1)
         for _ in range(10):
             response = self._events(source, requiredLinkedData=[ErrorTrackingLinkedDataKind.LOGS]).calculate()
-            seen += [str(row[0]["uuid"]) for row in response.results]
+            pages.append([str(row[0]["uuid"]) for row in response.results])
+            checked += response.checkedCount or 0
             if not response.hasMore:
                 break
             source = source.model_copy(update={"before": response.nextCursor})
 
-        assert seen == [exceptions[0], exceptions[2], exceptions[3], exceptions[5]]
+        assert pages == [[exceptions[0]], [], [exceptions[3]], [exceptions[5]]]
+        assert checked == len(exceptions)
 
     def test_recording_filter_skips_deleted_recordings(self) -> None:
         active, deleted = str(uuid4()), str(uuid4())

@@ -4533,6 +4533,8 @@ export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryRes
     hasMore?: boolean
     /** Where the next page starts. With a logs requirement, it can point past the last returned row. */
     nextCursor?: string
+    /** How many exceptions this page checked for linked logs. Set only with a logs requirement. */
+    checkedCount?: integer
 }
 export type CachedErrorTrackingIssueEventsQueryResponse = CachedQueryResponse<ErrorTrackingIssueEventsQueryResponse>
 
