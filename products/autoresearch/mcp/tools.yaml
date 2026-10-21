@@ -10,10 +10,9 @@ tools:
     autoresearch-agent-models-retrieve:
         operation: autoresearch_agent_models_retrieve
         enabled: false
-        disabled_reason: >-
-            Feeds the Setup tab model picker. Agents set agent_model on autoresearch-create or
-            autoresearch-partial-update, and an invalid value returns the valid choices, which keeps the family under its
-            tool cap
+        disabled_reason: Feeds the Setup tab model picker. Agents set agent_model on autoresearch-create or
+            autoresearch-partial-update, and an invalid value returns the valid choices, which keeps the family under
+            its tool cap
         scopes:
             - autoresearch:read
         annotations:
