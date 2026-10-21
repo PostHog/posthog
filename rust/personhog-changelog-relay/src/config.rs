@@ -40,11 +40,21 @@ pub struct Config {
     pub metrics_port: u16,
 }
 
+/// The output producer's default `message.max.bytes`, Node's WarpStream setting.
+/// A rejected row goes to the DLQ as its changelog record, so this must stay
+/// well above the changelog topic's limit for that copy to fit.
+pub const OUTPUT_MESSAGE_MAX_BYTES: u32 = 64_000_000;
+
 impl Config {
     pub fn output_kafka(&self) -> KafkaConfig {
         KafkaConfig {
             kafka_hosts: self.output_kafka_hosts.clone(),
             kafka_tls: self.output_kafka_tls,
+            kafka_producer_message_max_bytes: Some(
+                self.kafka
+                    .kafka_producer_message_max_bytes
+                    .unwrap_or(OUTPUT_MESSAGE_MAX_BYTES),
+            ),
             ..self.kafka.clone()
         }
     }
@@ -60,5 +70,38 @@ impl Config {
             .filter(|s| !s.is_empty())
             .map(String::from)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn the_output_producer_defaults_to_a_limit_above_any_changelog_record() {
+        let cases = [
+            ("unset", None, OUTPUT_MESSAGE_MAX_BYTES),
+            ("overridden", Some("2000000"), 2_000_000),
+        ];
+        for (name, setting, expected) in cases {
+            let mut env = HashMap::from([(
+                "OUTPUT_KAFKA_HOSTS".to_string(),
+                "localhost:9092".to_string(),
+            )]);
+            if let Some(value) = setting {
+                env.insert(
+                    "KAFKA_PRODUCER_MESSAGE_MAX_BYTES".to_string(),
+                    value.to_string(),
+                );
+            }
+            let config = Config::init_from_hashmap(&env).unwrap();
+            assert_eq!(
+                config.output_kafka().kafka_producer_message_max_bytes,
+                Some(expected),
+                "{name}"
+            );
+        }
     }
 }

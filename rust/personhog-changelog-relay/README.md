@@ -12,7 +12,7 @@ The subscription follows `config/changelog` through the same follower as the wri
 
 A batch is up to `BATCH_SIZE` records or what arrives within `BATCH_TIMEOUT_MS`. Every record in it is produced and acked before the group commits past it, so delivery is at least once; ClickHouse keeps the highest version of each person, so a repeated row changes nothing. A failed produce retries until the broker acks and never advances the offset.
 
-A record that can never become a row goes to `DLQ_TOPIC` with its original bytes and the `source_topic`, `source_partition`, `source_offset`, `reason` and `error` headers: no payload, not a `Person` proto, a uuid that does not parse, properties that are not UTF-8, or a timestamp out of range.
+A record that can never become a row goes to `DLQ_TOPIC` with its original bytes and the `source_topic`, `source_partition`, `source_offset`, `reason` and `error` headers: no payload, not a `Person` proto, a uuid that does not parse, properties that are not UTF-8, or a timestamp out of range. A row the output rejects as too large goes there too, as its changelog record. That copy fits because the output producer's `KAFKA_PRODUCER_MESSAGE_MAX_BYTES` defaults to 64 MB, well above the changelog topic's limit; keep any override above it as well.
 
 ## Configuration
 
