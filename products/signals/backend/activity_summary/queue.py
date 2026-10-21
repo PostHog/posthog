@@ -168,8 +168,8 @@ def _task_rows(
     window_start: datetime.datetime,
     now: datetime.datetime,
     stored: dict[ActivitySummaryPair, _Stored],
-) -> tuple[Counter[ActivitySummaryPair], Counter[ActivitySummaryPair]]:
-    """Tasks per pair after the pair's watermark, and in the window."""
+) -> dict[ActivitySummaryPair, _RowCounts]:
+    """Tasks per pair after the pair's watermark and in the window."""
     new: Counter[ActivitySummaryPair] = Counter()
     window: Counter[ActivitySummaryPair] = Counter()
     for task in list_user_task_times(
@@ -180,7 +180,7 @@ def _task_rows(
         row = stored.get(pair)
         if row is None or row.input_watermark is None or task.created_at > row.input_watermark:
             new[pair] += 1
-    return new, window
+    return {pair: _RowCounts(new=new[pair], window=count) for pair, count in window.items()}
 
 
 def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> list[ActivitySummaryPair]:
@@ -197,16 +197,17 @@ def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: i
     window_start = now - datetime.timedelta(days=config.limits.window_days)
     stored = _stored_rows(team_ids)
     activity_rows = _activity_rows(team_ids, window_start, now)
-    new_tasks, window_tasks = _task_rows(team_ids, window_start, now, stored)
+    task_rows = _task_rows(team_ids, window_start, now, stored)
 
     due: list[tuple[bool, int, datetime.datetime, ActivitySummaryPair]] = []
-    for pair in activity_rows.keys() | window_tasks.keys():
+    for pair in activity_rows.keys() | task_rows.keys():
         row = stored.get(pair)
         if row is not None and row.next_eligible_at is not None and row.next_eligible_at > now:
             continue
-        rows = activity_rows.get(pair, _RowCounts())
+        activity = activity_rows.get(pair, _RowCounts())
+        tasks = task_rows.get(pair, _RowCounts())
         stale = is_stale(row, config.rebuild_before)
-        count = rows.window + window_tasks[pair] if stale else rows.new + new_tasks[pair]
+        count = activity.window + tasks.window if stale else activity.new + tasks.new
         if not count:
             continue
         generated_at = row.generated_at if row is not None else None
