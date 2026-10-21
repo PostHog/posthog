@@ -91,4 +91,15 @@ describe('workflowsLogic', () => {
         expect(bodies).toEqual([['growth'], ['growth', 'billing']])
         expect(logic.values.localWorkflowTags).toEqual({ 'flow-1': ['growth', 'billing'] })
     })
+
+    it('keeps the filters when a link back to the list carries no query params', () => {
+        router.actions.push('/workflows?status=active&type=messaging')
+        expect(logic.values.filters.status).toEqual('active')
+
+        router.actions.push('/workflows')
+
+        expect(logic.values.filters.status).toEqual('active')
+        expect(logic.values.filters.type).toEqual('messaging')
+        expect(router.values.searchParams).toMatchObject({ status: 'active', type: 'messaging' })
+    })
 })

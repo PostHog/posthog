@@ -58,6 +58,10 @@ export interface WorkflowsFilters {
     page: number
 }
 
+// The search params actionToUrl writes below. A URL that carries none of them states no filters at all,
+// which is different from stating that every filter is off.
+const FILTER_URL_PARAMS = ['search', 'created_by', 'status', 'type', 'trigger_type', 'page']
+
 const DEFAULT_FILTERS: WorkflowsFilters = {
     search: '',
     createdBy: null,
@@ -315,6 +319,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
     reducers({
         filters: [
             DEFAULT_FILTERS,
+            // The list unmounts when a workflow opens, so the filters are persisted to survive that and
+            // be restored when the user comes back to the list.
+            { persist: true, storageKey: 'workflowsListFilters' },
             {
                 setFilters: (state, { filters, replace }) => {
                     const next = replace ? { ...DEFAULT_FILTERS, ...filters } : { ...state, ...filters }
@@ -621,6 +628,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
     }),
     urlToAction(({ actions, values }) => {
         const syncFiltersFromUrl = (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            // An in-app link back to the list, such as the breadcrumb out of a workflow, carries no filter
+            // params. Parsing that URL would clear every filter, so the filters held in state are restored
+            // and written back into the URL instead.
+            if (!FILTER_URL_PARAMS.some((param) => param in searchParams)) {
+                if (!objectsEqual(values.filters, DEFAULT_FILTERS)) {
+                    actions.setFilters(values.filters)
+                }
+                return
+            }
             const status = searchParams['status']
             const type = searchParams['type']
             const triggerType = searchParams['trigger_type']
