@@ -250,6 +250,21 @@ class TestGetRowsCompanies:
         assert [row["name"] for row in result.rows] == ["Acme", "Globex"]
 
 
+class TestGetRowsUnpaginated:
+    def test_full_list_is_read_in_one_request(self) -> None:
+        # A page-size response must not trigger a page 2 that would re-read the same list.
+        departments = [{"uuid": f"d-{index}"} for index in range(100)]
+        result = _driver().run(
+            "departments",
+            [_token(), ScriptedResponse(json=_me_body(["c-1"])), ScriptedResponse(json=departments)],
+        )
+        assert result.raised is None
+        assert len(result.rows) == 100
+        assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
+        assert result.paths == ["/oauth/token", "/v1/me", "/v1/companies/c-1/departments"]
+        assert result.params("page")[-1] is None
+
+
 class TestGetRowsFanOut:
     def test_resumes_partway_through_a_company_employee_list(self) -> None:
         result = _driver().run(
