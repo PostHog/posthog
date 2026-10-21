@@ -131,6 +131,7 @@ A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a 
 The service's PostgreSQL fallback runs the same classification, so a Redis miss serves the flag set the cache would have carried.
 Both builders run the same fixture, `rust/feature-flags/tests/fixtures/flags_cache_config_formats.json`.
 One known divergence remains: Rust decodes v1 documents into typed structs, so an evaluable row it cannot decode (a property filter without a `type` key, for example) is omitted there with its dependents, while Python, which only reads the cohort and flag references, still publishes it.
+When the Rust service reads a Python-written entry that holds such a row, it skips that one flag, counts it in `flags_flag_malformed_filter_total`, and marks every flag that depends on it as missing a dependency, so the team's other flags still evaluate.
 `verify_team_flags` reports and repairs such a team, attributed to the writer that produced it.
 An entry written before this rule can hold an inactive non-v1 row already blanked to `{"groups": []}`; its cached bytes cannot recover the original format, so the entry is rebuilt from the database rows by the next invalidation, refresh sweep, or verifier repair rather than reclassified in place.
 Until then an unreferenced blanked row is inert for the matcher, and an active dependent of one reports as `STALE_IN_CACHE` and triggers the repair.

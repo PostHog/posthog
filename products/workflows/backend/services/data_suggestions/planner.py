@@ -169,7 +169,7 @@ Step types:
 - delay: wait a fixed time.
 - wait_until_time_window: wait for a time of day or day of the week the team picks.
 - wait_until_event: wait until the person does one of the project's events, at most duration.
-- conditional_branch: split on conditions the team defines, such as a person property.
+- conditional_branch: split on person properties the team defines. It cannot check what the person did.
 - random_split: split people at random into paths, such as for an A/B test.
 - exit: end the workflow early with a reason.
 
@@ -181,6 +181,8 @@ recipients. The team fills them in. Say what is left in setup_note.
 successful payment after a failed one, or an order after an abandoned cart. Use it only when an event in the list \
 clearly means that. Another event of the same kind is not enough: a paid invoice from the person's own customer is not \
 their subscription payment. When no event means it, use a delay instead.
+- To check whether the person did something, like started a chat or placed an order, wait for that event with a \
+wait_until_event step. Never use a delay followed by a conditional_branch for it, which the team would have to set up.
 - {{personalization_rule}}
 - Never promise a discount, offer or gift. The team adds one if it has one.
 - {{email_rule}}

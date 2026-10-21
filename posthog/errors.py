@@ -86,6 +86,8 @@ def clickhouse_error_type(e: Exception) -> str:
 
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+_ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+_WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
@@ -1181,6 +1183,27 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     if is_clickhouse_query_rejection(code_name):
         return f"ClickHouse rejected the query with error {code_name}."
     return None
+
+
+def error_code_from_type(error: BaseException) -> str:
+    """Return a code for an error from its type alone, since its message can quote stored data.
+
+    A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
+    """
+    if isinstance(error, ServerException):
+        return look_up_clickhouse_error_code_meta(error).name.lower()
+    class_name = _WORD_BOUNDARY.sub(r"\1_\2", _ACRONYM_BOUNDARY.sub(r"\1_\2", type(error).__name__))
+    return f"unhandled_{class_name.lower()}"
+
+
+def unwrap_exposed_hogql_error(error: ExposedHogQLError) -> BaseException:
+    """Return the first cause that is not a plain `ExposedHogQLError` wrapper, such as a database adapter's error."""
+    cause: BaseException = error
+    seen: set[int] = set()
+    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return cause
 
 
 # Transient ClickHouse infrastructure errors that are safe to retry.

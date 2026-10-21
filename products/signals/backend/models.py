@@ -114,6 +114,7 @@ class SignalSourceConfig(UUIDModel):
         CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
         SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
+        INCIDENT = "incident", "Incident"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
@@ -2481,6 +2482,7 @@ class SignalReportCheck(UUIDModel):
     run_interval_minutes = models.PositiveIntegerField(null=True, blank=True)
     runs_remaining = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField()
+    monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)

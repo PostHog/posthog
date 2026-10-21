@@ -397,6 +397,20 @@ class TestTransactionalEmail(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.deleted
 
+    def test_tagging_a_transactional_template_leaves_its_workflow_untouched(self, mock_post, _flag, _capture):
+        before = self._workflow(self.hog_flow_id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {"tags": ["growth"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        after = self._workflow(self.hog_flow_id)
+        assert (after["version"], after["updated_at"]) == (before["version"], before["updated_at"])
+
     def test_rejects_an_update_that_would_stop_a_transactional_template_sending(self, mock_post, _flag, _capture):
         category = MessageCategory.objects.create(
             team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
