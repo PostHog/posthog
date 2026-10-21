@@ -508,6 +508,10 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
+export const hogFlowsCreateBodyTagsItemMax = 255
+
+export const hogFlowsCreateBodyTagsMax = 10
+
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -530,6 +534,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsCreateBodyTagsItemMax))
+            .max(hogFlowsCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+            ),
         status: zod
             .enum(['draft', 'active', 'archived'])
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
@@ -917,6 +928,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
 export const hogFlowsUpdateBodyNameMax = 400
 
 export const hogFlowsUpdateBodyDescriptionDefault = ``
+export const hogFlowsUpdateBodyTagsItemMax = 255
+
+export const hogFlowsUpdateBodyTagsMax = 10
+
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -939,6 +954,13 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(hogFlowsUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsUpdateBodyDescriptionDefault).describe('Optional description.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsUpdateBodyTagsItemMax))
+            .max(hogFlowsUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+            ),
         status: zod
             .enum(['draft', 'active', 'archived'])
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
@@ -1313,6 +1335,10 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
 export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
+export const hogFlowsPartialUpdateBodyTagsItemMax = 255
+
+export const hogFlowsPartialUpdateBodyTagsMax = 10
+
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -1340,6 +1366,13 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .default(hogFlowsPartialUpdateBodyDescriptionDefault)
             .describe('Optional description.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsPartialUpdateBodyTagsItemMax))
+            .max(hogFlowsPartialUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+            ),
         status: zod
             .enum(['draft', 'active', 'archived'])
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
@@ -1896,6 +1929,10 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
+export const hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax = 255
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneTagsMax = 10
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
@@ -1941,6 +1978,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .default(hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault)
                 .describe('Optional description.'),
+            tags: zod
+                .array(zod.string().max(hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax))
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneTagsMax)
+                .optional()
+                .describe(
+                    'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+                ),
             version: zod.number(),
             status: zod
                 .enum(['draft', 'active', 'archived'])
@@ -2801,6 +2845,10 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
+export const hogFlowsBulkDeleteCreateBodyTagsItemMax = 255
+
+export const hogFlowsBulkDeleteCreateBodyTagsMax = 10
+
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -2828,6 +2876,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .string()
             .default(hogFlowsBulkDeleteCreateBodyDescriptionDefault)
             .describe('Optional description.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsBulkDeleteCreateBodyTagsItemMax))
+            .max(hogFlowsBulkDeleteCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+            ),
         status: zod
             .enum(['draft', 'active', 'archived'])
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')

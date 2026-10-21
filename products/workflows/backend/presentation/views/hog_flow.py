@@ -2936,6 +2936,10 @@ class HogFlowLastRunSerializer(serializers.Serializer):
     )
 
 
+# Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
+_MAX_WORKFLOW_TAGS = 10
+
+
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     # The fields the model used to supply. Each is read-only here; the full serializer declares the
     # writable ones again, so those are typed as any field.
@@ -2975,6 +2979,11 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
     suggestions_enabled = serializers.SerializerMethodField(
         help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Tags for organizing workflows, for example by team or use case. Sorted by name.",
+    )
 
     class Meta:
         # The fields each serializer returns, in this order. get_fields applies it.
@@ -2982,6 +2991,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "id",
             "name",
             "description",
+            "tags",
             "version",
             "status",
             "origin_product",
@@ -3079,6 +3089,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "id",
             "name",
             "description",
+            "tags",
             "version",
             "status",
             "origin_product",
@@ -3103,6 +3114,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
     description = serializers.CharField(required=False, allow_blank=True, default="", help_text="Optional description.")
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),  # Tag.name column limit.
+        required=False,
+        max_length=_MAX_WORKFLOW_TAGS,
+        help_text=(
+            "Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of "
+            "the project. Omit to keep the current tags, send an empty list to remove them all."
+        ),
+    )
     status = serializers.ChoiceField(
         choices=HogFlowState.choices,
         required=False,
@@ -3388,6 +3408,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "id",
             "name",
             "description",
+            "tags",
             "version",
             "status",
             "origin_product",
@@ -4688,12 +4709,17 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+                description="Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             ),
             OpenApiParameter(
                 "created_by",
                 OpenApiTypes.UUID,
                 description="Filter to workflows created by the user with this uuid.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                description='JSON-encoded list of tag names, e.g. ["growth", "onboarding"]. Returns workflows that carry at least one of these tags.',
             ),
             OpenApiParameter(
                 "type",
@@ -4939,6 +4965,18 @@ class HogFlowViewSet(
         except (ValueError, KeyError, TypeError):
             raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
 
+    def _tags_filter(self) -> frozenset[str]:
+        raw = self.request.GET.get("tags")
+        if not raw:
+            return frozenset()
+        try:
+            tags = json.loads(raw)
+        except ValueError:
+            raise exceptions.ValidationError({"tags": "Must be a JSON-encoded list of tag names"})
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise exceptions.ValidationError({"tags": "Must be a JSON-encoded list of tag names"})
+        return frozenset(tags)
+
     def _list_query(self) -> WorkflowListQuery:
         """The list's query parameters, validated in the order the list has always checked them."""
         params = self.request.GET
@@ -4979,6 +5017,7 @@ class HogFlowViewSet(
             )
 
         trigger = self._trigger_filter()
+        tags = self._tags_filter()
 
         search = (params.get("search") or "").strip()
         if len(search) > 200:
@@ -4993,6 +5032,7 @@ class HogFlowViewSet(
             broadcast_eligible=params.get("broadcast_eligible") == "true",
             broadcast_statuses=frozenset(broadcast_statuses),
             suggestions_first=params.get("suggestions_first") in ("true", "1"),
+            tags=tags,
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
         )
 
