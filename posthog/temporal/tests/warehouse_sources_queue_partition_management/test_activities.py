@@ -381,15 +381,20 @@ def _test_database_conninfo() -> str:
     return make_conninfo(**{key: value for key, value in params.items() if value})
 
 
+@pytest.mark.parametrize("key_column", ["created_at", "job_created_at"])
 @pytest.mark.django_db
-def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_batches() -> None:
+def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_batches(key_column: str) -> None:
     table = f"expiry_test_{uuid4().hex[:12]}"
     cutoff = date(2026, 9, 15)
     errors: list[str] = []
+    key_columns = {} if key_column == "created_at" else {table: key_column}
 
-    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
+    with (
+        psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn,
+        patch.dict(activities_module._PARTITION_KEY_COLUMNS, key_columns),
+    ):
         try:
-            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(f"CREATE TABLE {table} (id int, {key_column} timestamptz) PARTITION BY RANGE ({key_column})")
             conn.execute(f"CREATE TABLE {table}_default PARTITION OF {table} DEFAULT")
             conn.execute(
                 f"""

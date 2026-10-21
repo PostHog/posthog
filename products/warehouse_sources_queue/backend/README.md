@@ -324,3 +324,122 @@ The scheduler enqueues `sync.extract` for firing schemas (see above). Manual tri
 - Post-import still starts from the loader (or from the handler for a run that returns before the pipeline), not through a follower job.
 - Firing does not remove or pause the schema's Temporal schedule.
 - Repartition, CDC extraction and V2 runs stay on Temporal.
+
+## Workflows (phase 3.5)
+
+A workflow is one `async def` per job kind, made of checkpointed steps.
+The engine runs the function again on each attempt of the job.
+`await ctx.step("key", fn, ...)` runs `fn` once and stores its result in `queuejobstep`.
+On a later attempt (after a retry, a crash, or a shutdown), a completed step returns its stored result and does not run again.
+This is not deterministic replay: code between steps runs again on each attempt, so keep it cheap and free of side effects, or put it in a step.
+
+```python
+from datetime import timedelta
+
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources_queue.backend.sdk import StepFailed, StepPolicy, WorkflowContext, workflow
+
+
+@frozen
+class InvoicePayload:
+    team_id: int
+    invoice_id: str
+
+
+@frozen
+class Totals:
+    amount_cents: int
+    s3_key: str  # a large output goes by reference; a step result is at most 32 KB
+
+
+async def fetch_totals(payload: InvoicePayload) -> Totals: ...
+async def charge(payload: InvoicePayload, totals: Totals) -> str: ...
+async def send_receipt(payload: InvoicePayload, charge_id: str) -> None: ...
+async def mark_failed(payload: InvoicePayload, error: str) -> None: ...
+
+
+@workflow(kind="billing.invoice", lane="billing", payload=InvoicePayload)
+async def invoice(ctx: WorkflowContext[InvoicePayload]) -> None:
+    totals = await ctx.step(
+        "fetch_totals", fetch_totals, ctx.payload, policy=StepPolicy(max_attempts=3, timeout=timedelta(minutes=5))
+    )
+    if totals.amount_cents == 0:
+        return
+    try:
+        charge_id = await ctx.step(
+            "charge", charge, ctx.payload, totals, policy=StepPolicy(max_attempts=5, on_failure="retry_job")
+        )
+    except StepFailed as err:
+        await ctx.step("mark_failed", mark_failed, ctx.payload, str(err))
+        return
+    await ctx.step("send_receipt", send_receipt, ctx.payload, charge_id, policy=StepPolicy(on_failure="continue"))
+```
+
+Run it on a consumer with `JobConsumer(lane="billing", handlers={invoice.kind: WorkflowHandler(invoice)}, config=...)`.
+Enqueue it with `JobsTable.insert(kind=invoice.kind, lane=invoice.lane, payload=invoice.encode_payload(payload), ...)`.
+`get_workflow(kind)` finds a declared workflow by its kind.
+
+### Steps
+
+- A step key is unique within one attempt. A second call with the same key raises `StepKeyError`. In a loop, put the loop variable in the key (`f"page:{n}"`). Keys that start with `__` are reserved.
+- A step function is an `async def`. Its result goes through the function's return annotation (pydantic does the encoding), so a dataclass, a pydantic model, primitives, and lists and dicts of them round-trip. The SDK decodes a new result before it stores it, so a result that cannot round-trip fails on the first run.
+- A result over 32 KB of JSON, or a result that is not JSON-serializable, raises `StepResultError` and fails the job. A retry does not help.
+- A step that raises `WorkflowRetry` records nothing. The attempt ends with a `Retry` (with the error's `tag`), and the step runs again on the next attempt. A long step uses this for a shutdown: it watches `ctx.shutdown_event` and raises `WorkflowRetry(tag="shutdown")`.
+
+`StepPolicy` sets how a step fails:
+
+| Field          | Default    | Meaning                                                                               |
+| -------------- | ---------- | ------------------------------------------------------------------------------------- |
+| `max_attempts` | 1          | Failed executions of the step, over all attempts of the job, before the step gives up |
+| `timeout`      | None       | Wall-clock limit for one execution. A timeout is a failure                            |
+| `on_failure`   | `fail_job` | See below                                                                             |
+| `retry_delay`  | 1 s        | Wait before an in-process retry, times the failure count                              |
+
+- `fail_job`: retry the step at once in the same attempt. After the last failure, raise `StepFailed`. Uncaught, it fails the job.
+- `retry_job`: end the attempt with a `Retry`, so the step runs again on the next attempt after the engine's backoff. After the last failure, raise `StepFailed`. Each of these retries counts against the consumer's `max_attempts`, so set that above the step's `max_attempts`.
+- `continue`: retry as `fail_job` does. After the last failure, record the step as `skipped` and return None.
+
+A step that raises `NonRetryableStepError` gives up at once.
+A crash in the middle of a step records nothing, so the next attempt runs the step again: steps must be idempotent.
+`ctx.job.id` plus the step key is a stable idempotency key.
+
+### Outcomes
+
+A return is `Success`. `WorkflowRetry` is `Retry`. `StepFailed`, a payload that does not match its type, and any other error are `Fail`.
+A failed step-store read or write (the queue database is unavailable) is a `Retry`.
+`on_engine_failed=` on `@workflow` hears about a job that the engine fails without the workflow (`EngineFailureHandler`).
+
+### Versioning
+
+Steps are keyed by name, not by position.
+A deploy can add a step: a job that started on the old code runs the new step on its next attempt.
+Add a step only where it is safe to run after the steps that follow it have completed.
+A renamed step is a new step, and the old result is not used.
+`@workflow(version=...)` names the code. `ctx.started_version` is the version that ran the job's first attempt, and it stays the same over all attempts. Branch on it for a change that is not additive.
+
+### Storage
+
+`queuejobstep` is append-only and partitioned by day on `job_created_at`, the job's own partition key, so the rows of a job leave with the job at retention.
+A failed execution adds a `failed` row. A completed step adds one `succeeded` or `skipped` row; a partial unique index on `(job_id, job_created_at, step_key)` keeps it to one.
+`started_version` is the result of the SDK's `__started__` row.
+Each step write is fenced: the insert runs only while the job is `executing` this attempt, and it locks the job row in share mode, so a zombie attempt gets `OwnershipLostError` and records nothing.
+The step store opens a short connection for each read and write, so a long step holds no idle connection.
+
+### Testing
+
+`WorkflowTestRunner` in `testing.py` runs a workflow in-process against the test database, one job attempt at a time, with the status writes that the engine makes:
+
+```python
+runner = WorkflowTestRunner(invoice, payload, overrides={"charge": fake_charge}, crash_after="fetch_totals")
+with pytest.raises(SimulatedCrash):
+    await runner.run()  # attempt 1 dies after the fetch_totals checkpoint
+outcome = await runner.run()  # attempt 2: fetch_totals does not run again
+assert outcome == Success()
+assert runner.calls == Counter({"fetch_totals": 1, "charge": 1, "send_receipt": 1})
+assert runner.steps["charge"].state is StepState.SUCCEEDED
+```
+
+`run_until_done()` runs attempts through retries and crashes.
+`FakeClock` makes in-process retry waits instant and records them in `clock.sleeps`.
+Call `ensure_generic_job_tables` first; it creates `queuejobstep` too.
