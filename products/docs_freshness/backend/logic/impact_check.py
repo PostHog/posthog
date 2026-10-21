@@ -64,6 +64,7 @@ VerdictName = Literal["clear", "flagged", "unmergeable"]
 
 @frozen
 class ImpactVerdict:
+    checked_ref: str
     impacted: list[dict[str, Any]]
     prompt_template: str | None = None
 
@@ -88,16 +89,21 @@ def pull_request_url(head: PullRequestHead) -> str:
     return f"https://github.com/PostHog/posthog/pull/{head.pr_number}"
 
 
+def pull_request_merge_ref(head: PullRequestHead) -> str:
+    return f"refs/pull/{head.pr_number}/merge"
+
+
 def check_pull_request_head(head: PullRequestHead) -> ImpactVerdict | None:
     config = configured_settings()
     if config is None:
         return None
     if head.repository.lower() != CHECKED_REPOSITORY or not _SHA_RE.fullmatch(head.head_sha):
         return None
-    if not _is_current_head(config, head):
+    checked_ref = _checked_ref(config, head)
+    if checked_ref is None:
         logger.info("docs_freshness: head superseded", pr_number=head.pr_number, head_sha=head.head_sha)
         return None
-    return run_impact_check(config.tool_ref, head)
+    return run_impact_check(config.tool_ref, head, checked_ref)
 
 
 def record_verdict(head: PullRequestHead, verdict_name: VerdictName, verdict: ImpactVerdict) -> None:
@@ -106,10 +112,10 @@ def record_verdict(head: PullRequestHead, verdict_name: VerdictName, verdict: Im
         return
     if verdict.is_flagged:
         start_docs_agent(config, head, verdict)
-    capture_verdict(config, head, verdict_name, len(verdict.impacted))
+    capture_verdict(config, head, verdict_name, verdict)
 
 
-def _is_current_head(config: DocsFreshnessSettings, head: PullRequestHead) -> bool:
+def _checked_ref(config: DocsFreshnessSettings, head: PullRequestHead) -> str | None:
     github = GitHubIntegration.first_for_team_repository(
         config.team_id, CHECKED_REPOSITORY, source="docs_freshness", priority=Priority.BATCH
     )
@@ -122,10 +128,21 @@ def _is_current_head(config: DocsFreshnessSettings, head: PullRequestHead) -> bo
         raise DocsFreshnessCheckError(
             f"Reading pull request {head.pr_number} failed: {pull_request.get('error')}"[:300]
         )
-    return pull_request.get("state") == "open" and pull_request.get("head_sha") == head.head_sha
+    if pull_request.get("head_sha") != head.head_sha:
+        return None
+    if pull_request.get("state") == "open":
+        return pull_request_merge_ref(head)
+    merge_commit_sha = pull_request.get("merge_commit_sha")
+    if (
+        not pull_request.get("merged")
+        or not isinstance(merge_commit_sha, str)
+        or not _SHA_RE.fullmatch(merge_commit_sha)
+    ):
+        return None
+    return merge_commit_sha
 
 
-def run_impact_check(tool_ref: str, head: PullRequestHead) -> ImpactVerdict:
+def run_impact_check(tool_ref: str, head: PullRequestHead, checked_ref: str) -> ImpactVerdict:
     sandbox = get_sandbox_class().create(
         SandboxConfig(
             name=f"docs-freshness-{head.pr_number}",
@@ -137,7 +154,7 @@ def run_impact_check(tool_ref: str, head: PullRequestHead) -> ImpactVerdict:
         )
     )
     try:
-        return _read_verdict(sandbox, tool_ref, head)
+        return _read_verdict(sandbox, tool_ref, head, checked_ref)
     finally:
         try:
             sandbox.destroy()
@@ -145,8 +162,8 @@ def run_impact_check(tool_ref: str, head: PullRequestHead) -> ImpactVerdict:
             logger.warning("docs_freshness: sandbox destroy failed", sandbox_id=sandbox.id, exc_info=True)
 
 
-def _read_verdict(sandbox: SandboxBase, tool_ref: str, head: PullRequestHead) -> ImpactVerdict:
-    result = sandbox.execute(_check_command(tool_ref, head), timeout_seconds=CHECK_TIMEOUT_SECONDS)
+def _read_verdict(sandbox: SandboxBase, tool_ref: str, head: PullRequestHead, checked_ref: str) -> ImpactVerdict:
+    result = sandbox.execute(_check_command(tool_ref, head, checked_ref), timeout_seconds=CHECK_TIMEOUT_SECONDS)
     if result.exit_code == MERGE_REF_BEHIND_HEAD_EXIT_CODE:
         raise MergeRefBehindHead(f"refs/pull/{head.pr_number}/merge does not hold head {head.head_sha} yet")
     if result.exit_code == MERGE_REF_MISSING_EXIT_CODE:
@@ -158,24 +175,31 @@ def _read_verdict(sandbox: SandboxBase, tool_ref: str, head: PullRequestHead) ->
         )
     impacted = list(json.loads(result.stdout))
     if result.exit_code == CLEAR_EXIT_CODE or not impacted:
-        return ImpactVerdict(impacted=[])
+        return ImpactVerdict(checked_ref=checked_ref, impacted=[])
     prompt = sandbox.execute(f"cat {PROMPT_PATH}", timeout_seconds=PROMPT_TIMEOUT_SECONDS)
     if prompt.exit_code != 0:
         raise DocsFreshnessCheckError(f"Reading the docs agent prompt failed: {prompt.stderr[-MAX_STDERR_CHARACTERS:]}")
-    return ImpactVerdict(impacted=impacted, prompt_template=prompt.stdout)
+    return ImpactVerdict(checked_ref=checked_ref, impacted=impacted, prompt_template=prompt.stdout)
 
 
-def _check_command(tool_ref: str, head: PullRequestHead) -> str:
-    return (
+def _check_command(tool_ref: str, head: PullRequestHead, checked_ref: str) -> str:
+    fetch_tool = (
         f"rm -rf {TOOL_DIRECTORY} && git init -q {TOOL_DIRECTORY} && "
         f"git -C {TOOL_DIRECTORY} fetch -q --depth=1 {TOOL_REPOSITORY_URL} {shlex.quote(tool_ref)} && "
         f"git -C {TOOL_DIRECTORY} checkout -q FETCH_HEAD || exit 10; "
-        f"git ls-remote --exit-code {CHECKED_REPOSITORY_URL} refs/pull/{head.pr_number}/merge >/dev/null; "
-        f'[ "$?" -ne {GIT_LS_REMOTE_NO_MATCH_EXIT_CODE} ] || exit {MERGE_REF_MISSING_EXIT_CODE}; '
-        f"bash {TOOL_DIRECTORY}/docaudit/sandbox_check.sh refs/pull/{head.pr_number}/merge {head.head_sha} "
+    )
+    run_check = (
         f"2>{CHECK_STDERR_PATH}; check_status=$?; "
         f'[ "$check_status" -le {FLAGGED_EXIT_CODE} ] || tail -c 4000 {CHECK_STDERR_PATH} >&2; '
         f'exit "$check_status"'
+    )
+    if checked_ref != pull_request_merge_ref(head):
+        return f"{fetch_tool}bash {TOOL_DIRECTORY}/docaudit/sandbox_check.sh {checked_ref} {checked_ref} {run_check}"
+    return (
+        f"{fetch_tool}"
+        f"git ls-remote --exit-code {CHECKED_REPOSITORY_URL} {checked_ref} >/dev/null; "
+        f'[ "$?" -ne {GIT_LS_REMOTE_NO_MATCH_EXIT_CODE} ] || exit {MERGE_REF_MISSING_EXIT_CODE}; '
+        f"bash {TOOL_DIRECTORY}/docaudit/sandbox_check.sh {checked_ref} {head.head_sha} {run_check}"
     )
 
 
@@ -194,8 +218,12 @@ def docs_agent_description(head: PullRequestHead, verdict: ImpactVerdict) -> str
     return description
 
 
-def checked_event_uuid(head: PullRequestHead) -> str:
-    return str(uuid.uuid5(CHECKED_EVENT_UUID_NAMESPACE, f"{pull_request_url(head)}@{head.head_sha}"))
+def checked_event_uuid(head: PullRequestHead, checked_ref: str, verdict_name: str) -> str:
+    return str(
+        uuid.uuid5(
+            CHECKED_EVENT_UUID_NAMESPACE, f"{pull_request_url(head)}@{head.head_sha}:{checked_ref}#{verdict_name}"
+        )
+    )
 
 
 def docs_agent_origin_key(head: PullRequestHead) -> str:
@@ -227,13 +255,13 @@ def start_docs_agent(config: DocsFreshnessSettings, head: PullRequestHead, verdi
 
 
 def capture_verdict(
-    config: DocsFreshnessSettings, head: PullRequestHead, verdict_name: str, impacted_claims: int
+    config: DocsFreshnessSettings, head: PullRequestHead, verdict_name: str, verdict: ImpactVerdict
 ) -> None:
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=CAPTURE_DISTINCT_ID,
             event=CHECKED_EVENT,
-            uuid=checked_event_uuid(head),
+            uuid=checked_event_uuid(head, verdict.checked_ref, verdict_name),
             properties={
                 "$process_person_profile": False,
                 "pr_url": pull_request_url(head),
@@ -241,7 +269,7 @@ def capture_verdict(
                 "pr_number": head.pr_number,
                 "head_sha": head.head_sha,
                 "verdict": verdict_name,
-                "impacted_claims": impacted_claims,
+                "impacted_claims": len(verdict.impacted),
                 "tool_ref": config.tool_ref,
             },
         )

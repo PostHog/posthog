@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
-from temporalio.client import Client, WorkflowHandle
+from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -26,7 +26,12 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 _MODULE = "products.docs_freshness.backend.logic.impact_check"
 _HEAD_SHA = "a" * 40
+_MERGE_SHA = "c" * 40
+_MERGE_REF = "refs/pull/42/merge"
 _HEAD = PullRequestHead(repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA)
+_OPEN = {"success": True, "state": "open", "merged": False, "head_sha": _HEAD_SHA, "merge_commit_sha": None}
+_SUPERSEDED = {**_OPEN, "head_sha": "b" * 40}
+_MERGED = {"success": True, "state": "closed", "merged": True, "head_sha": _HEAD_SHA, "merge_commit_sha": _MERGE_SHA}
 _IMPACTED = [{"page": "support/widget.mdx", "kind": "ui-label", "claim": "Secret API Key", "guard": "renamed"}]
 _PROMPT = (
     "PR {event.properties.pr_url} at {event.properties.head_sha}\n{event.properties.claims}\n{event.properties.pages}"
@@ -46,24 +51,34 @@ class _DocsAgentTask:
 
 
 def _docs_agent_tasks(team_id: int) -> list[_DocsAgentTask]:
-    return [
-        _DocsAgentTask(
-            origin_key=task.origin_key,
-            description=task.description,
-            posthog_mcp_scopes=task.latest_run.state["pending_dispatch"]["posthog_mcp_scopes"],
+    agent_tasks = []
+    for task in Task.objects.filter(team_id=team_id).order_by("created_at"):
+        latest_run = task.latest_run
+        assert latest_run is not None
+        agent_tasks.append(
+            _DocsAgentTask(
+                origin_key=task.origin_key,
+                description=task.description,
+                posthog_mcp_scopes=latest_run.state["pending_dispatch"]["posthog_mcp_scopes"],
+            )
         )
-        for task in Task.objects.filter(team_id=team_id).order_by("created_at")
-    ]
+    return agent_tasks
 
 
-def _sandbox_executor(exit_codes: list[int], impacted: list[dict]) -> Callable[..., ExecutionResult]:
-    remaining = list(exit_codes)
+def _sandbox_executor(
+    merge_ref_exit_codes: list[int], landed_exit_code: int, checked_refs: list[str]
+) -> Callable[..., ExecutionResult]:
+    remaining = list(merge_ref_exit_codes)
 
     def execute(command: str, **_kwargs: Any) -> ExecutionResult:
         if command.startswith("cat "):
             return ExecutionResult(stdout=_PROMPT, stderr="", exit_code=0)
-        exit_code = remaining.pop(0) if len(remaining) > 1 else remaining[0]
-        return ExecutionResult(stdout=json.dumps(impacted if exit_code == 1 else []), stderr="", exit_code=exit_code)
+        checked_ref = command.split("sandbox_check.sh ")[1].split()[0]
+        checked_refs.append(checked_ref)
+        exit_code = landed_exit_code
+        if checked_ref == _MERGE_REF:
+            exit_code = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+        return ExecutionResult(stdout=json.dumps(_IMPACTED if exit_code == 1 else []), stderr="", exit_code=exit_code)
 
     return execute
 
@@ -79,34 +94,59 @@ def owner() -> Iterator[User]:
 
 
 @pytest.mark.parametrize(
-    "current_head_sha,exit_codes,deliveries,expected_verdicts,expected_agent_tasks,capture_failures",
+    "pull_request_per_delivery,merge_ref_exit_codes,landed_exit_code,expected_verdicts,expected_checked_refs,expected_agent_tasks,capture_failures",
     [
-        pytest.param(_HEAD_SHA, [1], 1, ["flagged"], 1, 0, id="flagged"),
-        pytest.param(_HEAD_SHA, [1], 2, ["flagged"], 1, 0, id="redelivered"),
-        pytest.param(_HEAD_SHA, [3, 3, 1], 1, ["flagged"], 1, 0, id="merge_ref_lags_then_settles"),
-        pytest.param(_HEAD_SHA, [0], 1, ["clear"], 0, 0, id="clear"),
-        pytest.param("b" * 40, [0], 1, [], 0, 0, id="superseded"),
-        pytest.param(_HEAD_SHA, [4], 1, ["unmergeable"], 0, 0, id="unmergeable_after_last_attempt"),
-        pytest.param(_HEAD_SHA, [1], 1, ["flagged"], 1, 1, id="capture_fails_after_agent_start"),
+        pytest.param([_OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="flagged"),
+        pytest.param([_OPEN, _OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="redelivered"),
+        pytest.param([_OPEN], [3, 3, 1], 0, ["flagged"], {_MERGE_REF}, 1, 0, id="merge_ref_lags_then_settles"),
+        pytest.param([_OPEN], [0], 0, ["clear"], {_MERGE_REF}, 0, 0, id="clear"),
+        pytest.param([_SUPERSEDED], [0], 0, [], set(), 0, 0, id="superseded"),
+        pytest.param([_OPEN], [4], 0, ["unmergeable"], {_MERGE_REF}, 0, 0, id="unmergeable_after_last_attempt"),
+        pytest.param([_OPEN], [1], 0, ["flagged"], {_MERGE_REF}, 1, 1, id="capture_fails_after_agent_start"),
+        pytest.param([_MERGED], [4], 1, ["flagged"], {_MERGE_SHA}, 1, 0, id="merged_before_check_uses_landed_commit"),
+        pytest.param(
+            [_OPEN, _MERGED],
+            [4],
+            1,
+            ["unmergeable", "flagged"],
+            {_MERGE_REF, _MERGE_SHA},
+            1,
+            0,
+            id="unmergeable_then_landed",
+        ),
+        pytest.param(
+            [_OPEN, _OPEN],
+            [4, 4, 4, 4, 4, 4, 1],
+            0,
+            ["unmergeable", "flagged"],
+            {_MERGE_REF},
+            1,
+            0,
+            id="unmergeable_then_merge_ref_appears",
+        ),
     ],
 )
 async def test_verdict_for_head(
-    current_head_sha: str,
-    exit_codes: list[int],
-    deliveries: int,
+    pull_request_per_delivery: list[dict[str, Any]],
+    merge_ref_exit_codes: list[int],
+    landed_exit_code: int,
     expected_verdicts: list[str],
+    expected_checked_refs: set[str],
     expected_agent_tasks: int,
     capture_failures: int,
     owner: User,
     settings: Any,
 ) -> None:
-    settings.DOCS_FRESHNESS_TEAM_ID = owner.current_team_id
+    team_id = owner.current_team_id
+    assert team_id is not None
+    settings.DOCS_FRESHNESS_TEAM_ID = team_id
     settings.DOCS_FRESHNESS_OWNER_USER_ID = owner.id
     settings.DOCS_FRESHNESS_TOOL_REF = "main"
     github = MagicMock()
-    github.get_pull_request.return_value = {"success": True, "state": "open", "head_sha": current_head_sha}
+    checked_refs: list[str] = []
     sandbox = MagicMock()
-    sandbox.execute.side_effect = _sandbox_executor(exit_codes, _IMPACTED)
+    sandbox.execute.side_effect = _sandbox_executor(merge_ref_exit_codes, landed_exit_code, checked_refs)
+    failed_runs = 0
     captured: list[dict] = []
     remaining_capture_failures = [capture_failures]
 
@@ -150,13 +190,19 @@ async def test_verdict_for_head(
                 activities=ACTIVITIES,
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                for _ in range(deliveries):
+                for pull_request in pull_request_per_delivery:
+                    github.get_pull_request.return_value = pull_request
                     await sync_to_async(accept_pull_request_event)(_PAYLOAD)
-                    await started_handles[-1].result()
+                    try:
+                        await started_handles[-1].result()
+                    except WorkflowFailureError:
+                        failed_runs += 1
 
     assert [event["properties"]["verdict"] for event in captured] == expected_verdicts
     assert len({event["uuid"] for event in captured}) == len(captured)
-    agent_tasks = await sync_to_async(_docs_agent_tasks)(owner.current_team_id)
+    assert set(checked_refs) == expected_checked_refs
+    assert failed_runs == expected_verdicts.count("unmergeable")
+    agent_tasks = await sync_to_async(_docs_agent_tasks)(team_id)
     assert len(agent_tasks) == expected_agent_tasks
     if expected_agent_tasks:
         assert agent_tasks[0].origin_key == docs_agent_origin_key(_HEAD)

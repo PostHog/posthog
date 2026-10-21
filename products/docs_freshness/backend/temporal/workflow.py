@@ -4,7 +4,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.docs_freshness.backend.facade.contracts import MergeRefMissing, PullRequestHead
-from products.docs_freshness.backend.logic.impact_check import ImpactVerdict, VerdictName
+from products.docs_freshness.backend.logic.impact_check import ImpactVerdict, VerdictName, pull_request_merge_ref
 from products.docs_freshness.backend.temporal.activities import check_head, record_verdict
 from products.docs_freshness.backend.temporal.constants import (
     CHECK_HEAD_TIMEOUT,
@@ -35,8 +35,12 @@ class CheckPullRequestHeadWorkflow(PostHogWorkflow):
         except ActivityError as error:
             if not _is_merge_ref_missing(error):
                 raise
-            await self._record(head, "unmergeable", ImpactVerdict(impacted=[]))
-            return
+            await self._record(
+                head, "unmergeable", ImpactVerdict(checked_ref=pull_request_merge_ref(head), impacted=[])
+            )
+            raise ApplicationError(
+                f"Pull request {head.pr_number} has no merge ref for head {head.head_sha}", non_retryable=True
+            ) from error
         if verdict is None:
             return
         await self._record(head, "flagged" if verdict.is_flagged else "clear", verdict)

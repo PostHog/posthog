@@ -1290,6 +1290,7 @@ class GitHubIntegrationBase:
             "base_branch": base.get("ref"),
             "head_sha": head.get("sha"),
             "base_sha": base.get("sha"),
+            "merge_commit_sha": pr.get("merge_commit_sha"),
             "repository": repo_path,
             "author": user.get("login"),
             "assignees": [
