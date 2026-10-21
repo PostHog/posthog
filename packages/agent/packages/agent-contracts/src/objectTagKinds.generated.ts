@@ -4,4 +4,4 @@
 
 /** The object paths the rich-output prompt teaches agents to link. */
 export const OBJECT_LINK_PROMPT_PATH_LIST =
-  "insight `/insights/<id>`, dashboard `/dashboard/<id>`, error `/error_tracking/<id>`, replay `/replay/<id>`, flag `/feature_flags/<id>`, experiment `/experiments/<id>`, survey `/surveys/<id>`, ticket `/support/tickets/<id>`, report `/inbox/<id>`, trace `/ai-observability/traces/<id>`, eval `/ai-evals/evaluations/<id>`, event `/data-management/events/<id>`, cohort `/cohorts/<id>`, action `/data-management/actions/<id>`, person `/persons/<id>`";
+  "insight `/insights/<id>`, dashboard `/dashboard/<id>`, error `/error_tracking/<id>`, replay `/replay/<id>`, flag `/feature-flags/<id>`, experiment `/experiments/<id>`, survey `/surveys/<id>`, ticket `/support/tickets/<id>`, report `/inbox/<id>`, trace `/ai-observability/traces/<id>`, eval `/ai-evals/evaluations/<id>`, event `/data-management/events/<id>`, cohort `/cohorts/<id>`, action `/data-management/actions/<id>`, person `/persons/<id>`";
