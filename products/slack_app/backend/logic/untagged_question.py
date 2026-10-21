@@ -10,18 +10,6 @@ _QUESTION_OPENER_PATTERN = re.compile(
     r"^(how|what|why|when|where|which|who|whose|is|are|was|were|can|could|does|do|did|should|would|will|has|have|any|anyone|anybody)\b",
     re.IGNORECASE,
 )
-# A request for information that has no question form, such as "need signups by country".
-_REQUEST_OPENER_PATTERN = re.compile(
-    r"^(please|pls|need|show|find|get|give|tell|list|compare|check|pull|help|looking for|wondering|curious"
-    r"|i need|we need|i want|we want|i'd like|i would like|i'm looking|im looking|i am looking|i wonder|quick question)\b",
-    re.IGNORECASE,
-)
-_REQUEST_PHRASE_PATTERN = re.compile(
-    r"\b(any idea|anyone know|anybody know|looking for|wondering|curious (?:about|if|whether|how|why|what)"
-    r"|need to (?:know|see|find|check|understand)|help me|can someone|could someone)\b",
-    re.IGNORECASE,
-)
-
 # A message for another bot or a typed Slack command, such as "/remind" or "!deploy".
 _COMMAND_PATTERN = re.compile(r"^[/!]\S")
 _POSTHOG_PATTERN = re.compile(r"\bpost\s?hog\b", re.IGNORECASE)
@@ -35,16 +23,6 @@ def has_question_signal(text: str) -> bool:
     return "?" in text or bool(_QUESTION_OPENER_PATTERN.match(text))
 
 
-def has_request_signal(text: str) -> bool:
-    """Whether a post asks for something: a question signal, a request word first, or a request phrase."""
-    text = text.strip()
-    return (
-        has_question_signal(text)
-        or bool(_REQUEST_OPENER_PATTERN.match(text))
-        or bool(_REQUEST_PHRASE_PATTERN.search(text))
-    )
-
-
 def mentions_posthog(text: str) -> bool:
     """Whether the words of a post name PostHog, outside links."""
     return bool(_POSTHOG_PATTERN.search(_SLACK_MARKUP_PATTERN.sub(" ", text)))
@@ -54,9 +32,8 @@ def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
     """Whether a top-level post nobody tagged the app in could be a question for PostHog.
 
     Text-only checks, because every top-level post in every channel the app is in comes through
-    here. The classifier makes the real decision later. The word check also passes requests
-    without a ``?`` or a question word, so phrasings like "need signups by country" reach it,
-    and any post that names PostHog.
+    here. The post must name PostHog, so the classifier sees what people ask about PostHog in any
+    phrasing, with or without a ``?``. The classifier makes the real decision later.
     """
     # ``group`` is a private channel. Group DMs (``mpim``) are private conversations between people.
     if event.get("channel_type") not in ("channel", "group"):
@@ -72,4 +49,4 @@ def is_untagged_question_candidate(event: dict[str, Any]) -> bool:
         return False
     if _COMMAND_PATTERN.match(text):
         return False
-    return has_request_signal(text) or mentions_posthog(text)
+    return mentions_posthog(text)

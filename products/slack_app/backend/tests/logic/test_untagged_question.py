@@ -8,17 +8,15 @@ from products.slack_app.backend.logic.untagged_question import is_untagged_quest
 class TestIsUntaggedQuestionCandidate(SimpleTestCase):
     @parameterized.expand(
         [
-            ("a question mark", "signups by country last month?", True),
-            ("a question word first", "how many people signed up last week", True),
-            ("a request word first", "need signups by country for last month", True),
-            ("a request phrase inside", "hey team, looking for the churn dashboard", True),
-            ("a statement that names PostHog", "the PostHog funnel looks off since the deploy", True),
-            ("a statement", "Shipped the new export filter today", False),
-            ("PostHog only in a link", "shipped it <https://us.posthog.com/project/2/insights/abc>", False),
-            ("a command", "/remind me how many signups tomorrow", False),
-            ("a command for another bot", "!deploy what is in staging", False),
-            ("too few words", "anyone??????????", False),
-            ("too short", "why?", False),
+            ("a question that names PostHog", "how many signups does PostHog show for last week?", True),
+            ("a request without a question word", "need signups by country from posthog for last month", True),
+            ("a statement that names PostHog", "the Post Hog funnel looks off since the deploy", True),
+            ("a question that does not name PostHog", "how many people signed up last week?", False),
+            ("PostHog only in a link", "how many signups here <https://us.posthog.com/project/2/insights/abc>", False),
+            ("a command", "/remind me to check posthog signups tomorrow", False),
+            ("a command for another bot", "!deploy posthog to staging now", False),
+            ("too few words", "posthog???????????", False),
+            ("too short", "posthog?", False),
         ]
     )
     def test_the_word_and_length_checks(self, _name, text, expected):
