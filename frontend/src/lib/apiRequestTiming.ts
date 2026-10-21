@@ -5,6 +5,8 @@ export interface ApiRequestTiming {
     body_read_ms?: number
     json_parse_ms?: number
     http_status?: number
+    // Above 1 when authentication refreshed and retried the request.
+    fetch_attempts?: number
     http_request_id?: string
     envoy_upstream_ms?: number
     resource_timing_status:
@@ -36,6 +38,7 @@ export class ApiRequestTimingRecorder {
     private observer?: PerformanceObserver
     private resourceEntries: PerformanceResourceTiming[] = []
     private resourceCollectionOverflowed = false
+    private fetchAttempts = 0
 
     constructor(private readonly clock: Pick<Performance, 'now' | 'getEntriesByName'> = performance) {
         this.startedAt = clock.now()
@@ -57,6 +60,7 @@ export class ApiRequestTimingRecorder {
         this.resourceEntries = []
         this.resourceCollectionOverflowed = false
         this.fetchStartedAt = this.clock.now()
+        this.fetchAttempts++
     }
 
     recordHeaders(response: { status?: number; headers?: Headers; url?: string }): void {
@@ -150,6 +154,7 @@ export class ApiRequestTimingRecorder {
         const timing: ApiRequestTiming = {
             ...this.timing,
             request_total_ms: finishedAt - this.startedAt,
+            ...(this.fetchAttempts ? { fetch_attempts: this.fetchAttempts } : {}),
             resource_timing_status: 'missing_request_id',
         }
         try {

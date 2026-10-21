@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { ApiRequestTiming } from 'lib/apiRequestTiming'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
@@ -33,6 +34,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
+import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -294,6 +296,7 @@ export interface dataNodeLogicValues {
     dataLimit: number | null
     dataLoading: boolean
     elapsedTime: number | null
+    serverDurationMs: number | null
     filteredCount: number | null
     filteredCountLoading: boolean
     filteredCountQuery: DataNode | null
@@ -623,8 +626,12 @@ export interface dataNodeLogicActions {
     resetLoadingTimer: () => {
         value: true
     }
-    setElapsedTime: (elapsedTime: number) => {
+    setElapsedTime: (
+        elapsedTime: number,
+        serverDurationMs?: number | null
+    ) => {
         elapsedTime: number
+        serverDurationMs: number | null
     }
     setLoadingTime: (seconds: number) => {
         seconds: number
@@ -1039,7 +1046,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         stopAutoLoad: true,
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
-        setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setElapsedTime: (elapsedTime: number, serverDurationMs: number | null = null) => ({
+            elapsedTime,
+            serverDurationMs,
+        }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
@@ -1108,8 +1118,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
+                    const requestTimings: ApiRequestTiming[] = []
                     const methodOptions: ApiMethodOptions = {
                         signal: abortController.signal,
+                        onRequestTiming: (timing) => requestTimings.push(timing),
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
@@ -1117,7 +1129,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             debugTag: query.kind,
                             abortController,
                             priority: props.loadPriority,
-                            fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
+                            fn: async (): Promise<{
+                                duration: number
+                                serverDurationMs: number | null
+                                data: Record<string, any>
+                            }> => {
                                 const now = performance.now()
                                 try {
                                     breakpoint()
@@ -1134,7 +1150,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             props.limitContext
                                         )) ?? null
                                     const duration = performance.now() - now
-                                    return { data, duration }
+                                    const serverDurationMs = getSingleRequestServerMs(requestTimings, duration)
+                                    return { data, duration, serverDurationMs }
                                 } catch (error: any) {
                                     const duration = performance.now() - now
                                     error.duration = duration
@@ -1143,7 +1160,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             },
                         })
                         breakpoint()
-                        actions.setElapsedTime(response.duration)
+                        actions.setElapsedTime(response.duration, response.serverDurationMs)
                         return response.data
                     } catch (error: any) {
                         if (error.duration) {
@@ -1444,6 +1461,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>
                     response && 'error' in response ? (response.error ?? null) : null,
+            },
+        ],
+        serverDurationMs: [
+            null as number | null,
+            {
+                setElapsedTime: (_, { serverDurationMs }) => serverDurationMs,
+                loadData: () => null,
+                loadNewData: () => null,
+                loadNextData: () => null,
+                cancelQuery: () => null,
             },
         ],
         elapsedTime: [
