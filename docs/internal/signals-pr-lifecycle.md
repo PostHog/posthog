@@ -40,7 +40,6 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
-
 ## Manual implementation-completion integration
 
 Manual entry is a landing dependency of the implementation-attempt service. The integration point is `SignalReportViewSet._transition_report_state`, shared by single and bulk writes, after the report is locked and refund and merge-survivor restrictions have passed. Replace the entry refusal with the service call; do not add a second eligibility selector or snapshot schema. Enable the entry control only after this is wired and validated.

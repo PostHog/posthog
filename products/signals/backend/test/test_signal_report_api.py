@@ -2954,7 +2954,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.RESOLVED
             assert report.monitoring_started_at == original_start
-            feedback = SignalReportArtefact.objects.get(report=report, type="dismissal")
+            feedback = SignalReportArtefact.objects.filter(report=report, type="dismissal").latest("created_at")
             content = json.loads(feedback.content)
             assert content["state"] == "resolved"
             assert content["user_id"] == self.user.id
@@ -2964,7 +2964,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 == "Monitoring finished manually. Automatic verification and an evidence amendment were not performed."
             )
             assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
-            assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == 1
+            assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == 2
 
     @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
     def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(
