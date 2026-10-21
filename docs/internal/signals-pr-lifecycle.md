@@ -144,6 +144,41 @@ The notification activity retries transient ClickHouse reads before it claims th
 
 When an implementation pull request reaches the report, the worker requests reviews from suggested reviewers with connected GitHub accounts. It sends up to 15 reviewers per request. It skips the pull request author, existing assignees, the DRI it assigns, people with pending requests, and people who submitted a review. If GitHub rejects one reviewer, the worker continues with the other reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
 
+## Assignment decisions
+
+The reviewer PUT and step-off API use `ReportAssignmentService` to record assignment decisions.
+Each decision is an append-only `assignment_decision` artefact.
+These internal records stay out of the normal work log and its count.
+`SignalReportAssignmentRevision` indexes the current revision and operation IDs.
+The writer saves the decision, revision, and compatible reviewer list in one transaction under the report lock.
+The existing reviewer index and API response format remain available.
+Assignment changes do not claim or release work.
+
+An automatic proposal supplies the assignment revision and evidence fingerprint read before selection.
+The fingerprint covers report text, signal totals, findings, repository selection, and code references.
+The writer rejects a stale proposal.
+Repeating an operation ID with the same request returns the original decision without another write or callback.
+Reusing that ID for different input fails.
+The legacy reviewer API allocates an operation ID for each edit; it does not expose a retry token.
+
+Human additions, removals, and explicit empty PUTs are stored as report-level overrides.
+A person can clear those overrides with a `resume` proposal through the service.
+Existing suggestions remain suggestions when a person keeps them in the list.
+A successful empty selection clears automatic assignments but preserves human overrides.
+A failed lookup preserves valid assignments and records a reason for reassessment.
+Every application checks current project access and resolves linked GitHub identities from the member record.
+Loss of access removes an assignment even when a person selected it earlier.
+The generic artefact API cannot edit or delete decisions or delete their reviewer projections.
+
+`signals-assignment-agent-selection` gates automatic proposals through this writer.
+`signals-assignment-github-application` reserves a separate control for decision-based GitHub delivery.
+Both require explicit enablement and fail closed, including in development.
+The shared writer does not start work or send GitHub updates for automatic proposals.
+The existing human-edit side effects remain in the API adapter.
+Research, scouts, team-provider validation, and GitHub delivery move to the shared contract in later change sets.
+Team identities are part of the contract, but the writer refuses team assignments until a provider can validate them.
+Keep automatic application disabled until all producers and readers use the shared state.
+
 ## Report links
 
 Only scouts and the signals pipeline create and manage typed, directed report links.

@@ -17,6 +17,7 @@ from posthog.models.user import User
 
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
+    AssignmentDecision,
     CodeReference,
     NoteArtefact,
     Priority,
@@ -53,11 +54,12 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
-    def test_retired_measurement_plan_type_cannot_be_written(self) -> None:
+    @parameterized.expand([("impact_measurement_plan",), ("assignment_decision",)])
+    def test_system_decision_type_cannot_be_written(self, artefact_type: str) -> None:
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            {"artefact_type": "impact_measurement_plan", "content": {}},
+            {"artefact_type": artefact_type, "content": {}},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -717,6 +719,16 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
         assert self._reviewers_count(report) == 1
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
+        decision = AssignmentDecision.model_validate_json(report.artefacts.get(type="assignment_decision").content)
+        assert [person.user_uuid for person in decision.selection.people] == [str(member.uuid)]
+        assert [person.user_uuid for person in decision.overrides.additions] == [str(member.uuid)]
+        log = self.client.get(self._list_url(str(report.id))).json()
+        assert [entry["type"] for entry in log["results"]] == ["suggested_reviewers"]
+        assert SignalReportArtefact.counts_by_report([str(report.id)]) == {str(report.id): 1}
+
+        deletion = self.client.delete(self._detail_url(str(report.id), response.json()["id"]))
+        assert deletion.status_code == status.HTTP_400_BAD_REQUEST
+        assert "assignment decision" in deletion.json()["error"]
 
     def test_put_user_uuid_not_in_org_returns_400(self):
         # Random UUID not tied to anyone in this org.

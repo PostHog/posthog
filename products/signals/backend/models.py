@@ -1378,6 +1378,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        ASSIGNMENT_DECISION = "assignment_decision"
         CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
@@ -1436,6 +1437,7 @@ class SignalReportArtefact(UUIDModel):
     # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
+    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.ASSIGNMENT_DECISION})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1446,6 +1448,7 @@ class SignalReportArtefact(UUIDModel):
     MAX_REPORT_LINK_GRAPH_LEVELS = 50
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
+            ArtefactType.ASSIGNMENT_DECISION,
             ArtefactType.CODE_REFERENCE,
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
@@ -1543,7 +1546,7 @@ class SignalReportArtefact(UUIDModel):
         The inbox list renders this count for every row it returns. A correlated subquery makes
         Postgres count a report's artefacts before the page limit applies, so the whole team's
         reports get counted to render 25. Reports with no artefacts are omitted, and so are
-        `SYSTEM_SCORING_ARTEFACT_TYPES` rows.
+        internal assignment and system scoring rows.
         """
         if not report_ids:
             return {}
@@ -1551,6 +1554,7 @@ class SignalReportArtefact(UUIDModel):
             cls.objects.filter(report_id__in=report_ids)
             .exclude(
                 type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES
+                | cls.INTERNAL_ARTEFACT_TYPES
                 | ({cls.ArtefactType.CHECK_OBSERVATION} if not monitoring_enabled else set())
             )
             .values("report_id")
@@ -2094,6 +2098,8 @@ class SignalReportArtefact(UUIDModel):
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
         if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
             raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
+        if self.type == self.ArtefactType.ASSIGNMENT_DECISION:
+            raise ArtefactContentValidationError("Apply a new assignment decision instead of editing one.")
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
@@ -2131,6 +2137,22 @@ class SignalReportArtefact(UUIDModel):
             self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
+
+
+class SignalReportAssignmentRevision(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="assignment_revisions")
+    operation_id = models.UUIDField()
+    revision = models.PositiveBigIntegerField()
+    request_hash = models.CharField(max_length=64)
+    artefact = models.OneToOneField(SignalReportArtefact, on_delete=models.RESTRICT, related_name="+")
+    reviewers_artefact = models.ForeignKey(SignalReportArtefact, on_delete=models.RESTRICT, related_name="+")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["report", "operation_id"], name="signals_assignment_operation"),
+            models.UniqueConstraint(fields=["report", "revision"], name="signals_assignment_revision"),
+        ]
 
 
 class SignalReportSuggestedReviewer(TeamScopedRootMixin, UUIDModel):

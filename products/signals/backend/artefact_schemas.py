@@ -299,6 +299,56 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
 
 
+class AssignedPerson(SuggestedReviewerEntry):
+    user_uuid: str
+
+
+class AssignedTeam(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: Literal["github"]
+    organization: str = Field(min_length=1)
+    team_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=500)
+    evidence: tuple[str, ...] = ()
+
+
+class AssignmentSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    people: tuple[AssignedPerson, ...] = ()
+    teams: tuple[AssignedTeam, ...] = ()
+    suggestions: tuple[SuggestedReviewerEntry, ...] = ()
+    pr_owner: UUID | None = None
+    pr_reviewers: tuple[UUID, ...] = ()
+
+
+class AssignmentOverrides(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    additions: tuple[AssignedPerson, ...] = ()
+    removed_user_uuids: tuple[str, ...] = ()
+    removed_github_logins: tuple[str, ...] = ()
+    unassigned: bool = False
+
+
+class AssignmentDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation_id: UUID
+    revision: int = Field(ge=1)
+    based_on_revision: int = Field(ge=0)
+    evidence_revision: str
+    source: str
+    policy_version: str
+    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"]
+    selection: AssignmentSelection
+    overrides: AssignmentOverrides
+    retry_reason: str | None = None
+    ineligible_user_uuids: tuple[str, ...] = ()
+    requires_reassessment: bool = False
+
+
 class ChannelAssignment(BaseModel):
     """The space that currently owns a report. The latest assignment wins."""
 
@@ -1194,6 +1244,7 @@ StatusArtefactContent = (
 )
 LogArtefactContent = (
     CodeReference
+    | AssignmentDecision
     | Commit
     | TaskRunArtefact
     | NoteArtefact
@@ -1227,6 +1278,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "assignment_decision": AssignmentDecision,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1281,6 +1333,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
+        "assignment_decision",
         "task_run",
         "video_segment",
         "title_change",
