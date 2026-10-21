@@ -2,45 +2,47 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
-use super::{ChargedSlice, Settlement};
+use super::{ChargedSlice, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
 
 pub(crate) struct GroupSettlement {
-    ledger: Arc<TopicOffsetLedger>,
-    pacer: Arc<CommitPacer>,
+    uncommitted: Uncommitted,
 }
 
 impl GroupSettlement {
     pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, commit_interval: Duration) -> Self {
         Self {
-            ledger,
-            pacer: Arc::new(CommitPacer::every(commit_interval)),
+            uncommitted: Uncommitted::new(ledger, CommitPacer::every(commit_interval)),
         }
     }
 }
 
 impl Settlement for GroupSettlement {
+    fn charge(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        charges: &[(Offset, Charge)],
+    ) -> Result<Held, Rejection> {
+        self.uncommitted
+            .charge(topic_partition, generation, charges)
+    }
+
     fn settle_run(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
         offsets: &[Offset],
     ) -> anyhow::Result<()> {
-        match self
-            .ledger
-            .settle(topic_partition, generation, offsets.iter().copied())
+        if let Err(rejection) =
+            self.uncommitted
+                .settled(topic_partition, generation, offsets.iter().copied())
         {
-            Ok(Some(_)) => {
-                if let Some(taken) = self.ledger.take_frontier(topic_partition) {
-                    self.pacer.advance_frontier(topic_partition, taken);
-                }
-            }
-            Ok(None) => {}
-            Err(rejection) => report_rejection(
+            report_rejection(
                 "settle",
                 topic_partition,
                 rejection,
@@ -48,7 +50,7 @@ impl Settlement for GroupSettlement {
                     first: offsets[0].0,
                     last: offsets[offsets.len() - 1].0,
                 }),
-            )?,
+            )?;
         }
         Ok(())
     }
@@ -58,15 +60,15 @@ impl Settlement for GroupSettlement {
     }
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.pacer.take_due(now)
+        self.uncommitted.take_due(now)
     }
 
     fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        self.pacer.take_all()
+        self.uncommitted.take_all()
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.pacer.forget_partitions(topic_partitions);
+        self.uncommitted.forget_partitions(topic_partitions);
     }
 }
 

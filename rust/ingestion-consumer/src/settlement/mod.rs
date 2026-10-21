@@ -2,18 +2,20 @@
 
 mod group;
 mod poll;
+mod uncommitted;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use crate::config::CompletionGranularity;
 use crate::order_sentinel::OffsetSpan;
 
 pub(crate) use group::GroupSettlement;
 pub(crate) use poll::PollSettlement;
+use uncommitted::Uncommitted;
 
 pub(crate) struct ChargedSlice<'a> {
     pub(crate) topic_partition: &'a TopicPartition,
@@ -23,6 +25,13 @@ pub(crate) struct ChargedSlice<'a> {
 }
 
 pub(crate) trait Settlement: Send + Sync {
+    fn charge(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        charges: &[(Offset, Charge)],
+    ) -> Result<Held, Rejection>;
+
     /// Accepted offsets from one poll's slice of a partition, charged under `generation`.
     fn settle_run(
         &self,
