@@ -21,6 +21,7 @@ from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxRateLimitedError,
 )
+from products.tasks.backend.logic.services.cpu_billing import SandboxBootProbe
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
 from products.tasks.backend.models import Task
@@ -663,7 +664,7 @@ def test_blocked_organization_creates_no_sandbox(
     [
         ("get_connect_credentials", False),
         ("get_connect_credentials", True),
-        ("start_cpu_billing_sampler", False),
+        ("probe_after_create", False),
     ],
 )
 def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
@@ -682,8 +683,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     sandbox.config.image_fallback = None
     sandbox.config.snapshot_restored = False
     sandbox.launch_dev_stack_bootstrap.return_value = False
-    sandbox.start_cpu_billing_sampler.return_value = True
-    sandbox.execute.return_value = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+    sandbox.probe_after_create.return_value = _boot_probe('{"version": "1.2.3"}')
     getattr(sandbox, failing_step).side_effect = SandboxRateLimitedError(
         "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
     )
@@ -713,18 +713,27 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
-    task_run.update_state_atomic.assert_called_once_with(
-        "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[]
-    )
+    if failing_step == "probe_after_create":
+        task_run.update_state_atomic.assert_not_called()
+    else:
+        task_run.update_state_atomic.assert_called_once_with(
+            "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[]
+        )
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
 
 
-_MANIFEST_1_2_3 = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+_MANIFEST_1_2_3 = '{"version": "1.2.3"}'
+
+
+def _boot_probe(agent_manifest: str | None) -> SandboxBootProbe:
+    return SandboxBootProbe(
+        agent_manifest=agent_manifest, cpu_sampler_started=True, cpu_usage_usec=None, billed_cpu_usage_usec=None
+    )
 
 
 def _create_and_record_agent_version(
     mocker,
-    manifest_result: ExecutionResult | Exception,
+    manifest_result: str | None,
     pinned: str | None,
     *,
     context: TaskProcessingContext | None = None,
@@ -737,12 +746,8 @@ def _create_and_record_agent_version(
     sandbox.config.image_fallback = None
     sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
-    sandbox.start_cpu_billing_sampler.return_value = True
+    sandbox.probe_after_create.return_value = _boot_probe(manifest_result)
     sandbox.launch_dev_stack_bootstrap.return_value = False
-    if isinstance(manifest_result, Exception):
-        sandbox.execute.side_effect = manifest_result
-    else:
-        sandbox.execute.return_value = manifest_result
     mocker.patch.object(
         provision_sandbox_module,
         "get_sandbox_class_for_run_backend",
@@ -782,33 +787,15 @@ def _create_and_record_agent_version(
         (_MANIFEST_1_2_3, "1.2.3", {"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, [], False),
         (_MANIFEST_1_2_3, "1.2.4", {"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, [], True),
         (_MANIFEST_1_2_3, None, {"agent_version": "1.2.3"}, ["agent_version_expected"], False),
-        (
-            ExecutionResult(stdout="{}", stderr="", exit_code=0),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (
-            ExecutionResult(stdout="not json", stderr="", exit_code=0),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (
-            ExecutionResult(stdout="", stderr="not found", exit_code=1),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (RuntimeError("manifest read failed"), None, {}, ["agent_version", "agent_version_expected"], False),
+        ("{}", "1.2.4", {"agent_version_expected": "1.2.4"}, ["agent_version"], False),
+        ("not json", "1.2.4", {"agent_version_expected": "1.2.4"}, ["agent_version"], False),
+        (None, "1.2.4", {"agent_version_expected": "1.2.4"}, ["agent_version"], False),
+        (None, None, {}, ["agent_version", "agent_version_expected"], False),
     ],
 )
 def test_create_sandbox_records_installed_agent_version(
     mocker,
-    manifest_result: ExecutionResult | Exception,
+    manifest_result: str | None,
     pinned: str | None,
     updates: dict[str, str],
     remove_keys: list[str],

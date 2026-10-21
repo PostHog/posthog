@@ -41,6 +41,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
+from products.tasks.backend.logic.services.cpu_billing import BOOT_PROBE_TIMEOUT_SECONDS, SandboxBootProbe
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
+SANDBOX_AGENT_MANIFEST_PATH = "/scripts/node_modules/@posthog/agent/package.json"
 SANDBOX_BASE_DOCKERFILE_PATH = Path(__file__).resolve().parents[2] / "sandbox" / "images" / "Dockerfile.sandbox-base"
 
 
@@ -749,6 +751,21 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
+
+    def probe_after_create(self, agent_manifest_path: str) -> SandboxBootProbe:
+        agent_manifest: str | None = None
+        try:
+            result = self.execute(f"cat {shlex.quote(agent_manifest_path)}", timeout_seconds=BOOT_PROBE_TIMEOUT_SECONDS)
+            if result.exit_code == 0:
+                agent_manifest = result.stdout
+        except Exception:
+            _logger.warning("sandbox_agent_manifest_read_failed", sandbox_id=self.id, exc_info=True)
+        return SandboxBootProbe(
+            agent_manifest=agent_manifest,
+            cpu_sampler_started=self.start_cpu_billing_sampler(),
+            cpu_usage_usec=self.read_cpu_usage_usec(),
+            billed_cpu_usage_usec=self.read_billed_cpu_usage_usec(),
+        )
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
         try:

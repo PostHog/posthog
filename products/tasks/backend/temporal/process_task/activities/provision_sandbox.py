@@ -54,6 +54,7 @@ from products.tasks.backend.logic.services.network_policy import (
     compile_network_policy,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    SANDBOX_AGENT_MANIFEST_PATH,
     ExecutionResult,
     SandboxBase,
     SandboxConfig,
@@ -66,6 +67,7 @@ from products.tasks.backend.logic.services.sandbox import (
     sandbox_repo_path,
     workload_for_origin_product,
 )
+from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuBaseline
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -843,12 +845,13 @@ def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig
 
 
 @StepTimer("sandbox_agent_version")
-def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare_with_pin: bool) -> None:
+def _persist_sandbox_agent_version(
+    run_id: str, sandbox: SandboxBase, agent_manifest: str | None, *, compare_with_pin: bool
+) -> None:
     version: str | None = None
     try:
-        result = sandbox.execute("cat /scripts/node_modules/@posthog/agent/package.json", timeout_seconds=10)
-        if result.exit_code == 0:
-            manifest = json.loads(result.stdout)
+        if agent_manifest is not None:
+            manifest = json.loads(agent_manifest)
             candidate = manifest.get("version") if isinstance(manifest, dict) else None
             if isinstance(candidate, str) and candidate:
                 version = candidate
@@ -1004,22 +1007,27 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
-        _persist_sandbox_agent_version(
-            ctx.run_id,
-            sandbox,
-            compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
-        )
         try:
             if config.outbound_domain_allowlist is not None:
                 emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
                 record_network_enforcement(
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "success"
                 )
-            with StepTimer("cpu_sampler_start"):
-                if not sandbox.start_cpu_billing_sampler():
-                    activity.logger.warning(
-                        "Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id}
-                    )
+            with StepTimer("boot_probe"):
+                boot_probe = sandbox.probe_after_create(SANDBOX_AGENT_MANIFEST_PATH)
+            cpu_baseline = SandboxCpuBaseline(
+                cpu_usage_usec=boot_probe.cpu_usage_usec,
+                cpu_usage_measured_at=timezone.now() if boot_probe.cpu_usage_usec is not None else None,
+                billed_cpu_usage_usec=boot_probe.billed_cpu_usage_usec,
+            )
+            _persist_sandbox_agent_version(
+                ctx.run_id,
+                sandbox,
+                boot_probe.agent_manifest,
+                compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
+            )
+            if not boot_probe.cpu_sampler_started:
+                activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
             if sandbox.config.image_fallback:
                 emit_agent_log(
                     ctx.run_id,
@@ -1067,6 +1075,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     sandbox_created_at=sandbox_created_at,
                     task_runtime=ctx.task_runtime,
                     sandbox_backend=ctx.sandbox_backend if ctx.sandbox_backend != "modal" else None,
+                    cpu_baseline=cpu_baseline,
                 )
         except Exception:
             try:

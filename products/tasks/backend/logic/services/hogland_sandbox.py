@@ -44,9 +44,13 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SERVER_PORT, AgentServerLaunchMixin
 from products.tasks.backend.logic.services.agentsh import AGENTSH_DAEMON_PORT
 from products.tasks.backend.logic.services.cpu_billing import (
+    BOOT_PROBE_TIMEOUT_SECONDS,
     CPU_BILLING_STATE_PATH,
+    SandboxBootProbe,
+    build_boot_probe_command,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
+    parse_boot_probe,
     parse_cpu_stat_usage_usec,
 )
 from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
@@ -496,6 +500,13 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def start_cpu_billing_sampler(self) -> bool:
         result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
         return result.exit_code == 0
+
+    def probe_after_create(self, agent_manifest_path: str) -> SandboxBootProbe:
+        request_cores = self._cpu_billing_request_cores()
+        result = self.execute(
+            build_boot_probe_command(request_cores, agent_manifest_path), timeout_seconds=BOOT_PROBE_TIMEOUT_SECONDS
+        )
+        return parse_boot_probe(result.stdout, request_cores, time.time_ns())
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         try:

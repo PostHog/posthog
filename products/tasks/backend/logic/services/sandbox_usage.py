@@ -45,6 +45,13 @@ R = TypeVar("R")
 
 
 @frozen
+class SandboxCpuBaseline:
+    cpu_usage_usec: int | None
+    cpu_usage_measured_at: datetime | None
+    billed_cpu_usage_usec: int | None
+
+
+@frozen
 class SandboxCpuAttribution:
     cpu_usage_usec: int
     billed_cpu_usage_usec: int | None

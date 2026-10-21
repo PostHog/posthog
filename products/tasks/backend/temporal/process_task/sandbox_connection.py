@@ -7,6 +7,7 @@ from products.tasks.backend.logic.services.connection_token import (
 )
 from products.tasks.backend.logic.services.sandbox import AgentServerResult, SandboxBase
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxCpuBaseline,
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
     open_sandbox_session,
@@ -23,6 +24,7 @@ def persist_sandbox_connection(
     sandbox_created_at: datetime | None,
     task_runtime: str | None,
     sandbox_backend: str | None = None,
+    cpu_baseline: SandboxCpuBaseline | None = None,
 ) -> str:
     with StepTimer("sandbox_jwt_key"):
         jwt_kid = get_primary_sandbox_jwt_kid()
@@ -39,19 +41,25 @@ def persist_sandbox_connection(
     with StepTimer("persist_connection_state"):
         TaskRun.update_state_atomic(run_id, updates=sandbox_state)
 
-    with StepTimer("cpu_usage"):
-        cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
-    with StepTimer("billed_cpu_usage"):
-        billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
+    if cpu_baseline is None:
+        with StepTimer("cpu_usage"):
+            cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
+        with StepTimer("billed_cpu_usage"):
+            billed_cpu_usage_usec = measure_sandbox_billed_cpu_usage(sandbox)
+        cpu_baseline = SandboxCpuBaseline(
+            cpu_usage_usec=cpu_usage_usec,
+            cpu_usage_measured_at=cpu_usage_measured_at,
+            billed_cpu_usage_usec=billed_cpu_usage_usec,
+        )
     with StepTimer("open_usage_session"):
         open_sandbox_session(
             run_id=run_id,
             sandbox_id=sandbox.id,
             config=sandbox.config,
             sandbox_created_at=sandbox_created_at,
-            cpu_usage_attribution_usec=cpu_usage_attribution_usec,
-            billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
-            cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
+            cpu_usage_attribution_usec=cpu_baseline.cpu_usage_usec,
+            billed_cpu_usage_attribution_usec=cpu_baseline.billed_cpu_usage_usec,
+            cpu_usage_attribution_measured_at=cpu_baseline.cpu_usage_measured_at,
             required=task_runtime == "pi",
         )
     return jwt_kid

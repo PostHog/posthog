@@ -1,11 +1,14 @@
 import json
 import hashlib
+import contextvars
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import connection
 
 import posthoganalytics
 from temporalio import activity
@@ -13,8 +16,10 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.integration.codex import CodexUserIntegration
+from posthog.models.user import User
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -83,6 +88,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_slack_interaction_state,
     resolve_user_github_integration_for_task,
 )
+
+STORE_SKILLS_JOIN_TIMEOUT_SECONDS = 30.0
 
 
 @frozen
@@ -544,11 +551,52 @@ def _ensure_subscription_allowed(
         )
 
 
+@StepTimer("plan_owner")
 def _plan_owner_distinct_id(team: Team, owner_id: int | None) -> str | None:
     """The rollout flag applies to whoever owns the plan the run bills to, not to whoever started it."""
     if owner_id is None:
         return None
-    return team.all_users_with_access().filter(id=owner_id).values_list("distinct_id", flat=True).first()
+    owner = User.objects.filter(
+        id=owner_id, is_active=True, organization_membership__organization_id=team.organization_id
+    ).first()
+    if owner is None or not UserAccessControl(user=owner, team=team).has_project_access:
+        return None
+    return owner.distinct_id
+
+
+def _start_store_skills_lookup(
+    team: Team, user: User, *, run_id: str
+) -> tuple[ThreadPoolExecutor, Future[list[dict[str, Any]] | None]]:
+    context = contextvars.copy_context()
+
+    def _resolve_in_context() -> list[dict[str, Any]] | None:
+        with StepTimer("store_skills"):
+            return resolve_store_skills(team, user, run_id=run_id)
+
+    def _resolve() -> list[dict[str, Any]] | None:
+        try:
+            return context.run(_resolve_in_context)
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"store-skills-{run_id}")
+    return executor, executor.submit(_resolve)
+
+
+def _join_store_skills_lookup(
+    lookup: tuple[ThreadPoolExecutor, Future[list[dict[str, Any]] | None]], *, run_id: str
+) -> list[dict[str, Any]] | None:
+    executor, future = lookup
+    try:
+        return future.result(timeout=STORE_SKILLS_JOIN_TIMEOUT_SECONDS)
+    except Exception as e:
+        log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
+        return None
+    finally:
+        executor.shutdown(wait=False)
 
 
 @StepTimer("validate_codex_account")
@@ -1152,18 +1200,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
-    try:
-        if not include_live_context:
-            store_skills: list[dict[str, Any]] | None = []
-            state[STORE_SKILLS_STATE_KEY] = []
-        else:
-            with StepTimer("store_skills"):
-                store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
-    except Exception as e:
-        log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
-        store_skills = None
-    if store_skills is not None:
-        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    store_skills_lookup = None
+    if include_live_context:
+        store_skills_lookup = _start_store_skills_lookup(team, actor_user or task.created_by, run_id=run_id)
+    else:
+        state_updates[STORE_SKILLS_STATE_KEY] = []
+        state[STORE_SKILLS_STATE_KEY] = []
     # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
@@ -1175,11 +1217,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         state_updates.update(instruction_updates)
     except Exception as e:
         log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
-    try:
-        with StepTimer("persist_task_context"):
-            TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
-    except Exception as e:
-        log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
 
     try:
         model_access = resolve_model_access(state)
@@ -1424,6 +1461,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
+
+    if store_skills_lookup is not None:
+        store_skills = _join_store_skills_lookup(store_skills_lookup, run_id=run_id)
+        if store_skills is not None:
+            state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    try:
+        with StepTimer("persist_task_context"):
+            TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
+    except Exception as e:
+        log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
 
     return TaskProcessingContext(
         task_id=str(task.id),

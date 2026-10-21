@@ -20,6 +20,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.logic.services.sandbox import (
+    SANDBOX_AGENT_MANIFEST_PATH,
     Sandbox,
     SandboxConfig,
     SandboxTemplate,
@@ -27,6 +28,7 @@ from products.tasks.backend.logic.services.sandbox import (
     parse_sandbox_repo_mount_map,
     workload_for_origin_product,
 )
+from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuBaseline
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -347,7 +349,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
-        if not sandbox.start_cpu_billing_sampler():
+        with StepTimer("boot_probe"):
+            boot_probe = sandbox.probe_after_create(SANDBOX_AGENT_MANIFEST_PATH)
+        cpu_baseline = SandboxCpuBaseline(
+            cpu_usage_usec=boot_probe.cpu_usage_usec,
+            cpu_usage_measured_at=timezone.now() if boot_probe.cpu_usage_usec is not None else None,
+            billed_cpu_usage_usec=boot_probe.billed_cpu_usage_usec,
+        )
+        if not boot_probe.cpu_sampler_started:
             activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
         if sandbox.config.image_fallback:
             emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
@@ -437,6 +446,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                     credentials=credentials,
                     sandbox_created_at=sandbox_created_at,
                     task_runtime=ctx.task_runtime,
+                    cpu_baseline=cpu_baseline,
                 )
         except Exception:
             try:
