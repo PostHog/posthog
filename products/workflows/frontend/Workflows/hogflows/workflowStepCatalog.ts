@@ -191,6 +191,13 @@ const ADD_TO_STATIC_COHORT_ACTION_NODE: CreateActionType = {
     config: { template_id: 'template-posthog-add-to-static-cohort', inputs: {} },
 }
 
+const OPT_OUT_OF_MESSAGES_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Opt out of messages',
+    description: 'Opt the recipient out of a message category, or of all marketing messages.',
+    config: { template_id: 'template-posthog-opt-out-of-messages', inputs: {} },
+}
+
 export interface StepCatalogContext {
     featureFlags: FeatureFlagsSet
     currentTeam: Pick<TeamPublicType | TeamType, 'id' | 'project_id'> | null
@@ -231,6 +238,7 @@ function posthogSteps({ featureFlags }: StepCatalogContext): CreateActionType[] 
     return [
         ...POSTHOG_NODES_TO_SHOW,
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_ADD_TO_STATIC_COHORT_ACTION] ? [ADD_TO_STATIC_COHORT_ACTION_NODE] : []),
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION] ? [OPT_OUT_OF_MESSAGES_ACTION_NODE] : []),
     ]
 }
 

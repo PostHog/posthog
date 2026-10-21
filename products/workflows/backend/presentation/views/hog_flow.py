@@ -124,6 +124,7 @@ from products.cdp.backend.presentation.serializers import (
     require_viewer_access_to_added_actions,
 )
 from products.cohorts.backend.facade.api import get_cohort_ref
+from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -290,9 +291,11 @@ from products.workflows.backend.facade.validation import (
 )
 from products.workflows.backend.facade.workflows import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
+    ALL_MARKETING_CATEGORY_ID,
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
     COHORT_TRIGGER_TRANSITIONS,
+    OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
@@ -304,6 +307,7 @@ from products.workflows.backend.facade.workflows import (
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    literal_opt_out_category_id,
     literal_static_cohort_id,
     static_cohort_ids,
     workflow_from_fields,
@@ -1703,6 +1707,24 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"inputs": {"cohort_id": "You need edit access to this cohort to add people to it."}}
             )
 
+    def _validate_opt_out_of_messages_action(self, inputs: dict) -> None:
+        """A strict save of the "Opt out of messages" step needs a category the team still has.
+
+        Editing the opt-out list needs the same workflow edit access as saving the workflow, so no further access
+        check is needed. The callback endpoint still accepts only the categories the saved workflow names."""
+        category_id = literal_opt_out_category_id(inputs)
+        if category_id is None:
+            raise serializers.ValidationError({"inputs": {"category_id": "Choose a message category."}})
+        get_team = self.context.get("get_team")
+        if category_id == ALL_MARKETING_CATEGORY_ID or get_team is None:
+            return
+        try:
+            get_category(get_team().id, category_id)
+        except MessageCategoryMissing:
+            raise serializers.ValidationError(
+                {"inputs": {"category_id": "This message category doesn't exist. Choose another category."}}
+            )
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -1943,6 +1965,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             # validation but still stores the cohort ID that the callback later trusts.
             if data.get("type") == "function" and template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
                 self._validate_add_to_static_cohort_action(config.get("inputs") or {}, strict=strict)
+            if strict and data.get("type") == "function" and template_id == OPT_OUT_OF_MESSAGES_TEMPLATE_ID:
+                self._validate_opt_out_of_messages_action(config.get("inputs") or {})
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())

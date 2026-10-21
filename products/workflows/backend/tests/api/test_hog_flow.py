@@ -37,6 +37,7 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
+from products.messaging.backend.facade.testing import create_message_category_for_test
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
@@ -8467,3 +8468,52 @@ class TestAddToStaticCohortActionValidation(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestOptOutOfMessagesActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-opt-out-of-messages"
+        template["name"] = "Opt out of messages"
+        template["inputs_schema"] = [
+            {"key": "category_id", "type": "string", "label": "Message category", "secret": False, "required": True},
+            {"key": "identifier", "type": "string", "label": "Recipient", "secret": False, "required": True},
+        ]
+        sync_template_to_db(template)
+
+    def _save(self, category_id: str | None):
+        inputs: dict = {"identifier": {"value": "{person.properties.email}"}}
+        if category_id is not None:
+            inputs["category_id"] = {"value": category_id}
+        step = {
+            "id": "opt_out",
+            "name": "opt_out",
+            "type": "function",
+            "config": {"template_id": "template-posthog-opt-out-of-messages", "inputs": inputs},
+        }
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {"name": "Unsubscribe", "actions": [_TRIGGER, step], "edges": []},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+    @parameterized.expand(
+        [
+            ("all_marketing", "$all", status.HTTP_201_CREATED),
+            ("team_category", "team_category", status.HTTP_201_CREATED),
+            ("unknown_category", str(uuid4()), status.HTTP_400_BAD_REQUEST),
+            ("no_category", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_saving_the_step_needs_a_category_the_project_has(
+        self, _name: str, category_id: str | None, expected: int
+    ) -> None:
+        if category_id == "team_category":
+            category_id = str(create_message_category_for_test(team_id=self.team.id, key="updates", name="Updates"))
+
+        response = self._save(category_id)
+
+        assert response.status_code == expected, response.json()

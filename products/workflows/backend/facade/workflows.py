@@ -3,14 +3,18 @@ each with its secret inputs masked."""
 
 from products.workflows.backend.models.hog_flow.hog_flow import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
+    ALL_MARKETING_CATEGORY_ID,
     BILLABLE_ACTION_TYPES,
     COHORT_TRIGGER_TRANSITIONS,
+    OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
+    literal_opt_out_category_id,
     literal_static_cohort_id,
+    opt_out_category_ids,
     static_cohort_ids,
 )
 from products.workflows.backend.services.hog_flow_reads import (
@@ -28,6 +32,8 @@ from products.workflows.backend.services.hog_flow_reads import (
 
 __all__ = [
     "ADD_TO_STATIC_COHORT_TEMPLATE_ID",
+    "ALL_MARKETING_CATEGORY_ID",
+    "OPT_OUT_OF_MESSAGES_TEMPLATE_ID",
     "BILLABLE_ACTION_TYPES",
     "COHORT_TRIGGER_TRANSITIONS",
     "PERSON_DEPENDENT_ACTION_TYPES",
@@ -35,7 +41,9 @@ __all__ = [
     "SUPPORTED_ACTION_TYPES",
     "TRIGGER_TYPES",
     "WORKFLOW_SAFE_INTERNAL_EVENTS",
+    "literal_opt_out_category_id",
     "literal_static_cohort_id",
+    "opt_out_category_ids",
     "static_cohort_ids",
     "BROADCAST_STATUSES",
     "WORKFLOW_FIELD_FILTER_PARAMS",
