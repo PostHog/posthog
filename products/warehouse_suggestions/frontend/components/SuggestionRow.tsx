@@ -46,7 +46,9 @@ export function SuggestionRow({
                             highlight && 'col-span-2 @min-[36rem]/suggestions:col-span-1'
                         )}
                     >
-                        <span className="mt-0.5 flex shrink-0 text-base text-secondary">{icon}</span>
+                        <span className="group/colorful-product-icons colorful-product-icons-true flex h-5 shrink-0 items-center text-base">
+                            {icon}
+                        </span>
                         <div className="flex min-w-0 flex-col gap-0.5">
                             <div className="flex min-w-0">{title}</div>
                             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-secondary">

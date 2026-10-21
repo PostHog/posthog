@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+
 import { certificationSummaryText, countOf } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRow } from './CertificationSuggestionRow'
@@ -36,6 +38,7 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
         <>
             {stripState === 'active' && (
                 <SuggestionsBanner
+                    icon={iconForType('data_catalog')}
                     message={
                         <>
                             <strong translate="no">

@@ -5,6 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { MaterializeSuggestionModal } from './MaterializeSuggestionModal'
 import { MaterializeSuggestionRow } from './MaterializeSuggestionRow'
@@ -63,7 +65,10 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
     return (
         <>
             {stripState === 'active' && (
-                <SuggestionsBanner message={<SavingsBannerMessage summary={savingsSummary} />} />
+                <SuggestionsBanner
+                    icon={iconForType('data_modeling')}
+                    message={<SavingsBannerMessage summary={savingsSummary} />}
+                />
             )}
             <SuggestionsReviewModal
                 title="Suggested models"

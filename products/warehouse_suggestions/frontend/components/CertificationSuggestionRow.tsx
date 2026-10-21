@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconDatabase, IconDocument, IconWarning } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconWarning } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
@@ -48,16 +48,14 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
             icon={
                 <Tooltip title={isTable ? 'Table' : 'View'}>
                     <span className="flex" aria-label={isTable ? 'Table' : 'View'}>
-                        {isTable ? <IconDatabase /> : <IconDocument />}
+                        {iconForType(isTable ? 'data_warehouse' : 'data_modeling')}
                     </span>
                 </Tooltip>
             }
             title={
-                <LemonTableLink
-                    to={subjectUrl(suggestion)}
-                    title={<span className="truncate">{payload.subject_name}</span>}
-                    truncateTitle
-                />
+                <Link to={subjectUrl(suggestion)} subtle className="block min-w-0 truncate text-sm font-semibold">
+                    {payload.subject_name}
+                </Link>
             }
             meta={
                 deprecating

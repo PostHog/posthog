@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDocument } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
+
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { dataAgeLabel, isMaterializePayload, readSummary, savingHighlight } from '../suggestionCopy'
@@ -42,13 +42,15 @@ export function MaterializeSuggestionRow({
         <SuggestionRow
             suggestionId={suggestion.id}
             leaving={leaving}
-            icon={<IconDocument />}
+            icon={iconForType('data_modeling')}
             title={
-                <LemonTableLink
+                <Link
                     to={urls.sqlEditor({ view_id: suggestion.subject_id })}
-                    title={<span className="truncate">{payload.subject_name}</span>}
-                    truncateTitle
-                />
+                    subtle
+                    className="block min-w-0 truncate text-sm font-semibold"
+                >
+                    {payload.subject_name}
+                </Link>
             }
             meta={[
                 <WhyThisSuggestion
