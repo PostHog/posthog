@@ -168,6 +168,12 @@ export interface traceDialogLogicActions {
     collapseSelectedSpan: () => {
         value: true
     } // traceViewLogic
+    disableSpanKeys: () => {
+        value: true
+    } // traceViewLogic
+    enableSpanKeys: (containerSelector: string) => {
+        containerSelector: string
+    } // traceViewLogic
     expandSelectedSpan: () => {
         value: true
     } // traceViewLogic
@@ -186,8 +192,12 @@ export interface traceDialogLogicActions {
     setSpans: (spans: Span[]) => {
         spans: Span[]
     } // traceViewLogic
-    showTrace: (pinnedSpanId: string | null) => {
+    showTrace: (
+        pinnedSpanId: string | null,
+        tab: SpanInspectorTab | null
+    ) => {
         pinnedSpanId: string | null
+        tab: SpanInspectorTab | null
     } // traceViewLogic
     spanStepped: () => {
         value: true
@@ -288,6 +298,8 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 'selectPreviousSpan',
                 'collapseSelectedSpan',
                 'expandSelectedSpan',
+                'enableSpanKeys',
+                'disableSpanKeys',
             ],
         ],
         values: [
@@ -460,40 +472,12 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 has_span: !!trace.spanId,
                 has_log: !!openedFrom,
             })
-            actions.showTrace(trace.spanId)
+            actions.showTrace(trace.spanId, null)
             actions.loadTraceSpans(trace)
-            // Capture phase, and stopped there, so the page under the dialog does not also act on
-            // the key: with log details open, the logs list binds J and K to its own cursor.
-            cache.disposables.add(() => {
-                const onKeyDown = (event: KeyboardEvent): void => {
-                    const target = event.target as HTMLElement | null
-                    // A field behind the dialog can still hold focus, such as one that autofocused
-                    // while the trace loaded. The person cannot see it, so the key is theirs to step with.
-                    const typing =
-                        !!target?.closest(TRACE_DIALOG_SELECTOR) &&
-                        (['input', 'textarea', 'select'].includes(target.tagName.toLowerCase()) ||
-                            target.isContentEditable)
-                    if (typing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
-                        return
-                    }
-                    const step = {
-                        j: actions.selectNextSpan,
-                        k: actions.selectPreviousSpan,
-                        arrowleft: actions.collapseSelectedSpan,
-                        arrowright: actions.expandSelectedSpan,
-                    }[event.key.toLowerCase()]
-                    if (step) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        step()
-                    }
-                }
-                window.addEventListener('keydown', onKeyDown, { capture: true })
-                return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-            }, 'spanKeys')
+            actions.enableSpanKeys(TRACE_DIALOG_SELECTOR)
         },
         closeTraceDialog: ({ reason }) => {
-            cache.disposables.dispose('spanKeys')
+            actions.disableSpanKeys()
             const session: TraceDialogSession | undefined = cache.session
             if (!session) {
                 return

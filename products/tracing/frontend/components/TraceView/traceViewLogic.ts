@@ -77,6 +77,12 @@ export interface traceViewLogicActions {
     collapseSelectedSpan: () => {
         value: true
     }
+    disableSpanKeys: () => {
+        value: true
+    }
+    enableSpanKeys: (containerSelector: string) => {
+        containerSelector: string
+    }
     expandSelectedSpan: () => {
         value: true
     }
@@ -101,8 +107,12 @@ export interface traceViewLogicActions {
     showAllChildren: (spanId: string) => {
         spanId: string
     }
-    showTrace: (pinnedSpanId: string | null) => {
+    showTrace: (
+        pinnedSpanId: string | null,
+        tab: SpanInspectorTab | null
+    ) => {
         pinnedSpanId: string | null
+        tab: SpanInspectorTab | null
     }
     spanStepped: () => {
         value: true
@@ -161,7 +171,7 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
         values: [tracingCorrelationConfigLogic, ['sessionErrorBadgesEnabled']],
     })),
     actions({
-        showTrace: (pinnedSpanId: string | null) => ({ pinnedSpanId }),
+        showTrace: (pinnedSpanId: string | null, tab: SpanInspectorTab | null) => ({ pinnedSpanId, tab }),
         setSpans: (spans: Span[]) => ({ spans }),
         selectSpan: (spanId: string) => ({ spanId }),
         selectNextSpan: true,
@@ -174,6 +184,8 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
         toggleChain: (spanId: string) => ({ spanId }),
         keepSelectionOnScreen: true,
         setInspectorTab: (tab: SpanInspectorTab) => ({ tab }),
+        enableSpanKeys: (containerSelector: string) => ({ containerSelector }),
+        disableSpanKeys: true,
     }),
     reducers({
         spans: [
@@ -236,7 +248,7 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
         chosenInspectorTab: [
             null as SpanInspectorTab | null,
             {
-                showTrace: () => null,
+                showTrace: (_, { tab }) => tab,
                 setInspectorTab: (_, { tab }) => tab,
             },
         ],
@@ -344,7 +356,41 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
             }),
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
+        enableSpanKeys: ({ containerSelector }) => {
+            // Capture phase, and stopped there, so the page under the view does not also act on
+            // the key: with log details open, the logs list binds J and K to its own cursor.
+            cache.disposables.add(() => {
+                const onKeyDown = (event: KeyboardEvent): void => {
+                    const target = event.target as HTMLElement | null
+                    // A field behind the view can still hold focus, such as one that autofocused
+                    // while the trace loaded. The person cannot see it, so the key is theirs to step with.
+                    const typing =
+                        !!target?.closest(containerSelector) &&
+                        (['input', 'textarea', 'select'].includes(target.tagName.toLowerCase()) ||
+                            target.isContentEditable)
+                    if (typing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
+                        return
+                    }
+                    const step = {
+                        j: actions.selectNextSpan,
+                        k: actions.selectPreviousSpan,
+                        arrowleft: actions.collapseSelectedSpan,
+                        arrowright: actions.expandSelectedSpan,
+                    }[event.key.toLowerCase()]
+                    if (step) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        step()
+                    }
+                }
+                window.addEventListener('keydown', onKeyDown, { capture: true })
+                return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+            }, 'spanKeys')
+        },
+        disableSpanKeys: () => {
+            cache.disposables.dispose('spanKeys')
+        },
         selectNextSpan: () => {
             actions.spanStepped()
             // A missing-parent row is selectable too, so step from it rather than from the root fallback.

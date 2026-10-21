@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
+
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 
@@ -15,6 +17,7 @@ import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 import { TraceDialogSpanRow } from './TraceDialogSpanRow'
 
 const ROW_HEIGHT = 32
+const LOAD_MORE_THRESHOLD = 10
 
 interface SpanListRowData {
     spanRows: TraceDialogRow[]
@@ -125,9 +128,18 @@ const MAX_PINNED_ANCESTORS = 4
 export interface TraceDialogSpanTreeProps {
     openedFrom: TraceDialogSource | null
     openedAtUs: number | null
+    hasMore?: boolean
+    loadingMore?: boolean
+    onLoadMore?: () => void
 }
 
-export function TraceDialogSpanTree({ openedFrom, openedAtUs }: TraceDialogSpanTreeProps): JSX.Element {
+export function TraceDialogSpanTree({
+    openedFrom,
+    openedAtUs,
+    hasMore = false,
+    loadingMore = false,
+    onLoadMore,
+}: TraceDialogSpanTreeProps): JSX.Element {
     const {
         spanRows,
         spanTree,
@@ -153,9 +165,21 @@ export function TraceDialogSpanTree({ openedFrom, openedAtUs }: TraceDialogSpanT
     // an early scroll is lost: retry each time the rendered rows change until the span is visible, then
     // leave scrolling to the user.
     const revealedIndexRef = useRef<number | null>(null)
-    const revealOpenedSpan = useCallback(
+    // Fires at most once per loaded row count, so a page that adds no rows can't retrigger on every render.
+    const lastRequestedRowCountRef = useRef(-1)
+    const onRowsRendered = useCallback(
         (visibleRows: { startIndex: number; stopIndex: number }): void => {
             setTopIndex(visibleRows.startIndex)
+            if (
+                onLoadMore &&
+                hasMore &&
+                !loadingMore &&
+                visibleRows.stopIndex >= spanRows.length - 1 - LOAD_MORE_THRESHOLD &&
+                lastRequestedRowCountRef.current !== spanRows.length
+            ) {
+                lastRequestedRowCountRef.current = spanRows.length
+                onLoadMore()
+            }
             if (openedIndex < 0 || revealedIndexRef.current === openedIndex) {
                 return
             }
@@ -165,7 +189,7 @@ export function TraceDialogSpanTree({ openedFrom, openedAtUs }: TraceDialogSpanT
             }
             listRef.current?.scrollToRow({ index: openedIndex, align: 'center' })
         },
-        [openedIndex, listRef]
+        [openedIndex, listRef, onLoadMore, hasMore, loadingMore, spanRows.length]
     )
     // Keep each span J and K step to in view. While the opened span still waits for its centred reveal
     // above, this leaves it alone.
@@ -262,11 +286,30 @@ export function TraceDialogSpanTree({ openedFrom, openedAtUs }: TraceDialogSpanT
                                 onShowAll: showAllChildren,
                             }}
                             listRef={listRef}
-                            onRowsRendered={revealOpenedSpan}
+                            onRowsRendered={onRowsRendered}
                         />
                     )}
                 />
             </div>
+            {hasMore && (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted border-t">
+                    {loadingMore ? (
+                        <>
+                            <Spinner />
+                            <span>Loading more spans…</span>
+                        </>
+                    ) : (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => onLoadMore?.()}
+                            data-attr="trace-view-load-more-spans"
+                        >
+                            Load more spans
+                        </LemonButton>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
