@@ -29,6 +29,10 @@ describe('demo fixtures', () => {
             expect(report.headline.rest).not.toBe('')
             expect(report.facts.length).toBeGreaterThan(0)
             expect(report.prompt).not.toBe('')
+            expect(report.summary).toContain('## Problem')
+            expect(report.signals.length).toBeGreaterThanOrEqual(2)
+            const signalTimes = report.signals.map((signal) => Date.parse(signal.at))
+            expect(signalTimes).toEqual([...signalTimes].sort((a, b) => b - a))
             if (report.task) {
                 expect(demoSessionLog(report.task.taskId)?.title).toBe(report.title)
                 expect(demoSessionRunId(report.task.taskId)).toBe(report.task.runId)

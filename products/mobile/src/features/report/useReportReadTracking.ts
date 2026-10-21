@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { LayoutChangeEvent } from 'react-native'
 import { type SharedValue, useSharedValue } from 'react-native-reanimated'
 
-import { track } from '@/lib/analytics'
+import { type AnalyticsEvent, track } from '@/lib/analytics'
 
 import { useAppActive } from '../handoff/useTaskRun'
 
@@ -16,12 +16,15 @@ export interface ReportReadTracking {
     onContentSizeChange: (width: number, height: number) => void
 }
 
+/** The report screen and the full report send the same read properties under their own event names. */
+export type ReadEvent = Extract<AnalyticsEvent, 'mobile_report_read' | 'mobile_report_details_read'>
+
 /**
- * Sends one `mobile_report_read` when the report body unmounts, which happens on Back and on Prev/Next.
+ * Sends one `event` when the screen body unmounts, which happens on Back and, on the report screen, on Prev/Next.
  * `dwell_s` counts only the time the screen had focus with the app in the foreground, so time in task chat or in
  * the background is left out.
  */
-export function useReportReadTracking(reportId: string): ReportReadTracking {
+export function useReportReadTracking(reportId: string, event: ReadEvent = 'mobile_report_read'): ReportReadTracking {
     const maxScrollY = useSharedValue(0)
     const viewportHeight = useRef(0)
     const contentHeight = useRef(0)
@@ -48,13 +51,13 @@ export function useReportReadTracking(reportId: string): ReportReadTracking {
         () => () => {
             const openMs = visibleSince.current !== null ? Date.now() - visibleSince.current : 0
             const scrolledToEnd = maxScrollY.value + viewportHeight.current >= contentHeight.current - END_SLACK_PX
-            track('mobile_report_read', {
+            track(event, {
                 report_id: reportId,
                 dwell_s: Math.round((visibleMs.current + openMs) / 1000),
                 scrolled_to_end: scrolledToEnd,
             })
         },
-        [reportId, maxScrollY]
+        [reportId, event, maxScrollY]
     )
 
     return useMemo(

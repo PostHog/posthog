@@ -193,6 +193,8 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 
 - **Hand-written API types.** `src/api/today.ts` and `src/api/reports.ts` declare only the fields the adapters read, each naming its serializer. Adapters in `src/model/adapters/` do all mapping, so a response change touches one adapter.
 - **Model boundary.** `src/model/adapters/` imports API types (type-only) from `src/api`, date formatting from `src/lib/dates` and the record guards from `src/lib/records`. The rest of `src/model` still imports only `src/ui/icons`.
+- **The full report is a route** (`report/[id]/details`), not an overlay, so Back and the Android back gesture leave it like any pushed screen. `report/[id].tsx` moved to `report/[id]/index.tsx` for it; the `$screen` name stays `report/[id]`.
+- **One markdown parser setup.** `lib/markdownIt.ts` holds the `html: false`, `linkify: false` and linear autolink configuration. The chat and the full report each add their own plugins and render rules to their own instance.
 - **The hand-off prompt is not built by the adapter.** `reportView()` returns the view without `prompt`, because the prompt text lives in `features/handoff/prompt.ts` and adapters import nothing from features. `useReport` adds it from the report's `webUrl`.
 - **The inbox lists every report for the user.** It pages through `signals/reports/?view=for_you&sort=priority`, which orders reports the way the Today briefing does, while the list holds every report for the user beyond the briefing's top five.
   It needs no Today: the list is a signals endpoint, so a Today outage or a token without `today:read` does not change it.

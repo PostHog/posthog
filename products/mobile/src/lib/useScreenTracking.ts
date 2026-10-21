@@ -16,12 +16,15 @@ export function screenName(segments: readonly string[]): string {
     return parts.length > 0 ? parts.join('/') : 'index'
 }
 
+/** `report/[id]/index.tsx` loses its `index` segment, so the report keeps the `report/[id]` name. */
+const REPORT_SCREENS: ReadonlySet<string> = new Set(['report/[id]', 'report/[id]/details'])
+
 /** Sends one `$screen` per route change. Call it once, from the root layout. */
 export function useScreenTracking(enabled: boolean): void {
     const segments = useSegments()
     const params = useGlobalSearchParams()
     const name = screenName(segments)
-    const reportId = name === 'report/[id]' && typeof params.id === 'string' ? params.id : undefined
+    const reportId = REPORT_SCREENS.has(name) && typeof params.id === 'string' ? params.id : undefined
     const last = useRef<string | null>(null)
 
     useEffect(() => {

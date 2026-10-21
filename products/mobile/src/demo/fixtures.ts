@@ -1,4 +1,5 @@
 import { dailyBuckets } from '@/lib/dates'
+import { sourceInfo } from '@/model/sources'
 import type {
     ActivityEvent,
     DecisionQuestion,
@@ -12,6 +13,7 @@ import type {
     Person,
     ReportChartView,
     ReportOwner,
+    ReportSignalView,
     ReportView,
     TaskRunView,
     WorkView,
@@ -21,6 +23,7 @@ import {
     DEMO_AGENT,
     DEMO_BRIEFINGS,
     DEMO_DECISION,
+    type DemoAgo,
     type DemoBriefing,
     type DemoChart,
     type DemoKind,
@@ -120,8 +123,8 @@ export function parseDemoWhen(when: string, anchor: Date): Date {
     return date
 }
 
-function agoToDate(briefing: DemoBriefing, anchor: Date): Date {
-    const ms = 'hours' in briefing.ago ? briefing.ago.hours * 3_600_000 : briefing.ago.days * 86_400_000
+function agoToDate(ago: DemoAgo, anchor: Date): Date {
+    const ms = 'hours' in ago ? ago.hours * 3_600_000 : ago.days * 86_400_000
     return new Date(anchor.getTime() - ms)
 }
 
@@ -152,10 +155,26 @@ function evidenceFor(briefing: DemoBriefing): EvidenceBlock[] {
             sessionId,
             meta: briefing.replay.meta,
             count: briefing.replay.count,
-            url: `https://example.com/replay/${sessionId}`,
+            url: demoReplayUrl(sessionId),
         })
     }
     return blocks
+}
+
+function demoReplayUrl(sessionId: string): string {
+    return `https://example.com/replay/${sessionId}`
+}
+
+function signalsFor(briefing: DemoBriefing, anchor: Date): ReportSignalView[] {
+    return briefing.signals.map((signal, index) => ({
+        id: `${briefing.id}-signal-${index}`,
+        sourceProduct: signal.source,
+        sourceLabel: sourceInfo(signal.source).label,
+        content: signal.content,
+        at: agoToDate(signal.ago, anchor).toISOString(),
+        ...(signal.sessionId ? { sessionId: signal.sessionId, replayUrl: demoReplayUrl(signal.sessionId) } : {}),
+        ...(signal.ticket !== undefined ? { ticketNumber: signal.ticket } : {}),
+    }))
 }
 
 function workFor(briefing: DemoBriefing): WorkView {
@@ -359,6 +378,7 @@ function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
         accent: briefing.accent,
         headline: { number: briefing.headNum, rest: briefing.headRest },
         lede: briefing.lede,
+        summary: briefing.summary.join('\n\n'),
         evidence: evidenceFor(briefing),
         ...(since ? { since } : {}),
         owner: ownerFor(briefing),
@@ -368,6 +388,7 @@ function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
         observation: observationFor(briefing, anchor),
         supportingMetrics: supportingFor(briefing, anchor),
         charts: chartsFor(briefing, anchor),
+        signals: signalsFor(briefing, anchor),
         activity: activityFor(briefing, anchor),
         work: workFor(briefing),
         ...(task ? { task } : {}),
@@ -392,8 +413,8 @@ function itemFor(briefing: DemoBriefing, anchor: Date): InboxItem {
         sourceLabel: briefing.sourceLabel,
         sources: [briefing.sourceProduct],
         accent: briefing.accent,
-        createdAt: agoToDate(briefing, anchor).toISOString(),
-        updatedAt: agoToDate(briefing, anchor).toISOString(),
+        createdAt: agoToDate(briefing.ago, anchor).toISOString(),
+        updatedAt: agoToDate(briefing.ago, anchor).toISOString(),
         modelScore: null,
         reason: REASON_BY_KIND[briefing.kind],
         state: briefing.kind === 'done' ? 'done' : 'open',

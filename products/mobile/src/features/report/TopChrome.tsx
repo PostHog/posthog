@@ -23,6 +23,10 @@ const CHROME_ROW_HEIGHT = 46
 const CHROME_BOTTOM_PADDING = 10
 /** Design-frame offset of the chrome's bottom edge, so the scroll view can tell when the headline passes under it. */
 export const TOP_CHROME_BOTTOM = CHROME_TOP + CHROME_ROW_HEIGHT + CHROME_BOTTOM_PADDING
+/** Design-frame top padding of the content under the chrome. */
+export const CONTENT_TOP = 116
+/** The gap between the chrome and the headline at rest, so the title reveal ends as the headline fully passes under. */
+export const HEADLINE_GAP = CONTENT_TOP - TOP_CHROME_BOTTOM
 const CHROME_SOLID = 0.7
 
 /** How far the headline rises before the chrome title is fully visible. */
@@ -42,9 +46,18 @@ interface TopChromeProps {
     onNext?: () => void
     title?: ChromeTitle
     refreshing?: boolean
+    /** False leaves out the Previous and Next pill, for a screen that is not one report of the inbox list. */
+    withPager?: boolean
 }
 
-export function TopChrome({ onBack, onPrevious, onNext, title, refreshing = false }: TopChromeProps): ReactElement {
+export function TopChrome({
+    onBack,
+    onPrevious,
+    onNext,
+    title,
+    refreshing = false,
+    withPager = true,
+}: TopChromeProps): ReactElement {
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
@@ -64,29 +77,31 @@ export function TopChrome({ onBack, onPrevious, onNext, title, refreshing = fals
                     </Animated.View>
                 ) : null}
             </View>
-            <SegmentedPill
-                height={CHROME_ROW_HEIGHT}
-                raised
-                segmentWidth={44}
-                segments={[
-                    {
-                        key: 'previous',
-                        accessibilityLabel: 'Previous report',
-                        onPress: () => onPrevious?.(),
-                        disabled: !onPrevious,
-                        testID: 'report-previous',
-                        children: <ChevronLeftIcon size={iconSizes.control} />,
-                    },
-                    {
-                        key: 'next',
-                        accessibilityLabel: 'Next report',
-                        onPress: () => onNext?.(),
-                        disabled: !onNext,
-                        testID: 'report-next',
-                        children: <ChevronRightIcon size={iconSizes.control} />,
-                    },
-                ]}
-            />
+            {withPager ? (
+                <SegmentedPill
+                    height={CHROME_ROW_HEIGHT}
+                    raised
+                    segmentWidth={44}
+                    segments={[
+                        {
+                            key: 'previous',
+                            accessibilityLabel: 'Previous report',
+                            onPress: () => onPrevious?.(),
+                            disabled: !onPrevious,
+                            testID: 'report-previous',
+                            children: <ChevronLeftIcon size={iconSizes.control} />,
+                        },
+                        {
+                            key: 'next',
+                            accessibilityLabel: 'Next report',
+                            onPress: () => onNext?.(),
+                            disabled: !onNext,
+                            testID: 'report-next',
+                            children: <ChevronRightIcon size={iconSizes.control} />,
+                        },
+                    ]}
+                />
+            ) : null}
         </View>
     )
 }

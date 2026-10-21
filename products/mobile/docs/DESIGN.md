@@ -94,7 +94,11 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
 | `ImpactMetrics` | `features/report/metrics/ImpactMetrics.tsx` | "Impact" eyebrow over a two-column grid of tiles: 20pt mono value, title, and the window or measured time. A tile with a link opens the insight |
 | `ReportCharts` | `features/report/metrics/ReportCharts.tsx` | "Charts" eyebrow over one card per chart: title, caption, the chart when the app can draw it, and Open insight |
 | `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
-| `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the headline, above the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
+| `ReportMeta` | `features/report/ReportMeta.tsx` | `ReportByline` under the headline, above the lede, then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
+| `ReportByline`, `HeadlineTitle` | `features/report/` | The byline (source glyph and label · "Since …") and the 22pt headline with its number in the accent color, shared by the report screen and the full report |
+| `TextLinkRow` | `features/report/TextLinkRow.tsx` | Quiet 15pt ink link with a 14pt secondary chevron, or the external-link mark when it opens the browser. 32pt tall, so the hit slop reaches 44pt. No button chrome |
+| `ReportMarkdown` | `features/report/details/ReportMarkdown.tsx` | The full report's markdown, on the shared parser in `lib/markdownIt.ts`. `summary` is 16pt ink with 17pt headings (`type.sectionHeader`); `signal` is 15pt. Fenced blocks are `MonoBlock`s, images are dropped, and `[label](chart:id)` reads as its label (`chartRefs.ts`) |
+| `MonoBlock`, `SignalCard` | `features/report/details/` | A fenced block on the trace's dark card (`type.mono`); a white bordered card per signal: source glyph, label, time and ticket number, then the content and Watch session |
 | `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
@@ -145,8 +149,13 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
 - **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
   Edit pins, then Settings and Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
-  evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
-  activity, and the action bar.
+  "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
+  the observation card, impact tiles, charts, activity, and the action bar.
+- **Full report** (`report/[id]/details`): top chrome with Back only and the headline as its scroll title,
+  a "Full report" eyebrow, the headline and the byline, the whole summary, then "Signals" with a count and one card per
+  signal, newest first, and "Open in PostHog" at the end (hidden in demo mode).
+  Charts stay on the report screen, so the summary's chart references read as their labels and a paragraph of references only is dropped.
+  Loading, "Couldn't load this report" with Try again, and "This report has no more detail yet." are separate states.
 - **Action bar** (`actionBarStateFor`): execution, attention and PR availability are independent.
   Execution distinguishes unclaimed, starting, working, idle, reconnecting, unavailable, failed,
   canceled, completed and unknown. A claim names the owner without claiming they are running.

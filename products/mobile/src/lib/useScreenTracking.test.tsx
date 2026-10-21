@@ -24,7 +24,13 @@ describe('useScreenTracking', () => {
         const screen = jest.fn()
         setAnalyticsClient({ capture: jest.fn(), screen, identify: jest.fn(), reset: jest.fn() })
         renderRouter(
-            { _layout: TrackedLayout, index: Stub, '(tabs)/inbox': Stub, 'report/[id]': Stub },
+            {
+                _layout: TrackedLayout,
+                index: Stub,
+                '(tabs)/inbox': Stub,
+                'report/[id]/index': Stub,
+                'report/[id]/details': Stub,
+            },
             { initialUrl: '/' }
         )
 
@@ -32,11 +38,13 @@ describe('useScreenTracking', () => {
         act(() => router.setParams({ unrelated: '1' }))
         act(() => router.push('/report/report-a'))
         act(() => router.push('/report/report-b'))
+        act(() => router.push('/report/report-b/details'))
 
         expect(screen.mock.calls).toEqual([
             ['inbox', undefined],
             ['report/[id]', { report_id: 'report-a' }],
             ['report/[id]', { report_id: 'report-b' }],
+            ['report/[id]/details', { report_id: 'report-b' }],
         ])
     })
 })

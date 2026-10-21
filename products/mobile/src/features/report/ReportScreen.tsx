@@ -36,6 +36,7 @@ import { useGithubOnlyReviewerCount, useReportReviewersQuery } from '../reviewer
 import { VerdictSheet } from '../verdict/VerdictSheet'
 import { dismissCopy, hasOpenPullRequest, resolveCopy } from '../verdict/verdictCopy'
 import { Activity } from './Activity'
+import { hasReportDetail } from './details/hasReportDetail'
 import { Evidence } from './Evidence'
 import { Facts } from './Facts'
 import { Headline, headlineText } from './Headline'
@@ -46,15 +47,12 @@ import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
-import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
+import { TextLinkRow } from './TextLinkRow'
+import { CONTENT_TOP, HEADLINE_GAP, TopChrome } from './TopChrome'
 import { useReportReadTracking } from './useReportReadTracking'
 
 type Sheet = 'handoff' | 'resolve' | 'dismiss' | 'assignee' | 'priority'
 type Overlay = 'none' | Sheet
-
-const CONTENT_TOP = 116
-/** The gap between the chrome and the headline at rest, so the title reveal ends as the headline fully passes under. */
-const HEADLINE_GAP = CONTENT_TOP - TOP_CHROME_BOTTOM
 
 interface ReportScreenProps {
     reportId: string
@@ -240,6 +238,7 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
                 onNext={goTo(neighbors.nextId)}
                 onReassign={() => openSheet('assignee', 'chip')}
                 onChangePriority={() => openSheet('priority', 'chip')}
+                onReadFull={() => router.push({ pathname: '/report/[id]/details', params: { id: report.id } })}
             />
             <ActionBar
                 report={report}
@@ -331,6 +330,7 @@ interface ReportBodyProps {
     onNext?: () => void
     onReassign: () => void
     onChangePriority: () => void
+    onReadFull: () => void
 }
 
 // Keyed by report id from the parent, so the scroll offset and the measured headline start fresh for each report.
@@ -343,6 +343,7 @@ function ReportBody({
     onNext,
     onReassign,
     onChangePriority,
+    onReadFull,
 }: ReportBodyProps): ReactElement {
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
@@ -372,6 +373,11 @@ function ReportBody({
                     meta={<ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />}
                     onHeadlineHeight={setHeadlineHeight}
                 />
+                {hasReportDetail(report) ? (
+                    <View style={styles.readFull}>
+                        <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
+                    </View>
+                ) : null}
                 <Evidence blocks={report.evidence} reportId={report.id} />
                 <Facts facts={report.facts} />
                 {report.observation ? (
@@ -415,5 +421,8 @@ const styles = StyleSheet.create({
     content: {
         paddingHorizontal: layout.detailGutter,
         paddingBottom: 28,
+    },
+    readFull: {
+        marginTop: 8,
     },
 })

@@ -94,6 +94,14 @@ It also carries `from`, read from the route's `from` param: `inbox` (a row tap),
 `mobile_report_read` is sent once when the report body unmounts (Back or Prev/Next), with `report_id`, `dwell_s` (whole seconds the screen had focus with the app in the foreground) and `scrolled_to_end` (the deepest scroll came within 160 px of the content end, or the content fit on screen).
 `mobile_report_replay_opened` carries `report_id` and `replay_count` when "Watch a session" opens the recording on the web.
 
+**Full report.** "Read the full report" under the lede opens `/report/{id}/details` when the report has a summary or at least one signal.
+The screen reads `useReport(id)`, so it shares the report screen's cache and does not poll.
+The signals can arrive after the first render when a Today page exists, because the report screen does not wait for them then; the Signals section appears when they land.
+`mobile_report_details_opened` is sent once per open, with `report_id`, `has_summary` and `signal_count`.
+`mobile_report_details_link_opened` carries `report_id` and `target`: `web` (Open in PostHog), `replay` (a signal's Watch session) or `link` (a link in the summary or a signal).
+`mobile_report_details_read` has the same properties as `mobile_report_read` and is sent when the full report unmounts.
+The report screen's dwell time pauses while the full report is on top, because that screen loses focus.
+
 `reportView(...)` rules:
 
 - **Headline.** The title, split when it starts with a number token (`3,721`, `+2.3s`, `0 of 860`, `$184k`, `12%`). When the title has no number, the first sentence of the Today `lead` is used if it starts with one and is at most 120 characters. Otherwise the whole title is `rest`.
@@ -101,6 +109,7 @@ It also carries `from`, read from the route's `from` param: `inbox` (a row tap),
 - **Accent and source.** As for inbox rows, from `source_products` and `status`.
 - **Evidence from the Today page.** The first error signal is a `trace`: `error` is its `headline`, frames come from the quiet `preview.block` lines (`file.ts:12  fn`), at most 4, and `footer` is its `meta` when set. Feedback signals become up to 3 `quotes` (`lead`, attributed "{source} · {meta}"). The first signal with a `recording` is the `replay`: meta "at {offset} · {headline}", url `{host}/project/{id}/replay/{session_id}?t={seek_seconds}`, count the larger of the recordings on the page and the distinct `session_id`s in the signals.
 - **Evidence from signals** (no page). The first error signal is a `trace` with its first line and the frames of its fenced stack (`fn in path line N`, closest to the error first). Feedback signals become quotes ("Ticket #N" when `extra.ticket_number` is set). The first signal with `extra.session_id` is the `replay`, without a seek time.
+- **Signals.** Every signal from the signals endpoint, newest first as the API returns them, also when the Today page supplies the evidence. Each has its source (unknown sources map to `other`), the trimmed `content`, `timestamp`, the `extra.session_id` with its replay URL (`{host}/project/{id}/replay/{session_id}`, no seek time), and `extra.ticket_number` when it is a number. The full report shows them all, untruncated.
 - **Since.** `created_at` as activity time ("Mon 7:21 AM", "Today 9:04 AM", "Just now"). The byline under the headline reads it as "Since …".
 - **Owner.** `{ kind: 'user', name }` for a user claim; `{ kind: 'agent', name }` with "PostHog" for a task or system claim, or the MCP client ("Claude Code") for an external agent claim; `{ kind: 'none' }` when unclaimed. The owner chip under the byline shows it.
 - **Facts**, the rows the byline and chips do not show. The adapter emits only Impact, dropped when it has no source: the primary metric's value and title ("612 affected users", or "612 users" with the title under it when the metric has its own unit) and its caption; else the first Today impact number.

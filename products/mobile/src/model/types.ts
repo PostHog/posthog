@@ -174,6 +174,20 @@ export interface ReportChartView {
     openUrl?: string
 }
 
+/** One signal behind a report, for the full report screen. */
+export interface ReportSignalView {
+    id: string
+    sourceProduct: SourceProduct
+    sourceLabel: string
+    /** Plain text or light markdown, often with a fenced stack trace. */
+    content: string
+    at: string
+    sessionId?: string
+    /** The recording on the web. Set when `sessionId` is. */
+    replayUrl?: string
+    ticketNumber?: number
+}
+
 export interface ActivityEvent {
     id: string
     /** Sentence with `**bold**` segments, for example "Alex Kim handed off to **PostHog**". */
@@ -282,6 +296,8 @@ export interface ReportView {
     observation?: MetricView
     supportingMetrics: MetricView[]
     charts: ReportChartView[]
+    /** Every signal of the report, newest first. */
+    signals: ReportSignalView[]
     activity: ActivityEvent[]
     work: WorkView
     task?: TaskRunView

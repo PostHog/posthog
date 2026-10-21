@@ -1,8 +1,10 @@
 import type { ReactElement, ReactNode } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
 
 import type { Accent, Headline as HeadlineModel } from '@/model/types'
-import { accentColor, colors, prettyWrap, type } from '@/ui/tokens'
+import { colors, prettyWrap, type } from '@/ui/tokens'
+
+import { HeadlineTitle } from './HeadlineTitle'
 
 interface HeadlineProps {
     headline: HeadlineModel
@@ -20,15 +22,7 @@ export function Headline({ headline, accent, lede, meta, onHeadlineHeight }: Hea
     const onLayout = (event: LayoutChangeEvent): void => onHeadlineHeight?.(event.nativeEvent.layout.height)
     return (
         <View>
-            <Text
-                style={[styles.headline, prettyWrap]}
-                accessibilityRole="header"
-                lineBreakStrategyIOS="standard"
-                onLayout={onLayout}
-            >
-                {headline.number ? <Text style={NUMBER_STYLES[accent]}>{headline.number} </Text> : null}
-                {headline.rest}
-            </Text>
+            <HeadlineTitle headline={headline} accent={accent} onLayout={onLayout} />
             {meta}
             <Text style={[styles.lede, prettyWrap]} lineBreakStrategyIOS="standard">
                 {lede}
@@ -37,17 +31,7 @@ export function Headline({ headline, accent, lede, meta, onHeadlineHeight }: Hea
     )
 }
 
-const NUMBER_STYLES = StyleSheet.create<Record<Accent, TextStyle>>({
-    alert: { color: accentColor.alert },
-    opportunity: { color: accentColor.opportunity },
-    resolved: { color: accentColor.resolved },
-})
-
 const styles = StyleSheet.create({
-    headline: {
-        ...type.headline,
-        color: colors.ink,
-    },
     lede: {
         ...type.body,
         marginTop: 14,

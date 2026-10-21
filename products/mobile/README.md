@@ -51,6 +51,7 @@ Deep links open screens directly, for example in the simulator:
 ```sh
 xcrun simctl openurl booted "posthog://inbox"
 xcrun simctl openurl booted "posthog://report/demo-report-load-time"
+xcrun simctl openurl booted "posthog://report/demo-report-load-time/details"
 ```
 
 A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev://` or `posthog-preview://` scheme instead.

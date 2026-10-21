@@ -22,6 +22,7 @@ import type {
     Quote,
     ReportOwner,
     ReportPriority,
+    ReportSignalView,
     ReportStatus,
     ReportView,
     Reviewer,
@@ -193,6 +194,11 @@ function sessionIdOf(extra: Record<string, unknown> | null | undefined): string 
     return text(extra?.session_id)
 }
 
+function ticketNumberOf(extra: Record<string, unknown> | null | undefined): number | undefined {
+    const ticket = extra?.ticket_number
+    return typeof ticket === 'number' ? ticket : undefined
+}
+
 function sourceLabelOf(sourceProduct: string): string {
     return sourceInfo(toSourceProduct(sourceProduct)).label
 }
@@ -256,10 +262,10 @@ function evidenceFromSignals(signals: readonly SignalNodeApi[], host: string, pr
         .filter((signal) => isFeedbackSource(signal.source_product))
         .slice(0, MAX_QUOTES)
         .map((signal) => {
-            const ticket = signal.extra?.ticket_number
+            const ticket = ticketNumberOf(signal.extra)
             return {
                 text: truncate(firstSentence(plainText(signal.content)), 200),
-                who: [sourceLabelOf(signal.source_product), typeof ticket === 'number' ? `Ticket #${ticket}` : null]
+                who: [sourceLabelOf(signal.source_product), ticket !== undefined ? `Ticket #${ticket}` : null]
                     .filter(Boolean)
                     .join(' · '),
             }
@@ -280,6 +286,21 @@ function evidenceFromSignals(signals: readonly SignalNodeApi[], host: string, pr
         })
     }
     return blocks
+}
+
+function signalView(signal: SignalNodeApi, host: string, projectId: number): ReportSignalView {
+    const sourceProduct = toSourceProduct(signal.source_product)
+    const sessionId = sessionIdOf(signal.extra)
+    const ticketNumber = ticketNumberOf(signal.extra)
+    return {
+        id: signal.signal_id,
+        sourceProduct,
+        sourceLabel: sourceInfo(sourceProduct).label,
+        content: signal.content.trim(),
+        at: signal.timestamp,
+        ...(sessionId ? { sessionId, replayUrl: replayUrl(host, projectId, sessionId) } : {}),
+        ...(ticketNumber !== undefined ? { ticketNumber } : {}),
+    }
 }
 
 function impactFact(report: SignalReportApi, page: ReportPageApi | undefined): Fact | undefined {
@@ -628,6 +649,7 @@ export function reportView(input: ReportViewInput): AdaptedReportView {
         ...(observation ? { observation } : {}),
         supportingMetrics,
         charts: report.charts.map((chart) => reportChartView(chart, { host, projectId })),
+        signals: (signals ?? []).map((signal) => signalView(signal, host, projectId)),
         activity: activityFor(report, artefacts, { task }),
         work: workView(report),
         ...(taskRun ? { task: taskRun } : {}),

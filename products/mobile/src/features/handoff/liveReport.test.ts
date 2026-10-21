@@ -24,6 +24,7 @@ function report(work: WorkView = { state: 'unclaimed' }): ReportView {
         facts: [],
         supportingMetrics: [],
         charts: [],
+        signals: [],
         activity: [],
         work,
         task: { taskId: 'task-1', runId: 'run-1', status: 'in_progress' },

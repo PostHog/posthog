@@ -1,15 +1,15 @@
 import type { ReactElement, ReactNode } from 'react'
 import { StyleSheet, Text, type TextStyle, View } from 'react-native'
 
-import { sourceInfo } from '@/model/sources'
 import type { ReportOwner, ReportPriority, ReportView } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
 import { Dot } from '@/ui/Dot'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, lineHeight, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, lineHeight, radii } from '@/ui/tokens'
 
 import { priorityTone } from '../priority/PrioritySheet'
+import { ReportByline } from './ReportByline'
 
 const AVATAR_SIZE = 18
 const PRIORITY_DOT_SIZE = 8
@@ -23,32 +23,9 @@ interface ReportMetaProps {
 // Facts that never change (source, start time) read as a quiet byline. Facts the user can change (owner, priority)
 // are chips that open the sheet for that value.
 export function ReportMeta({ report, onReassign, onChangePriority }: ReportMetaProps): ReactElement {
-    const { Icon } = sourceInfo(report.sourceProduct)
-    const since = report.since ? sinceText(report.since) : undefined
     return (
         <View>
-            <View
-                style={styles.byline}
-                accessible
-                accessibilityLabel={[`From ${report.sourceLabel}`, since ? lowerFirst(since) : undefined]
-                    .filter(Boolean)
-                    .join(', ')}
-                testID="report-byline"
-            >
-                <View style={styles.segment}>
-                    <View style={styles.glyph}>
-                        <Icon size={iconSizes.inline} color={colors.secondary} />
-                    </View>
-                    <Text style={styles.bylineText}>{report.sourceLabel}</Text>
-                    {/* The separator rides on the end of the segment before it, so a wrapped line never starts with a dot. */}
-                    {since ? <Text style={[styles.bylineText, styles.separator]}>·</Text> : null}
-                </View>
-                {since ? (
-                    <View style={styles.segment}>
-                        <Text style={styles.bylineText}>{since}</Text>
-                    </View>
-                ) : null}
-            </View>
+            <ReportByline report={report} />
             <View style={styles.chips}>
                 <OwnerChip owner={report.owner} onPress={onReassign} />
                 <PriorityChip priority={report.priority} onPress={onChangePriority} />
@@ -134,44 +111,7 @@ function Chip({ accessibilityLabel, leading, label, labelStyle, onPress, testID 
     )
 }
 
-// Live times start with "Today" or read "Just now", which would sit oddly after "Since".
-function sinceText(moment: string): string {
-    if (moment === 'Just now') {
-        return moment
-    }
-    return `Since ${moment.replace(/^Today /, 'today ')}`
-}
-
-function lowerFirst(value: string): string {
-    return value.charAt(0).toLowerCase() + value.slice(1)
-}
-
 const styles = StyleSheet.create({
-    byline: {
-        marginTop: 10,
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        rowGap: 2,
-    },
-    segment: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexShrink: 1,
-    },
-    bylineText: {
-        ...type.meta,
-        color: colors.secondary,
-        flexShrink: 1,
-    },
-    separator: {
-        color: colors.dotSeparator,
-        marginHorizontal: 6,
-        flexShrink: 0,
-    },
-    glyph: {
-        marginRight: 4,
-    },
     chips: {
         marginTop: 10,
         flexDirection: 'row',

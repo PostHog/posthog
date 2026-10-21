@@ -347,4 +347,62 @@ describe('report view adapter', () => {
         expect(view.task).toBeUndefined()
         expect(view.canAct).toBe(true)
     })
+
+    test('lists every signal in API order for the full report, also when the Today page supplies the evidence', () => {
+        const signal = (overrides: Partial<SignalNodeApi> & Pick<SignalNodeApi, 'signal_id'>): SignalNodeApi => ({
+            content: '',
+            source_product: 'error_tracking',
+            source_type: 'issue_created',
+            source_id: overrides.signal_id,
+            timestamp: local(10, 9, 8),
+            extra: null,
+            ...overrides,
+        })
+        const signals = [
+            signal({
+                signal_id: 'newest',
+                content: '  Blank chart after load.\n',
+                source_product: 'replay_vision',
+                timestamp: local(10, 9, 11),
+                extra: { session_id: 'sess 1' },
+            }),
+            signal({
+                signal_id: 'ticket',
+                content: 'The chart is empty for me.',
+                source_product: 'zendesk',
+                timestamp: local(10, 9, 10),
+                extra: { ticket_number: 8812, session_id: '' },
+            }),
+            signal({ signal_id: 'oldest', content: 'Unknown source.', source_product: 'new_product' }),
+        ]
+
+        const view = reportView({ report: reportFixture(), artefacts: [], signals, page: PAGE, ...SCOPE, now: NOW })
+
+        expect(view.signals).toEqual([
+            {
+                id: 'newest',
+                sourceProduct: 'replay_vision',
+                sourceLabel: 'Session replay',
+                content: 'Blank chart after load.',
+                at: local(10, 9, 11),
+                sessionId: 'sess 1',
+                replayUrl: 'https://us.example.com/project/2/replay/sess%201',
+            },
+            {
+                id: 'ticket',
+                sourceProduct: 'zendesk',
+                sourceLabel: 'Zendesk',
+                content: 'The chart is empty for me.',
+                at: local(10, 9, 10),
+                ticketNumber: 8812,
+            },
+            {
+                id: 'oldest',
+                sourceProduct: 'other',
+                sourceLabel: 'Report',
+                content: 'Unknown source.',
+                at: local(10, 9, 8),
+            },
+        ])
+    })
 })

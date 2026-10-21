@@ -14,7 +14,8 @@ products/mobile/
       _layout.tsx         -> src/features/tabs/TabsLayout
       inbox.tsx           -> src/features/inbox/InboxScreen
       chats.tsx           -> src/features/chats/ChatsScreen
-    report/[id].tsx       -> src/features/report/ReportScreen
+    report/[id]/index.tsx -> src/features/report/ReportScreen (`/report/<id>`, as deep links and notifications open it)
+    report/[id]/details.tsx -> src/features/report/details/ReportDetailsScreen (the full report)
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
                           no params starts a new chat, `taskId` and `runId` open one, `reportId` attaches a report)
     settings.tsx          -> src/features/settings/SettingsScreen
@@ -37,9 +38,12 @@ products/mobile/
                           rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu)
       inbox/              InboxScreen, InboxRow, InboxListFooter, hooks,
                           prefetchPlan (prefetch window and queue), usePrefetchReports
-      report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity,
+      report/             ReportScreen, TopChrome, Headline, HeadlineTitle, ReportMeta, ReportByline, TextLinkRow,
+                          Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)
         metrics/          ObservationCard, ImpactMetrics, ReportCharts, OpenInsightLink, query and value hooks
+        details/          ReportDetailsScreen (the full report) and its sections, ReportMarkdown, chartRefs
+                          (markdown-it plugin), openDetailsLink
       handoff/            ActionBar and its cards, HandoffSheet, actionBarState, kickoff, prompt,
                           runStream (reducer), toolPolicy, permissionRequest, commands, useTaskRun,
                           useReportWithLiveRun, handoffStore, hooks
@@ -61,7 +65,8 @@ products/mobile/
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
                           DefaultPageGroup, defaultPageStore (the tab the app opens on)
-    lib/                  analytics, posthogClient, dates, errors, haptics, richText, useAsyncAction, useNow,
+    lib/                  analytics, posthogClient, dates, errors, haptics, markdownIt (the shared safe parser),
+                          richText, useAsyncAction, useNow,
                           environment (build variant, host kind, update id), appVariants (+ .json), legalLinks
     ui/                   tokens.ts, primitives (SearchField, StateView, ...), icons/
   plugins/                Expo config plugins (withIosSceneLifecycle: UIScene life cycle for Xcode 27)
@@ -91,6 +96,8 @@ The footer reads independent execution, attention and PR state from the pure
 `actionBarStateFor(report, local)` in `features/handoff/actionBarState.ts`. The focused report
 polls lightweight report/artefact/task snapshots in the foreground; stream changes trigger
 throttled invalidations without refetching on message chunks.
+The full report reads `useReport(id)` without polling. It shares the report screen's cache,
+so it renders at once and refreshes once when it opens.
 
 Mutations go through `useAsyncAction`, which exposes a `pending` flag and drops a second call
 while one is in flight. Buttons read the flag to disable and show progress.
