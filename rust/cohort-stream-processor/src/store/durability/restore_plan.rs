@@ -7,7 +7,7 @@ use rdkafka::error::{KafkaError, KafkaResult};
 use rdkafka::types::RDKafkaErrorCode;
 
 use super::manifest::OffsetManifest;
-use crate::partitions::{InputGroups, InputTopic, ResumeOffset};
+use crate::partitions::{InputGroups, InputTopic, PartitionOwnership, ResumeOffset};
 
 /// Watermarks of the enabled inputs.
 pub trait ReplayWindow {
@@ -116,10 +116,11 @@ impl RestorePlan {
         Ok(Self(slices))
     }
 
-    pub fn resumes_any(&self) -> bool {
-        self.0
-            .values()
-            .any(|slice| matches!(slice, SliceRestore::Resume(_)))
+    /// True when a slice `ownership` owns resumes. Boot deletes the slices of the other partitions.
+    pub fn resumes_any(&self, ownership: &PartitionOwnership) -> bool {
+        self.0.iter().any(|(&partition, slice)| {
+            ownership.owns(partition) && matches!(slice, SliceRestore::Resume(_))
+        })
     }
 
     pub fn resets(&self) -> impl Iterator<Item = (u16, &ResetReason)> {
@@ -143,10 +144,15 @@ impl RestorePlan {
         })
     }
 
-    /// Where `topic` resumes on every slice the plan keeps.
-    pub fn positions(&self, topic: &InputTopic) -> BTreeMap<u16, ResumeOffset> {
+    /// Where `topic` resumes on every slice the plan keeps that `ownership` owns.
+    pub fn positions(
+        &self,
+        topic: &InputTopic,
+        ownership: &PartitionOwnership,
+    ) -> BTreeMap<u16, ResumeOffset> {
         self.0
             .iter()
+            .filter(|&(&partition, _)| ownership.owns(partition))
             .filter_map(|(&partition, slice)| match slice {
                 SliceRestore::Resume(positions) => Some((partition, *positions.get(topic)?)),
                 SliceRestore::Reset(_) => None,
@@ -158,7 +164,9 @@ impl RestorePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::partitions::InputPositions;
+    use std::num::NonZeroU16;
+
+    use crate::partitions::{InputPositions, OwnedPositions};
     use crate::store::durability::lineage::PodOrdinal;
 
     const EVENTS: &str = "cohort_stream_events";
@@ -220,7 +228,11 @@ mod tests {
                 )
             })
             .collect();
-        OffsetManifest::capture(PodOrdinal::STANDALONE, &owned, positions).unwrap()
+        OffsetManifest::capture(
+            &owned,
+            OwnedPositions::for_test(PartitionOwnership::single(8), positions),
+        )
+        .unwrap()
     }
 
     type Bounds = ((&'static str, u16), (i64, i64));
@@ -291,10 +303,25 @@ mod tests {
                 ),
             ]),
         );
-        assert!(plan.resumes_any());
+        assert!(plan.resumes_any(&PartitionOwnership::single(5)));
         assert_eq!(
-            plan.positions(&InputTopic::new(EVENTS)),
+            plan.positions(&InputTopic::new(EVENTS), &PartitionOwnership::single(5)),
             BTreeMap::from([(0, offset(10)), (4, offset(10))]),
+        );
+        let pod_of_eight = |ordinal| {
+            PartitionOwnership::new(NonZeroU16::new(8).unwrap(), PodOrdinal::from(ordinal), 8)
+                .unwrap()
+        };
+        for (ordinal, kept) in [(0, 0), (4, 4)] {
+            assert_eq!(
+                plan.positions(&InputTopic::new(MERGES), &pod_of_eight(ordinal)),
+                BTreeMap::from([(kept, offset(5))]),
+                "pod {ordinal} positions only its own kept slice",
+            );
+        }
+        assert!(
+            !plan.resumes_any(&pod_of_eight(1)),
+            "pod 1's only slice resets, so other pods' kept slices do not make it resume",
         );
     }
 
@@ -313,7 +340,9 @@ mod tests {
                 SliceRestore::Resume(BTreeMap::from([(InputTopic::new(EVENTS), offset(10))])),
             )]),
         );
-        assert!(plan.positions(&InputTopic::new(SEEDS)).is_empty());
+        assert!(plan
+            .positions(&InputTopic::new(SEEDS), &PartitionOwnership::single(1))
+            .is_empty());
     }
 
     #[test]
@@ -323,7 +352,7 @@ mod tests {
 
         let plan = RestorePlan::check(&recorded, &window, 2).unwrap();
 
-        assert!(!plan.resumes_any());
+        assert!(!plan.resumes_any(&PartitionOwnership::single(2)));
         assert_eq!(
             plan.resets()
                 .map(|(partition, _)| partition)

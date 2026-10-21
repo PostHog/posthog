@@ -119,6 +119,11 @@ class EmailTemplateSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Plain-text fallback body for clients that can't render the email.",
     )
+    preheader = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Preview text that most inboxes show after the subject. Supports Liquid templating.",
+    )
     html = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -201,6 +206,11 @@ class MessageTemplateSerializer(serializers.Serializer):
     )
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
+    )
+    sensitive = serializers.BooleanField(
+        required=False,
+        help_text="For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent "
+        "email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
     )
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,

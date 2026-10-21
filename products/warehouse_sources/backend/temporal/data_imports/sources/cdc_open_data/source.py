@@ -140,7 +140,7 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
             name=ExternalDataSourceType.CDCOPENDATA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CDC Open Data (data.cdc.gov)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["cdc", "public health", "socrata", "covid"],
             caption="""Sync one or more datasets from [data.cdc.gov](https://data.cdc.gov) into the PostHog Data warehouse.
 

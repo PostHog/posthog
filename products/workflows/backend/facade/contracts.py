@@ -540,6 +540,17 @@ class Workflow:
 
 
 @frozen
+class SuggestionsSample:
+    """Whether the live version has sent enough email for the suggestions scout to judge it."""
+
+    reached: bool
+    # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
+    tracked_sends: int
+    required_sends: int
+    version_live_since: datetime
+
+
+@frozen
 class WorkflowRef:
     """A workflow's identity and dispatch settings, for an action that does not return the workflow.
 
@@ -572,6 +583,8 @@ class TransactionalEmailContent:
     # None uses the project's default sender on create, and keeps the workflow's sender on update.
     from_integration_id: int | None
     message_category_id: UUID | None
+    # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
+    sensitive: bool = False
 
 
 class TransactionalEmailSenderUnavailable(Exception):
@@ -782,6 +795,8 @@ class DataSuggestion:
     weekly_count: int
     stage: LifecycleStage
     step_outline: tuple[OutlineKind, ...]
+    # Prepared ahead of time with its workflow already built, so a click creates the draft without a model call.
+    premade: bool = False
 
 
 @frozen
@@ -815,8 +830,21 @@ class BuiltSuggestion:
     missing_inputs: tuple[MissingInput, ...] = ()
 
 
+@frozen
+class PreparedIdeas:
+    """What `prepare_workflow_ideas` did for one project."""
+
+    status: DataSuggestionsStatus
+    stored: tuple[str, ...] = ()
+    failed_builds: int = 0
+
+
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+class WorkflowIdeaAlreadyResolved(Exception):
+    """The premade idea was already used."""
 
 
 class EmailDraftSourceNotFound(Exception):

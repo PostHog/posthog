@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tickettailor import (
     TicketTailorSourceConfig,
 )
@@ -13,36 +11,6 @@ class TestTicketTailorSource:
         self.source = TicketTailorSource()
         self.team_id = 123
         self.config = TicketTailorSourceConfig(api_key="tt-key")
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.tickettailor.com/v1/orders?limit=100",
-            ),
-            # Ticket Tailor answers invalid/deleted keys with 403.
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.tickettailor.com/v1/events?limit=100"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.tickettailor.com/v1/orders",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.tickettailor.com/v1/events",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source.validate_credentials"

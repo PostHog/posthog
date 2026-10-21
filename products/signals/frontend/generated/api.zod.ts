@@ -528,10 +528,12 @@ export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
 export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
     action: zod
-        .enum(['get_it_merged', 'suggested_prompt'])
-        .describe('\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt')
+        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt'])
         .describe(
-            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `suggested_prompt` - Suggested prompt'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
+        )
+        .describe(
+            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
         ),
     suggested_prompt_index: zod
         .number()
@@ -833,15 +835,16 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
+            'no_action_needed',
             'pr_merged',
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -1073,15 +1076,16 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
+            'no_action_needed',
             'pr_merged',
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -1395,6 +1399,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
+                        inbox: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
+                            ),
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
@@ -1645,6 +1655,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
+                inbox: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
+                    ),
             })
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
@@ -1814,6 +1830,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
+                    ),
+                inbox: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                     ),
             })
             .optional()

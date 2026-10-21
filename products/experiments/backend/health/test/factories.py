@@ -22,12 +22,15 @@ RUNNING_CONTEXT = HealthContext(
     is_paused=False,
     archived=False,
     flag=None,
+    flag_called=None,
+    team_has_active_flag=None,
     baseline_variant_key=None,
     primary_metric_count=1,
     secondary_metric_count=0,
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,
+    pause_history=None,
     excluded_variant_keys=frozenset(),
 )
 
