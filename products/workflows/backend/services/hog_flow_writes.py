@@ -112,6 +112,26 @@ def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> 
     instance.save()
 
 
+def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
+    # A transactional email's protection follows its template, and only the template sync writes it.
+    # Every other write, such as publishing a restored version, keeps the live setting.
+    if before.origin_product != HogFlow.OriginProduct.TRANSACTIONAL_EMAILS or "actions" not in validated_data:
+        return validated_data
+    sensitive = any(
+        isinstance(action, dict)
+        and action.get("type") == "function_email"
+        and (action.get("config") or {}).get("sensitive") is True
+        for action in before.actions or []
+    )
+    actions = [
+        {**action, "config": {**(action.get("config") or {}), "sensitive": sensitive}}
+        if isinstance(action, dict) and action.get("type") == "function_email"
+        else action
+        for action in validated_data["actions"] or []
+    ]
+    return {**validated_data, "actions": actions}
+
+
 def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: dict) -> None:
     """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
     follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""
@@ -294,6 +314,7 @@ def update_workflow(
     base_live_updated_at: Optional[str],
     includes_staged_draft: bool,
     validated_status: str,
+    keeps_live_sensitivity: bool = True,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -355,6 +376,8 @@ def update_workflow(
                 _save_live(instance, remaining)
         else:
             validated_data = _derive_from_locked_graph(before_update, validated_data)
+            if keeps_live_sensitivity:
+                validated_data = _keep_live_sensitivity(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:
@@ -413,6 +436,7 @@ def edit_workflow_content(
         validated_data = edit(to_edit_state(locked), base_actions, base_edges)
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
+        validated_data = _keep_live_sensitivity(before_update, validated_data)
         if route_to_draft:
             _write_draft(locked, locked, validated_data)
         else:
@@ -456,7 +480,7 @@ def publish_draft(
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
         # The draft goes back through the normal serializer so publish revalidates strictly and
         # recompiles bytecode - a stored blob is never trusted to be execution-ready.
-        validated_data = validate(to_edit_state(locked), dict(locked.draft))
+        validated_data = _keep_live_sensitivity(before_update, validate(to_edit_state(locked), dict(locked.draft)))
         _refresh_action_redirects(locked, before_update, validated_data.get("actions"))
         bump = _stage_revision_bump(locked, before_update, validated_data)
         # Validation recovered the draft's secrets (from the merged live+draft encrypted maps), and
