@@ -51,6 +51,30 @@ export function useTimestampFormatMenuItems(): LemonMenuItem[] {
     }))
 }
 
+export function useLayoutMenuItems(): LemonMenuItem[] {
+    const { watchLayoutOffered, replayLayout } = useValues(playerSettingsLogic)
+    const { setPreferClassicReplayLayout } = useActions(playerSettingsLogic)
+
+    if (!watchLayoutOffered) {
+        return []
+    }
+
+    return [
+        {
+            label: 'New',
+            onClick: () => setPreferClassicReplayLayout(false),
+            active: replayLayout === 'watch',
+            'data-attr': 'list-layout-new',
+        },
+        {
+            label: 'Classic',
+            onClick: () => setPreferClassicReplayLayout(true),
+            active: replayLayout === 'classic',
+            'data-attr': 'list-layout-classic',
+        },
+    ]
+}
+
 export function useAutoplayMenuItems(): LemonMenuItem[] {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
