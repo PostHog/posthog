@@ -336,6 +336,8 @@ class DeltaWriter:
                 else None
             )
             max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
+            # Passed only to turn the cache off, so a deltalite build without the argument keeps working.
+            probe_cache_kwargs = {} if settings.DATA_WAREHOUSE_DELTALITE_PROBE_CACHE else {"use_probe_cache": False}
             async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
@@ -345,6 +347,7 @@ class DeltaWriter:
                         partition_key,
                         commit_metadata=commit_metadata,
                         max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
+                        **probe_cache_kwargs,
                         **upsert_kwargs,
                     )
 
