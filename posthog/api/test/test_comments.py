@@ -2540,7 +2540,7 @@ class TestCommentHelperFunctions(SimpleTestCase):
             ("without_slug_insight", "Insight", "456", "", "/insights/456#panel=discussion"),
             ("without_slug_dashboard", "Dashboard", "789", "", "/dashboard/789#panel=discussion"),
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
-            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
+            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature-flags/10#panel=discussion"),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
             # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
             (
