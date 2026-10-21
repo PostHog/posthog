@@ -180,6 +180,68 @@ class TestGroupTables:
                 [("out", "files", "folder", "out", "csv", ["out/part-0.csv"])],
             ),
             (
+                "a_hive_partition_folder_whose_key_starts_with_an_underscore_holds_data",
+                ["orders/_ph_partition_key=2024-w10/part.parquet", "orders/_ph_partition_key=2024-w11/part.parquet"],
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "orders",
+                        "parquet",
+                        [
+                            "orders/_ph_partition_key=2024-w10/part.parquet",
+                            "orders/_ph_partition_key=2024-w11/part.parquet",
+                        ],
+                    ),
+                ],
+            ),
+            (
+                "nested_underscore_hive_partitions_fold_into_the_table_above",
+                ["orders/_a=1/_b=2/part.parquet", "orders/_a=1/_b=3/part.parquet"],
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "orders",
+                        "parquet",
+                        ["orders/_a=1/_b=2/part.parquet", "orders/_a=1/_b=3/part.parquet"],
+                    ),
+                ],
+            ),
+            (
+                "bookkeeping_stays_skipped_inside_an_underscore_partition",
+                [
+                    "orders/_ph_partition_key=2024-w10/_SUCCESS",
+                    "orders/_ph_partition_key=2024-w10/_committed_123",
+                    "orders/_ph_partition_key=2024-w10/.part.parquet.crc",
+                    "orders/_ph_partition_key=2024-w10/_temporary/x.parquet",
+                    "orders/_temporary/_a=1/x.parquet",
+                    "orders/.hidden=1/x.parquet",
+                    "orders/_ph_partition_key=2024-w10/part.parquet",
+                ],
+                DiscoveryOptions(),
+                [
+                    (
+                        "orders",
+                        "files",
+                        "folder",
+                        "orders",
+                        "parquet",
+                        ["orders/_ph_partition_key=2024-w10/part.parquet"],
+                    ),
+                ],
+            ),
+            (
+                "a_delta_table_under_an_underscore_partition_folder_is_found",
+                ["_region=eu/sales/_delta_log/0.json", "_temporary/sales/_delta_log/0.json"],
+                DiscoveryOptions(),
+                [("region_eu_sales", "delta", None, "_region=eu/sales", "delta", [])],
+            ),
+            (
                 "pattern_matches_across_folders",
                 ["a/x.csv", "a/y.json", "b/z.csv"],
                 DiscoveryOptions(file_pattern="*.csv"),
