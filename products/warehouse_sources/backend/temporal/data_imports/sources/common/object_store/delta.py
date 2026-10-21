@@ -43,13 +43,15 @@ DELTA_VERSION_COLUMN = "_delta_version"
 
 @frozen
 class ObjectStorageDeltaCursor:
-    """The Delta table version the destination holds."""
+    """What the destination holds: a version of a Delta table, or a listing of a files table."""
 
     cursor_kind: ClassVar[str] = "object_storage_delta_v1"
 
-    version: int
+    version: int | None = None
     # Delta gives a table a new ID when it is dropped and created again, which restarts its versions.
-    table_id: str
+    table_id: str | None = None
+    # The digest of a files table's listing (see `listing_digest`). None for a Delta table.
+    files_digest: str | None = None
 
 
 @contextmanager
@@ -153,12 +155,13 @@ def plan_delta_read(
     """
     with _delta_errors(table_name):
         table = DeltaTable(uri, storage_options=storage_options)
-        cursor = ObjectStorageDeltaCursor(version=table.version(), table_id=str(table.metadata().id))
+        version = table.version()
+        cursor = ObjectStorageDeltaCursor(version=version, table_id=str(table.metadata().id))
         dataset = cast(ds.FileSystemDataset, table.to_pyarrow_dataset())
 
     if logger is not None:
         logger.info("Reading Delta table snapshot", table=table_name, delta_version=cursor.version)
-    if stored is None:
+    if stored is None or stored.version is None:
         return DeltaRead(table_name=table_name, dataset=dataset, cursor=cursor)
     if stored.table_id == cursor.table_id and stored.version == cursor.version:
         return DeltaRead(table_name=table_name, dataset=dataset, cursor=cursor, added_files=())
@@ -167,7 +170,7 @@ def plan_delta_read(
     added_files: list[ds.FileFragment] = []
     if stored.table_id != cursor.table_id:
         reset_reason = "the table was created again"
-    elif stored.version > cursor.version:
+    elif stored.version > version:
         reset_reason = "the table is at an earlier version than the last sync"
     else:
         with _delta_errors(table_name):
