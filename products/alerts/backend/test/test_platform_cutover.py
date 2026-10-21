@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -13,8 +14,10 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.contracts import DeliveryPath
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
+_CUTOVER = "products.alerts.backend.platform_cutover"
 
 
 class TestInsightPlatformCutover(APIBaseTest):
@@ -90,6 +93,22 @@ class TestInsightPlatformCutover(APIBaseTest):
         assert result.skipped == CutoverSkip.ENVIRONMENT
         alert.refresh_from_db()
         assert alert.owner == "source"
+
+    @parameterized.expand([("events_emitted", True, None), ("nothing_emits", False, CutoverSkip.NO_HOG_FUNCTION_PATH)])
+    def test_an_alert_on_the_hog_function_path_moves_only_while_its_events_are_emitted(
+        self, _name: str, emitter: bool, reason: CutoverSkip | None
+    ) -> None:
+        alert = self._alert()
+
+        with (
+            patch(f"{_CUTOVER}.choose_delivery_path", return_value=DeliveryPath.HOG_FUNCTION),
+            patch(f"{_CUTOVER}.has_legacy_event_emitter", return_value=emitter),
+        ):
+            (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == reason
+        alert.refresh_from_db()
+        assert alert.owner == ("source" if reason else "platform")
 
     def test_a_second_run_leaves_a_moved_alert_alone(self) -> None:
         self._alert()
