@@ -1,21 +1,19 @@
-//! How the consumer loop reads Kafka and waits for completions. A strategy
-//! decides what the loop does next and returns it as a [`Step`]; the consumer
-//! carries the step out against the Kafka client and the batcher.
+//! How the consumer loop turns what it receives into what it does next. The
+//! consumer owns the Kafka client and the batcher outputs, hands each event to
+//! the polling strategy, and carries out the [`Step`]s the strategy returns.
 
 mod capped;
 mod collector;
 mod continuous;
 mod poll;
 
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Arc;
 
 use common_kafka_consumer::{GroupCompletion, TopicPartition};
-use lifecycle::Handle;
-use tokio::sync::mpsc;
-use tracing::warn;
+use metrics::counter;
+use rdkafka::message::Message;
+use tokio::time::Instant;
+use tracing::{info, warn};
 
 use crate::charge_limit::ChargeLimit;
 use crate::config::{CompletionGranularity, Polling};
@@ -23,9 +21,9 @@ use crate::debug_recorder::DebugRecorder;
 use crate::partition_budget::BudgetLimits;
 use crate::settlement::{Commit, Settlement};
 
-pub(crate) use capped::CappedPolling;
+use capped::CappedPolling;
 pub(crate) use collector::{Collector, PollLimits};
-pub(crate) use continuous::ContinuousPolling;
+use continuous::ContinuousPolling;
 pub(crate) use poll::{
     debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, InFlightPoll,
     PartitionDeliveries,
@@ -37,57 +35,151 @@ pub(crate) enum Step {
     Submit(CollectedBatch),
     /// Submit the offsets and resume the partitions.
     Commit(Commit),
-    /// Shutdown was signalled: the batcher takes no new groups.
-    BeginShutdown,
     /// Shutdown drained the in-flight work.
     Stop,
-    /// A poll could not be collected, dispatched, or completed.
     Fail(anyhow::Error),
 }
 
-pub(crate) struct LoopParts {
-    pub(crate) collector: Collector,
-    pub(crate) completions: mpsc::UnboundedReceiver<GroupCompletion>,
-    pub(crate) errors: mpsc::UnboundedReceiver<String>,
-    pub(crate) settlement: Arc<dyn Settlement>,
-    pub(crate) fetching: Arc<FetchingPartitions>,
-    /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback.
-    pub(crate) revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-    pub(crate) handle: Handle,
-    pub(crate) commit_tick: Duration,
-    pub(crate) group_id: String,
-    pub(crate) debug_recorder: Option<Arc<DebugRecorder>>,
-}
-
-pub(crate) enum PollingStrategy {
-    Capped(Box<CappedPolling>),
+enum Strategy {
+    Capped(CappedPolling),
     Continuous(Box<ContinuousPolling>),
 }
 
+pub(crate) struct PollingStrategy {
+    collector: Collector,
+    settlement: Arc<dyn Settlement>,
+    strategy: Strategy,
+    accepting_new_batches: bool,
+    commit_due: bool,
+}
+
 impl PollingStrategy {
-    pub(crate) fn new(selected: Selected, parts: LoopParts) -> Self {
-        match selected {
+    pub(crate) fn new(
+        selected: Selected,
+        limits: PollLimits,
+        settlement: Arc<dyn Settlement>,
+        group_id: String,
+        debug_recorder: Option<Arc<DebugRecorder>>,
+    ) -> Self {
+        let strategy = match selected {
             Selected::Capped {
                 max_in_flight_polls,
-            } => Self::Capped(Box::new(CappedPolling::new(parts, max_in_flight_polls))),
-            Selected::Continuous { in_flight } => {
-                Self::Continuous(Box::new(ContinuousPolling::new(parts, in_flight)))
-            }
+            } => Strategy::Capped(CappedPolling::new(
+                max_in_flight_polls,
+                group_id,
+                debug_recorder,
+            )),
+            Selected::Continuous { in_flight } => Strategy::Continuous(Box::new(
+                ContinuousPolling::new(in_flight, group_id, debug_recorder),
+            )),
+        };
+        Self {
+            collector: Collector::new(limits),
+            settlement,
+            strategy,
+            accepting_new_batches: true,
+            commit_due: false,
         }
     }
 
-    pub(crate) async fn next(&mut self) -> Step {
-        match self {
-            Self::Capped(capped) => capped.next().await,
-            Self::Continuous(continuous) => continuous.next().await,
+    pub(crate) fn reading(&mut self) -> bool {
+        self.accepting_new_batches
+            && match &mut self.strategy {
+                Strategy::Capped(capped) => capped.admits(),
+                Strategy::Continuous(continuous) => continuous.admits(self.collector.charge()),
+            }
+    }
+
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        self.collector.deadline()
+    }
+
+    pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
+        self.collector.add(message, now);
+    }
+
+    pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
+        let settlement = &*self.settlement;
+        match &mut self.strategy {
+            Strategy::Capped(capped) => capped.completed(completion, settlement)?,
+            Strategy::Continuous(continuous) => continuous.completed(completion, settlement)?,
         }
+        self.commit_due = true;
+        Ok(())
+    }
+
+    pub(crate) fn ticked(&mut self) {
+        self.commit_due = true;
+    }
+
+    /// Every message received before the revoke belongs to the old
+    /// assignment: the batcher purges it, or Kafka delivers it again from the
+    /// last commit.
+    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
+        let building = self.collector.remove_partitions(topic_partitions) as u64;
+        let in_flight = match &mut self.strategy {
+            Strategy::Capped(capped) => capped.revoked(topic_partitions),
+            Strategy::Continuous(continuous) => continuous.revoked(topic_partitions),
+        };
+        let stripped = building + in_flight;
+        if stripped > 0 {
+            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
+            info!(stripped, "Removed revoked partitions' messages");
+        }
+    }
+
+    pub(crate) fn shutdown(&mut self) {
+        self.accepting_new_batches = false;
+        // Its messages are not charged yet, so they replay from the last commit.
+        self.collector.discard();
     }
 
     pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
-        match self {
-            Self::Capped(capped) => capped.submitted(poll),
-            Self::Continuous(continuous) => continuous.submitted(poll),
+        match &mut self.strategy {
+            Strategy::Capped(capped) => capped.submitted(poll),
+            Strategy::Continuous(continuous) => continuous.submitted(poll),
+        }
+    }
+
+    pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
+        if let Strategy::Capped(capped) = &mut self.strategy {
+            while let Some(retired) = capped.retire_oldest_poll(&*self.settlement) {
+                if let Err(err) = retired {
+                    return Some(Step::Fail(err));
+                }
+                self.commit_due = true;
+            }
+        }
+        if std::mem::take(&mut self.commit_due) {
+            if let Some(commit) = self.settlement.take_due(now.into_std()) {
+                if let Strategy::Continuous(continuous) = &mut self.strategy {
+                    continuous.committed(&commit);
+                }
+                return Some(Step::Commit(commit));
+            }
+        }
+        if let Some(collected) = self.take_poll(now) {
+            return Some(Step::Submit(collected));
+        }
+        let drained = match &self.strategy {
+            Strategy::Capped(capped) => capped.is_empty(),
+            Strategy::Continuous(continuous) => continuous.is_empty(),
+        };
+        (!self.accepting_new_batches && drained).then_some(Step::Stop)
+    }
+
+    fn take_poll(&mut self, now: Instant) -> Option<CollectedBatch> {
+        if let Some(collected) = self.collector.take_ready(now) {
+            return Some(collected);
+        }
+        let at_limit = match &mut self.strategy {
+            Strategy::Capped(_) => false,
+            Strategy::Continuous(continuous) => !continuous.admits(self.collector.charge()),
+        };
+        if at_limit {
+            self.collector.take()
+        } else {
+            None
         }
     }
 }
@@ -137,81 +229,213 @@ pub(crate) fn select(
     capped
 }
 
-/// A partition revocation stamped with the ledger generation started by the
-/// revoke. Poll slices from earlier generations are stale; slices collected
-/// after a later reassignment must survive a delayed notification.
-#[derive(Clone, Debug)]
-pub(crate) struct RevokedPartition {
-    pub(crate) topic_partition: TopicPartition,
-    pub(crate) generation: u64,
-}
-
-#[derive(Default)]
-struct Partitions {
-    fetching: HashSet<TopicPartition>,
-    paused: HashSet<TopicPartition>,
-}
-
-#[derive(Default)]
-pub(crate) struct FetchingPartitions {
-    partitions: Mutex<Partitions>,
-    all_paused: AtomicBool,
-}
-
-impl FetchingPartitions {
-    pub(crate) fn assigned(&self, topic_partitions: &[TopicPartition]) {
-        self.update(|partitions| {
-            for topic_partition in topic_partitions {
-                partitions.paused.remove(topic_partition);
-                partitions.fetching.insert(topic_partition.clone());
-            }
-        });
-    }
-
-    pub(crate) fn revoked(&self, topic_partitions: &[TopicPartition]) {
-        self.update(|partitions| {
-            for topic_partition in topic_partitions {
-                partitions.paused.remove(topic_partition);
-                partitions.fetching.remove(topic_partition);
-            }
-        });
-    }
-
-    pub(crate) fn paused(&self, topic_partition: &TopicPartition) {
-        self.update(|partitions| {
-            if partitions.fetching.remove(topic_partition) {
-                partitions.paused.insert(topic_partition.clone());
-            }
-        });
-    }
-
-    pub(crate) fn resumed(&self, topic_partition: &TopicPartition) {
-        self.update(|partitions| {
-            if partitions.paused.remove(topic_partition) {
-                partitions.fetching.insert(topic_partition.clone());
-            }
-        });
-    }
-
-    pub(crate) fn all_paused(&self) -> bool {
-        self.all_paused.load(Ordering::Relaxed)
-    }
-
-    fn update(&self, change: impl FnOnce(&mut Partitions)) {
-        let mut partitions = self.partitions.lock().unwrap();
-        change(&mut partitions);
-        self.all_paused.store(
-            !partitions.paused.is_empty() && partitions.fetching.is_empty(),
-            Ordering::Relaxed,
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::num::NonZeroU64;
+    use std::time::Duration;
 
+    use common_kafka_consumer::{Offset, Partition, TopicOffsetLedger};
+
+    use super::collector::tests::message;
     use super::*;
+    use crate::settlement::GroupSettlement;
+
+    const BATCH_TIMEOUT: Duration = Duration::from_millis(500);
+
+    struct Harness {
+        strategy: PollingStrategy,
+        settlement: Arc<dyn Settlement>,
+        ledger: Arc<TopicOffsetLedger>,
+        now: Instant,
+    }
+
+    impl Harness {
+        fn new(selected: Selected) -> Self {
+            let ledger = Arc::new(TopicOffsetLedger::new());
+            let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+                Arc::clone(&ledger),
+                Duration::ZERO,
+                BudgetLimits::unset(),
+            ));
+            let limits = PollLimits {
+                batch_size: 100,
+                batch_size_bytes: 0,
+                batch_timeout: BATCH_TIMEOUT,
+            };
+            Self {
+                strategy: PollingStrategy::new(
+                    selected,
+                    limits,
+                    Arc::clone(&settlement),
+                    "test".to_string(),
+                    None,
+                ),
+                settlement,
+                ledger,
+                now: Instant::now(),
+            }
+        }
+
+        fn capped(max_in_flight_polls: usize) -> Self {
+            Self::new(Selected::Capped {
+                max_in_flight_polls,
+            })
+        }
+
+        fn continuous(in_flight_events: u64) -> Self {
+            Self::new(Selected::Continuous {
+                in_flight: ChargeLimit::new(NonZeroU64::new(in_flight_events), None),
+            })
+        }
+
+        fn receive(&mut self, partition: i32, offsets: &[i64]) {
+            for &offset in offsets {
+                self.strategy
+                    .received(&message(partition, offset, 10), self.now);
+            }
+        }
+
+        fn after_the_batch_timeout(&mut self) {
+            self.now += BATCH_TIMEOUT;
+        }
+
+        fn step(&mut self) -> Option<Step> {
+            self.strategy.next_step(self.now)
+        }
+
+        fn submit(&mut self) -> HashMap<TopicPartition, (i64, i64)> {
+            let Some(Step::Submit(collected)) = self.step() else {
+                panic!("expected a poll to submit");
+            };
+            let CollectedBatch {
+                accumulator,
+                mut partitions,
+                ..
+            } = collected;
+            let mut uncommitted = HashMap::new();
+            for (topic_partition, deliveries) in &mut partitions {
+                deliveries.generation = self.ledger.generation(topic_partition);
+                let charged = self
+                    .settlement
+                    .charge(topic_partition, deliveries.generation, &deliveries.charges)
+                    .expect("the ledger accepts the charge");
+                uncommitted.insert(topic_partition.clone(), charged.uncommitted);
+            }
+            let spans = partitions
+                .iter()
+                .map(|(topic_partition, deliveries)| {
+                    (
+                        topic_partition.clone(),
+                        (deliveries.span.first, deliveries.span.last),
+                    )
+                })
+                .collect();
+            self.strategy.submitted(InFlightPoll {
+                poll_id: "poll".to_string(),
+                assignment_epoch: 1,
+                partitions,
+                uncommitted,
+                message_count: accumulator.message_count() as u32,
+                covered: 0,
+                accepted: 0,
+                dispatched_at: std::time::Instant::now(),
+            });
+            spans
+        }
+
+        fn complete(&mut self, partition: i32, offsets: &[i64]) {
+            self.strategy
+                .completed(&GroupCompletion {
+                    partition: Partition(partition),
+                    assignment_epoch: 1,
+                    offsets: offsets.iter().map(|&offset| Offset(offset)).collect(),
+                    accepted: offsets.len() as u32,
+                })
+                .expect("the completion applies");
+        }
+
+        fn commit(&mut self) -> HashMap<TopicPartition, Offset> {
+            match self.step() {
+                Some(Step::Commit(commit)) => commit.offsets,
+                _ => panic!("expected a commit"),
+            }
+        }
+    }
+
+    fn p(partition: i32) -> TopicPartition {
+        TopicPartition::new("events", partition)
+    }
+
+    #[test]
+    fn the_capped_strategy_stops_reading_at_its_cap_until_the_oldest_poll_is_covered() {
+        let mut harness = Harness::capped(1);
+        assert!(harness.strategy.reading());
+
+        harness.receive(0, &[0, 1]);
+        assert!(harness.step().is_none(), "the poll is still collecting");
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(!harness.strategy.reading());
+
+        harness.complete(0, &[0, 1]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+        assert!(harness.strategy.reading());
+    }
+
+    #[test]
+    fn the_continuous_strategy_submits_at_the_in_flight_limit_and_reads_again_after_a_commit() {
+        let mut harness = Harness::continuous(2);
+
+        harness.receive(0, &[0]);
+        assert!(harness.step().is_none());
+        harness.receive(0, &[1]);
+        assert_eq!(harness.submit(), HashMap::from([(p(0), (0, 1))]));
+        assert!(!harness.strategy.reading());
+
+        harness.complete(0, &[0, 1]);
+        assert!(
+            !harness.strategy.reading(),
+            "a completion frees no room before its commit"
+        );
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+        assert!(harness.strategy.reading());
+    }
+
+    #[test]
+    fn a_revoke_removes_the_partitions_messages_received_before_it() {
+        let mut harness = Harness::continuous(1_000);
+        harness.receive(0, &[10, 11]);
+        harness.receive(1, &[20]);
+
+        harness.strategy.revoked(&[p(0)]);
+        harness.receive(0, &[10]);
+        harness.after_the_batch_timeout();
+
+        assert_eq!(
+            harness.submit(),
+            HashMap::from([(p(0), (10, 10)), (p(1), (20, 20))]),
+            "the redelivery after the revoke stays"
+        );
+    }
+
+    #[test]
+    fn shutdown_drops_the_poll_in_progress_and_stops_once_in_flight_work_drains() {
+        let mut harness = Harness::continuous(1_000);
+        harness.receive(0, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.receive(0, &[1]);
+
+        harness.strategy.shutdown();
+        assert!(!harness.strategy.reading());
+        assert_eq!(harness.strategy.deadline(), None);
+        assert!(harness.step().is_none(), "offset 0 is still in flight");
+
+        harness.complete(0, &[0]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(1))]));
+        assert!(matches!(harness.step(), Some(Step::Stop)));
+    }
 
     struct SelectCase {
         granularity: CompletionGranularity,
@@ -247,55 +471,5 @@ mod tests {
             }
         };
         assert_eq!(selected, expected);
-    }
-
-    fn partitions(numbers: &[i32]) -> Vec<TopicPartition> {
-        numbers
-            .iter()
-            .map(|&number| TopicPartition::new("events", number))
-            .collect()
-    }
-
-    #[test]
-    fn every_partition_is_paused_only_while_none_is_fetching() {
-        let fetching = FetchingPartitions::default();
-        assert!(!fetching.all_paused(), "nothing is assigned");
-
-        fetching.assigned(&partitions(&[0, 1]));
-        fetching.paused(&TopicPartition::new("events", 0));
-        assert!(!fetching.all_paused(), "partition 1 still fetches");
-
-        fetching.paused(&TopicPartition::new("events", 1));
-        assert!(fetching.all_paused());
-
-        fetching.resumed(&TopicPartition::new("events", 1));
-        assert!(!fetching.all_paused());
-    }
-
-    #[test]
-    fn a_rebalance_changes_which_partitions_must_be_paused() {
-        let fetching = FetchingPartitions::default();
-        fetching.assigned(&partitions(&[0, 1]));
-        fetching.paused(&TopicPartition::new("events", 0));
-
-        fetching.revoked(&partitions(&[1]));
-        assert!(fetching.all_paused(), "only the paused partition is left");
-
-        fetching.assigned(&partitions(&[0]));
-        assert!(
-            !fetching.all_paused(),
-            "a reassigned partition starts fetching"
-        );
-    }
-
-    #[test]
-    fn a_partition_that_is_not_assigned_neither_pauses_nor_resumes() {
-        let fetching = FetchingPartitions::default();
-
-        fetching.paused(&TopicPartition::new("events", 0));
-        assert!(!fetching.all_paused());
-
-        fetching.resumed(&TopicPartition::new("events", 0));
-        assert!(!fetching.all_paused());
     }
 }

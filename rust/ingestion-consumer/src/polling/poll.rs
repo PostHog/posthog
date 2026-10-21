@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Charge, Offset, Partition, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Offset, Partition, TopicPartition};
 use rdkafka::message::{Headers, Message};
 
 use crate::debug_recorder::{PartitionOffset, PartitionOffsets};
@@ -32,6 +32,7 @@ impl BatchStats {
 pub(crate) struct Delivery {
     pub(crate) offset: i64,
     pub(crate) charge: Charge,
+    pub(crate) payload_bytes: usize,
     /// Kafka message timestamp (ms).
     pub(crate) kafka_ts: i64,
     /// Ingestion lag (ms); `None` without a parseable `now` header.
@@ -44,13 +45,10 @@ pub(crate) struct Delivery {
 pub(crate) struct PartitionDeliveries {
     /// The offsets the batch delivered, first to last.
     pub(crate) span: OffsetSpan,
-    /// Ledger generation the charges are stamped with.
+    /// The ledger generation, set when the poll is charged.
     pub(crate) generation: u64,
-    /// Ledger generations version seen when the charges were last stamped.
-    /// Comparing it per message is cheaper than reading the generation.
-    pub(crate) generations_version_seen: u64,
-    /// The slice charged to the ledger: offsets delivered under `generation`.
     pub(crate) charges: Vec<(Offset, Charge)>,
+    pub(crate) payload_bytes: usize,
     /// Max Kafka message timestamp (ms) — for `latest_processed_timestamp_ms`.
     pub(crate) latest_kafka_ts: i64,
     /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
@@ -66,12 +64,12 @@ pub(crate) struct PartitionDeliveries {
 }
 
 impl PartitionDeliveries {
-    pub(crate) fn new(generation: u64, generations_version: u64, delivery: &Delivery) -> Self {
+    pub(crate) fn new(delivery: &Delivery) -> Self {
         Self {
             span: OffsetSpan::new(delivery.offset),
-            generation,
-            generations_version_seen: generations_version,
+            generation: 0,
             charges: vec![(Offset(delivery.offset), delivery.charge)],
+            payload_bytes: delivery.payload_bytes,
             latest_kafka_ts: delivery.kafka_ts,
             max_lag_ms: delivery.lag_ms,
             delivered: 1,
@@ -82,7 +80,7 @@ impl PartitionDeliveries {
     }
 
     /// Credit a completion's run and return the offsets to settle: those
-    /// charged under this generation that no earlier completion credited.
+    /// charged that no earlier completion credited.
     pub(crate) fn credit_run(&mut self, run: &[Offset]) -> Vec<Offset> {
         let Self {
             credited, charges, ..
@@ -105,34 +103,20 @@ impl PartitionDeliveries {
             .find(|offset| !self.credited.contains(&offset.0))
     }
 
-    /// Record one more delivery. `generation` is consulted only when
-    /// `generations_version` moved since the last stamp. A moved generation
-    /// means the partition was revoked and regained inside this batch: the
-    /// offsets buffered so far belong to the old assignment and Kafka
-    /// redelivers them, so the ledger slice restarts. The span keeps them,
-    /// so their completions still match this poll.
-    pub(crate) fn record(
-        &mut self,
-        generations_version: u64,
-        generation: impl FnOnce() -> u64,
-        delivery: &Delivery,
-    ) {
+    pub(crate) fn record(&mut self, delivery: &Delivery) {
         self.span.extend(delivery.offset);
         self.delivered += 1;
+        self.payload_bytes += delivery.payload_bytes;
         self.latest_kafka_ts = self.latest_kafka_ts.max(delivery.kafka_ts);
         if let Some(lag_ms) = delivery.lag_ms {
             self.max_lag_ms = Some(self.max_lag_ms.map_or(lag_ms, |max| max.max(lag_ms)));
         }
-        if generations_version != self.generations_version_seen {
-            self.generations_version_seen = generations_version;
-            let generation = generation();
-            if generation != self.generation {
-                self.generation = generation;
-                self.charges.clear();
-            }
-        }
         self.charges
             .push((Offset(delivery.offset), delivery.charge));
+    }
+
+    fn charge(&self) -> Charge {
+        self.charges.iter().map(|(_, charge)| *charge).sum()
     }
 }
 
@@ -227,7 +211,7 @@ impl PollBuilder {
         self.charge
     }
 
-    pub(crate) fn add(&mut self, message: &impl Message, ledger: &TopicOffsetLedger) {
+    pub(crate) fn add(&mut self, message: &impl Message) {
         if self.current_topic.as_deref() != Some(message.topic()) {
             self.current_topic = Some(Arc::from(message.topic()));
         }
@@ -262,22 +246,17 @@ impl PollBuilder {
         let delivery = Delivery {
             offset,
             charge: message_charge(message),
+            payload_bytes,
             kafka_ts,
             lag_ms,
         };
         self.charge += delivery.charge;
         let key = TopicPartition::new(topic.to_string(), partition);
-        let generations_version = ledger.generations_version();
         match self.partitions.get_mut(&key) {
-            Some(deliveries) => {
-                deliveries.record(generations_version, || ledger.generation(&key), &delivery)
-            }
+            Some(deliveries) => deliveries.record(&delivery),
             None => {
-                let generation = ledger.generation(&key);
-                self.partitions.insert(
-                    key,
-                    PartitionDeliveries::new(generation, generations_version, &delivery),
-                );
+                self.partitions
+                    .insert(key, PartitionDeliveries::new(&delivery));
             }
         }
 
@@ -299,6 +278,21 @@ impl PollBuilder {
 
         self.accumulator
             .push(Partition(partition), serialized.into());
+    }
+
+    /// Returns the messages removed.
+    pub(crate) fn remove_partition(&mut self, topic_partition: &TopicPartition) -> usize {
+        let Some(deliveries) = self.partitions.remove(topic_partition) else {
+            return 0;
+        };
+        let partition = topic_partition.partition;
+        self.accumulator.remove_partition(Partition(partition));
+        self.charge -= deliveries.charge();
+        self.stats.total_bytes -= deliveries.payload_bytes;
+        self.stats
+            .message_lags_ms
+            .retain(|(lagging, _)| *lagging != partition);
+        deliveries.delivered as usize
     }
 
     pub(crate) fn finish(self) -> CollectedBatch {

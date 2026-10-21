@@ -1,17 +1,12 @@
 use std::collections::{HashMap, VecDeque};
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Instant;
 
 use common_kafka_consumer::{Charge, GroupCompletion, Offset, TopicPartition};
-use lifecycle::Handle;
 use metrics::{counter, gauge};
-use tokio::sync::mpsc;
-use tokio::time::{Interval, MissedTickBehavior, Sleep};
-use tracing::{info, warn};
+use tracing::warn;
 
-use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries, PollBuilder};
-use super::{Collector, LoopParts, RevokedPartition, Step};
+use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries};
 use crate::charge_limit::ChargeLimit;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::settlement::{Commit, Settlement};
@@ -19,173 +14,37 @@ use crate::settlement::{Commit, Settlement};
 /// Nothing waits on a submitted poll: the partition budget and the in-flight
 /// limit bound admission.
 pub(crate) struct ContinuousPolling {
-    collector: Collector,
-    completions: mpsc::UnboundedReceiver<GroupCompletion>,
-    errors: mpsc::UnboundedReceiver<String>,
-    settlement: Arc<dyn Settlement>,
-    revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-    handle: Handle,
-    commit_tick: Interval,
     in_flight: InFlight,
     uncommitted: UncommittedCharges,
     limits: ChargeLimit,
     at_limit: bool,
-    poll: Option<PollBuilder>,
-    poll_deadline: Pin<Box<Sleep>>,
-    accepting_new_batches: bool,
-}
-
-enum Woke {
-    Shutdown,
-    Completion(Option<GroupCompletion>),
-    Error(Option<String>),
-    Tick,
-    Deadline,
-    Received {
-        poll_started: Option<tokio::time::Instant>,
-    },
-    Failed(anyhow::Error),
 }
 
 impl ContinuousPolling {
-    pub(crate) fn new(parts: LoopParts, limits: ChargeLimit) -> Self {
-        let LoopParts {
-            collector,
-            completions,
-            errors,
-            settlement,
-            fetching: _,
-            revoked_partitions,
-            handle,
-            commit_tick,
-            group_id,
-            debug_recorder,
-        } = parts;
-        let mut commit_tick = tokio::time::interval(commit_tick);
-        commit_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    pub(crate) fn new(
+        limits: ChargeLimit,
+        group_id: String,
+        debug_recorder: Option<Arc<DebugRecorder>>,
+    ) -> Self {
         Self {
-            collector,
-            completions,
-            errors,
-            settlement,
-            revoked_partitions,
-            handle,
-            commit_tick,
             in_flight: InFlight::new(group_id, debug_recorder),
             uncommitted: UncommittedCharges::default(),
             limits,
             at_limit: false,
-            poll: None,
-            poll_deadline: Box::pin(tokio::time::sleep(Duration::ZERO)),
-            accepting_new_batches: true,
         }
     }
 
-    pub(crate) async fn next(&mut self) -> Step {
-        loop {
-            if self.poll.is_some() && self.revokes_pending() {
-                // A revoke may have come in while this poll was built, so it
-                // goes in flight first, where the revoke can strip it.
-                if let Some(step) = self.take_poll() {
-                    return step;
-                }
-            }
-            self.drop_revoked();
-            if !self.accepting_new_batches && self.in_flight.is_empty() {
-                return Step::Stop;
-            }
-            if self.poll.is_some() && self.poll_deadline.deadline() <= tokio::time::Instant::now() {
-                if let Some(step) = self.take_poll() {
-                    return step;
-                }
-            }
-
-            let reading = self.accepting_new_batches && !self.reached_limit(self.pending());
-            let building = self.poll.is_some();
-            let woke = tokio::select! {
-                _ = self.handle.shutdown_recv(), if self.accepting_new_batches => Woke::Shutdown,
-                completion = self.completions.recv() => Woke::Completion(completion),
-                failure = self.errors.recv() => Woke::Error(failure),
-                _ = self.commit_tick.tick() => Woke::Tick,
-                _ = &mut self.poll_deadline, if building => Woke::Deadline,
-                received = self.collector.receive(), if reading => match received {
-                    Ok(Some(message)) => {
-                        let poll_started = self
-                            .poll
-                            .is_none()
-                            .then(tokio::time::Instant::now);
-                        let poll = self.poll.get_or_insert_with(PollBuilder::new);
-                        self.collector.add(poll, &message);
-                        Woke::Received { poll_started }
-                    }
-                    Ok(None) => Woke::Received { poll_started: None },
-                    Err(err) => Woke::Failed(err),
-                },
-            };
-
-            match woke {
-                Woke::Shutdown => {
-                    info!(
-                        uncommitted_events = self.uncommitted.total().events,
-                        "Shutdown signal received, draining in-flight events"
-                    );
-                    self.accepting_new_batches = false;
-                    // Its messages are not charged yet, so they replay from the last commit.
-                    self.poll = None;
-                    return Step::BeginShutdown;
-                }
-                Woke::Completion(Some(completion)) => {
-                    let settlement = &self.settlement;
-                    let processed = match self.in_flight.apply(
-                        &completion,
-                        |topic_partition, generation, run| {
-                            settlement.settle_run(topic_partition, generation, run)
-                        },
-                    ) {
-                        Ok(processed) => processed,
-                        Err(err) => return Step::Fail(err),
-                    };
-                    counter!("ingestion_consumer_messages_processed_total").increment(processed);
-                    if let Some(commit) = self.take_due() {
-                        return Step::Commit(commit);
-                    }
-                }
-                Woke::Completion(None) => {
-                    return Step::Fail(anyhow::anyhow!("batcher completion channel closed"))
-                }
-                Woke::Error(Some(message)) => return Step::Fail(anyhow::anyhow!(message)),
-                Woke::Error(None) => {
-                    return Step::Fail(anyhow::anyhow!("batcher error channel closed"))
-                }
-                Woke::Tick => {
-                    self.handle.report_healthy();
-                    if let Some(commit) = self.take_due() {
-                        return Step::Commit(commit);
-                    }
-                }
-                Woke::Deadline => {
-                    if let Some(step) = self.take_poll() {
-                        return step;
-                    }
-                }
-                Woke::Received { poll_started } => {
-                    if let Some(started) = poll_started {
-                        let deadline = started + self.collector.batch_timeout();
-                        self.poll_deadline.as_mut().reset(deadline);
-                    }
-                    let full = self
-                        .poll
-                        .as_ref()
-                        .is_some_and(|poll| self.collector.is_full(poll));
-                    if full || self.limits.reached(self.pending()) {
-                        if let Some(step) = self.take_poll() {
-                            return step;
-                        }
-                    }
-                }
-                Woke::Failed(err) => return Step::Fail(err),
-            }
+    pub(crate) fn admits(&mut self, building: Charge) -> bool {
+        let at_limit = self.limits.reached(self.uncommitted.total() + building);
+        if at_limit && !self.at_limit {
+            counter!("ingestion_consumer_in_flight_limit_reached_total").increment(1);
         }
+        self.at_limit = at_limit;
+        !at_limit
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.in_flight.is_empty()
     }
 
     pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
@@ -193,49 +52,28 @@ impl ContinuousPolling {
         self.in_flight.submitted(poll);
     }
 
-    fn take_due(&mut self) -> Option<Commit> {
-        let commit = self.settlement.take_due(Instant::now())?;
-        self.uncommitted.committed(&commit);
-        Some(commit)
+    pub(crate) fn completed(
+        &mut self,
+        completion: &GroupCompletion,
+        settlement: &dyn Settlement,
+    ) -> anyhow::Result<()> {
+        let processed = self
+            .in_flight
+            .apply(completion, |topic_partition, generation, run| {
+                settlement.settle_run(topic_partition, generation, run)
+            })?;
+        counter!("ingestion_consumer_messages_processed_total").increment(processed);
+        Ok(())
     }
 
-    fn take_poll(&mut self) -> Option<Step> {
-        let poll = self.poll.take()?;
-        (poll.message_count() > 0).then(|| Step::Submit(poll.finish()))
+    pub(crate) fn committed(&mut self, commit: &Commit) {
+        self.uncommitted.committed(commit);
     }
 
-    fn pending(&self) -> Charge {
-        let building = self.poll.as_ref().map_or(Charge::ZERO, PollBuilder::charge);
-        self.uncommitted.total() + building
-    }
-
-    fn reached_limit(&mut self, pending: Charge) -> bool {
-        let at_limit = self.limits.reached(pending);
-        if at_limit && !self.at_limit {
-            counter!("ingestion_consumer_in_flight_limit_reached_total").increment(1);
-        }
-        self.at_limit = at_limit;
-        at_limit
-    }
-
-    fn revokes_pending(&self) -> bool {
-        !self.revoked_partitions.lock().unwrap().is_empty()
-    }
-
-    /// The batcher purges a revoked partition's messages, so their slices
-    /// never complete.
-    fn drop_revoked(&mut self) {
-        let revoked: Vec<RevokedPartition> =
-            std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
-        if revoked.is_empty() {
-            return;
-        }
-        self.uncommitted.revoked(&revoked);
-        let stripped = self.in_flight.drop_revoked(&revoked);
-        if stripped > 0 {
-            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
-            info!(stripped, "Removed revoked partitions' in-flight messages");
-        }
+    /// Returns the messages removed.
+    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) -> u64 {
+        self.uncommitted.revoked(topic_partitions);
+        self.in_flight.drop_revoked(topic_partitions)
     }
 }
 
@@ -408,25 +246,17 @@ impl InFlight {
         Ok(completion.offsets.len() as u64 - unmatched)
     }
 
-    /// Drops the slices older than each revoke's generation. Returns the
-    /// messages dropped.
-    fn drop_revoked(&mut self, revoked: &[RevokedPartition]) -> u64 {
+    /// Returns the messages dropped.
+    fn drop_revoked(&mut self, revoked: &[TopicPartition]) -> u64 {
         let mut stripped: u64 = 0;
         let mut dropped_polls = Vec::new();
-        for revoked in revoked {
-            let Some(slices) = self.partitions.get_mut(&revoked.topic_partition) else {
+        for topic_partition in revoked {
+            let Some(slices) = self.partitions.remove(topic_partition) else {
                 continue;
             };
-            slices.retain(|slice| {
-                if slice.deliveries.generation >= revoked.generation {
-                    return true;
-                }
+            for slice in slices {
                 stripped += u64::from(slice.deliveries.delivered);
                 dropped_polls.push(slice.poll);
-                false
-            });
-            if slices.is_empty() {
-                self.partitions.remove(&revoked.topic_partition);
             }
         }
         for poll in dropped_polls {
@@ -464,13 +294,8 @@ impl InFlight {
 
 #[derive(Default)]
 struct UncommittedCharges {
-    partitions: HashMap<TopicPartition, PartitionCharge>,
+    partitions: HashMap<TopicPartition, Charge>,
     total: Charge,
-}
-
-struct PartitionCharge {
-    generation: u64,
-    charge: Charge,
 }
 
 impl UncommittedCharges {
@@ -480,39 +305,24 @@ impl UncommittedCharges {
 
     fn charged(&mut self, poll: &InFlightPoll) {
         for (topic_partition, &charge) in &poll.uncommitted {
-            let generation = poll.partitions[topic_partition].generation;
-            let previous = self.partitions.insert(
-                topic_partition.clone(),
-                PartitionCharge { generation, charge },
-            );
-            self.replace(previous.map(|previous| previous.charge), charge);
+            let previous = self.partitions.insert(topic_partition.clone(), charge);
+            self.replace(previous, charge);
         }
     }
 
     fn committed(&mut self, commit: &Commit) {
         for (topic_partition, &charge) in &commit.uncommitted {
             if let Some(partition) = self.partitions.get_mut(topic_partition) {
-                let previous = std::mem::replace(&mut partition.charge, charge);
+                let previous = std::mem::replace(partition, charge);
                 self.replace(Some(previous), charge);
             }
         }
     }
 
-    /// A partition charged under the revoke's generation or later belongs to
-    /// a later assignment and stays.
-    fn revoked(&mut self, revoked: &[RevokedPartition]) {
-        for revoked in revoked {
-            let older = self
-                .partitions
-                .get(&revoked.topic_partition)
-                .is_some_and(|partition| partition.generation < revoked.generation);
-            if older {
-                let partition = self
-                    .partitions
-                    .remove(&revoked.topic_partition)
-                    .expect("the partition is tracked");
-                self.replace(Some(partition.charge), Charge::ZERO);
-            }
+    fn revoked(&mut self, revoked: &[TopicPartition]) {
+        for topic_partition in revoked {
+            let previous = self.partitions.remove(topic_partition);
+            self.replace(previous, Charge::ZERO);
         }
     }
 
@@ -538,7 +348,6 @@ mod tests {
         let deliveries = PartitionDeliveries {
             span: OffsetSpan { first, last },
             generation,
-            generations_version_seen: 0,
             charges: (first..=last)
                 .map(|offset| {
                     (
@@ -550,6 +359,7 @@ mod tests {
                     )
                 })
                 .collect(),
+            payload_bytes: 0,
             latest_kafka_ts: last,
             max_lag_ms: None,
             delivered: (last - first + 1) as u32,
@@ -645,23 +455,6 @@ mod tests {
     }
 
     #[test]
-    fn a_redelivered_offset_settles_against_the_replay_once_the_old_slice_is_covered() {
-        let mut in_flight = InFlight::new("test".into(), None);
-        in_flight.submitted(poll(3, 0, 0, 0, 1));
-        in_flight.submitted(poll(3, 0, 1, 0, 1));
-
-        assert_eq!(
-            settled_runs(&mut in_flight, &completion(3, 0, &[0, 1])),
-            vec![(0, 0, vec![0, 1])]
-        );
-        assert_eq!(
-            settled_runs(&mut in_flight, &completion(3, 0, &[0, 1])),
-            vec![(0, 1, vec![0, 1])]
-        );
-        assert!(in_flight.is_empty());
-    }
-
-    #[test]
     fn a_completion_a_worker_did_not_accept_in_full_is_an_error() {
         let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
@@ -675,26 +468,19 @@ mod tests {
     }
 
     #[test]
-    fn a_revoke_drops_only_the_older_generations_slices() {
+    fn a_revoke_drops_only_the_revoked_partitions_slices() {
         let mut in_flight = InFlight::new("test".into(), None);
         in_flight.submitted(poll(1, 0, 0, 0, 3));
         in_flight.submitted(poll(1, 1, 0, 10, 11));
-        in_flight.submitted(poll(2, 0, 1, 0, 1));
+        in_flight.submitted(poll(1, 0, 0, 4, 5));
         settled_runs(&mut in_flight, &completion(1, 0, &[0]));
 
-        let stripped = in_flight.drop_revoked(&[RevokedPartition {
-            topic_partition: p(0),
-            generation: 1,
-        }]);
+        let stripped = in_flight.drop_revoked(&[p(0)]);
 
-        assert_eq!(stripped, 4);
+        assert_eq!(stripped, 6);
         assert!(
             settled_runs(&mut in_flight, &completion(1, 0, &[1, 2, 3])).is_empty(),
             "a late completion for the revoked slice is stale"
-        );
-        assert_eq!(
-            settled_runs(&mut in_flight, &completion(2, 0, &[0, 1])),
-            vec![(0, 1, vec![0, 1])]
         );
         assert_eq!(
             settled_runs(&mut in_flight, &completion(1, 1, &[10, 11])),
@@ -702,8 +488,8 @@ mod tests {
         );
     }
 
-    fn charged_poll(partition: i32, generation: u64, uncommitted: Charge) -> InFlightPoll {
-        let mut poll = poll(1, partition, generation, 0, 0);
+    fn charged_poll(partition: i32, uncommitted: Charge) -> InFlightPoll {
+        let mut poll = poll(1, partition, 0, 0, 0);
         poll.uncommitted = HashMap::from([(p(partition), uncommitted)]);
         poll
     }
@@ -719,9 +505,9 @@ mod tests {
     #[test]
     fn the_uncommitted_total_follows_each_partitions_latest_charge() {
         let mut uncommitted = UncommittedCharges::default();
-        uncommitted.charged(&charged_poll(0, 0, charge(4, 40)));
-        uncommitted.charged(&charged_poll(1, 0, charge(2, 20)));
-        uncommitted.charged(&charged_poll(0, 0, charge(6, 60)));
+        uncommitted.charged(&charged_poll(0, charge(4, 40)));
+        uncommitted.charged(&charged_poll(1, charge(2, 20)));
+        uncommitted.charged(&charged_poll(0, charge(6, 60)));
         assert_eq!(uncommitted.total(), charge(8, 80));
 
         uncommitted.committed(&commit_leaving(0, charge(1, 10)));
@@ -729,21 +515,12 @@ mod tests {
     }
 
     #[test]
-    fn a_revoke_releases_only_an_older_generations_charge() {
+    fn a_revoke_releases_the_partitions_charge() {
         let mut uncommitted = UncommittedCharges::default();
-        uncommitted.charged(&charged_poll(0, 0, charge(4, 40)));
-        uncommitted.charged(&charged_poll(1, 1, charge(2, 20)));
+        uncommitted.charged(&charged_poll(0, charge(4, 40)));
+        uncommitted.charged(&charged_poll(1, charge(2, 20)));
 
-        uncommitted.revoked(&[
-            RevokedPartition {
-                topic_partition: p(0),
-                generation: 1,
-            },
-            RevokedPartition {
-                topic_partition: p(1),
-                generation: 1,
-            },
-        ]);
+        uncommitted.revoked(&[p(0), p(2)]);
 
         assert_eq!(uncommitted.total(), charge(2, 20));
     }
@@ -794,16 +571,7 @@ mod tests {
         in_flight.submitted(poll(1, 2, 0, 20, 21));
 
         settled_runs(&mut in_flight, &completion(1, 0, &[0, 1]));
-        in_flight.drop_revoked(&[
-            RevokedPartition {
-                topic_partition: p(1),
-                generation: 1,
-            },
-            RevokedPartition {
-                topic_partition: p(2),
-                generation: 1,
-            },
-        ]);
+        in_flight.drop_revoked(&[p(1), p(2)]);
 
         assert_eq!(
             completed_polls(&recorder),
