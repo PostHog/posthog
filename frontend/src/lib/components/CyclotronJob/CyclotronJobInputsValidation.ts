@@ -209,17 +209,28 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         }
     }
 }
+export const MISSING_INTEGRATION_ERROR =
+    'This integration no longer exists. It may have been deleted. Select a connected integration.'
+
 export class CyclotronJobInputsValidation {
     static validate(
         inputs: Record<string, CyclotronJobInputType>,
-        inputsSchema: CyclotronJobInputSchemaType[]
+        inputsSchema: CyclotronJobInputSchemaType[],
+        integrations?: { id: number }[] | null
     ): CyclotronJobInputsValidationResult {
         const inputErrors: Record<string, string> = {}
         const inputWarnings: Record<string, string> = {}
 
         inputsSchema?.forEach((inputSchema) => {
             const input = inputs[inputSchema.key]
-            const error = validateInput(input, inputSchema)
+            const error =
+                validateInput(input, inputSchema) ??
+                (inputSchema.type === 'integration' &&
+                integrations &&
+                typeof input?.value === 'number' &&
+                !integrations.some((integration) => integration.id === input.value)
+                    ? MISSING_INTEGRATION_ERROR
+                    : undefined)
             if (error) {
                 inputErrors[inputSchema.key] = error
             }

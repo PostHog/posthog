@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -38,6 +39,7 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
 describe('DashboardsTable move to folder', () => {
     const moveDashboardsToFolder = jest.fn()
     const setHomepage = jest.fn()
+    const bulkDeleteDashboards = jest.fn()
     const clearSelection = jest.fn()
     const setSelectedKeys = jest.fn()
 
@@ -52,6 +54,7 @@ describe('DashboardsTable move to folder', () => {
             showDuplicateDashboardModal: jest.fn(),
             showDeleteDashboardModal: jest.fn(),
             moveDashboardsToFolder,
+            bulkDeleteDashboards,
             setHomepage,
         })
     })
@@ -88,6 +91,21 @@ describe('DashboardsTable move to folder', () => {
             />
         )
     }
+
+    it('keeps insights by default and passes the delete insights option on submit', () => {
+        const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+        renderTable([1, 2], [1, 2])
+        fireEvent.click(screen.getByText('Delete selected'))
+        const dialog = openForm.mock.calls[0][0]
+        expect(dialog.initialValues).toEqual({ deleteInsights: false })
+        dialog.onSubmit({ deleteInsights: true })
+        expect(bulkDeleteDashboards).toHaveBeenCalledWith({
+            ids: [1, 2],
+            deleteInsights: true,
+            onStillSelected: setSelectedKeys,
+        })
+        openForm.mockRestore()
+    })
 
     it("sets only the current user's homepage from the row menu", () => {
         const capture = jest.spyOn(posthog, 'capture')

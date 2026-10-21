@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
+    codebase_detection = detect(env=("^GORGIAS_",), script_hosts=("config.gorgias.chat", "assets.gorgias.chat"))
+
     api_docs_url = "https://developers.gorgias.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -52,6 +55,11 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gorgias authentication failed. Check your email and API key.",
             "403 Client Error: Forbidden for url": "Your Gorgias API key does not have access to this resource. Check the integration's permissions.",
+            # A 409 here means the page cursor conflicts with the current state of the list (e.g. a
+            # customer was merged or deleted while paginating), not the "identifier already in use"
+            # conflict Gorgias documents for writes. The resumable cursor is saved, so every retry
+            # within this job replays the same request against the same now-invalid position.
+            "409 Client Error: Conflict": "PostHog's sync position for this table no longer matches your Gorgias data. This can happen when records are merged or deleted during a sync. Trigger a full resync of this source to continue syncing.",
         }
 
     def get_schemas(

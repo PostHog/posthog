@@ -16,7 +16,7 @@ import { AccessControlLevel } from '~/types'
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { LIMIT_REACHED_TOOLTIP } from '../replay_scanners/scannerCopy'
+import { limitReachedTooltip } from '../replay_scanners/scannerCopy'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { BUILT_IN_SUMMARY_LABEL, isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
@@ -59,7 +59,7 @@ function useSummarizeBlockedReason(
         getReplayVisionEditDisabledReason((scanner?.user_access_level as AccessControlLevel | null) ?? undefined) ??
         // `observe` answers 402 for a scanner that has spent its own credit limit, so a capped one is
         // refused here rather than by a failed request. The built-in prompt has no per-scanner limit.
-        (scanner?.limit_reached ? LIMIT_REACHED_TOOLTIP : null) ??
+        (scanner?.limit_reached ? limitReachedTooltip(scanner) : null) ??
         scanBlock?.reason ??
         quotaDisabledReason
 }

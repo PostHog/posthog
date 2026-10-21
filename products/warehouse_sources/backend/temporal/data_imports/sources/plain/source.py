@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlainSource(SimpleSource[PlainSourceConfig]):
+    codebase_detection = detect(
+        env=("^PLAIN_API_KEY$", "^PLAIN_WEBHOOK_SECRET$"),
+        script_hosts=("chat.cdn-plain.com",),
+        npm=(
+            "@team-plain/typescript-sdk",
+            "@team-plain/graphql",
+            "@team-plain/webhooks",
+            "@team-plain/ui-components",
+            "@team-plain/cli",
+        ),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://www.plain.com/docs"
@@ -57,6 +70,8 @@ Make sure to grant the following read permissions:
 - label:read
 - company:read
 - machineUser:read
+- labelType:read
+- tenant:read
 """,
             iconPath="/static/services/plain.png",
             fields=cast(
@@ -85,10 +100,10 @@ Make sure to grant the following read permissions:
         return {
             "401 Client Error": "Invalid Plain credentials. Please check your API key.",
             # Plain fails the whole GraphQL request when the key lacks a scope any requested field needs.
-            # Our customers/threads/timeline_entries queries read assignee (user:read), label (label:read),
-            # company (company:read), and machine-user actor (machineUser:read) data on top of the basics,
-            # so name every required scope — retrying a key missing one never succeeds.
-            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read, company:read, machineUser:read.",
+            # Our queries read assignee (user:read), label (label:read, labelType:read), company
+            # (company:read), tenant (tenant:read), and machine-user actor (machineUser:read) data on top
+            # of the basics, so name every required scope — retrying a key missing one never succeeds.
+            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read, labelType:read, company:read, tenant:read, machineUser:read.",
         }
 
     def get_retryable_errors(self) -> set[str]:

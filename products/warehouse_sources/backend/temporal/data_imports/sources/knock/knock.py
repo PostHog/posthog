@@ -1,8 +1,8 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
-from typing import Any, Optional
-from urllib.parse import quote
+from typing import Any, Optional, cast
+from urllib.parse import quote, unquote
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -15,10 +15,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
     IncrementalConfig,
+    PaginatorConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -26,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.knock.sett
     ENDPOINTS_CONFIG,
     KNOCK_BASE_URL,
     KNOCK_PAGE_SIZE,
+    KnockEndpointConfig,
 )
 
 DEFAULT_INCREMENTAL_START = "1970-01-01T00:00:00Z"
@@ -35,11 +39,17 @@ NO_OBJECT_COLLECTIONS_ERROR = (
     "Add your collection keys in the source settings, then sync again."
 )
 
+NO_AUDIENCE_KEYS_ERROR = (
+    "The Knock audience members table needs at least one audience key. "
+    "Add your audience keys in the source settings, then sync again."
+)
+
 
 @dataclasses.dataclass(frozen=True)
 class KnockResumeConfig:
     after: str | None = None
-    # Set only by the objects table, which walks one collection after another.
+    # Set only by the objects and audience members tables, which walk one configured
+    # collection or audience key after another.
     collection: str | None = None
 
 
@@ -49,10 +59,10 @@ def _to_iso8601(value: Any) -> str:
     return str(value)
 
 
-def parse_object_collections(object_collections: Optional[str]) -> list[str]:
-    if not object_collections:
+def parse_key_list(keys: Optional[str]) -> list[str]:
+    if not keys:
         return []
-    return list(dict.fromkeys(part.strip() for part in object_collections.split(",") if part.strip()))
+    return list(dict.fromkeys(part.strip() for part in keys.split(",") if part.strip()))
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -73,6 +83,38 @@ def _percent_encode_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _decode_user_id(row: dict[str, Any]) -> dict[str, Any]:
+    # The fan-out tags child rows with the parent id after `_percent_encode_id` ran on it.
+    row["user_id"] = unquote(row["user_id"])
+    return row
+
+
+def _shape_user_subscription(row: dict[str, Any]) -> dict[str, Any]:
+    row = _decode_user_id(row)
+    subscribed_object = row.get("object") or {}
+    row["object_collection"] = subscribed_object.get("collection")
+    row["object_id"] = subscribed_object.get("id")
+    return row
+
+
+_FANOUT_CHILD_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "user_subscriptions": _shape_user_subscription,
+    "user_preferences": _decode_user_id,
+}
+
+
+def _paginator_override(config: KnockEndpointConfig) -> PaginatorConfig | None:
+    if config.data_selector is None:
+        return "single_page"
+    if not config.documents_pagination:
+        # The spec documents no cursor param here; fail loud if Knock returns a cursor it
+        # then ignores, rather than re-reading the first page forever.
+        return JSONResponseCursorPaginator(
+            cursor_path="page_info.after", cursor_param="after", raise_on_repeated_cursor=True
+        )
+    return None
+
+
 def _no_child_window(_incremental_field: str) -> Optional[IncrementalConfig]:
     # The child endpoints take no timestamp filter, so the window goes on the parent walk.
     return None
@@ -81,7 +123,7 @@ def _no_child_window(_incremental_field: str) -> Optional[IncrementalConfig]:
 def get_resource(endpoint: str, should_use_incremental_field: bool, path: str | None = None) -> EndpointResource:
     config = ENDPOINTS_CONFIG[endpoint]
 
-    params: dict[str, Any] = {"page_size": KNOCK_PAGE_SIZE}
+    params: dict[str, Any] = {"page_size": KNOCK_PAGE_SIZE} if config.documents_pagination else {}
     if should_use_incremental_field and config.incremental_param and config.incremental_fields:
         params[config.incremental_param] = {
             "type": "incremental",
@@ -89,6 +131,18 @@ def get_resource(endpoint: str, should_use_incremental_field: bool, path: str | 
             "initial_value": DEFAULT_INCREMENTAL_START,
             "convert": _to_iso8601,
         }
+
+    endpoint_config: Endpoint = {
+        "path": path or config.path,
+        "params": params,
+        "data_selector": config.data_selector,
+        # Fail loud if Knock ever changes the response envelope key instead of
+        # silently syncing 0 rows.
+        "data_selector_required": True,
+    }
+    paginator = _paginator_override(config)
+    if paginator is not None:
+        endpoint_config["paginator"] = paginator
 
     return {
         "name": endpoint,
@@ -99,14 +153,7 @@ def get_resource(endpoint: str, should_use_incremental_field: bool, path: str | 
         }
         if should_use_incremental_field
         else "replace",
-        "endpoint": {
-            "path": path or config.path,
-            "params": params,
-            "data_selector": config.data_selector,
-            # Fail loud if Knock ever changes the response envelope key instead of
-            # silently syncing 0 rows.
-            "data_selector_required": True,
-        },
+        "endpoint": endpoint_config,
         "table_format": "delta",
     }
 
@@ -129,9 +176,14 @@ def _fanout_items(
             fanout, parent_params={endpoint_config.incremental_param: _to_iso8601(db_incremental_field_last_value)}
         )
 
+    child_endpoint_extra: Endpoint = {"data_selector": endpoint_config.data_selector, "data_selector_required": True}
+    paginator = _paginator_override(endpoint_config)
+    if paginator is not None:
+        child_endpoint_extra["paginator"] = paginator
+
     # No resume hook: the framework's per-parent checkpoint lists every parent completed so far,
     # which grows without bound on message- and user-sized parents.
-    return build_dependent_resource(
+    resource = build_dependent_resource(
         endpoint_configs=ENDPOINTS_CONFIG,
         child_endpoint=endpoint,
         fanout=fanout,
@@ -144,15 +196,28 @@ def _fanout_items(
         incremental_field=endpoint_config.default_incremental_field,
         incremental_config_factory=_no_child_window,
         parent_endpoint_extra={"data_selector": parent_config.data_selector, "data_selector_required": True},
-        child_endpoint_extra={"data_selector": endpoint_config.data_selector, "data_selector_required": True},
+        child_endpoint_extra=child_endpoint_extra,
         parent_data_map=_percent_encode_id if fanout.parent_name == "users" else None,
-        page_size_param="page_size",
+        # The size param is shared by the parent and the child. Knock's default page size is
+        # the same as KNOCK_PAGE_SIZE, so leaving it off keeps the parent walk unchanged.
+        page_size_param="page_size" if endpoint_config.documents_pagination else None,
     )
+    child_row_map = _FANOUT_CHILD_ROW_MAPS.get(endpoint)
+    return cast(Resource, resource).add_map(child_row_map) if child_row_map is not None else resource
 
 
-def _objects_items(
+def _tag_audience_key(audience_key: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _tag(row: dict[str, Any]) -> dict[str, Any]:
+        row["audience_key"] = audience_key
+        return row
+
+    return _tag
+
+
+def _keyed_items(
     api_key: str,
-    collections: list[str],
+    endpoint: str,
+    keys: list[str],
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[KnockResumeConfig],
@@ -161,42 +226,46 @@ def _objects_items(
     start_after: str | None = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
-        if resume_config is not None and resume_config.collection in collections:
-            start_index = collections.index(resume_config.collection)
+        if resume_config is not None and resume_config.collection in keys:
+            start_index = keys.index(resume_config.collection)
             start_after = resume_config.after
 
-    for index in range(start_index, len(collections)):
-        collection = collections[index]
+    for index in range(start_index, len(keys)):
+        key = keys[index]
         after = start_after if index == start_index else None
         if after is None:
-            # Every row of the earlier collections is already yielded, so a resume can start here.
-            resumable_source_manager.save_state(KnockResumeConfig(collection=collection))
+            # Every row of the earlier keys is already yielded, so a resume can start here.
+            resumable_source_manager.save_state(KnockResumeConfig(collection=key))
 
-        def save_checkpoint(state: Optional[dict[str, Any]], _collection: str = collection) -> None:
+        def save_checkpoint(state: Optional[dict[str, Any]], _key: str = key) -> None:
             if state and state.get("cursor"):
-                resumable_source_manager.save_state(
-                    KnockResumeConfig(after=str(state["cursor"]), collection=_collection)
-                )
+                resumable_source_manager.save_state(KnockResumeConfig(after=str(state["cursor"]), collection=_key))
+
+        resource = get_resource(
+            endpoint,
+            should_use_incremental_field=False,
+            path=ENDPOINTS_CONFIG[endpoint].path.replace("{key}", quote(key, safe="")),
+        )
+        if endpoint == "audience_members":
+            # Member rows don't say which audience they belong to.
+            resource["data_map"] = _tag_audience_key(key)
 
         config: RESTAPIConfig = {
             "client": _client_config(api_key),
             "resource_defaults": {},
-            "resources": [
-                get_resource(
-                    "objects",
-                    should_use_incremental_field=False,
-                    path=f"/v1/objects/{quote(collection, safe='')}",
-                )
-            ],
+            "resources": [resource],
         }
-        yield from rest_api_resource(
+        for page in rest_api_resource(
             config,
             team_id,
             job_id,
             None,
             resume_hook=save_checkpoint,
             initial_paginator_state={"cursor": after} if after else None,
-        )
+        ):
+            yield page
+            # The page is handed on in full and nothing is buffered, so a hand-off loses no rows.
+            resumable_source_manager.safe_point()
 
 
 def knock_source(
@@ -208,6 +277,7 @@ def knock_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
     object_collections: Optional[str] = None,
+    audience_keys: Optional[str] = None,
 ) -> SourceResponse:
     endpoint_config = ENDPOINTS_CONFIG[endpoint]
 
@@ -217,11 +287,11 @@ def knock_source(
             api_key, endpoint, team_id, job_id, db_incremental_field_last_value, should_use_incremental_field
         )
         items = lambda: resource
-    elif endpoint == "objects":
-        collections = parse_object_collections(object_collections)
-        if not collections:
-            raise ValueError(NO_OBJECT_COLLECTIONS_ERROR)
-        items = lambda: _objects_items(api_key, collections, team_id, job_id, resumable_source_manager)
+    elif endpoint in ("objects", "audience_members"):
+        keys = parse_key_list(object_collections if endpoint == "objects" else audience_keys)
+        if not keys:
+            raise ValueError(NO_OBJECT_COLLECTIONS_ERROR if endpoint == "objects" else NO_AUDIENCE_KEYS_ERROR)
+        items = lambda: _keyed_items(api_key, endpoint, keys, team_id, job_id, resumable_source_manager)
     else:
         config: RESTAPIConfig = {
             "client": _client_config(api_key),

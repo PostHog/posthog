@@ -48,7 +48,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
     revoke_oauth_session,
 )
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -882,13 +882,18 @@ class TestOAuthAPI(APIBaseTest):
         )
         return app, grant, private_key
 
-    def _signed_assertion_and_jwks(self, app: OAuthApplication, private_key: rsa.RSAPrivateKey) -> tuple[str, dict]:
+    def _signed_assertion_and_jwks(
+        self,
+        app: OAuthApplication,
+        private_key: rsa.RSAPrivateKey,
+        audience: str = "https://us.posthog.com/oauth/token/",
+    ) -> tuple[str, dict]:
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
             {
                 "iss": app.client_id,
                 "sub": app.client_id,
-                "aud": "https://us.posthog.com/oauth/token/",
+                "aud": audience,
                 "jti": "pkjwt-assertion-1",
                 "iat": now,
                 "exp": now + 60,
@@ -915,13 +920,22 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("regional_token_endpoint", "https://us.posthog.com/oauth/token/"),
+            # Clients that discover the OAuth proxy address its issuer or token endpoint, and
+            # the proxy forwards the assertion to the region unchanged.
+            ("proxy_issuer", "https://oauth.posthog.com"),
+            ("proxy_token_endpoint", "https://oauth.posthog.com/oauth/token/"),
+        ]
+    )
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
-    @override_settings(SITE_URL="https://us.posthog.com")
-    def test_private_key_jwt_cimd_client_completes_token_exchange(self):
+    @override_settings(SITE_URL="https://us.posthog.com", ID_JAG_ALLOWED_AUDIENCES=["https://oauth.posthog.com"])
+    def test_private_key_jwt_cimd_client_completes_token_exchange(self, _name, audience):
         # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
         # paths can never authenticate it and only the assertion path can finish an install.
         app, grant, private_key = self._create_private_key_jwt_app_and_grant()
-        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key, audience=audience)
 
         with (
             patch(
@@ -5079,6 +5093,16 @@ class TestOAuthAPI(APIBaseTest):
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_derives_scoped_teams_for_first_party_app(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        restricted_team = Team.objects.create(organization=self.organization, name="Restricted Team")
+        AccessControl.objects.create(
+            team=restricted_team, resource="project", resource_id=str(restricted_team.id), access_level="none"
+        )
         app = self._create_first_party_app(slug="first-party-derive")
         grant = OAuthGrant.objects.create(
             application=app,
@@ -5106,6 +5130,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertIn(self.team.pk, data["scoped_teams"])
+        self.assertNotIn(restricted_team.pk, data["scoped_teams"])
 
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
         self.assertEqual(access_token.scoped_teams, [])
@@ -5732,6 +5757,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
         response = self.client.get("/.well-known/oauth-authorization-server")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["client_id_metadata_document_supported"])
 
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_metadata_includes_region_for_cloud(self):

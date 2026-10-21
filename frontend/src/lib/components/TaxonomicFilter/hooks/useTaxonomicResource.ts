@@ -22,7 +22,7 @@
  * If we need any of those, swap `useTaxonomicResource` for `useQuery` from
  * `@tanstack/react-query`. The signatures are call-compatible.
  */
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 
 /** Leading element of `useGroupList`'s `remoteKey` — the cached-first-page / full remote fetch.
  *  Owned here beside the cache so key producers and invalidation predicates share one source. */
@@ -165,8 +165,15 @@ export function useTaxonomicResource<T>(
     // belongs in a separate eviction strategy (LRU cap or time-based
     // purge), not on unsubscribe — the latter conflicts with the
     // staleTime contract.
-    useSyncExternalStore(
-        (notifyChange) => {
+    //
+    // `subscribe` keeps one identity per cache entry because React unsubscribes and
+    // subscribes again each time this function changes. With a new function on every
+    // render, any re-render of the sole consumer aborts its in-flight request and the
+    // fetch effect sends it again. Two such resources in one component then abort each
+    // other in turn, because the abort of one re-renders the component, and that
+    // re-render aborts the other. The result is an endless loop of requests.
+    const subscribe = useCallback(
+        (notifyChange: () => void) => {
             entry.subscribers.add(notifyChange)
             return () => {
                 entry.subscribers.delete(notifyChange)
@@ -175,6 +182,10 @@ export function useTaxonomicResource<T>(
                 }
             }
         },
+        [entry]
+    )
+    useSyncExternalStore(
+        subscribe,
         () => entry.ts + ':' + (entry.error ? 'e' : 'd') + ':' + (entry.inflight ? '1' : '0'),
         () => '0:d:0'
     )

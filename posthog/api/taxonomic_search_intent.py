@@ -22,6 +22,7 @@ from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFaile
 from posthog.models import User
 from posthog.taxonomic_search_intent.classify import classify_search_intent, search_intent_enabled
 from posthog.taxonomic_search_intent.contracts import (
+    EventMatch,
     EventMatchOutcome,
     EventMatchRequest,
     SearchIntentRequest,
@@ -114,6 +115,18 @@ class EventMatchResponseSerializer(serializers.Serializer):
         child=EventMatchSerializer(),
         help_text="PostHog core events the search most likely means, strongest first. Empty when nothing is likely.",
     )
+    outcome = serializers.ChoiceField(
+        choices=EventMatchOutcome.choices,
+        help_text="The step that decided the answer, so an empty answer says why it is empty.",
+    )
+    unsent = serializers.ListField(
+        child=EventMatchSerializer(),
+        help_text="Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested.",
+    )
+
+
+def _serialize_match(match: EventMatch) -> dict[str, Any]:
+    return {"name": match.name, "display_name": match.label, "probability": match.probability}
 
 
 class SearchIntentUnavailable(APIException):
@@ -223,10 +236,9 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             EventMatchResponseSerializer(
                 {
-                    "matches": [
-                        {"name": match.name, "display_name": match.label, "probability": match.probability}
-                        for match in answer.matches
-                    ]
+                    "matches": [_serialize_match(match) for match in answer.matches],
+                    "outcome": answer.outcome.value,
+                    "unsent": [_serialize_match(match) for match in answer.unsent],
                 }
             ).data
         )

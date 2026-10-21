@@ -127,13 +127,16 @@ describe('PropertyFilters recent selections', () => {
         itemTestId,
         onChange,
     }: {
-        tabTestId: string
+        tabTestId: string | null
         searchQuery: string
         itemTestId: string
         onChange: jest.Mock
     }): Promise<void> {
         await openNewFilter()
-        await switchToTab(tabTestId)
+        // Search-only groups have no tab. Their list still renders its rows, which is all the commit path needs.
+        if (tabTestId) {
+            await switchToTab(tabTestId)
+        }
         await searchFor(searchQuery)
         await waitFor(() => {
             expect(screen.getByTestId(itemTestId)).toBeInTheDocument()
@@ -222,7 +225,7 @@ describe('PropertyFilters recent selections', () => {
             mockOverrides: {
                 '/api/environments/:team/persons/values': [{ name: 'alice@example.com' }, { name: 'bob@example.com' }],
             },
-            tabTestId: 'taxonomic-tab-email_addresses',
+            tabTestId: null,
             searchQuery: 'alice',
             itemTestId: 'prop-filter-email_addresses-0',
             expectedRecentPattern: /email.*=.*alice@example\.com/i,
@@ -462,13 +465,13 @@ describe('PropertyFilters recent selections', () => {
 
         await openNewFilter()
 
-        await switchToTab('taxonomic-tab-recent_filters')
+        await switchToTab('taxonomic-tab-suggested_filters')
 
         await searchFor('pricing')
 
         await waitFor(() => {
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toHaveTextContent(/pricing/i)
         })
     })
 

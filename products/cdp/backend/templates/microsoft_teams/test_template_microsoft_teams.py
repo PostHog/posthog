@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 
 

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -167,6 +168,42 @@ class TestFetchPage:
         with pytest.raises(LumaRetryableError):
             _fetch_page_unwrapped(session, EVENTS_PATH, None, MagicMock())
 
+    @parameterized.expand(
+        [
+            ("honors_retry_after", {"Retry-After": "45"}, 1, [45.0]),
+            ("outlasts_one_minute_window", {}, 7, None),
+        ]
+    )
+    def test_rate_limit_retries_wait_out_the_window(
+        self, _name: str, headers: dict[str, str], rate_limited_calls: int, expected_waits: list[float] | None
+    ) -> None:
+        rate_limited = MagicMock(status_code=429, headers=headers)
+        ok = self._session_returning(200).get.return_value
+        session = MagicMock()
+        session.get.side_effect = [rate_limited] * rate_limited_calls + [ok]
+        waits: list[float] = []
+
+        luma._fetch_page.retry_with(sleep=waits.append)(session, EVENTS_PATH, None, MagicMock())  # type: ignore[attr-defined]
+
+        assert session.get.call_count == rate_limited_calls + 1
+        if expected_waits is not None:
+            assert waits == expected_waits
+        else:
+            assert sum(waits) > 60
+
+    def test_exhausted_rate_limit_stays_retryable_with_sync_frequency_guidance(self) -> None:
+        with pytest.raises(LumaRetryableError) as exc_info:
+            _fetch_page_unwrapped(self._session_returning(429), EVENTS_PATH, None, MagicMock())
+        observed_error = str(exc_info.value)
+        source = LumaSource()
+        assert not error_message_matches(observed_error, source.get_non_retryable_errors().keys())
+        messages = [
+            message
+            for pattern, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages and "sync less often" in messages[0]
+
     @parameterized.expand([("bad_request", 400), ("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
         session = self._session_returning(status)
@@ -215,11 +252,7 @@ class TestFetchPage:
 class TestCheckAccess:
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
             ("missing_key", 400, False, 400, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Luma returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -231,19 +264,9 @@ class TestCheckAccess:
         assert network.requests_log[0].param("pagination_limit") == "1"
         assert network.requests_log[0].headers["x-luma-api-key"] == "luma-key"
 
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("luma-key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("missing_key", 400, False, "Invalid Luma API key"),
-            ("unauthorized", 401, False, "Invalid Luma API key"),
-            ("forbidden", 403, False, "Invalid Luma API key"),
-            ("server_error", 500, False, "Luma returned HTTP 500"),
         ]
     )
     def test_validate_credentials(

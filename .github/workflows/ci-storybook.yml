@@ -919,7 +919,7 @@ jobs:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
         needs: [changes, build-storybook]
-        # Skipped on trunk-merge/**: the job diffs against base.sha to find changed stories,
+        # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
         # which on a queue branch is the same set the PR's own run already re-ran three times.
         if: |
             needs.changes.outputs.frontend == 'true'
@@ -990,11 +990,28 @@ jobs:
               id: flake-verify
               env:
                   HOME: /root
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              # The merge base comes from the API because the depth-1 checkout cannot compute it.
+              # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |
                   git config --global --add safe.directory '*'
-                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
-                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
-                  .github/scripts/verify-storybook-new-stories.sh "$BASE_SHA" 3
+                  skip() {
+                      echo "::warning::$1, so flake verification is skipped."
+                      exit 0
+                  }
+                  curl -fsS --retry 3 --connect-timeout 10 -o "$RUNNER_TEMP/compare.json" \
+                      -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                      "https://api.github.com/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=1" \
+                      || skip "The GitHub API did not return the merge base of $BASE_SHA and $HEAD_SHA"
+                  MERGE_BASE=$(node -e 'process.stdout.write(require(process.argv[1]).merge_base_commit?.sha ?? "")' "$RUNNER_TEMP/compare.json") || MERGE_BASE=""
+                  [ -n "$MERGE_BASE" ] || skip "The compare response has no merge base for $BASE_SHA and $HEAD_SHA"
+                  git fetch --no-tags --depth=1 "https://github.com/$REPO" "$MERGE_BASE" \
+                      || skip "Could not fetch merge base $MERGE_BASE"
+                  echo "Diffing from merge base $MERGE_BASE (PR base is $BASE_SHA)"
+                  .github/scripts/verify-storybook-new-stories.sh "$MERGE_BASE" 3
 
             - name: Upload flake verification screenshots
               if: failure() && steps.flake-verify.outcome == 'failure'

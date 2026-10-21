@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RecreationSource(ResumableSource[RecreationSourceConfig, RecreationResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://ridb.recreation.gov/docs"
 
@@ -104,7 +107,7 @@ To get an API key, sign in at [ridb.recreation.gov](https://ridb.recreation.gov/
             keywords=["ridb", "recreation.gov", "campgrounds", "campsites"],
             docsUrl="https://posthog.com/docs/cdp/sources/recreation",
             iconPath="/static/services/recreation.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

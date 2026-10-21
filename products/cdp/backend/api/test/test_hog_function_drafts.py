@@ -6,12 +6,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.templates.helpers import mock_transpile
 
 RELOAD_PATH = "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"
 

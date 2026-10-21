@@ -3,6 +3,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.aeo.backend.facade.contracts import PROMPT_TOPIC_MAX_LENGTH
+
 
 class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
@@ -47,8 +49,18 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         blank=True,
         help_text="Why this prompt made the set (for a CSV import, the file it came from).",
     )
-    rank = models.FloatField(default=0, help_text="Seeding score; higher runs first when the set is truncated.")
+    topic = models.CharField(
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Theme the prompt belongs to; the runner samples every topic on each run.",
+    )
+    rank = models.FloatField(default=0, help_text="Seeding score; higher runs first within a topic.")
     active = models.BooleanField(default=True, help_text="Only active prompts are executed by the runner.")
+    last_checked_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the runner last ran this prompt; least recently checked runs first."
+    )
 
     class Meta:
         db_table = "posthog_aeo_prompt"
@@ -88,6 +100,13 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
     run_id = models.UUIDField(help_text="Groups every check captured by one runner pass.")
     prompt_text = models.TextField(help_text="The question as it ran, snapshotted from the prompt set.")
     prompt_source = models.CharField(max_length=32, help_text="Prompt source at the time of the run.")
+    prompt_topic = models.CharField(
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Prompt topic at the time of the run.",
+    )
     prompt_hash = models.CharField(max_length=64, help_text="SHA-256 of the normalized prompt text.")
 
     engine = models.CharField(
