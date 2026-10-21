@@ -163,24 +163,29 @@
                     "type": "object",
                     "properties": {
                         "sm": {
+                            "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
                             "type": "object",
                             "properties": {
                                 "x": {
+                                    "description": "Column position in the dashboard grid (0-indexed).",
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991
                                 },
                                 "y": {
+                                    "description": "Row position in the dashboard grid (0-indexed).",
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991
                                 },
                                 "w": {
+                                    "description": "Width in grid columns. The desktop grid is 12 columns wide.",
                                     "type": "integer",
                                     "minimum": 1,
                                     "maximum": 9007199254740991
                                 },
                                 "h": {
+                                    "description": "Height in grid rows.",
                                     "type": "integer",
                                     "minimum": 1,
                                     "maximum": 9007199254740991
@@ -188,24 +193,29 @@
                             }
                         },
                         "xs": {
+                            "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
                             "type": "object",
                             "properties": {
                                 "x": {
+                                    "description": "Column position in the dashboard grid (0-indexed).",
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991
                                 },
                                 "y": {
+                                    "description": "Row position in the dashboard grid (0-indexed).",
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991
                                 },
                                 "w": {
+                                    "description": "Width in grid columns. The desktop grid is 12 columns wide.",
                                     "type": "integer",
                                     "minimum": 1,
                                     "maximum": 9007199254740991
                                 },
                                 "h": {
+                                    "description": "Height in grid rows.",
                                     "type": "integer",
                                     "minimum": 1,
                                     "maximum": 9007199254740991

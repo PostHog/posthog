@@ -1095,6 +1095,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
+            'workflows-destination-suggestion',
             'insight-data-checks',
             'logs-agent-tools',
         ]

@@ -102,6 +102,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'inbox-report-actions-mcp': true,
         'ai-observability-offline-evaluations': true,
         'warehouse-suggestions': true,
+        'workflows-destination-suggestion': true,
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
         'workflows-data-suggestions': true,
@@ -153,7 +154,7 @@ describe('Tool schema snapshots', () => {
 
     describe('schema budgets', () => {
         // Ratchet: the number of oversized tool schemas may only go down.
-        const OVERSIZED_SCHEMA_COUNT = 44
+        const OVERSIZED_SCHEMA_COUNT = 41
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
 
