@@ -281,7 +281,9 @@ class TestActivitySummaryQueue(BaseTest):
         assert self._select() == []
         if called_model:
             assert result.cost_usd
-            assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=pytest.approx(result.cost_usd))
+            usage = daily_usage(NOW)
+            assert usage.updates == 1
+            assert usage.cost_usd == pytest.approx(result.cost_usd)
         else:
             assert daily_usage(NOW) == DailyUsage(updates=0, cost_usd=0.0)
 
