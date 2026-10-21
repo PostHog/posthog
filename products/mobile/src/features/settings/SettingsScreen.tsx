@@ -13,6 +13,7 @@ import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { AppearanceGroup } from './AppearanceGroup'
 import { readAppVersion } from './appInfo'
 import { DefaultPageGroup } from './DefaultPageGroup'
 import { currentDefaultPageHref } from './defaultPageStore'
@@ -86,6 +87,7 @@ export function SettingsScreen(): ReactElement {
                 {signedIn && !demo ? <ProjectSwitcher /> : null}
                 {signedIn ? <PushStatusGroup /> : null}
                 {signedIn || demo ? <NotificationPreferencesGroup /> : null}
+                <AppearanceGroup />
                 {__DEV__ ? (
                     <SettingsGroup
                         title="Demo"

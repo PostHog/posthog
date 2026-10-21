@@ -1,6 +1,6 @@
 import { type ImageStyle, Platform, StyleSheet, type TextStyle, useColorScheme, type ViewStyle } from 'react-native'
-
 import type { Accent } from '@/model/types'
+import { resolveColorScheme, useAppearanceStore } from '@/ui/appearanceStore'
 
 import { DARK_CHART_PALETTE, LIGHT_CHART_PALETTE } from './chart/palette'
 
@@ -232,9 +232,10 @@ export const themes: Record<ColorScheme, Theme> = {
     ),
 }
 
-/** The device's appearance setting. An unknown or unspecified scheme counts as light. */
 export function useColorSchemeName(): ColorScheme {
-    return useColorScheme() === 'dark' ? 'dark' : 'light'
+    const deviceScheme = useColorScheme()
+    const appearance = useAppearanceStore((state) => state.appearance)
+    return resolveColorScheme(appearance, deviceScheme)
 }
 
 export function useTheme(): Theme {

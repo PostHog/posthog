@@ -16,7 +16,7 @@ See [Android's adaptive icon guidelines](https://developer.android.com/develop/u
 
 ## Tokens
 
-The app follows the device's light or dark setting; there is no in-app switch.
+The app follows the device's light or dark setting unless the Appearance setting in Settings picks Light or Dark; `useColorSchemeName` combines that override (`appearanceStore`) with the device scheme.
 `app.config.ts` sets `userInterfaceStyle: 'automatic'` and a dark splash, which take effect only after a native rebuild.
 Scheme-independent values live in `src/ui/tokens.ts`. Colors and everything derived from them live in `src/ui/theme.ts`.
 
@@ -209,8 +209,9 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).
   On iOS and Android, only the moving title is visible; the in-content heading stays available to screen readers.
   With reduced motion enabled, the content title stays visible and the chrome title fades in as it scrolls out.
-  Groups run Start page, Project, Notifications, Demo (dev builds), App, Account, Environment (internal builds), Legal, then Sign out.
-  Start page and Project use the same radio rows (`SettingsRadioRow`).
+  Groups run Start page, Project, Notifications, Appearance, Demo (dev builds), App, Account, Environment (internal builds), Legal, then Sign out.
+  Start page, Project and Appearance use the same radio rows (`SettingsRadioRow`).
+  Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
   Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
   Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.

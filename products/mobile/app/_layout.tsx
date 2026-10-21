@@ -21,6 +21,7 @@ import { usePushRegistration } from '@/features/notifications/usePushRegistratio
 import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
 import { useScreenTracking } from '@/lib/useScreenTracking'
+import { useAppearanceHydrated } from '@/ui/appearanceStore'
 import { RouteErrorBoundary } from '@/ui/RouteErrorBoundary'
 import { createStyles, useTheme } from '@/ui/theme'
 
@@ -35,8 +36,10 @@ const bootStartedAt = Date.now()
 
 export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
+    const appearanceHydrated = useAppearanceHydrated()
     const authStatus = useAuthStore((state) => state.status)
-    const ready = demoHydrated && authStatus !== 'loading'
+    // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
+    const ready = demoHydrated && appearanceHydrated && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
