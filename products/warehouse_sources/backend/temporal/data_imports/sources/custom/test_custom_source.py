@@ -1196,15 +1196,22 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert "sk_secret_value" not in (err or "")
         assert "***" in (err or "")
 
-    def test_auth_rejection_omits_query_string_from_echoed_url(self):
-        manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["path"] = "/users?status=active&access_token=inline-secret-123"
+    @parameterized.expand(
+        [
+            ("query", "https://api.example.com", "/users?status=active&access_token=inline-secret-123"),
+            ("userinfo", "https://reader:inline-secret-123@api.example.com", "/users"),
+        ]
+    )
+    def test_auth_rejection_omits_url_credentials(self, _name, base_url, path):
+        manifest = _minimal_manifest(base_url)
+        manifest["resources"][0]["endpoint"]["path"] = path
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        with scripted_network([ScriptedResponse(status=403)]):
+        body = b"forbidden: https://api.example.com/users?access_token=inline-secret-123 reader:inline-secret-123"
+        with scripted_network([ScriptedResponse(status=403, body=body)]):
             ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
-        assert "https://api.example.com/users " in (err or "")
+        assert "from https://api.example.com/users " in (err or "")
         assert "inline-secret-123" not in (err or "")
 
     @parameterized.expand([401, 403])

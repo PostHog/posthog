@@ -6,7 +6,7 @@ import graphlib
 from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import quote, quote_plus, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, quote_plus, urlparse, urlsplit, urlunsplit
 
 from django.db import IntegrityError
 
@@ -1249,7 +1249,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                     # Redact the credential from the echoed body before surfacing it: an upstream
                     # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
                     # its 401/403 error, and the snippet would otherwise leak it into a user message.
-                    snippet = _redact_secrets(_read_capped_text(response), auth_secret_values(probe_auth))
+                    snippet = _redact_secrets(
+                        _read_capped_text(response), (*auth_secret_values(probe_auth), *_url_embedded_secrets(url))
+                    )
                     if snippet:
                         message += f" The upstream responded: {snippet}"
                     return False, message
@@ -1702,10 +1704,27 @@ def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 
 def _url_without_query(url: str) -> str:
-    # A resource path can carry a credential in its query string (`?access_token=...`). That value is
-    # not one of the auth secrets `_redact_secrets` knows about, so drop the query from echoed URLs.
+    # A URL can carry a credential in its userinfo or query string (`?access_token=...`). Those values
+    # are not auth secrets that `_redact_secrets` knows about, so drop both from echoed URLs.
     parts = urlsplit(url)
-    return urlunsplit(parts._replace(query="", fragment=""))
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2], query="", fragment=""))
+
+
+_URL_SECRET_PARAM_MARKERS = ("token", "key", "secret", "password", "auth", "sig")
+
+
+def _url_embedded_secrets(url: str) -> tuple[str, ...]:
+    # Only credential-looking params: redacting every query value would mangle the snippet wherever a
+    # short value such as `1` appears.
+    parts = urlsplit(url)
+    secrets = [
+        value
+        for key, value in parse_qsl(parts.query)
+        if value and any(marker in key.lower() for marker in _URL_SECRET_PARAM_MARKERS)
+    ]
+    if parts.password:
+        secrets.append(parts.password)
+    return tuple(secrets)
 
 
 def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:
