@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -26,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     S3_EXAMPLE_URL,
     parse_s3_url,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
+    UnmappableTableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
 )
@@ -48,6 +53,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
 
     api_docs_url = "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
     requires_team_feature_flag = FEATURE_FLAG
+    self_managed_service = "s3"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,6 +74,17 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
 
     def discovery_options(self, config: AmazonS3SourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
+
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        if location.region is None:
+            raise UnmappableTableError("the URL doesn't name the bucket's region")
+        return {
+            "url_pattern": f"https://s3.{location.region}.amazonaws.com/{location.bucket}/",
+            "access_key_id": credential.access_key,
+            "secret_access_key": credential.access_secret,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
