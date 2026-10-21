@@ -23,8 +23,12 @@ pub enum LedgerError {
     OffsetNotAboveWindow { offset: Offset, next: Offset },
     /// A completion arrived before any delivery was charged.
     CompletionBeforeDelivery { offset: Offset },
+    /// A completion for an offset `take_frontier` already consumed.
+    CompletionBelowWindow { offset: Offset, base: Offset },
     /// A completion for an offset the window never charged.
     CompletionUncharged { offset: Offset },
+    /// A completion for an offset completed before.
+    CompletedTwice { offset: Offset },
 }
 
 impl LedgerError {
@@ -33,7 +37,9 @@ impl LedgerError {
         match self {
             LedgerError::OffsetNotAboveWindow { .. } => "offset_not_above_window",
             LedgerError::CompletionBeforeDelivery { .. } => "completion_before_delivery",
+            LedgerError::CompletionBelowWindow { .. } => "completion_below_window",
             LedgerError::CompletionUncharged { .. } => "completion_uncharged",
+            LedgerError::CompletedTwice { .. } => "completed_twice",
         }
     }
 }
@@ -50,9 +56,13 @@ impl fmt::Display for LedgerError {
             LedgerError::CompletionBeforeDelivery { offset } => {
                 write!(f, "offset {offset} completed before any delivery")
             }
+            LedgerError::CompletionBelowWindow { offset, base } => {
+                write!(f, "offset {offset} completed below the window base {base}")
+            }
             LedgerError::CompletionUncharged { offset } => {
                 write!(f, "offset {offset} completed but never charged")
             }
+            LedgerError::CompletedTwice { offset } => write!(f, "offset {offset} completed twice"),
         }
     }
 }
@@ -189,31 +199,32 @@ impl PartitionOffsetLedger {
         Ok(total)
     }
 
-    /// Mark delivered offsets complete in any order, and return how many were
-    /// complete already. A repeat changes nothing: the offset is still
-    /// complete, or `take_frontier` already handed it out.
+    /// Mark delivered offsets complete in any order.
     ///
-    /// Fails when an offset was never charged, which means the completion
-    /// does not belong to this ledger's window.
+    /// Fails when an offset was never charged, was completed before, or was
+    /// already consumed by `take_frontier`. Each case means the completion
+    /// does not belong to this ledger's window, and marking it would corrupt
+    /// the commit accounting.
     pub fn complete(
         &mut self,
         offsets: impl IntoIterator<Item = Offset>,
-    ) -> Result<usize, LedgerError> {
-        let mut repeated = 0;
+    ) -> Result<(), LedgerError> {
         for offset in offsets {
             let Some(base_offset) = self.base_offset else {
                 return Err(LedgerError::CompletionBeforeDelivery { offset });
             };
-            let Ok(slot_index) = usize::try_from(offset - base_offset) else {
-                repeated += 1;
-                continue;
-            };
+            let slot_index = usize::try_from(offset - base_offset).map_err(|_| {
+                LedgerError::CompletionBelowWindow {
+                    offset,
+                    base: base_offset,
+                }
+            })?;
             let slot = self
                 .slots
                 .get_mut(slot_index)
                 .ok_or(LedgerError::CompletionUncharged { offset })?;
             if slot.complete {
-                repeated += 1;
+                return Err(LedgerError::CompletedTwice { offset });
             }
             slot.complete = true;
         }
@@ -224,7 +235,7 @@ impl PartitionOffsetLedger {
         {
             self.completed_prefix_len += 1;
         }
-        Ok(repeated)
+        Ok(())
     }
 
     /// The next offset to read: one past the highest contiguous completed
@@ -330,13 +341,14 @@ mod tests {
     }
 
     #[test]
-    fn a_repeated_completion_is_counted_and_changes_nothing() {
+    fn double_completion_is_rejected() {
         let mut ledger = PartitionOffsetLedger::new(1);
-        ledger.charge([charge(0), charge(1)]).unwrap();
+        ledger.charge([charge(0)]).unwrap();
         ledger.complete([Offset(0)]).unwrap();
-
-        assert_eq!(ledger.complete([Offset(0), Offset(1)]), Ok(1));
-        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(
+            ledger.complete([Offset(0)]),
+            Err(LedgerError::CompletedTwice { offset: Offset(0) })
+        );
     }
 
     #[test]
@@ -350,14 +362,18 @@ mod tests {
     }
 
     #[test]
-    fn a_completion_repeated_after_its_take_is_counted_and_changes_nothing() {
+    fn completing_below_the_window_after_a_take_is_rejected() {
         let mut ledger = PartitionOffsetLedger::new(1);
         ledger.charge([charge(0), charge(1)]).unwrap();
         ledger.complete([Offset(0)]).unwrap();
         ledger.take_frontier().unwrap();
-
-        assert_eq!(ledger.complete([Offset(0)]), Ok(1));
-        assert_eq!(ledger.frontier(), None);
+        assert_eq!(
+            ledger.complete([Offset(0)]),
+            Err(LedgerError::CompletionBelowWindow {
+                offset: Offset(0),
+                base: Offset(1),
+            })
+        );
     }
 
     #[test]

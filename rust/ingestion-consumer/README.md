@@ -48,8 +48,7 @@ The settlement publishes the uncommitted gauges, because it holds both places a 
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges the offsets each partition has polled and no commit has covered yet, including those taken for a commit the pacer still holds; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 The ledger emits its own counters, so any consumer built on the crate reports the same series.
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
-`kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0.
-`kafka_consumer_ledger_repeated_completions_total{topic,partition}` counts offsets completed again after the ledger counted them, which means a message went downstream twice. It must stay 0 too, but the commit does not change, so the consumer logs an error and goes on. A violation stops the consumer, and the restart replays from the last commit: the ledger resets the partition's window, so offsets in flight below its next delivery would never complete and a later commit would move past them. The consumer logs the rejected slice with the batch and ledger generations and the window depth before it stops.
+`kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation stops the consumer, and the restart replays from the last commit: the ledger resets the partition's window, so offsets in flight below its next delivery would never complete and a later commit would move past them. The consumer logs the rejected slice with the batch and ledger generations and the window depth before it stops.
 
 ## Partition budget
 

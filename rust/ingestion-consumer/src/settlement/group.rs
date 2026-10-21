@@ -241,7 +241,7 @@ mod tests {
     })]
     #[case::violation(RejectedRun {
         rejection: Rejection::Violation {
-            error: LedgerError::CompletionUncharged { offset: Offset(10) },
+            error: LedgerError::CompletedTwice { offset: Offset(10) },
             stamp: 0,
             generation: 0,
             held: Held::default(),
@@ -351,18 +351,18 @@ mod integration_tests {
     }
 
     #[test]
-    fn a_run_settled_twice_leaves_the_partition_committing() {
+    fn a_run_settled_twice_fails_and_keeps_the_frontier_taken_before_it() {
         let (ledger, settlement) = settlement();
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10, 11]);
         settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
 
-        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
-        settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
+        assert!(settlement.settle_run(&p0, 0, &[Offset(10)]).is_err());
 
         assert_eq!(
             settlement.take_all().map(|commit| commit.offsets),
-            Some(HashMap::from([(p0, Offset(12))]))
+            Some(HashMap::from([(p0, Offset(11))])),
+            "offset 10 completed before the violation"
         );
     }
 
