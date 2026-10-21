@@ -982,18 +982,13 @@ export function AgentsRoster(): JSX.Element {
                             </LemonButton>
                         )}
                     </div>
-                    {group.id === 'external' && group.agents.length === 0 ? (
-                        <p className="mb-0 rounded border border-dashed border-primary px-3 py-2.5 text-xs text-secondary">
-                            No external sources yet. Add one to let agents read the issues, tickets, and feedback in the
-                            tools you already use.
-                        </p>
-                    ) : (
+                    {group.agents.length > 0 && (
                         <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
+                    {group.id === 'external' && <SourceRecommendations />}
                 </div>
             ))}
 
-            <SourceRecommendations />
             <SourceCatalogModal />
 
             {linearTeamsPicker && (
