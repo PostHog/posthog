@@ -341,9 +341,9 @@ It does not read the main lane's or the v3 mirror's blocklist.
 - A session is new when the recorder has neither seen it nor blocked it.
 - Each new session from the replay topic takes one token from its team's token bucket. A session that gets no token is blocked as a whole, and the recorder drops every later message of it from both topics.
 - A new session from the overflow topic takes no token. The recorder only counts it, as the replay overflow lane does.
-- The bucket holds `SESSION_RECORDING_ML_V4_NEW_SESSION_BUCKET_CAPACITY` tokens (default 3000) and refills at `SESSION_RECORDING_ML_V4_NEW_SESSION_BUCKET_REPLENISH_RATE` per second (default 300), the main lane's production values. Both scale with the sample percentage, because the limit counts only sessions that pass the gate. With `SESSION_RECORDING_ML_V4_NEW_SESSION_BLOCKING_ENABLED` set to false, the recorder counts and blocks nothing.
+- The bucket holds `AI_RESEARCH_V4_NEW_SESSION_BUCKET_CAPACITY` tokens (default 3000) and refills at `AI_RESEARCH_V4_NEW_SESSION_BUCKET_REPLENISH_RATE` per second (default 300), the main lane's production values. Both scale with the sample percentage, because the limit counts only sessions that pass the gate. With `AI_RESEARCH_V4_NEW_SESSION_BLOCKING_ENABLED` set to false, the recorder counts and blocks nothing.
 - Each pod keeps its own buckets in memory, as the main lane does, so two deployments block slightly different sessions.
-- Seen and blocked sessions are stored in the ML lanes' Redis (`SESSION_RECORDING_REDIS_URL`), not in the primary replay Redis, under `@posthog/replay/ai-research-v4/`. They have the main lane's expiry, so a block survives a restart or a rebalance.
+- Seen and blocked sessions are stored in the ML lanes' Redis (`AI_RESEARCH_V4_REDIS_URL`), not in the primary replay Redis, under `@posthog/ai-research-v4/`. They have the main lane's expiry, so a block survives a restart or a rebalance.
 - That Redis evicts the least recently used keys under memory pressure. An evicted seen key makes its session take a second token, and an evicted blocked key lets its session through, so both fail open.
 - A Redis error lets the session through, as in the main lane.
 
@@ -354,7 +354,7 @@ id         = lowercase(session_id) if it has the UUID shape, else session_id
 hash       = md5(id) as lowercase hex
 value      = integer of the first 8 hex digits
 percentage = (value % 10000) / 100
-include    = percentage < SESSION_RECORDING_ML_V4_SAMPLE_PERCENTAGE
+include    = percentage < AI_RESEARCH_V4_SAMPLE_PERCENTAGE
 ```
 
 - A percentage of 100 or more includes every session, and 0 or less includes none. The default is 0.
@@ -453,7 +453,7 @@ A block can use an image only while that image outlives the block:
 
 The recorder does not write the two index prefixes itself, as in v3:
 
-- After a flush stores its packs and blocks, the recorder sends one JSON record per index row to `session_replay_ml_index_v4`. The record's keys are the Parquet column names.
+- After a flush stores its packs and blocks, the recorder sends one JSON record per index row to `ai_research_v4_index`. The record's keys are the Parquet column names.
 - The recorder commits without waiting for delivery. A row that is not delivered leaves its block or image stored but not in the index.
 - The v4 Parquet sink reads the topic, groups the rows by index and write day, and writes one file per group and flush as `{ms}-{random}.parquet`. A flush runs every 10 minutes, or at 128 MiB of rows or 1,000,000 rows. The sink commits its offsets only after the files are stored.
 - Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed, and the recorder caps a value that does not fit at the type's maximum. `moments` is a repeated group whose item is named `moments`; an Arrow reader sees a list of structs. Row groups hold 131072 rows, and every column is snappy-compressed.
@@ -502,7 +502,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 
 ### Remote images
 
-The recorder sends each remote image URL to the `session_replay_image_fetch_v4` topic in the v3 job shape, keyed by registrable domain.
+The recorder sends each remote image URL to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain.
 It collects URLs from image sources, `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher applies the v3 fetch policy with its own consumer groups and a share of the v3 per-host limits.
