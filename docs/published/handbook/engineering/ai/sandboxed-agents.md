@@ -526,7 +526,7 @@ the agent up. The in-sandbox script (`start-dev-stack-preview.sh`) runs `pnpm in
 dev-stack process fails the preview instead of publishing a half-working one, and each click on the
 link re-probes Django and Vite inside the sandbox before redirecting. Startup peaks around 19 GB, so
 these runs default to 32 GB rather than the standard VM memory size; the core limit stays at the
-VM default, but a box that actually boots the dev-stack image reserves 4 cores instead of the
+VM default, but a box that actually boots the dev-stack image reserves 2 cores instead of the
 burstable 0.5 floor (a fallback to the plain base image keeps the plain floor), and a per-task
 `sandbox_resources` override still wins. The launcher starts with a scrubbed
 environment (`env -i`, fixed PATH), so the stack and its containers never inherit the run's

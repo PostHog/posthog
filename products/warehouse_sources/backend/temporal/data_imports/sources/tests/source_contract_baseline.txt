@@ -1,6 +1,5 @@
 Adjust fail:safe-point
 Adyen fail:safe-point
-Airbrake fail:stall-budget
 AlphaVantage fail:stall-budget
 AmazonAds fail:stall-budget
 AmazonS3 not-checkable:schemas
@@ -9,13 +8,10 @@ Anthropic fail:safe-point
 Apollo fail:rate-limit-budget,stall-budget
 AppLovin fail:safe-point
 AppStoreConnect not-checkable:no-request
-Appdynamics fail:stall-budget
 Appfigures fail:stall-budget
-Appfollow fail:stall-budget
 AppleSearchAds not-checkable:no-request
 AppsFlyer fail:safe-point,stall-budget
 Appsignal fail:safe-point,stall-budget
-Argocd fail:stall-budget
 Attentive not-checkable:database
 Automox fail:stall-budget
 Aviator fail:stall-budget
@@ -31,7 +27,6 @@ BigMailer fail:safe-point
 BigQuery not-checkable:driver:google.cloud
 BingAds not-checkable:database
 Bitbucket fail:safe-point,stall-budget
-Braintree fail:stall-budget
 Breezometer not-checkable:no-request
 Bugsnag fail:safe-point,stall-budget
 CalCom fail:safe-point
@@ -151,7 +146,7 @@ KapaAI fail:safe-point
 Kernel fail:safe-point,stall-budget
 Kestra not-checkable:no-request
 Klaus fail:rate-limit-budget,stall-budget
-Klaviyo fail:rate-limit-budget,safe-point,stall-budget
+Klaviyo fail:safe-point
 KongKonnect fail:stall-budget
 Kubecost fail:stall-budget
 Lacework fail:safe-point,stall-budget
@@ -192,7 +187,7 @@ Neon not-checkable:driver:psycopg
 NewRelic fail:safe-point,stall-budget
 NewYorkTimes fail:stall-budget
 Northflank fail:rate-limit-budget,stall-budget
-Notion fail:rate-limit-budget,safe-point,stall-budget
+Notion fail:safe-point
 NpmRegistry fail:safe-point
 Nuget fail:stall-budget
 OctopusDeploy fail:stall-budget
@@ -214,7 +209,6 @@ Pipeliner fail:safe-point
 Plaid fail:stall-budget
 PlanetScaleMySQL not-checkable:driver:psycopg
 PlanetScalePostgres not-checkable:driver:psycopg
-PlatformSh fail:stall-budget
 Plunk fail:safe-point
 Postgres not-checkable:driver:psycopg
 PowerBiAdmin fail:safe-point
