@@ -122,7 +122,9 @@ class ProvisioningTestBase(APIBaseTest):
         )
         return app
 
-    def _post_api(self, url: str, data: dict | bytes | None = None, content_type: str = "application/json", **kwargs):
+    def _post_api(
+        self, url: str, data: dict | list | bytes | None = None, content_type: str = "application/json", **kwargs
+    ):
         body: bytes
         if content_type == "application/json":
             body = json.dumps(data or {}).encode()

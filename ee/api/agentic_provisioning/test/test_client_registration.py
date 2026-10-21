@@ -80,7 +80,7 @@ class TestClientRegistration(ProvisioningTestBase):
 
     def _register(
         self,
-        body: dict,
+        body: dict | list,
         *,
         document: dict | None = None,
         jwks: dict | None = None,
@@ -149,8 +149,9 @@ class TestClientRegistration(ProvisioningTestBase):
         claims.update(overrides)
         return jwt.encode(claims, KEY, algorithm="RS256", headers={"kid": KID})
 
-    def test_unregistered_client_id_is_reported_as_not_registered(self):
-        res = self._register({"client_id": "totally-unknown-client-id"})
+    @parameterized.expand([("a_string", "totally-unknown-client-id"), ("a_number", 12345)])
+    def test_unregistered_client_id_is_reported_as_not_registered(self, _name: str, client_id: str | int) -> None:
+        res = self._register({"client_id": client_id})
 
         assert res.status_code == 400
         body = res.json()
@@ -408,12 +409,19 @@ class TestClientRegistration(ProvisioningTestBase):
         checks = {check["name"]: check for check in res.json()["checks"]}
         assert checks["client_assertion"]["ok"] is expected_ok
 
-    def test_rejects_an_assertion_with_the_wrong_type(self):
+    @parameterized.expand(
+        [
+            (
+                "assertion_of_the_wrong_type",
+                {"client_id": CIMD_URL, "client_assertion": "x.y.z", "client_assertion_type": "urn:something:else"},
+            ),
+            ("body_that_is_not_an_object", [{"client_id": CIMD_URL}]),
+        ]
+    )
+    def test_rejects_a_body_that_does_not_validate(self, _name: str, body: dict | list) -> None:
         self._make_partner()
 
-        res = self._register(
-            {"client_id": CIMD_URL, "client_assertion": "x.y.z", "client_assertion_type": "urn:something:else"}
-        )
+        res = self._register(body)
 
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_request"
@@ -431,10 +439,11 @@ class TestClientRegistration(ProvisioningTestBase):
                 "client_registration",
                 None,
             ),
+            ("not_a_string", PER_CLIENT_ID_LIMIT, 12345, "client_registration", None),
         ]
     )
     def test_a_refusal_records_the_claimed_domain_and_not_the_partner(
-        self, _name: str, exhausted_limit: str, client_id: str, endpoint: str, claimed_client_domain: str | None
+        self, _name: str, exhausted_limit: str, client_id: str | int, endpoint: str, claimed_client_domain: str | None
     ) -> None:
         self._make_partner(client_id=client_id)
 

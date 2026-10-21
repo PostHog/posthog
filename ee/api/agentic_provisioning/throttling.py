@@ -77,6 +77,21 @@ def _window_retry_after(window_seconds: int) -> int:
     return window_seconds - (int(time.time()) % window_seconds)
 
 
+def _body_client_id(request: Request) -> str:
+    """Read client_id from the body with the type rule of the serializer's CharField.
+
+    A number becomes the string that the serializer converts it to. Any other type that is not a
+    string returns "", because the serializer rejects it with a 400. A falsy value also returns "",
+    so the query-string fallback in CIMDRegistrationThrottle covers every client_id that
+    ProvisioningAuthentication reads from the query string.
+    """
+    data = request.data
+    client_id = data.get("client_id") if isinstance(data, dict) else None
+    if not client_id or isinstance(client_id, bool) or not isinstance(client_id, (str, int, float)):
+        return ""
+    return str(client_id)
+
+
 def _claimed_client_domain(client_id: str) -> str | None:
     if not cimd.is_cimd_client_id(client_id):
         return None
@@ -143,7 +158,7 @@ class ClientRegistrationThrottle(BaseThrottle):
         )
 
     def allow_request(self, request: Request, view: APIView) -> bool:
-        client_id = request.data.get("client_id") or ""
+        client_id = _body_client_id(request)
         if not client_id:
             return True
         window_index = int(time.time()) // CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS
@@ -179,7 +194,7 @@ class CIMDRegistrationThrottle(BaseThrottle):
     error_message: str = "Too many new client registrations. Try again later."
 
     def allow_request(self, request: Request, view: APIView) -> bool:
-        client_id = request.data.get("client_id") or request.query_params.get("client_id")
+        client_id = _body_client_id(request) or request.query_params.get("client_id")
         if not client_id or not cimd.is_cimd_client_id(client_id):
             return True
         if OAuthApplication.objects.filter(client_id=client_id).exists():
@@ -193,19 +208,20 @@ class CIMDRegistrationThrottle(BaseThrottle):
                 logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
                 return False
 
-        return self._allow_domain(cast(str, client_id))
+        return self._allow_domain(client_id)
 
     def _allow_domain(self, client_id: str) -> bool:
         """Prevent a single domain from registering unlimited CIMD apps via different URL paths."""
-        domain = urlparse(client_id).hostname
-        if not domain:
+        host = urlparse(client_id).hostname
+        if not host:
             return True
 
         window_index = int(time.time()) // CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS
-        key = f"{CIMD_DOMAIN_RATE_LIMIT_PREFIX}{domain}:{window_index}"
+        key = f"{CIMD_DOMAIN_RATE_LIMIT_PREFIX}{sha256(host.encode()).hexdigest()}:{window_index}"
         count = _fixed_window_count(key, CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS)
 
         if count > CIMD_DOMAIN_RATE_LIMIT_MAX:
+            domain = _claimed_client_domain(client_id)
             logger.warning("cimd_domain_rate_limited", client_id=client_id, domain=domain, count=count)
             capture_provisioning_event("account_request", "cimd_domain_rate_limited", domain=domain, count=count)
             self.error_message = "Too many new client registrations from this domain. Try again later."
