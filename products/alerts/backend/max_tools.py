@@ -30,7 +30,6 @@ from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUI
 from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.platform_alert_backfill import follow_insight_alert
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -184,6 +183,14 @@ class UpsertAlertToolArgs(BaseModel):
         description="The action to perform. Either create a new alert or update an existing one.",
         discriminator="action",
     )
+
+
+def _follow_on_commit(alert: AlertConfiguration) -> None:
+    # Deferred to break a cycle: platform_alert_backfill reaches this module back through the alert
+    # workflows and the chat agent.
+    from products.alerts.backend.platform_alert_backfill import follow_insight_alert  # noqa: PLC0415
+
+    transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
 
 
 class UpsertAlertTool(MaxTool):
@@ -464,7 +471,7 @@ class UpsertAlertTool(MaxTool):
                 update_fields.append("next_check_at")
             alert.save(update_fields=update_fields)
             if enabled_changed and action.enabled:
-                transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
+                _follow_on_commit(alert)
         return None
 
     @staticmethod
@@ -657,6 +664,6 @@ class UpsertAlertTool(MaxTool):
             created_by=user,
         )
         if alert.enabled:
-            transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
+            _follow_on_commit(alert)
 
         return alert
