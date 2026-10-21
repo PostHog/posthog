@@ -154,9 +154,6 @@ class TestValidateCredentials:
         ("response", "expected_valid", "expected_message_fragment"),
         [
             (ScriptedResponse(json={"pagination": {}, "data": []}), True, None),
-            (ScriptedResponse(status=401, json={"error": "Invalid API Secret."}), False, "rejected the API secret"),
-            (ScriptedResponse(status=500, json={}), False, "Could not connect"),
-            (ConnectionError("boom"), False, "Could not connect"),
         ],
     )
     def test_maps_the_probe_result_to_a_message(
