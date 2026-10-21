@@ -12,6 +12,7 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
+from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_cutover import can_move, hand_over, has_begun_cutover, in_an_environment
@@ -23,14 +24,11 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     PlatformAlertNotEditable,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
 # What an edit through either API can change on both rows. The cadence is a schedule, which the
 # platform's edit leaves out, so the check carries it onto the copy instead.
 _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
-
-
-class PlatformCannotOwn(ValueError):
-    """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
 
 
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
@@ -61,26 +59,52 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
     )
 
 
-def before_delete(alert: AlertConfiguration) -> None:
+def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
+    """Hands an alert created in the caller's transaction to the platform when its team has begun
+    the cutover. False when the alert stays with insight."""
+    alert = _locked(team_id, alert_id)
+    return alert is not None and on_created(alert, at)
+
+
+def write_moved_alert_edit(*, team_id: int, alert_id: UUID, snooze_changed: bool) -> None:
+    """Writes an edit the insight API saved in the caller's transaction onto the platform's copy.
+
+    Raises like `on_updated`.
+    """
+    alert = _locked(team_id, alert_id)
+    if alert is not None and alert.platform_owned:
+        on_updated(alert, snooze_changed=snooze_changed)
+
+
+def close_moved_alert_firings(*, team_id: int, alert_id: UUID) -> None:
     """Ends a moved alert's firings while its destinations still exist.
 
-    Outside the delete's transaction, because the resolve it sends reads the history this commits.
+    Call it outside the delete's transaction, because the resolve it sends reads the history this
+    commits.
     """
-    if alert.platform_owned:
-        close_owned_firings_now(team_id=alert.team_id, legacy_configuration_id=alert.id)
+    if AlertConfiguration.objects.filter(team_id=team_id, id=alert_id, owner=PlatformAlertOwner.PLATFORM).exists():
+        close_owned_firings_now(team_id=team_id, legacy_configuration_id=alert_id)
 
 
-def on_deleted(alert: AlertConfiguration) -> None:
+def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
     """Deletes a moved alert's copy, inside the transaction that deletes the alert.
 
     A copy whose alert is deleted another way, such as with its insight, switches itself off at its
     next check.
     """
-    if not alert.platform_owned:
-        return
-    locked = AlertConfiguration.objects.select_for_update(no_key=True, of=("self",)).filter(id=alert.id).first()
-    if locked is not None and locked.platform_owned:
-        delete_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id)
+    alert = _locked(team_id, alert_id)
+    if alert is not None and alert.platform_owned:
+        delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
+
+
+def _locked(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
+    # Only the alert's own row is locked. Locking the team row would make a hot parent a mutex.
+    return (
+        AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
+        .select_related("team", "threshold")
+        .filter(team_id=team_id, id=alert_id)
+        .first()
+    )
 
 
 def _platform_change_of(
@@ -101,7 +125,7 @@ def mirror_platform_edit(
     alert = (
         AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
         .select_related("threshold")
-        .filter(id=legacy_configuration_id)
+        .filter(team__project_id=team_id, id=legacy_configuration_id)
         .first()
     )
     if alert is None:

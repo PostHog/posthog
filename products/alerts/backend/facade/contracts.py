@@ -179,3 +179,7 @@ class MovedAlertCheckPage:
     # How many checks the requested window holds, past this page too.
     total: int
     checks: tuple[MovedAlertCheck, ...]
+
+
+class PlatformCannotOwn(ValueError):
+    """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""

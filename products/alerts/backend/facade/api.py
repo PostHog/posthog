@@ -47,6 +47,12 @@ from products.alerts.backend.llm_detector_limits import (
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_alert_backfill import follow_insight_alert as follow_alert
 from products.alerts.backend.platform_alert_reads import moved_alert_check_page, moved_alert_statuses
+from products.alerts.backend.platform_ownership import (
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
+    hand_over_new_alert,
+    write_moved_alert_edit,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -232,9 +238,13 @@ __all__ = [
     "LLMDetectorMisconfiguredError",
     "LLMDetectorUnavailableError",
     "admit_llm_alert_write",
+    "close_moved_alert_firings",
+    "delete_moved_alert_copy",
     "follow_insight_alert",
+    "hand_over_new_alert",
     "is_llm_detector_config",
     "llm_detector_access_error",
     "moved_alert_check_page",
     "moved_alert_statuses",
+    "write_moved_alert_edit",
 ]

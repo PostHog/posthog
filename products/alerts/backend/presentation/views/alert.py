@@ -89,16 +89,21 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
     follow_insight_alert,
+    hand_over_new_alert,
     is_llm_detector_config,
     llm_detector_access_error,
     moved_alert_check_page,
     moved_alert_statuses,
+    write_moved_alert_edit,
 )
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
     MovedAlertCheck,
+    PlatformCannotOwn,
 )
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -124,13 +129,6 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
     Threshold,
-)
-from products.alerts.backend.platform_ownership import (
-    PlatformCannotOwn,
-    before_delete,
-    on_created,
-    on_deleted,
-    on_updated,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -907,7 +905,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if instance.schedule_start_time is not None:
                 instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
                 instance.save(update_fields=["next_check_at"])
-            on_created(instance, timezone.now())
+            if hand_over_new_alert(team_id=instance.team_id, alert_id=instance.id, at=timezone.now()):
+                instance.refresh_from_db(fields=["owner", "owner_changed_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -1044,7 +1043,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             instance.save(update_fields=["next_check_at"])
         if instance.platform_owned:
             try:
-                on_updated(instance, snooze_changed=snoozed_until_param is not serializers.empty)
+                write_moved_alert_edit(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    snooze_changed=snoozed_until_param is not serializers.empty,
+                )
             except PlatformCannotOwn as error:
                 raise ValidationError(str(error)) from error
             except InvalidPlatformAlertEdit as error:
@@ -1714,10 +1717,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: AlertConfiguration) -> None:
         # Before the delete, while the destinations a firing's resolve goes to still exist.
-        before_delete(instance)
+        if instance.platform_owned:
+            close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
         # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
         with transaction.atomic():
-            on_deleted(instance)
+            if instance.platform_owned:
+                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
             super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
