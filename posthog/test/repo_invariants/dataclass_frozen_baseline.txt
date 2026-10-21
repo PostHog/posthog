@@ -949,7 +949,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/recurly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reddit_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/render/render.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/render/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rentcast/rentcast.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rentcast/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/replicate/replicate.py
