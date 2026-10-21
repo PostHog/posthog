@@ -287,8 +287,10 @@ impl PersonhogStore {
         Ok(self.inner.txn(txn).await?.succeeded())
     }
 
-    /// Drop a drained generation from the config the caller's drain checks
-    /// read, only while that config is still current.
+    /// Drop a drained generation, and its drain reports, from the config the
+    /// caller's drain checks read: only while that config is still current and
+    /// no saga exists. A saga completes only once every partition it created
+    /// has an owner, which routers rely on once nothing drains.
     pub async fn retire_changelog_topic(
         &self,
         config: &ChangelogConfig,
@@ -296,56 +298,24 @@ impl PersonhogStore {
         topic: &str,
     ) -> Result<bool> {
         count_call("retire_changelog_topic");
-        self.retire_generation(config, mod_revision, topic, false)
-            .await
-    }
-
-    /// The coordinator's retire: as `retire_changelog_topic`, from a config it
-    /// already read, and only while no saga exists.
-    pub async fn retire_drained_generation(
-        &self,
-        config: &ChangelogConfig,
-        mod_revision: i64,
-        topic: &str,
-    ) -> Result<bool> {
-        count_call("retire_drained_generation");
-        self.retire_generation(config, mod_revision, topic, true)
-            .await
-    }
-
-    /// One transaction drops the generation and its drain reports.
-    async fn retire_generation(
-        &self,
-        config: &ChangelogConfig,
-        mod_revision: i64,
-        topic: &str,
-        require_no_saga: bool,
-    ) -> Result<bool> {
         let mut retired = config.clone();
         retired.draining.retain(|g| g.topic != topic);
         if retired.draining.len() == config.draining.len() {
             return Ok(false);
         }
         let key = self.key(StoreKey::ChangelogConfig);
-        let mut guards = vec![Compare::mod_revision(
-            key.clone(),
-            CompareOp::Equal,
-            mod_revision,
-        )];
-        if require_no_saga {
-            guards.push(Compare::create_revision(
-                self.key(StoreKey::Migration),
-                CompareOp::Equal,
-                0,
-            ));
-        }
-        let txn = Txn::new().when(guards).and_then(vec![
-            TxnOp::put(key, serde_json::to_vec(&retired)?, None),
-            TxnOp::delete(
-                self.key(StoreKey::DrainReportsForTopic(topic)),
-                Some(DeleteOptions::new().with_prefix()),
-            ),
-        ]);
+        let txn = Txn::new()
+            .when(vec![
+                Compare::mod_revision(key.clone(), CompareOp::Equal, mod_revision),
+                Compare::create_revision(self.key(StoreKey::Migration), CompareOp::Equal, 0),
+            ])
+            .and_then(vec![
+                TxnOp::put(key, serde_json::to_vec(&retired)?, None),
+                TxnOp::delete(
+                    self.key(StoreKey::DrainReportsForTopic(topic)),
+                    Some(DeleteOptions::new().with_prefix()),
+                ),
+            ]);
         Ok(self.inner.txn(txn).await?.succeeded())
     }
 

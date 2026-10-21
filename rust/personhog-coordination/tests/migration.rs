@@ -801,7 +801,7 @@ async fn a_retire_lands_only_while_no_saga_exists() {
         .unwrap()
         .unwrap();
     assert!(!store
-        .retire_drained_generation(&config, rev, TOPIC_V0)
+        .retire_changelog_topic(&config, rev, TOPIC_V0)
         .await
         .unwrap());
     assert_eq!(
@@ -825,7 +825,7 @@ async fn a_retire_lands_only_while_no_saga_exists() {
         .await
         .unwrap());
     assert!(store
-        .retire_drained_generation(&config, rev, TOPIC_V0)
+        .retire_changelog_topic(&config, rev, TOPIC_V0)
         .await
         .unwrap());
     assert!(store

@@ -185,6 +185,13 @@ pub async fn retire(
     if !live.draining.iter().any(|g| g.topic == topic) {
         bail!("{topic} is not a draining generation");
     }
+    if let Some(migration) = store.get_migration().await? {
+        bail!(
+            "migration {} is {:?}; retire once it completes",
+            migration.id,
+            migration.phase
+        );
+    }
     for group in live.gated_groups() {
         let drain = group_drain(config, group, topic).await;
         if let Some(error) = drain.error {
@@ -202,7 +209,7 @@ pub async fn retire(
         .retire_changelog_topic(&live, mod_revision, topic)
         .await?
     {
-        bail!("the config moved; refresh and retry");
+        bail!("the config moved or a migration started; refresh and retry");
     }
     common_metrics::inc(
         "personhog_changelog_retires_total",

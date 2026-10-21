@@ -599,7 +599,7 @@ pub async fn retire_drained(store: &PersonhogStore) -> Result<Retirement> {
             .collect();
         if missing.is_empty() {
             if store
-                .retire_drained_generation(&config, mod_revision, &generation.topic)
+                .retire_changelog_topic(&config, mod_revision, &generation.topic)
                 .await?
             {
                 counter!("personhog_changelog_retires_total", "trigger" => "auto").increment(1);
