@@ -86,7 +86,7 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 #
 # Runtime stage: Minimal image with only nodejs runtime dependencies
 #
-FROM node:24.13.0-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
