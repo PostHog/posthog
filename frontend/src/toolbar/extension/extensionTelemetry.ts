@@ -12,6 +12,13 @@ type PageToolKey =
     | 'override-flag'
     | 'clear-flag-overrides'
     | 'impersonate-flags'
+    | 'events'
+    | 'export-events'
+    | 'web-vitals'
+    | 'more'
+    | 'pii-masking'
+    | 'screenshot-for-event'
+    | 'view-session-recording'
 
 export function capturePageToolUsed(tool: PageToolKey, properties?: Record<string, unknown>): void {
     // pinned: analytics event name

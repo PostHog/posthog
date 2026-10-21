@@ -1,4 +1,6 @@
-import { IconBolt, IconCursorClick, IconFlask, IconPieChart, IconSearch, IconToggle } from '@posthog/icons'
+import { IconBolt, IconCursorClick, IconFlask, IconLive, IconPieChart, IconSearch, IconToggle } from '@posthog/icons'
+
+import { IconMenu } from 'lib/lemon-ui/icons'
 
 import { urls } from '~/toolbar/urls'
 import { AvailableFeature } from '~/types'
@@ -53,6 +55,13 @@ export const PAGE_TOOLS: PageToolDefinition[] = [
         feature: { key: 'feature-flags', path: urls.featureFlags() },
     },
     {
+        mode: 'events',
+        label: 'Events',
+        description: 'Watch the events this page sends, as it sends them',
+        icon: <IconLive />,
+    },
+    {
+        mode: 'web-vitals',
         label: 'Web vitals',
         description: 'Check how fast this page loads',
         icon: <IconPieChart />,
@@ -63,5 +72,11 @@ export const PAGE_TOOLS: PageToolDefinition[] = [
         description: 'Build no-code web experiments and preview their variants on the page',
         icon: <IconFlask />,
         feature: { key: 'experiments', path: urls.experiments() },
+    },
+    {
+        mode: 'more',
+        label: 'More',
+        description: 'Debug info, PII masking and screenshots for events',
+        icon: <IconMenu />,
     },
 ]

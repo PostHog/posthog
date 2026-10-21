@@ -1,14 +1,14 @@
 import { captureElementImage } from 'lib/utils/captureElementImage'
 
 import { toolbarUploadMedia } from '~/toolbar/toolbarFetch'
-import { TOOLBAR_ID, toError } from '~/toolbar/utils'
+import { isToolbarRootElement, toError } from '~/toolbar/utils'
 
 export interface ElementScreenshot {
     mediaId: string
 }
 
 function screenshotFilter(node: Node): boolean {
-    return !(node instanceof HTMLElement && node.id === TOOLBAR_ID)
+    return !(node instanceof HTMLElement && isToolbarRootElement(node))
 }
 
 export interface CaptureOptions {

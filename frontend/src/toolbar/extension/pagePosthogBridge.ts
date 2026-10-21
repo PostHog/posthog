@@ -7,7 +7,7 @@ import {
     PageAgentRequestMessage,
     isPageAgentReplyMessage,
 } from './pageAgentProtocol'
-import type { PageAnalyticsInfo, PageFeatureFlagsSnapshot } from './pageToolbarBridge'
+import type { PageAnalyticsInfo, PageDebugInfo, PageFeatureFlagsSnapshot } from './pageToolbarBridge'
 
 export interface PageFlagMutationStatus {
     pending: boolean
@@ -17,9 +17,12 @@ export interface PageFlagMutationStatus {
 
 type FeatureFlagsCallback = (flags: string[], variants: Record<string, string | boolean>) => void
 
+type EventCapturedCallback = (event: unknown) => void
+
 // The page agent answers in milliseconds. Past these, the page most likely reloaded or has no agent.
 const ANALYTICS_TIMEOUT_MS = 1000
 const MUTATION_TIMEOUT_MS = 5000
+const DEBUG_INFO_TIMEOUT_MS = 5000
 
 let nextRequestId = 1
 
@@ -77,6 +80,9 @@ export class PagePosthogBridge {
     private featureFlags: PageFeatureFlagsSnapshot
     private pendingMutations = new Map<number, ReturnType<typeof setTimeout>>()
     private featureFlagsCallbacks: FeatureFlagsCallback[] = []
+    private eventCapturedCallbacks: EventCapturedCallback[] = []
+    private forwardSnapshotPayloads = false
+    private debugInfoRequests = new Map<number, (info: PageDebugInfo | null) => void>()
     private mutationStatus: PageFlagMutationStatus = { pending: false, error: null, revision: 0 }
     private removeListener: () => void
     /** The parts of posthog-js that the toolbar's logics read. */
@@ -93,10 +99,36 @@ export class PagePosthogBridge {
 
     dispose(): void {
         this.removeListener()
+        if (this.eventCapturedCallbacks.length > 0) {
+            postToPageAgent({ method: 'unsubscribe-events' })
+        }
         for (const timeout of this.pendingMutations.values()) {
             clearTimeout(timeout)
         }
         this.pendingMutations.clear()
+        for (const resolve of this.debugInfoRequests.values()) {
+            resolve(null)
+        }
+        this.debugInfoRequests.clear()
+    }
+
+    /** Resolves with null when the page has no posthog-js, or when it doesn't answer in time. */
+    readDebugInfo(): Promise<PageDebugInfo | null> {
+        const id = postToPageAgent({ method: 'read-debug-info' })
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => this.resolveDebugInfo(id, null), DEBUG_INFO_TIMEOUT_MS)
+            this.debugInfoRequests.set(id, (info) => {
+                clearTimeout(timeout)
+                resolve(info)
+            })
+        })
+    }
+
+    setForwardSnapshotPayloads(forward: boolean): void {
+        this.forwardSnapshotPayloads = forward
+        if (this.eventCapturedCallbacks.length > 0) {
+            postToPageAgent({ method: 'subscribe-events', forwardSnapshotPayloads: forward })
+        }
     }
 
     private buildPosthog(): PostHog {
@@ -106,8 +138,29 @@ export class PagePosthogBridge {
             config: {
                 disable_scroll_properties: info.scrollPropertiesDisabled,
                 scroll_root_selector: info.scrollRootSelector ?? undefined,
+                session_recording: info.sessionRecordingConfig,
             },
             heatmaps: info.heatmapsEnabled === null ? undefined : { isEnabled: info.heatmapsEnabled },
+            webVitalsAutocapture: info.webVitalsEnabled === null ? undefined : { isEnabled: info.webVitalsEnabled },
+            sessionRecording: { status: info.sessionRecordingStatus ?? undefined },
+            on: (event: string, callback: EventCapturedCallback) => {
+                if (event !== 'eventCaptured') {
+                    return () => {}
+                }
+                if (this.eventCapturedCallbacks.length === 0) {
+                    postToPageAgent({
+                        method: 'subscribe-events',
+                        forwardSnapshotPayloads: this.forwardSnapshotPayloads,
+                    })
+                }
+                this.eventCapturedCallbacks.push(callback)
+                return () => {
+                    this.eventCapturedCallbacks = this.eventCapturedCallbacks.filter((c) => c !== callback)
+                    if (this.eventCapturedCallbacks.length === 0) {
+                        postToPageAgent({ method: 'unsubscribe-events' })
+                    }
+                }
+            },
             // Matches posthog-js, which measures scroll depth on the page's scroll root when the config names one.
             scrollManager: { scrollY: () => scrollRoot(info.scrollRootSelector)?.scrollTop ?? window.scrollY },
             featureFlags: {
@@ -165,13 +218,34 @@ export class PagePosthogBridge {
         })
     }
 
+    private resolveDebugInfo(id: number, info: PageDebugInfo | null): void {
+        const resolve = this.debugInfoRequests.get(id)
+        this.debugInfoRequests.delete(id)
+        resolve?.(info)
+    }
+
     private handleReply(reply: PageAgentReply): void {
+        if (reply.kind === 'event-captured') {
+            for (const callback of this.eventCapturedCallbacks) {
+                callback(reply.event)
+            }
+            return
+        }
+        if (reply.kind === 'debug-info') {
+            this.resolveDebugInfo(reply.id, reply.info)
+            return
+        }
         if (reply.kind === 'feature-flags') {
             this.setFeatureFlags(reply.featureFlags)
             this.onChange(this.mutationStatus)
             return
         }
         if (reply.kind !== 'result') {
+            return
+        }
+        if (this.debugInfoRequests.has(reply.id)) {
+            // The page agent answers with a failed result when the page has no posthog-js.
+            this.resolveDebugInfo(reply.id, null)
             return
         }
         if (!this.pendingMutations.has(reply.id)) {

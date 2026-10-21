@@ -11,13 +11,16 @@ import { SelectorCountContext, SelectorMatchCounter } from '~/toolbar/actions/Se
 
 import { ExtensionActionEditor } from './ExtensionActionEditor'
 import { ExtensionActionsList } from './ExtensionActionsList'
+import { ExtensionEventsMenu } from './ExtensionEventsMenu'
 import { ExtensionFeatureList } from './ExtensionFeatureList'
 import { ExtensionFlagsMenu } from './ExtensionFlagsMenu'
 import { ExtensionHeatmapMenu } from './ExtensionHeatmapMenu'
 import { ExtensionInspectedElement } from './ExtensionInspectedElement'
+import { ExtensionMoreMenu } from './ExtensionMoreMenu'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { PAGE_TOOLS, PageToolDefinition, PageToolMode } from './extensionPageTools'
 import { extensionPanelLogic } from './extensionPanelLogic'
+import { ExtensionWebVitalsMenu } from './ExtensionWebVitalsMenu'
 import { usePageToolDisabledReason } from './usePageToolDisabledReason'
 
 type PanelTool = PageToolDefinition & { mode: PageToolMode }
@@ -44,6 +47,12 @@ function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
             return selectedActionId !== null ? <ExtensionActionEditor /> : <ExtensionActionsList />
         case 'flags':
             return <ExtensionFlagsMenu />
+        case 'events':
+            return <ExtensionEventsMenu />
+        case 'web-vitals':
+            return <ExtensionWebVitalsMenu />
+        case 'more':
+            return <ExtensionMoreMenu />
     }
 }
 

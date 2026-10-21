@@ -79,16 +79,19 @@ export interface screenshotUploadLogicActions {
     submitUploadSuccess: (
         uploadResult: {
             success: true
-        } | null,
+        },
         payload?: any
     ) => {
         uploadResult: {
             success: true
-        } | null
+        }
         payload?: any
     }
     takeScreenshot: () => {
         value: true
+    }
+    takeScreenshotFailure: (error: string) => {
+        error: string
     }
 }
 
@@ -107,12 +110,16 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
         selectEvent: (definition: EventDefinition) => ({ definition }),
         setShowSuggestions: (show: boolean) => ({ show }),
         takeScreenshot: true,
+        takeScreenshotFailure: (error: string) => ({ error }),
         openModal: (previewUrl: string) => ({ previewUrl }),
         closeModal: true,
     }),
 
     reducers({
-        isTakingScreenshot: [false, { takeScreenshot: () => true, openModal: () => false }],
+        isTakingScreenshot: [
+            false,
+            { takeScreenshot: () => true, openModal: () => false, takeScreenshotFailure: () => false },
+        ],
         isModalOpen: [false, { openModal: () => true, closeModal: () => false }],
         previewUrl: [null as string | null, { openModal: (_, { previewUrl }) => previewUrl, closeModal: () => null }],
         eventName: [
@@ -169,8 +176,7 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                 submitUpload: async (_, breakpoint) => {
                     const { previewUrl, selectedDefinition } = screenshotUploadLogic.values
                     if (!previewUrl || !selectedDefinition) {
-                        lemonToast.error('Please select an event')
-                        return null
+                        throw new Error('Please select an event')
                     }
 
                     // safeFetch can hand back a synthetic 502 JSON response (customer fetch
@@ -205,8 +211,15 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
 
     listeners(({ actions, props, values }) => ({
         takeScreenshot: async () => {
-            const blob = await captureElementScreenshot(document.documentElement)
-            actions.openModal(URL.createObjectURL(blob))
+            try {
+                const blob = await captureElementScreenshot(document.documentElement)
+                actions.openModal(URL.createObjectURL(blob))
+            } catch (error) {
+                actions.takeScreenshotFailure(error instanceof Error ? error.message : String(error))
+            }
+        },
+        takeScreenshotFailure: ({ error }) => {
+            lemonToast.error(`Failed to take screenshot: ${error}`)
         },
         closeModal: () => {
             if (values.previewUrl) {

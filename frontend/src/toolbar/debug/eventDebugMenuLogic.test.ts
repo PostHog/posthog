@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { classifyEvent, eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
+import { classifyEvent } from '~/toolbar/debug/eventCategories'
+import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { EventType } from '~/types'
 

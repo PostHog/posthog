@@ -5,13 +5,19 @@ import type {
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
 
+import type { EventCategory } from '~/toolbar/debug/eventCategories'
+import type { PosthogDebugInfo } from '~/toolbar/debug/posthogDebugInfo'
 import type { ActionForm } from '~/toolbar/types'
+import type { WebVitalsMetrics } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 import type { ActionStepType, ElementType } from '~/types'
 
 import type { PageActionsCommand } from './extensionPageActionsLogic'
+import type { PageEventsCommand } from './extensionPageEventsLogic'
 import type { PageFlagsCommand } from './extensionPageFlagsLogic'
 import type { PageHeatmapCommand } from './extensionPageHeatmapLogic'
+import type { PageMoreCommand } from './extensionPageMoreLogic'
 import type { PageInspectCommand, PageSessionCommand, PageSelectorsCommand } from './extensionPageToolbarLogic'
+import type { PageWebVitalsCommand } from './extensionPageWebVitalsLogic'
 
 /**
  * The content script runs the toolbar's own logics in the page, signed in with the extension's OAuth tokens. The panel
@@ -21,7 +27,7 @@ import type { PageInspectCommand, PageSessionCommand, PageSelectorsCommand } fro
 // pinned: extension port name, the panel and an already injected content script must agree on it
 export const PAGE_TOOLBAR_PORT = 'posthog-toolbar-page'
 
-export type PageToolbarMode = 'none' | 'heatmap' | 'inspect' | 'actions' | 'flags'
+export type PageToolbarMode = 'none' | 'heatmap' | 'inspect' | 'actions' | 'flags' | 'events' | 'web-vitals' | 'more'
 
 /** What the content script reads from the page's posthog-js through the page agent. */
 export interface PageAnalyticsInfo {
@@ -31,7 +37,18 @@ export interface PageAnalyticsInfo {
     scrollRootSelector: string | string[] | null
     /** Null when the posthog-js version has no heatmaps module. */
     heatmapsEnabled: boolean | null
+    /** Null when the posthog-js version has no web vitals module. */
+    webVitalsEnabled: boolean | null
+    /** The masking settings, with each value that isn't a string or a boolean replaced by `{}`. */
+    sessionRecordingConfig: Record<string, unknown>
+    sessionRecordingStatus: string | null
     featureFlags: PageFeatureFlagsSnapshot
+}
+
+/** The toolbar's debug info, read from the page's posthog-js when the user opens it. */
+export interface PageDebugInfo extends PosthogDebugInfo {
+    /** Null when the page's posthog-js has no surveys, or didn't answer in time. */
+    surveysCount: number | null
 }
 
 export interface PageFeatureFlagsSnapshot {
@@ -59,6 +76,9 @@ export interface PageToolCommands {
     heatmap: PageHeatmapCommand
     actions: PageActionsCommand
     flags: PageFlagsCommand
+    events: PageEventsCommand
+    'web-vitals': PageWebVitalsCommand
+    more: PageMoreCommand
 }
 
 export type PageToolName = keyof PageToolCommands
@@ -167,6 +187,60 @@ export interface PageToolbarFlagsState {
     mutationRevision: number
 }
 
+export interface DebugEventRow {
+    uuid: string
+    event: string
+    timestamp: string
+    pinned: boolean
+}
+
+export interface PageToolbarEventsState {
+    /** False when the page has no `window.posthog`, so no events reach the debugger. */
+    available: boolean
+    selectedEventTypes: EventCategory[]
+    hidePostHogProperties: boolean
+    hidePostHogFlags: boolean
+    relativeTimestamps: boolean
+    isPaused: boolean
+    bufferedCount: number
+    totalCount: number
+    filteredCount: number
+    countsByType: Record<EventCategory, number>
+    /** The newest filtered events, pinned ones first. */
+    rows: DebugEventRow[]
+    expandedEventId: string | null
+    /** The expanded event's properties after the hide toggles. */
+    expandedProperties: Record<string, unknown>
+    /** The expanded event as captured, for copying. */
+    expandedEventPayload: Record<string, unknown> | null
+}
+
+export interface PageToolbarWebVitalsState {
+    autocaptureEnabled: boolean
+    pathname: string
+    localWebVitals: WebVitalsMetrics
+    remoteWebVitals: WebVitalsMetrics
+}
+
+export interface PageToolbarMoreState {
+    debugInfo: PageDebugInfo | null
+    debugInfoLoading: boolean
+    piiMaskingEnabled: boolean
+    piiMaskingColor: string
+    piiWarnings: string[]
+    screenshot: {
+        taking: boolean
+        /** The page sends the preview image in its own `screenshot-preview` message, once. */
+        open: boolean
+        eventName: string
+        suggestions: { id: string; name: string }[]
+        suggestionsLoading: boolean
+        selectedEventId: string | null
+        uploading: boolean
+        result: { status: 'uploaded' } | { status: 'failed'; error: string } | null
+    }
+}
+
 export interface PageToolbarState {
     mode: PageToolbarMode
     inspect: PageToolbarInspectState
@@ -175,6 +249,9 @@ export interface PageToolbarState {
     heatmap: PageToolbarHeatmapState
     actions: PageToolbarActionsState
     flags: PageToolbarFlagsState
+    events: PageToolbarEventsState
+    webVitals: PageToolbarWebVitalsState
+    more: PageToolbarMoreState
 }
 
 export type PageToolbarMessage =
@@ -184,6 +261,7 @@ export type PageToolbarMessage =
     /** The page refreshed the tokens, which rotates the refresh token. */
     | { type: 'tokens'; tokens: PageToolbarTokens }
     | { type: 'token-expired' }
+    | { type: 'screenshot-preview'; dataUrl: string }
 
 function isObject(message: unknown): message is Record<string, unknown> {
     return !!message && typeof message === 'object'
