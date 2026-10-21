@@ -6,6 +6,8 @@ facade so data_modeling never imports this product's read layer directly — it 
 provider-neutral ``ExpectedWarehouseView`` contract.
 """
 
+from typing import Any
+
 import posthoganalytics
 
 from posthog.hogql.database.models import FieldOrTable
@@ -38,14 +40,21 @@ def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
         query = module.build_team_view(team)
         if query is not None:
             views.append(ExpectedWarehouseView(name=module.VIEW_NAME, query=query, fields=module.FIELDS))
-    if not views or not _materialized_views_enabled(team):
+    if not views:
         return views
-    if stored := ci_rows.build_team_views(team):
-        runs_query, jobs_query = stored
-        views.append(_stored_view(ci_rows.RUNS_VIEW_NAME, runs_query, ci_rows.RUN_FIELDS))
-        views.append(_stored_view(ci_rows.JOBS_VIEW_NAME, jobs_query, ci_rows.JOB_FIELDS))
-    friction_query = pr_friction.build_team_view(team)
-    if friction_query is not None:
+    enabled_views = _enabled_materialized_views(team)
+    if enabled_views.intersection((ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME)) and (
+        stored := ci_rows.build_team_views(team)
+    ):
+        if ci_rows.RUNS_VIEW_NAME in enabled_views:
+            views.append(
+                _stored_view(ci_rows.RUNS_VIEW_NAME, stored.runs, ci_rows.RUN_FIELDS, ci_rows.RUN_INCREMENTAL_CONFIG)
+            )
+        if ci_rows.JOBS_VIEW_NAME in enabled_views:
+            views.append(
+                _stored_view(ci_rows.JOBS_VIEW_NAME, stored.jobs, ci_rows.JOB_FIELDS, ci_rows.JOB_INCREMENTAL_CONFIG)
+            )
+    if pr_friction.VIEW_NAME in enabled_views and (friction_query := pr_friction.build_team_view(team)) is not None:
         views.append(
             ExpectedWarehouseView(
                 name=pr_friction.VIEW_NAME, query=friction_query, fields=pr_friction.FIELDS, materialized=True
@@ -54,18 +63,21 @@ def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
     return views
 
 
-def _stored_view(name: str, query: str, fields: dict[str, FieldOrTable]) -> ExpectedWarehouseView:
+def _stored_view(
+    name: str, query: str, fields: dict[str, FieldOrTable], incremental_config: dict[str, Any]
+) -> ExpectedWarehouseView:
     return ExpectedWarehouseView(
         name=name,
         query=query,
         fields=fields,
         materialized=True,
         sync_frequency=ci_rows.SYNC_FREQUENCY,
-        incremental_config=ci_rows.INCREMENTAL_CONFIG,
+        incremental_config=incremental_config,
     )
 
 
-def _materialized_views_enabled(team: Team) -> bool:
+def _enabled_materialized_views(team: Team) -> set[str]:
+    names = {pr_friction.VIEW_NAME, ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME}
     org_id = str(team.organization_id)
     project_id = str(team.id)
     enabled = posthoganalytics.feature_enabled(
@@ -79,14 +91,14 @@ def _materialized_views_enabled(team: Team) -> bool:
     if enabled is None:
         # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
         # does not expect, so keep the views the team has rather than drop a materialized table on an outage.
-        return (
+        return set(
             # Only this product's managed view counts: a user's own saved query can carry the same name.
             DataWarehouseSavedQuery.objects.filter(
                 team_id=team.id,
-                name__in=(pr_friction.VIEW_NAME, ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME),
+                name__in=names,
                 managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
             )
             .exclude(deleted=True)
-            .exists()
+            .values_list("name", flat=True)
         )
-    return enabled
+    return names if enabled else set()

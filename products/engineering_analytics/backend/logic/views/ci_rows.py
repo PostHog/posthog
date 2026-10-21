@@ -2,7 +2,6 @@
 in place every 15 minutes. SPEC.md section 5 has the design.
 """
 
-from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +13,8 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 from posthog.hogql.escape_sql import escape_hogql_string
+
+from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs, workflow_jobs, workflow_runs
@@ -32,13 +33,18 @@ SYNC_FREQUENCY = timedelta(minutes=15)
 LOOKBACK = timedelta(days=2)
 
 
-# The parsed ``created_at`` is the key. Depot lists a job's last attempt again under every later
-# attempt of its run, so a job id alone names several rows there.
-INCREMENTAL_CONFIG: dict[str, Any] = {
+_INCREMENTAL_CONFIG: dict[str, Any] = {
     "enabled": True,
     "incremental_key": "created_at",
-    "unique_key": ["ci_engine", "id", "run_attempt"],
     "lookback_seconds": int(LOOKBACK.total_seconds()),
+}
+
+# A rerun replaces the run snapshot. Depot's stable job ID also replaces a carried-over copy
+# when that job executes again with a new attempt ID.
+RUN_INCREMENTAL_CONFIG = {**_INCREMENTAL_CONFIG, "unique_key": ["source_id", "ci_engine", "id"]}
+JOB_INCREMENTAL_CONFIG = {
+    **_INCREMENTAL_CONFIG,
+    "unique_key": ["source_id", "ci_engine", "native_job_id", "run_attempt"],
 }
 
 _SOURCE_FIELDS: dict[str, FieldOrTable] = {
@@ -135,18 +141,23 @@ def runs_select(source: JobSourceTables) -> str:
 
 def jobs_select(source: JobSourceTables) -> str:
     jobs = depot_ci.stored_jobs(source.github_workflow_jobs, source.depot_job_attempts)
-    rows = job_costs.build_costed_jobs_query(workflow_jobs.build_query(jobs))
+    rows = job_costs.build_costed_jobs_query(workflow_jobs.build_query(jobs, compact_duplicates=False))
     return _stored_rows(source, JOB_COLUMNS, rows)
 
 
-def build_team_views(team: "Team") -> tuple[str, str] | None:
+@frozen
+class CIViewQueries:
+    runs: str
+    jobs: str
+
+
+def build_team_views(team: "Team") -> CIViewQueries | None:
     """The runs view and the jobs view over every qualifying source of the team, or None when
     there is none."""
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    return _union(sources, runs_select), _union(sources, jobs_select)
-
-
-def _union(sources: list[JobSourceTables], select: Callable[[JobSourceTables], str]) -> str:
-    return "\nUNION ALL\n".join(select(source) for source in sources)
+    return CIViewQueries(
+        runs="\nUNION ALL\n".join(runs_select(source) for source in sources),
+        jobs="\nUNION ALL\n".join(jobs_select(source) for source in sources),
+    )

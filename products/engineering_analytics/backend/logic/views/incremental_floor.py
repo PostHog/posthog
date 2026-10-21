@@ -30,4 +30,5 @@ def _floor(*, days_before: int) -> str:
     start = f"toTimeZone({WINDOW_START}, 'UTC')"
     if days_before:
         start = f"{start} - INTERVAL {days_before} DAY"
-    return f"ifNull(formatDateTime({start}, '%Y-%m-%dT%H:%M:%SZ'), '')"
+    # A fractional timestamp sorts before the same second's trailing Z, so use the second's prefix.
+    return f"ifNull(formatDateTime({start}, '%Y-%m-%dT%H:%i:%S'), '')"
