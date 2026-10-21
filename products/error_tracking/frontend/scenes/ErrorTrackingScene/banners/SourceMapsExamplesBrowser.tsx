@@ -11,9 +11,10 @@ function exampleSummary(example: MissingSymbolsExampleApi, exceptionsLoaded: boo
     if (!exceptionsLoaded) {
         return frames
     }
-    const issues = example.issue_count_capped
-        ? `${example.issue_count}+ issues`
-        : pluralize(example.issue_count, 'issue')
+    const issues =
+        example.issue_count_capped && example.issue_count > 0
+            ? `${example.issue_count}+ issues`
+            : pluralize(example.issue_count, 'issue')
     return `${frames} · ${issues}`
 }
 

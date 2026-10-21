@@ -391,7 +391,8 @@ class MissingSymbolsExample:
     # The issues with the most occurrences. `issue_count` counts them all.
     issues: list[MissingSymbolsIssue]
     issue_count: int
-    # True when the scan stopped at its fingerprint limit, so `issue_count` is a lower bound.
+    # True when the scan searched only a sample of the frames or stopped at its fingerprint limit,
+    # so `issue_count` is a lower bound.
     issue_count_capped: bool
     example_exception: MissingSymbolsExampleException | None
 

@@ -11,6 +11,10 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import (
+    ErrorTrackingSourceMapsExamplesBurstRateThrottle,
+    ErrorTrackingSourceMapsExamplesSustainedRateThrottle,
+)
 
 from products.error_tracking.backend.facade import recommendations as recommendations_facade
 from products.error_tracking.backend.facade.contracts import MissingSymbolsReason, SymbolsPlatform
@@ -101,7 +105,10 @@ class MissingSymbolsExampleSerializer(serializers.Serializer):
         help_text="How many issues have exceptions in the lookback window that contain these frames."
     )
     issue_count_capped = serializers.BooleanField(
-        help_text="True when the exception scan stopped at its limit, so `issue_count` is a lower bound."
+        help_text=(
+            "True when the exception scan searched only a sample of the frames or stopped at its limit, "
+            "so `issue_count` is a lower bound."
+        )
     )
     example_exception = MissingSymbolsExampleExceptionSerializer(
         allow_null=True,
@@ -200,7 +207,15 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             "symbols on one platform, with the reason and how many frames each covers."
         ),
     )
-    @action(detail=False, methods=["get"], pagination_class=None)
+    @action(
+        detail=False,
+        methods=["get"],
+        pagination_class=None,
+        throttle_classes=[
+            ErrorTrackingSourceMapsExamplesBurstRateThrottle,
+            ErrorTrackingSourceMapsExamplesSustainedRateThrottle,
+        ],
+    )
     def source_maps_examples(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         platform = SymbolsPlatform(request.validated_query_data["platform"])
         examples = recommendations_facade.list_missing_symbols_examples(

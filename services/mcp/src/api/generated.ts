@@ -69029,7 +69029,7 @@ export namespace Schemas {
       issues: MissingSymbolsIssue[];
       /** How many issues have exceptions in the lookback window that contain these frames. */
       issue_count: number;
-      /** True when the exception scan stopped at its limit, so `issue_count` is a lower bound. */
+      /** True when the exception scan searched only a sample of the frames or stopped at its limit, so `issue_count` is a lower bound. */
       issue_count_capped: boolean;
       /** A recent exception whose stack trace contains these frames, or null when none was found. */
       example_exception: MissingSymbolsExampleException | null;

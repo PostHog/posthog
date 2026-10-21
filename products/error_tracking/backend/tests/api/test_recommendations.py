@@ -610,19 +610,18 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_source_maps_examples_group_missing_frames_with_the_exceptions_they_appear_in(self):
-        chunk_frames = [
-            self._make_frame(
-                contents={
-                    "resolve_failure": CHUNK_NOT_UPLOADED,
-                    "source": "/assets/app.js",
-                    "mangled_name": "e",
-                    "line": 1,
-                    "column": 4321,
-                    "in_app": True,
-                }
-            )
-            for _ in range(3)
-        ]
+        chunk_contents = {
+            "resolve_failure": CHUNK_NOT_UPLOADED,
+            "source": "/assets/app.js",
+            "mangled_name": "e",
+            "line": 1,
+            "column": 4321,
+            "in_app": True,
+        }
+        # The examples search the 20 newest frames of each file, so the frame in the exceptions is the newest.
+        crash_frame = self._make_frame(contents=chunk_contents)
+        for _ in range(20):
+            self._make_frame(contents=chunk_contents, created_hours_ago=2)
         not_found_frames = [
             self._make_frame(contents={"resolve_failure": NOT_FOUND, "source": "/app.js"}) for _ in range(2)
         ]
@@ -639,13 +638,15 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
         type_error = self._issue("Cannot read properties of undefined", "fp-type-error")
         fetch_error = self._issue("Failed to fetch", "fp-fetch-error")
         for _ in range(2):
-            self._exception("fp-type-error", "Cannot read properties of undefined", [entry, chunk_frames[0]])
+            self._exception("fp-type-error", "Cannot read properties of undefined", [entry, crash_frame])
         self._exception("fp-fetch-error", "Failed to fetch", [not_found_frames[0]])
         self._exception("fp-unrelated", "Unrelated", [entry])
 
         base = f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/"
-        javascript = self.client.get(f"{base}?platform=javascript")
-        java = self.client.get(f"{base}?platform=java")
+        # A default row limit of 1 fails the test when a query relies on HogQL's default limit.
+        with patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 1):
+            javascript = self.client.get(f"{base}?platform=javascript")
+            java = self.client.get(f"{base}?platform=java")
 
         self.assertEqual(javascript.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -660,7 +661,7 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                         "location": "/assets/app.js",
                         "symbol_id": "0f1e2d",
                         "http_status": None,
-                        "frames": 3,
+                        "frames": 21,
                         "issues": [
                             {
                                 "id": str(type_error.id),
@@ -670,7 +671,7 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                             }
                         ],
                         "issue_count": 1,
-                        "issue_count_capped": False,
+                        "issue_count_capped": True,
                         "example_exception": {
                             "issue_id": str(type_error.id),
                             "fingerprint": "fp-type-error",

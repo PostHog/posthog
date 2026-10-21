@@ -132,7 +132,7 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform, user: User
 
     results = []
     for index, (group, example) in enumerate(zip(groups, examples)):
-        example_issues = _example_issues(index, matches, issues)
+        example_issues = _example_issues(index, matches, issues, frames_sampled=group.frames > len(group.raw_ids))
         results.append(
             MissingSymbolsExample(
                 reason=group.key.reason,
@@ -232,12 +232,15 @@ def _exceptions_containing(
                 GROUP BY example_index, fingerprint
                 ORDER BY occurrences DESC
                 LIMIT {fingerprints_per_example} BY example_index
+                LIMIT {max_rows}
             """,
             placeholders={
                 "needles": ast.Constant(value=needles),
                 "needle_examples": ast.Constant(value=needle_examples),
                 "since": ast.Constant(value=since),
                 "fingerprints_per_example": ast.Constant(value=FINGERPRINTS_PER_EXAMPLE),
+                # Without a top-level limit, HogQL adds its default row limit and cuts off whole examples.
+                "max_rows": ast.Constant(value=len(raw_ids_per_example) * FINGERPRINTS_PER_EXAMPLE),
             },
             team=team,
             user=user,
@@ -276,11 +279,13 @@ def _exception_lists(team: Team, user: User, representatives: list[_FingerprintM
                 SELECT uuid, properties.$exception_list
                 FROM events
                 WHERE event = '$exception' AND timestamp >= {earliest} AND timestamp <= {latest} AND uuid IN {uuids}
+                LIMIT {max_rows}
             """,
             placeholders={
                 "earliest": ast.Constant(value=min(match.timestamp for match in representatives)),
                 "latest": ast.Constant(value=max(match.timestamp for match in representatives)),
                 "uuids": ast.Constant(value=[match.event_uuid for match in representatives]),
+                "max_rows": ast.Constant(value=len(representatives)),
             },
             team=team,
             user=user,
@@ -303,7 +308,11 @@ def _issues_by_fingerprint(team_id: int, fingerprints: set[str]) -> dict[str, Mi
 
 
 def _example_issues(
-    example_index: int, matches: list[_FingerprintMatch], issues: dict[str, MissingSymbolsIssue]
+    example_index: int,
+    matches: list[_FingerprintMatch],
+    issues: dict[str, MissingSymbolsIssue],
+    *,
+    frames_sampled: bool,
 ) -> _ExampleIssues:
     # Merged issues own several fingerprints, so their counts add up.
     occurrences: dict[UUID, int] = {}
@@ -330,7 +339,8 @@ def _example_issues(
             for issue_id in ranked[:ISSUES_PER_EXAMPLE]
         ],
         count=len(ranked),
-        capped=fingerprints >= FINGERPRINTS_PER_EXAMPLE,
+        # The scan misses the issues of frames left out of the sample, and of fingerprints past its limit.
+        capped=frames_sampled or fingerprints >= FINGERPRINTS_PER_EXAMPLE,
     )
 
 
