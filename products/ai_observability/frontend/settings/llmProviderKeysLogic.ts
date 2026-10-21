@@ -184,10 +184,30 @@ export interface KeyValidationResult {
     error_field?: string | null
 }
 
+/** Serializer fields that the edit modal renders an input for. */
+export type EditKeyField = 'name' | 'api_key' | 'azure_endpoint' | 'api_version' | 'base_url'
+
 export interface ProviderKeyFieldError {
-    // Serializer field the backend rejected, e.g. 'azure_endpoint'.
-    field: string
+    field: EditKeyField
     message: string
+}
+
+// An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
+export function isFoundryKey(key: LLMProviderKey): boolean {
+    return key.provider === 'anthropic' && !!key.azure_endpoint_display
+}
+
+function editKeyFieldsFor(key: LLMProviderKey): EditKeyField[] {
+    if (key.provider === 'azure_openai') {
+        return ['name', 'api_key', 'azure_endpoint', 'api_version']
+    }
+    if (isFoundryKey(key)) {
+        return ['name', 'api_key', 'azure_endpoint']
+    }
+    if (key.provider === 'openai_compatible') {
+        return ['name', 'api_key', 'base_url']
+    }
+    return ['name', 'api_key']
 }
 
 /**
@@ -195,19 +215,11 @@ export interface ProviderKeyFieldError {
  * Returns null when the modal has no input for the rejected field, so the caller toasts instead.
  */
 export function getEditKeyFieldError(key: LLMProviderKey, errorObject: unknown): ProviderKeyFieldError | null {
-    const { status, attr, detail } = (errorObject ?? {}) as Partial<Pick<ApiError, 'status' | 'attr' | 'detail'>>
-    if (status !== 400 || !attr || !detail) {
+    if (!(errorObject instanceof ApiError) || errorObject.status !== 400 || !errorObject.detail) {
         return null
     }
-    const inlineFields = ['name', 'api_key']
-    if (key.provider === 'azure_openai') {
-        inlineFields.push('azure_endpoint', 'api_version')
-    } else if (key.provider === 'anthropic' && key.azure_endpoint_display) {
-        inlineFields.push('azure_endpoint')
-    } else if (key.provider === 'openai_compatible') {
-        inlineFields.push('base_url')
-    }
-    return inlineFields.includes(attr) ? { field: attr, message: detail } : null
+    const field = editKeyFieldsFor(key).find((candidate) => candidate === errorObject.attr)
+    return field ? { field, message: errorObject.detail } : null
 }
 
 export interface DependentEvaluation {

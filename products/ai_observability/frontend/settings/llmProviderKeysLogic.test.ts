@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
@@ -92,7 +93,7 @@ describe('llmProviderKeysLogic', () => {
         ['an Azure endpoint with a server error', false, makeKey('azure_openai'), 500, 'azure_endpoint'],
         ['a 400 without a field', false, makeKey('azure_openai'), 400, null],
     ])('attributes %s to an edit modal input: %s', (_, inline, key, status, attr) => {
-        const errorObject = { status, attr, detail: 'This field may not be blank.' }
+        const errorObject = new ApiError(undefined, status, undefined, { attr, detail: 'This field may not be blank.' })
         expect(getEditKeyFieldError(key, errorObject)).toEqual(
             inline ? { field: attr, message: 'This field may not be blank.' } : null
         )
@@ -140,7 +141,7 @@ describe('llmProviderKeysLogic', () => {
             ],
         ])('%s', async (_, attr, detail, expectedFieldError, expectedToasts) => {
             patchResponse = [400, { type: 'validation_error', code: 'invalid', detail, attr }]
-            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as any)
+            const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('')
             logic.actions.setEditingKey(azureKey)
 
             await expectLogic(logic, () => {

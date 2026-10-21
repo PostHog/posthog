@@ -28,12 +28,14 @@ import {
     DEFAULT_SYSTEM_ONE_BASE_URL,
     DEFAULT_SYSTEM_ONE_MODEL,
     DependentConfigsResponse,
+    EditKeyField,
     KeyValidationResult,
     LLMProvider,
     LLMProviderKey,
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     UpdateLLMProviderKeyPayload,
+    isFoundryKey,
     llmProviderKeysLogic,
     normalizeSystemOneBaseUrlForComparison,
     sortProviderKeys,
@@ -120,6 +122,35 @@ function endpointErrorFieldFromResult(result: KeyValidationResult | null | undef
         return null
     }
     return result.error_field === 'azure_endpoint' || result.error_field === 'base_url' ? 'endpoint' : 'key'
+}
+
+function TextField({
+    label,
+    value,
+    onChange,
+    placeholder,
+    error,
+}: {
+    label: string
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+    error: string | null
+}): JSX.Element {
+    return (
+        <div>
+            <label className="text-sm font-medium">{label}</label>
+            <LemonInput
+                value={value}
+                onChange={onChange}
+                placeholder={placeholder}
+                className="mt-1"
+                fullWidth
+                status={error ? 'danger' : undefined}
+            />
+            {error && <p className="text-xs text-danger mt-1">{error}</p>}
+        </div>
+    )
 }
 
 function FoundryEndpointField({
@@ -551,8 +582,7 @@ function EditKeyModal({
         normalizeSystemOneBaseUrlForComparison(systemOneBaseUrl) !==
         normalizeSystemOneBaseUrlForComparison(keyToEdit.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL)
     const isOpenAICompatibleEdit = keyToEdit.provider === 'openai_compatible'
-    // An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
-    const isFoundryEdit = keyToEdit.provider === 'anthropic' && !!keyToEdit.azure_endpoint_display
+    const isFoundryEdit = isFoundryKey(keyToEdit)
 
     const [name, setName] = useState(keyToEdit.name)
     const [apiKey, setApiKey] = useState('')
@@ -560,12 +590,12 @@ function EditKeyModal({
     const [apiVersion, setApiVersion] = useState(keyToEdit.api_version_display ?? DEFAULT_AZURE_API_VERSION)
     const [baseUrl, setBaseUrl] = useState(keyToEdit.base_url_display ?? '')
 
-    const fieldErrorFor = (field: string): string | null =>
+    const fieldErrorFor = (field: EditKeyField): string | null =>
         editKeyFieldError?.field === field ? editKeyFieldError.message : null
 
     // A rejected field keeps its error until the user edits that field again.
     const withFieldErrorCleared =
-        (field: string, onChange: (value: string) => void): ((value: string) => void) =>
+        (field: EditKeyField, onChange: (value: string) => void): ((value: string) => void) =>
         (value) => {
             onChange(value)
             if (editKeyFieldError?.field === field) {
@@ -728,30 +758,20 @@ function EditKeyModal({
                 </div>
                 {isAzureEdit && (
                     <>
-                        <div>
-                            <label className="text-sm font-medium">Azure endpoint</label>
-                            <LemonInput
-                                value={azureEndpoint}
-                                onChange={withFieldErrorCleared('azure_endpoint', setAzureEndpoint)}
-                                placeholder="https://my-resource.openai.azure.com/"
-                                className="mt-1"
-                                fullWidth
-                                status={azureEndpointError ? 'danger' : undefined}
-                            />
-                            {azureEndpointError && <p className="text-xs text-danger mt-1">{azureEndpointError}</p>}
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium">API version</label>
-                            <LemonInput
-                                value={apiVersion}
-                                onChange={withFieldErrorCleared('api_version', setApiVersion)}
-                                placeholder={DEFAULT_AZURE_API_VERSION}
-                                className="mt-1"
-                                fullWidth
-                                status={apiVersionError ? 'danger' : undefined}
-                            />
-                            {apiVersionError && <p className="text-xs text-danger mt-1">{apiVersionError}</p>}
-                        </div>
+                        <TextField
+                            label="Azure endpoint"
+                            value={azureEndpoint}
+                            onChange={withFieldErrorCleared('azure_endpoint', setAzureEndpoint)}
+                            placeholder="https://my-resource.openai.azure.com/"
+                            error={azureEndpointError}
+                        />
+                        <TextField
+                            label="API version"
+                            value={apiVersion}
+                            onChange={withFieldErrorCleared('api_version', setApiVersion)}
+                            placeholder={DEFAULT_AZURE_API_VERSION}
+                            error={apiVersionError}
+                        />
                     </>
                 )}
                 {isFoundryEdit && (
@@ -764,30 +784,20 @@ function EditKeyModal({
                 )}
                 {isSystemOne && <SystemOneConnectionFields />}
                 {isOpenAICompatibleEdit && (
-                    <div>
-                        <label className="text-sm font-medium">Base URL</label>
-                        <LemonInput
-                            value={baseUrl}
-                            onChange={withFieldErrorCleared('base_url', handleEndpointChange(setBaseUrl))}
-                            placeholder="https://api.example.com/v1"
-                            className="mt-1"
-                            fullWidth
-                            status={baseUrlError ? 'danger' : undefined}
-                        />
-                        {baseUrlError && <p className="text-xs text-danger mt-1">{baseUrlError}</p>}
-                    </div>
-                )}
-                <div>
-                    <label className="text-sm font-medium">Name</label>
-                    <LemonInput
-                        value={name}
-                        onChange={withFieldErrorCleared('name', setName)}
-                        className="mt-1"
-                        fullWidth
-                        status={nameError ? 'danger' : undefined}
+                    <TextField
+                        label="Base URL"
+                        value={baseUrl}
+                        onChange={withFieldErrorCleared('base_url', handleEndpointChange(setBaseUrl))}
+                        placeholder="https://api.example.com/v1"
+                        error={baseUrlError}
                     />
-                    {nameError && <p className="text-xs text-danger mt-1">{nameError}</p>}
-                </div>
+                )}
+                <TextField
+                    label="Name"
+                    value={name}
+                    onChange={withFieldErrorCleared('name', setName)}
+                    error={nameError}
+                />
                 <div>
                     <label className="text-sm font-medium">API key</label>
                     <LemonInput
