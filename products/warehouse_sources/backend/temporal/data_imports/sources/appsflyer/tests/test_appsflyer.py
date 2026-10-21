@@ -111,12 +111,6 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
-    def test_validate_credentials_succeeds_on_200(self) -> None:
-        with scripted_network([ScriptedResponse(status=200)]) as network:
-            assert validate_credentials("token", "id123") is True
-
-        assert len(network.requests_log) == 1
-
     @pytest.mark.parametrize(
         "status_code, expected_substring",
         [

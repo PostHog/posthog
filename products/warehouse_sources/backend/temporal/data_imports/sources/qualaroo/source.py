@@ -55,7 +55,7 @@ class QualarooSource(ResumableSource[QualarooSourceConfig, QualarooResumeConfig]
             name=ExternalDataSourceType.QUALAROO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualaroo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Qualaroo API key and secret to pull your survey (nudge) data into the PostHog Data warehouse.
 
 You can find your API key and secret under **Settings → API** in [Qualaroo](https://app.qualaroo.com/). They authenticate the REST Reporting API with read access to your nudges.

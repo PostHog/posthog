@@ -1836,6 +1836,101 @@ export namespace Schemas {
         | "month"
         | "quarter"
         | "year";
+    export type DataWarehouseNode = {
+        custom_name?: (string | null) | undefined;
+        distinct_id_field: string;
+        dw_source_type?: (string | null) | undefined;
+        fixedProperties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        id: string;
+        id_field: string;
+        kind?: string | undefined;
+        math?:
+            | (
+                  | BaseMathType
+                  | FunnelMathType
+                  | PropertyMathType
+                  | CountPerActorMathType
+                  | GroupMathType
+                  | ExperimentMetricMathType
+                  | CalendarHeatmapMathType
+                  | string
+                  | null
+              )
+            | undefined;
+        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
+        math_hogql?: (string | null) | undefined;
+        math_multiplier?: (number | null) | undefined;
+        math_property?: (string | null) | undefined;
+        math_property_revenue_currency?:
+            | (RevenueCurrencyPropertyConfig | null)
+            | undefined;
+        math_property_type?: (string | null) | undefined;
+        name?: (string | null) | undefined;
+        optionalInFunnel?: (boolean | null) | undefined;
+        properties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        response?: (Record<string, unknown> | null) | undefined;
+        table_name: string;
+        timestamp_field: string;
+        version?: (number | null) | undefined;
+    };
+    export type MarketingAnalyticsCostFallback = {
+        series: Array<DataWarehouseNode>;
+        sourceIds: Array<string>;
+    };
     export type PropertyGroupFilter = {
         type: FilterLogicalOperator;
         values: Array<PropertyGroupFilterValue>;
@@ -1953,97 +2048,6 @@ export namespace Schemas {
         response: Record<string, unknown> | null;
         version: number | null;
     }>;
-    export type DataWarehouseNode = {
-        custom_name?: (string | null) | undefined;
-        distinct_id_field: string;
-        dw_source_type?: (string | null) | undefined;
-        fixedProperties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        id: string;
-        id_field: string;
-        kind?: string | undefined;
-        math?:
-            | (
-                  | BaseMathType
-                  | FunnelMathType
-                  | PropertyMathType
-                  | CountPerActorMathType
-                  | GroupMathType
-                  | ExperimentMetricMathType
-                  | CalendarHeatmapMathType
-                  | string
-                  | null
-              )
-            | undefined;
-        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
-        math_hogql?: (string | null) | undefined;
-        math_multiplier?: (number | null) | undefined;
-        math_property?: (string | null) | undefined;
-        math_property_revenue_currency?:
-            | (RevenueCurrencyPropertyConfig | null)
-            | undefined;
-        math_property_type?: (string | null) | undefined;
-        name?: (string | null) | undefined;
-        optionalInFunnel?: (boolean | null) | undefined;
-        properties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        response?: (Record<string, unknown> | null) | undefined;
-        table_name: string;
-        timestamp_field: string;
-        version?: (number | null) | undefined;
-    };
     export type GroupNode = {
         custom_name?: (string | null) | undefined;
         fixedProperties?:
@@ -2294,6 +2298,9 @@ export namespace Schemas {
         filterTestAccounts?: (boolean | null) | undefined;
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
+        marketingAnalyticsCostFallback?:
+            | (MarketingAnalyticsCostFallback | null)
+            | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         properties?:
             | (
@@ -3683,107 +3690,6 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type FunnelCorrelationResultsType =
-        | "events"
-        | "properties"
-        | "event_with_properties";
-    export type CorrelationType = "success" | "failure";
-    export type EventDefinition = {
-        elements: Array<unknown>;
-        event: string;
-        properties: Record<string, unknown>;
-    };
-    export type EventOddsRatioSerialized = {
-        correlation_type: CorrelationType;
-        event: EventDefinition;
-        failure_count: number;
-        odds_ratio: number;
-        success_count: number;
-    };
-    export type FunnelCorrelationResult = {
-        events: Array<EventOddsRatioSerialized>;
-        skewed: boolean;
-    };
-    export type FunnelCorrelationResponse = {
-        columns?: (Array<unknown> | null) | undefined;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        hogql?: (string | null) | undefined;
-        limit?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset?: (number | null) | undefined;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: FunnelCorrelationResult;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<unknown> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
-    };
-    export type FunnelCorrelationQuery = {
-        funnelCorrelationEventExcludePropertyNames?:
-            | (Array<string> | null)
-            | undefined;
-        funnelCorrelationEventNames?: (Array<string> | null) | undefined;
-        funnelCorrelationExcludeEventNames?: (Array<string> | null) | undefined;
-        funnelCorrelationExcludeNames?: (Array<string> | null) | undefined;
-        funnelCorrelationNames?: (Array<string> | null) | undefined;
-        funnelCorrelationType: FunnelCorrelationResultsType;
-        kind?: string | undefined;
-        response?: (FunnelCorrelationResponse | null) | undefined;
-        source: FunnelsActorsQuery;
-        version?: (number | null) | undefined;
-    };
-    export type FunnelCorrelationActorsQuery = {
-        funnelCorrelationPersonConverted?: (boolean | null) | undefined;
-        funnelCorrelationPersonEntity?:
-            | (EventsNode | ActionsNode | DataWarehouseNode | null)
-            | undefined;
-        funnelCorrelationPropertyValues?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        includeRecordings?: (boolean | null) | undefined;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        response?: (ActorsQueryResponse | null) | undefined;
-        source: FunnelCorrelationQuery;
-        tags?: (QueryLogTags | null) | undefined;
-        version?: (number | null) | undefined;
-    };
     export type ExperimentEventExposureConfig = {
         event: string;
         kind?: string | undefined;
@@ -4434,7 +4340,6 @@ export namespace Schemas {
         source:
             | InsightActorsQuery
             | FunnelsActorsQuery
-            | FunnelCorrelationActorsQuery
             | ExperimentActorsQuery
             | StickinessActorsQuery
             | PathsV2ActorsQuery
@@ -19014,7 +18919,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         /**
-         * True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
+         * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
     };
@@ -20008,13 +19913,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         person_display_name_properties?: (Array<string> | null) | undefined;
-        /**
-         * A project and its settings, including the settings that live on its passthrough Team.
-         *
-         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
-         * onto /api/projects/ never loses a field.
-         */
-        correlation_config?: unknown | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
