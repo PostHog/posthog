@@ -122,6 +122,49 @@ class SignalSourceProduct(StrEnum):
     ENGINEERING_ANALYTICS = "engineering_analytics"
     # Search analytics (record kind: search_opportunity)
     GOOGLE_SEARCH_CONSOLE = "google_search_console"
+    # Incident management / on-call (record kind: incident)
+    PAGERDUTY = "pagerduty"
+    OPSGENIE = "opsgenie"
+    INCIDENT_IO = "incident_io"
+    FIREHYDRANT = "firehydrant"
+    SQUADCAST = "squadcast"
+    SERVICENOW = "servicenow"
+    SOLARWINDS_SERVICE_DESK = "solarwinds_service_desk"
+    GRAFANA_IRM = "grafana_irm"
+    XMATTERS = "xmatters"
+    BETTERSTACK = "betterstack"
+    # Error tracking / monitoring
+    NEWRELIC = "newrelic"
+    TRIGGER_DEV = "trigger_dev"
+    CHECKLY = "checkly"
+    ROARK = "roark"
+    # Data quality / observability
+    MONTE_CARLO = "monte_carlo"
+    BIGEYE = "bigeye"
+    # Cloud security findings
+    AWS_SECURITY_HUB = "aws_security_hub"
+    AWS_GUARDDUTY = "aws_guardduty"
+    AWS_INSPECTOR = "aws_inspector"
+    MICROSOFT_DEFENDER_CLOUD_APPS = "microsoft_defender_cloud_apps"
+    # Issue trackers / project management
+    CLICKUP = "clickup"
+    WRIKE = "wrike"
+    TRELLO = "trello"
+    BUGHERD = "bugherd"
+    # Support / CRM cases
+    DYNAMICS365 = "dynamics365"
+    ZOHO_CRM = "zoho_crm"
+    PLANHAT = "planhat"
+    # Product feedback / reviews / community
+    TRUSTPILOT = "trustpilot"
+    OKENDO = "okendo"
+    SLEEKPLAN = "sleekplan"
+    BETTERMODE = "bettermode"
+    DISCOURSE = "discourse"
+    MINTLIFY = "mintlify"
+    LANGSMITH = "langsmith"
+    SPRIG = "sprig"
+    GAINSIGHT_PX = "gainsight_px"
 
 
 class SignalSourceType(StrEnum):
@@ -150,6 +193,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    INCIDENT = "incident"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -210,6 +254,42 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
+    SignalSourceProduct.PAGERDUTY: "PagerDuty",
+    SignalSourceProduct.OPSGENIE: "Opsgenie",
+    SignalSourceProduct.INCIDENT_IO: "incident.io",
+    SignalSourceProduct.FIREHYDRANT: "FireHydrant",
+    SignalSourceProduct.SQUADCAST: "Squadcast",
+    SignalSourceProduct.SERVICENOW: "ServiceNow",
+    SignalSourceProduct.SOLARWINDS_SERVICE_DESK: "SolarWinds Service Desk",
+    SignalSourceProduct.GRAFANA_IRM: "Grafana IRM",
+    SignalSourceProduct.XMATTERS: "xMatters",
+    SignalSourceProduct.BETTERSTACK: "Better Stack",
+    SignalSourceProduct.NEWRELIC: "New Relic",
+    SignalSourceProduct.TRIGGER_DEV: "Trigger.dev",
+    SignalSourceProduct.CHECKLY: "Checkly",
+    SignalSourceProduct.ROARK: "Roark",
+    SignalSourceProduct.MONTE_CARLO: "Monte Carlo",
+    SignalSourceProduct.BIGEYE: "Bigeye",
+    SignalSourceProduct.AWS_SECURITY_HUB: "AWS Security Hub",
+    SignalSourceProduct.AWS_GUARDDUTY: "AWS GuardDuty",
+    SignalSourceProduct.AWS_INSPECTOR: "AWS Inspector",
+    SignalSourceProduct.MICROSOFT_DEFENDER_CLOUD_APPS: "Microsoft Defender for Cloud Apps",
+    SignalSourceProduct.CLICKUP: "ClickUp",
+    SignalSourceProduct.WRIKE: "Wrike",
+    SignalSourceProduct.TRELLO: "Trello",
+    SignalSourceProduct.BUGHERD: "BugHerd",
+    SignalSourceProduct.DYNAMICS365: "Dynamics 365",
+    SignalSourceProduct.ZOHO_CRM: "Zoho CRM",
+    SignalSourceProduct.PLANHAT: "Planhat",
+    SignalSourceProduct.TRUSTPILOT: "Trustpilot",
+    SignalSourceProduct.OKENDO: "Okendo",
+    SignalSourceProduct.SLEEKPLAN: "Sleekplan",
+    SignalSourceProduct.BETTERMODE: "Bettermode",
+    SignalSourceProduct.DISCOURSE: "Discourse",
+    SignalSourceProduct.MINTLIFY: "Mintlify",
+    SignalSourceProduct.LANGSMITH: "LangSmith",
+    SignalSourceProduct.SPRIG: "Sprig",
+    SignalSourceProduct.GAINSIGHT_PX: "Gainsight PX",
 }
 
 
