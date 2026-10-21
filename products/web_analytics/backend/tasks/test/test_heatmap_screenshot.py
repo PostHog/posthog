@@ -91,7 +91,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
             block_consent_modals=block_consent_modals,
         )
 
-    @parameterized.expand([(401, 0), (403, 0), (404, 0), (429, 3), (503, 3)])
+    @parameterized.expand([(401, 0), (403, 0), (404, 0), (429, 2), (503, 2)])
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
     def test_a_captured_error_page_fails_the_heatmap_instead_of_being_stored(
@@ -146,7 +146,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         finally:
             generate_heatmap_screenshot.pop_request()
 
-        assert 15 <= retry.call_args.kwargs["countdown"] <= 30
+        assert 10 <= retry.call_args.kwargs["countdown"] <= 20
         heatmap.refresh_from_db()
         assert heatmap.status == SavedHeatmap.Status.PROCESSING
         assert self.captured_events == []

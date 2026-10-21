@@ -44,6 +44,7 @@ HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
 HEATMAP_SCREENSHOT_MAX_BYTES = 20 * 1024 * 1024
 HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
 HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
+PAGE_HTTP_STATUS_MAX_RETRIES = 2
 
 HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
     "heatmap_screenshot_task_succeeded",
@@ -305,19 +306,21 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
             # failure event once retries are exhausted, so a blip doesn't flap the status or inflate
             # the failure metric.
             permanent = isinstance(e, SoftTimeLimitExceeded) or not is_retryable_failure(e)
-            if permanent or self.request.called_directly or self.request.retries >= self.max_retries:
+            page_error = isinstance(e, PageHttpStatusError)
+            max_retries = PAGE_HTTP_STATUS_MAX_RETRIES if page_error else self.max_retries
+            if permanent or self.request.called_directly or self.request.retries >= max_retries:
                 _record_failure(screenshot, e, started_at=started_at)
                 raise
             countdown = min(2 ** (self.request.retries + 1), 60)
-            if isinstance(e, PageHttpStatusError):
-                countdown = random.randint(15, 30) * 2**self.request.retries
+            if page_error:
+                countdown = random.randint(10, 20) * 2**self.request.retries
             logger.warning(
                 "heatmap_screenshot.retrying",
                 screenshot_id=screenshot.id,
                 team_id=screenshot.team_id,
                 url=screenshot.url,
                 retries=self.request.retries,
-                max_retries=self.max_retries,
+                max_retries=max_retries,
                 countdown=countdown,
                 failure_type=_classify_failure(e),
                 exception=str(e),
