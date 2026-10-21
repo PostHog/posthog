@@ -514,7 +514,7 @@ class TestPartitionMeasurementRecord:
             "merge_table_measured_against_its_split_budget",
             "split_budget_changed_since_the_measurement",
             "measurement_without_a_split_budget",
-            "automatic_merge_coarsening_turned_on_since_the_measurement",
+            "auto_coarsen_flag_turned_on_since_the_measurement",
             "merge_table_measured_against_its_coarsen_budget",
         ],
     )
@@ -565,8 +565,8 @@ class TestPartitionMeasurementRecord:
             override_settings(
                 DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500,
                 DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES=2000,
-                DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED=auto_coarsen,
             ),
+            patch.object(ctrl, "is_schema_flag_enabled", return_value=auto_coarsen),
             patch.object(ctrl.ExternalDataSchemaOOMEvent, "recent_count", return_value=recent_ooms),
         ):
             assert ctrl.pre_extraction_measurement_is_redundant(schema, current) is redundant
@@ -932,9 +932,18 @@ class TestMergeCoarsenPolicy:
         schema.save()
         return schema
 
-    def _detect(self, team, schema: ExternalDataSchema, partition_bytes: dict[str | None, int], **settings) -> None:
+    def _detect(
+        self,
+        team,
+        schema: ExternalDataSchema,
+        partition_bytes: dict[str | None, int],
+        *,
+        flag_enabled: bool = False,
+        **settings,
+    ) -> MagicMock:
         with (
             override_settings(**{**self._BUDGETS, **settings}),
+            patch.object(ctrl, "is_schema_flag_enabled", return_value=flag_enabled) as flag_check,
             patch.object(ctrl, "measure_partition_bytes", return_value=partition_bytes),
             patch.object(ctrl, "capture_repartition_event"),
         ):
@@ -942,6 +951,7 @@ class TestMergeCoarsenPolicy:
                 schema, schema.source, _make_job(team, schema), MagicMock(), logger
             )
         schema.refresh_from_db()
+        return flag_check
 
     @staticmethod
     def _md5_layout(count: int, each: int) -> dict[str | None, int]:
@@ -1005,31 +1015,46 @@ class TestMergeCoarsenPolicy:
             assert pending["partition_count"] == expected_count
 
     @pytest.mark.parametrize(
-        "sync_type, auto_enabled, each, expected_count",
+        "sync_type, flag_state, each, expected_count",
         [
-            (_KEYED, None, 100, None),
-            (_KEYED, False, 100, None),
-            (_KEYED, True, 100, 17),
-            (_KEYED, None, 20, 17),
-            (_KEYED, True, 20, 5),
-            (_FULL_REFRESH, True, 100, None),
+            (_KEYED, "off", 100, None),
+            (_KEYED, "on", 100, 17),
+            (_KEYED, "errors", 100, None),
+            (_KEYED, "off", 20, 17),
+            (_KEYED, "errors", 20, 17),
+            (_KEYED, "on", 20, 5),
+            (_FULL_REFRESH, "on", 100, None),
         ],
         ids=[
-            "off_by_default",
             "off_leaves_a_table_only_the_merge_budget_can_coarsen",
             "on_coarsens_against_the_merge_budget",
+            "an_erroring_flag_counts_as_off",
             "off_keeps_the_base_policy",
+            "an_erroring_flag_keeps_the_base_policy",
             "on_stops_near_the_target",
             "on_does_not_reach_full_refresh_tables",
         ],
     )
-    def test_automatic_merge_coarsening_is_behind_a_setting(
-        self, team, sync_type: str, auto_enabled: bool | None, each: int, expected_count: int | None
+    def test_automatic_merge_coarsening_is_behind_a_flag(
+        self, team, sync_type: str, flag_state: str, each: int, expected_count: int | None
     ):
         schema = self._schema(team, sync_type, partition_count=85, nominated=False)
-        settings = {} if auto_enabled is None else {"DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED": auto_enabled}
+        layout = self._md5_layout(85, each)
 
-        self._detect(team, schema, self._md5_layout(85, each), **settings)
+        if flag_state == "errors":
+            with (
+                patch.object(schema_flags.posthoganalytics, "feature_enabled", side_effect=RuntimeError("flags down")),
+                patch.object(schema_flags, "capture_exception"),
+                override_settings(**self._BUDGETS),
+                patch.object(ctrl, "measure_partition_bytes", return_value=layout),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                async_to_sync(ctrl.maybe_flag_for_repartition)(
+                    schema, schema.source, _make_job(team, schema), MagicMock(), logger
+                )
+            schema.refresh_from_db()
+        else:
+            self._detect(team, schema, layout, flag_enabled=flag_state == "on")
 
         pending = schema.repartition_pending
         if expected_count is None:
@@ -1039,9 +1064,33 @@ class TestMergeCoarsenPolicy:
             assert pending["trigger_reason"] == "coarsening"
             assert pending["partition_count"] == expected_count
 
-    @pytest.mark.parametrize("auto_enabled", [False, True], ids=["auto_off", "auto_on"])
+    @pytest.mark.parametrize(
+        "sync_type, nominated, expected_calls",
+        [
+            (_KEYED, False, 1),
+            (_KEYED, True, 0),
+            (_FULL_REFRESH, False, 0),
+        ],
+        ids=[
+            "a_keyed_md5_table_evaluates_the_flag_once",
+            "a_nomination_skips_the_flag",
+            "a_table_the_policy_cannot_reach_skips_the_flag",
+        ],
+    )
+    def test_the_flag_is_evaluated_only_when_it_can_change_the_policy(
+        self, team, sync_type: str, nominated: bool, expected_calls: int
+    ):
+        schema = self._schema(team, sync_type, partition_count=85, nominated=nominated)
+
+        flag_check = self._detect(team, schema, self._md5_layout(85, 20))
+
+        assert flag_check.call_count == expected_calls
+        if expected_calls:
+            assert flag_check.call_args.args == (schema, ctrl.WAREHOUSE_MERGE_AUTO_COARSEN_FLAG)
+
+    @pytest.mark.parametrize("flag_enabled", [False, True], ids=["flag_off", "flag_on"])
     @pytest.mark.parametrize("layout_age_days", [0, 2], ids=["just_rewritten", "past_the_cooldown"])
-    def test_a_coarsened_table_is_not_split_or_coarsened_again(self, team, auto_enabled: bool, layout_age_days: int):
+    def test_a_coarsened_table_is_not_split_or_coarsened_again(self, team, flag_enabled: bool, layout_age_days: int):
         schema = self._schema(team, _KEYED, partition_count=64, nominated=True)
         self._detect(team, schema, self._md5_layout(64, 187))
         pending = schema.repartition_pending
@@ -1062,7 +1111,7 @@ class TestMergeCoarsenPolicy:
             team,
             schema,
             self._md5_layout(coarse_count, 64 * 187 // coarse_count),
-            DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED=auto_enabled,
+            flag_enabled=flag_enabled,
         )
 
         assert schema.repartition_pending is None

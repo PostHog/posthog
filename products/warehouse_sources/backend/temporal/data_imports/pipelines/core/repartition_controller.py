@@ -48,6 +48,10 @@ if TYPE_CHECKING:
 # the second is not a decision the first should make.
 WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
 
+# Lets the automatic coarsening path size keyed md5 tables by merge parallelism. Release it to one
+# table with a `schema_id` condition before rolling out wider.
+WAREHOUSE_MERGE_AUTO_COARSEN_FLAG = "data-warehouse-merge-auto-coarsen"
+
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
 # coarsened table has to double before the finer path can claim it, and a freshly split one has to
@@ -125,8 +129,8 @@ def split_budget_bytes(schema: ExternalDataSchema) -> int:
 MERGE_COARSEN_TARGET_FRACTION = 0.75
 
 
-def merge_auto_coarsen_enabled() -> bool:
-    return bool(getattr(settings, "DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED", False))
+def merge_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
+    return is_schema_flag_enabled(schema, WAREHOUSE_MERGE_AUTO_COARSEN_FLAG)
 
 
 def merge_md5_partition_min() -> int:
@@ -137,7 +141,9 @@ def merge_md5_partition_target() -> int:
     return max(merge_md5_partition_min(), int(getattr(settings, "DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8)))
 
 
-def coarsens_for_merge_parallelism(schema: ExternalDataSchema, *, operator_requested: bool) -> bool:
+def coarsens_for_merge_parallelism(
+    schema: ExternalDataSchema, *, operator_requested: bool, auto_coarsen: bool | None = None
+) -> bool:
     """Whether coarsening sizes this table by the merge budget and the md5 partition target.
 
     Only a keyed md5 table qualifies. Its upserts hash every batch over all partitions, so each
@@ -145,17 +151,23 @@ def coarsens_for_merge_parallelism(schema: ExternalDataSchema, *, operator_reque
     memory (see `split_budget_bytes`). A batch of a datetime or numerical table usually falls in a few
     partitions, so the partition count does not set its merge cost, and the base budget stays.
 
-    The automatic path uses this policy only when `DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED` is on.
-    An operator nomination always uses it.
+    The automatic path uses this policy only when the auto coarsen flag is on for the schema. An
+    operator nomination always uses it. A caller that already has the flag result passes it as
+    `auto_coarsen`, so the flag is evaluated at most once per run. The evaluation is synchronous
+    and reads the database, so async callers run this in a thread.
     """
     if schema.sync_type not in KEYED_MERGE_SYNC_TYPES or schema.partition_mode != "md5":
         return False
-    return operator_requested or merge_auto_coarsen_enabled()
+    if operator_requested:
+        return True
+    return merge_auto_coarsen_enabled(schema) if auto_coarsen is None else auto_coarsen
 
 
-def coarsen_trigger_budget(schema: ExternalDataSchema, *, operator_requested: bool) -> int:
+def coarsen_trigger_budget(
+    schema: ExternalDataSchema, *, operator_requested: bool, auto_coarsen: bool | None = None
+) -> int:
     """The budget that the coarsening trigger compares the largest partition with."""
-    if coarsens_for_merge_parallelism(schema, operator_requested=operator_requested):
+    if coarsens_for_merge_parallelism(schema, operator_requested=operator_requested, auto_coarsen=auto_coarsen):
         return merge_target_partition_bytes()
     return target_partition_bytes()
 
@@ -391,6 +403,7 @@ async def maybe_flag_for_coarsening(
     logger: FilteringBoundLogger,
     *,
     max_bytes: int,
+    auto_coarsen: bool | None = None,
 ) -> None:
     """Flag an over-fragmented table to be rebuilt into fewer, larger partitions.
 
@@ -430,8 +443,10 @@ async def maybe_flag_for_coarsening(
         return
 
     requested = schema.coarsen_requested
-    merge_policy = coarsens_for_merge_parallelism(schema, operator_requested=requested is not None)
-    budget = coarsen_trigger_budget(schema, operator_requested=requested is not None)
+    merge_policy = await asyncio.to_thread(
+        coarsens_for_merge_parallelism, schema, operator_requested=requested is not None, auto_coarsen=auto_coarsen
+    )
+    budget = coarsen_trigger_budget(schema, operator_requested=requested is not None, auto_coarsen=merge_policy)
     if requested is None:
         # Below these two the table is not over-fragmented at all, so returning before `_decline`
         # keeps the metric scoped to the population the rollout is about.
@@ -594,7 +609,9 @@ async def maybe_flag_for_repartition(
         # A table with this shape is one that the coarsening path evaluates on each run, and its
         # gates open with time (layout age, days without an OOM). Such a table is never healthy, so
         # the next run measures it again.
-        coarsen_budget = coarsen_trigger_budget(schema, operator_requested=False)
+        nominated = schema.coarsen_requested is not None
+        auto_coarsen = await asyncio.to_thread(coarsens_for_merge_parallelism, schema, operator_requested=nominated)
+        coarsen_budget = coarsen_trigger_budget(schema, operator_requested=nominated, auto_coarsen=auto_coarsen)
         coarsen_candidate = (
             len(partition_bytes) >= COARSEN_MIN_PARTITIONS and max_bytes * COARSEN_TRIGGER_DIVISOR <= coarsen_budget
         )
@@ -624,7 +641,7 @@ async def maybe_flag_for_repartition(
                 partition_count=len(partition_bytes),
             )
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes
+                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes, auto_coarsen=auto_coarsen
             )
             return
 

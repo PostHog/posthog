@@ -109,11 +109,9 @@ DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
 # nearest to TARGET, never below MIN. MIN is the memory governor's cap on the partitions that one upsert
 # merges in parallel, so a coarser table keeps all of its merge parallelism. TARGET is twice that cap,
 # so the parallel partition tasks still share the work when one partition is slow.
-# When AUTO_COARSEN_ENABLED is off, the automatic path coarsens these tables on the base budget as for
-# any other table, and only a `stage_warehouse_coarsening` nomination uses this policy.
-DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED = get_from_env(
-    "DATA_WAREHOUSE_MERGE_AUTO_COARSEN_ENABLED", False, type_cast=str_to_bool
-)
+# The automatic path uses this policy only when the `data-warehouse-merge-auto-coarsen` feature flag is on
+# for the schema. Otherwise it coarsens these tables on the base budget as for any other table.
+# A `stage_warehouse_coarsening` nomination always uses this policy.
 DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8, type_cast=int)
 DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN", 4, type_cast=int)
 
