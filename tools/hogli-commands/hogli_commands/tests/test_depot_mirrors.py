@@ -9,9 +9,9 @@ import pytest
 from hogli_commands.depot_mirrors import mirror_violations
 
 TREE = {
-    ".depot/workflows/ci-backend.yml": "steps:\n  - uses: ./.depot/actions/setup-turbo\n  - uses: './.github/actions/pnpm-install'\n",
-    ".github/actions/setup-turbo/action.yml": "name: turbo\n",
-    ".depot/actions/setup-turbo/action.yml": "name: turbo\n",
+    ".depot/workflows/ci-backend.yml": "steps:\n  - uses: ./.depot/actions/setup-uv\n  - uses: './.github/actions/pnpm-install'\n",
+    ".github/actions/setup-uv/action.yml": "name: uv\n",
+    ".depot/actions/setup-uv/action.yml": "name: uv\n",
     ".github/actions/pnpm-install/action.yml": "name: pnpm\n",
     ".depot/actions/pnpm-install/action.yml": "name: pnpm with a depot delta\n",
     ".github/actions/semgrep-ci/action.yml": "name: not used by depot\n",
@@ -24,8 +24,8 @@ class TestMirrorViolations:
         [
             pytest.param(
                 {
-                    ".github/actions/setup-turbo/action.yml",
-                    ".depot/actions/setup-turbo/action.yml",
+                    ".github/actions/setup-uv/action.yml",
+                    ".depot/actions/setup-uv/action.yml",
                     ".github/actions/pnpm-install/action.yml",
                     ".depot/actions/pnpm-install/action.yml",
                 },
@@ -35,9 +35,9 @@ class TestMirrorViolations:
             ),
             pytest.param({".github/actions/semgrep-ci/action.yml"}, None, None, id="action-depot-does-not-use"),
             pytest.param(
-                {".github/actions/setup-turbo/action.yml"},
+                {".github/actions/setup-uv/action.yml"},
                 None,
-                "without a matching update to .depot/actions/setup-turbo/action.yml",
+                "without a matching update to .depot/actions/setup-uv/action.yml",
                 id="canonical-action-only",
             ),
             pytest.param(
@@ -48,8 +48,8 @@ class TestMirrorViolations:
             ),
             pytest.param(
                 set(),
-                lambda root: (root / ".depot/actions/setup-turbo/action.yml").write_text("drift\n"),
-                ".depot/actions/setup-turbo/ differs",
+                lambda root: (root / ".depot/actions/setup-uv/action.yml").write_text("drift\n"),
+                ".depot/actions/setup-uv/ differs",
                 id="exact-mirror-differs",
             ),
             pytest.param(

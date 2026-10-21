@@ -1,10 +1,8 @@
-# Depot mirror of .github/actions/setup-uv. Kept equal to canonical except for the
-# "Download uv into the tool cache" step, which keeps setup-uv off the network.
 name: Set up uv
 description: |
     Installs CI's exact uv version and optionally restores its cache.
 
-    The exact pin makes installs reproducible. setup-uv v7.6.0 resolves
+    The exact pin makes installs reproducible. setup-uv v10.3.0 resolves
     downloads through Astral's static manifest, not the GitHub releases API.
     Jobs that check out an older revision must install uv directly: this
     action does not exist in those trees.
@@ -34,29 +32,9 @@ outputs:
 runs:
     using: composite
     steps:
-        # setup-uv reads its version manifest from raw.githubusercontent.com and does not retry,
-        # so a network error there fails the job. With the pinned uv already in the runner tool
-        # cache, setup-uv makes no network request to install it. If this step fails, setup-uv
-        # installs uv itself. bin/check_uv_python_compatibility.py checks that UV_VERSION matches
-        # every setup-uv `version` pin.
-        - name: Download uv into the tool cache
-          shell: bash
-          continue-on-error: true
-          env:
-              UV_VERSION: '0.12.13'
-              UV_SHA256: 745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd
-          run: |
-              dir="$RUNNER_TOOL_CACHE/uv/$UV_VERSION/x86_64"
-              archive="$RUNNER_TEMP/uv-$UV_VERSION.tar.gz"
-              curl -fsSL --retry 5 --retry-all-errors --retry-max-time 30 --connect-timeout 10 --max-time 30 -o "$archive" \
-                  "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz"
-              echo "$UV_SHA256  $archive" | sha256sum -c -
-              mkdir -p "$dir"
-              tar -xzf "$archive" --strip-components=1 -C "$dir"
-              touch "$dir.complete"
         - name: Install uv
           id: setup-uv
-          uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+          uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
           with:
               version: '0.12.13'
               enable-cache: ${{ inputs.enable-cache }}

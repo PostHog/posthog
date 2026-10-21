@@ -2,7 +2,7 @@ name: Set up uv
 description: |
     Installs CI's exact uv version and optionally restores its cache.
 
-    The exact pin makes installs reproducible. setup-uv v7.6.0 resolves
+    The exact pin makes installs reproducible. setup-uv v10.3.0 resolves
     downloads through Astral's static manifest, not the GitHub releases API.
     Jobs that check out an older revision must install uv directly: this
     action does not exist in those trees.
@@ -34,7 +34,7 @@ runs:
     steps:
         - name: Install uv
           id: setup-uv
-          uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+          uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
           with:
               version: '0.12.13'
               enable-cache: ${{ inputs.enable-cache }}

@@ -69,28 +69,6 @@ class TestLabelWorkflowPins(unittest.TestCase):
                 ok, pin = check_workflow_pins()
         self.assertEqual((ok, pin), (expected_ok, "0.11.28" if expected_ok else None))
 
-    @parameterized.expand([("matching", "'0.11.28'", True), ("stale", "'0.11.27'", False)])
-    def test_prefetch_pin_must_match_setup_uv(self, _name: str, prefetch_version: str, expected_ok: bool) -> None:
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            workflow = root / ".depot/workflows/ci.yml"
-            workflow.parent.mkdir(parents=True)
-            workflow.write_text(
-                "steps:\n"
-                "  - env:\n"
-                f"      UV_VERSION: {prefetch_version}\n"
-                "    run: ./prefetch-uv\n"
-                "  - uses: astral-sh/setup-uv@abc\n"
-                "    with:\n"
-                "      version: '0.11.28'\n"
-            )
-            with (
-                patch("bin.check_uv_python_compatibility.__file__", str(root / "bin/check.py")),
-                redirect_stdout(io.StringIO()),
-            ):
-                ok, _pin = check_workflow_pins()
-        self.assertEqual(ok, expected_ok)
-
     def test_missing_pin_does_not_read_next_step(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
