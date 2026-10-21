@@ -3212,10 +3212,14 @@ snapshots:
         hash: v1.k794b7964.48197d9cf132e3225936969e3d4d337db9811ab31ab2624df878317847e38109.6jga9VY3EA1ilp9PgPNPVdrux9Elev944fjSFOJjGqo
     errortracking-ratelimitsimulationchart--with-limit--light:
         hash: v1.k794b7964.3319d12b63700f0e20c2345c8706223a8940d5fe37a4278a597ba5f13d81ba65.ubh71HB2yJA2-HrliI_wUJB_HMOlOgRNmgb_o0Lhu9U
-    errortracking-sourcemapsexamplestable--mixed-reasons--dark:
-        hash: v1.k794b7964.1f0038112ffc1decccfaf7ce26f4c2f21e65a8abaed4b5a95181b9928c9073c1.bPXu5YnctDYV3nfhok0GJMfzN2AjfKMWpGNOq19XaV0
-    errortracking-sourcemapsexamplestable--mixed-reasons--light:
-        hash: v1.k794b7964.d093147386bd68089da328ebbd8311a6f5a1ea750e4eb367d4c60c2f77a7e8b5.BtOIWSxyRr0cJI1lIlWjtdmAbFSXL_DhtPjspcia6Yc
+    errortracking-sourcemapsexamplesbrowser--master-detail--dark:
+        hash: v1.k794b7964.1ab012ee22c5de8a4876d5eb635d77bc75518039bbd06bbb64fb50d8a99b8a00.PlKEqZH86A6v2VdgsoBHd26kdxeq-ExQWNi-69TK2x8
+    errortracking-sourcemapsexamplesbrowser--master-detail--light:
+        hash: v1.k794b7964.1987a860ee18b09f7f5babf4b0066a4eb8fca2029a79c21406c4da81e9104776.UH50ypZckpPst0TqNoBOdIOMRGhW8DzYauNWbHPZzsg
+    errortracking-sourcemapsexamplesbrowser--narrow--dark:
+        hash: v1.k794b7964.f8c279eaf92924650536e08d59a2ea2eeb300dbefb9607f6abde246339b6ed5e.Hj6GSowOJBrQ2yYfxhTo_3QzBLcH48FrLb9D4558NkA
+    errortracking-sourcemapsexamplesbrowser--narrow--light:
+        hash: v1.k794b7964.189e9c8195afaacbe9591f33d4ae737cbee7a2c274005ff21a66d3338fe93d40.hdvzpBdEF6I9hgUQ1j_11p8X4QZeGxR85Dh4qtOnPmE
     errortracking-stacktraceactions--default--dark:
         hash: v1.k794b7964.66675f9b97886c67caa1944ddebc31ea5efb020398be48d74bbc1bf09e6dcab0.h_iqU-qk8JaIXWcf4fo7OBrIK0IVvMaOTQ-2KIjoH3A
     errortracking-stacktraceactions--default--light:
