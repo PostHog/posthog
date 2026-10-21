@@ -14,6 +14,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
+from products.access_control.backend.facade.testing import add_role_member, create_access_control, create_role
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -189,24 +190,50 @@ class TestReportAssignmentService(BaseTest):
             self.service.apply(self._proposal(), actor=ArtefactAttribution.system())
         assert self.report.assignment_revisions.count() == 0
 
-    @parameterized.expand([(1,), (3,)])
-    def test_member_resolution_scopes_access_and_batches_github_queries(self, member_count: int) -> None:
+    @parameterized.expand([(1, False), (3, False), (1, True), (3, True)])
+    def test_member_resolution_scopes_access_and_batches_queries(self, member_count: int, rbac_enabled: bool) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
+        if rbac_enabled:
+            self.organization.available_product_features.append(
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
+            )
         self.organization.save(update_fields=["available_product_features"])
-        AccessControl.objects.create(
-            team=self.team,
+        self.team.organization = self.organization
+        create_access_control(
+            team_id=self.team.id,
             resource="project",
             resource_id=str(self.team.id),
-            access_level="member",
-            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+            access_level="none",
         )
         members = [self.member]
         for index in range(member_count - 1):
             member = User.objects.create(email=f"assignment-member-{index}@example.com")
             OrganizationMembership.objects.create(user=member, organization=self.organization)
             members.append(member)
+        if rbac_enabled:
+            role_id = create_role(organization_id=self.organization.id, name="Report reviewers")
+            create_access_control(
+                team_id=self.team.id,
+                resource="project",
+                resource_id=str(self.team.id),
+                access_level="member",
+                role_id=role_id,
+            )
+            for member in members:
+                add_role_member(role_id=role_id, user_id=member.id)
+        else:
+            for member in members:
+                create_access_control(
+                    team_id=self.team.id,
+                    resource="project",
+                    resource_id=str(self.team.id),
+                    access_level="member",
+                    organization_member_id=OrganizationMembership.objects.get(
+                        user=member, organization=self.organization
+                    ).id,
+                )
         UserSocialAuth.objects.create(
             user=self.member, provider="github", uid="assignment-member", extra_data={"login": "example-reviewer"}
         )
@@ -231,6 +258,10 @@ class TestReportAssignmentService(BaseTest):
             query for query in queries if any(f'FROM "{table}"' in query["sql"] for table in identity_tables)
         ]
         assert len(identity_queries) == 3
+        access_queries = [query for query in queries if 'FROM "ee_accesscontrol"' in query["sql"]]
+        role_queries = [query for query in queries if 'FROM "ee_rolemembership"' in query["sql"]]
+        assert len(access_queries) == 1
+        assert len(role_queries) == int(rbac_enabled)
 
     @parameterized.expand([("automatic",), ("human",)])
     def test_github_login_cannot_override_member_identity(self, source: str) -> None:
