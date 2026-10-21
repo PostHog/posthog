@@ -27,6 +27,7 @@ import {
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
+    requestOAuthTokens,
     safeFetch,
 } from './utils'
 
@@ -56,6 +57,7 @@ export interface toolbarConfigLogicValues {
     experimentId: ExperimentIdType | null
     isAuthenticated: boolean
     isTrustedUiHost: boolean
+    ownsPageSession: boolean
     posthog: PostHog | null
     productTourId: string | null
     props: ToolbarProps
@@ -122,6 +124,7 @@ export interface toolbarConfigLogicActions {
 export interface toolbarConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         posthog: (props: ToolbarProps) => PostHog | null
+        ownsPageSession: (props: ToolbarProps) => boolean
         uiHost: (props: ToolbarProps) => string
         apiHostResolution: (props: ToolbarProps) => {
             host: string
@@ -213,6 +216,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props: ToolbarProps) => props.posthog ?? null],
+        /**
+         * False when the browser extension mounts this logic in its content script with tokens it owns. The page's URL
+         * hash and localStorage belong to the customer's site there, and posthog-js launches the floating toolbar from
+         * that storage.
+         */
+        ownsPageSession: [(s) => [s.props], (props: ToolbarProps): boolean => props.source !== 'extension'],
         // PostHog app URL used for OAuth and navigation links.
         //
         // Every candidate (props.uiHost, requestRouter, config.ui_host, apiURL) is
@@ -387,6 +396,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         logout: () => {
             toolbarLogger.info('auth', 'User logged out')
             toolbarPosthogJS.capture('toolbar logout')
+            if (!values.ownsPageSession) {
+                return
+            }
             localStorage.removeItem(LOCALSTORAGE_KEY)
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             localStorage.removeItem(PKCE_STORAGE_KEY)
@@ -395,6 +407,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
             toolbarLogger.warn('auth', 'Session expired, clearing session')
+            if (!values.ownsPageSession) {
+                return
+            }
             if (values.props.source !== 'localstorage') {
                 lemonToast.error('Please re-authenticate to continue using the toolbar.')
             }
@@ -405,6 +420,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             actions.persistConfig()
         },
         persistConfig: () => {
+            if (!values.ownsPageSession) {
+                return
+            }
             // Most params we don't change, only those that we may have modified during the session
             const toolbarParams: ToolbarProps = {
                 ...values.props,
@@ -442,6 +460,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions, cache }) => {
+        if (!values.ownsPageSession) {
+            return
+        }
         // Read hash params WITHOUT modifying the URL. The URL cleanup is deferred
         // to avoid triggering SPA routers that watch for history.replaceState changes
         // and could destroy/re-mount the page (and the toolbar) mid-initialization.
@@ -483,11 +504,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         verifyUiHostReachability(props, values, actions, authParams)
     }),
 
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ values, cache }) => {
         if (cache.hashRetryTimeout !== undefined) {
             clearTimeout(cache.hashRetryTimeout)
         }
-        cleanToolbarAuthHash()
+        if (values.ownsPageSession) {
+            cleanToolbarAuthHash()
+        }
     }),
 ])
 
@@ -821,13 +844,7 @@ function startCodeExchange(
     authParams: { code: string; clientId: string },
     actions: TokenActions
 ): void {
-    void exchangeCodeForTokens(
-        `${uiHost}/oauth/token/`,
-        `${uiHost}/toolbar_oauth/callback`,
-        authParams.code,
-        authParams.clientId,
-        actions
-    ).then((succeeded) => {
+    void exchangeCodeForTokens(uiHost, authParams.code, authParams.clientId, actions).then((succeeded) => {
         if (!succeeded) {
             // Code exchange failed (stale code, expired PKCE, network error).
             // Fall back to stored OAuth tokens so users don't have to
@@ -844,8 +861,7 @@ function startCodeExchange(
 const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 async function exchangeCodeForTokens(
-    tokenEndpoint: string,
-    redirectUri: string,
+    uiHost: string,
     code: string,
     clientId: string,
     actions: TokenActions
@@ -872,27 +888,14 @@ async function exchangeCodeForTokens(
         return false
     }
 
-    const body = new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: clientId,
-        code,
-        redirect_uri: redirectUri,
-        code_verifier: pkceData.verifier,
-    })
-
     // Every failure in the exchange is an expected request outcome (stale/reused code,
     // expired PKCE, network hiccup, proxy error page) - tracked via the capture events
     // and logs, never reported to error tracking.
     const startTime = performance.now()
     try {
-        const res = await safeFetch(tokenEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString(),
-        })
-        const data = await res.json().catch(() => null)
-        const access = asNonEmptyString(data?.access_token)
-        const refresh = asNonEmptyString(data?.refresh_token)
+        const res = await requestOAuthTokens({ uiHost, code, clientId, verifier: pkceData.verifier })
+        const access = res.accessToken
+        const refresh = res.refreshToken
         // A refresh token is optional: impersonation-minted tokens are refresh-less by design
         // (they can't outlive the admin's impersonation session), so require only the access
         // token here. Without a refresh token the short-lived access token is used until it
@@ -906,7 +909,7 @@ async function exchangeCodeForTokens(
             actions.setOAuthTokens(access, refresh, clientId)
             return true
         }
-        const errorString = asNonEmptyString(data?.error) ?? 'unknown'
+        const errorString = res.error ?? 'unknown'
         toolbarPosthogJS.capture('toolbar oauth exchange', {
             status: 'error',
             error: errorString,
