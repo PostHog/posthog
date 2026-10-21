@@ -48,7 +48,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             secure_value=hash_key_value(self.api_key),
             scopes=["*"],
         )
-        self.sample_hogql_query = {
+        self.sample_hogql_query: dict[str, Any] = {
             "connectionId": None,
             "executionTarget": None,
             "explain": None,
@@ -69,15 +69,22 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "series": [{"kind": "EventsNode"}],
         }
 
-    def test_create_hogql_endpoint(self):
-        """Test creating a endpoint successfully."""
+    @parameterized.expand([(None,), (True,)])
+    def test_create_hogql_endpoint(self, native: bool | None):
         data = {
             "name": "test_query",
             "description": "Test query description",
             "query": self.sample_hogql_query,
         }
 
+        if native is not None:
+            data["query"] = {**self.sample_hogql_query, "modifiers": {"useNewEventsCluster": native}}
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+        if native:
+            self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+            self.assertIn("not support native events cluster", str(response.json()))
+            self.assertFalse(Endpoint.objects.filter(team=self.team, name="test_query").exists())
+            return
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
@@ -320,8 +327,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
-    def test_update_endpoint(self):
-        """Test updating an existing endpoint."""
+    @parameterized.expand([(None,), (True,)])
+    def test_update_endpoint(self, native: bool | None):
         endpoint = create_endpoint_with_version(
             name="update_test",
             team=self.team,
@@ -330,15 +337,25 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        updated_data = {
+        updated_query: dict[str, Any] = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        if native is not None:
+            updated_query["modifiers"] = {"useNewEventsCluster": native}
+
+        updated_data: dict[str, Any] = {
             "description": "Updated description",
             "is_active": False,
-            "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "query": updated_query,
         }
 
         response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
+
+        if native:
+            self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+            self.assertIn("not support native events cluster", str(response.json()))
+            self.assertEqual(endpoint.versions.count(), 1)
+            return
 
         response_data = response.json()
         self.assertEqual(status.HTTP_200_OK, response.status_code, response_data)

@@ -1,13 +1,18 @@
 # Taxonomic filter search loading
 
-The classic picker and the rebuilt menu hold aggregated search results until the contributing categories settle. This prevents late category results from moving a choice under the pointer. Only categories offered by the picker contribute to that wait; a category-specific list waits for its own results. Recent and Pinned scopes use pre-resolved entries and never enter this search loading barrier.
+The classic picker and the rebuilt menu hold aggregated search results until the contributing categories settle. This prevents late category results from moving a choice under the pointer. Only categories offered by the picker contribute to that wait; a category-specific list waits for its own results. Recent and Pinned lists use pre-resolved entries and never enter this search loading barrier. Their separate category controls are hidden in both pickers. Recent and pinned items remain in Suggested, and the pin control remains available.
 
 The classic picker shows its active category in the search input. A person can dock the category rail from that menu. This preference persists for that person and project. A narrow picker hides the rail and shows the category control in the search input.
 
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
+With `taxonomic-filter-value-search-gating` enabled, email value searches require `@` or domain-like text, such as `example.com`. Pageview URL and pageview event value searches require URL-like text: a path, an HTTP prefix, a `www.` prefix, or a domain. Existing minimum query lengths still apply. These rules affect remote value searches; property-name searches, cached recents, and pins remain available. A rejected query sends no request and clears earlier remote results.
+
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
-In the classic picker, a failed search with no usable matches shows an error and a retry action.
+A failed search with no usable matches shows an error in the classic picker and the rebuilt menu.
+The rebuilt menu offers "Try again" to retry the failed result source.
+Pressing Enter or Space on the headless panel's "Try again" button retries without selecting the failed query.
+Retrying a server search does not reload the cached first page.
 A failed search does not offer an uncaptured event name, and it does not change the selected form value.
 When a caller allows custom event names, a successful empty search offers "Use event name".
 Pressing Enter in the search input selects that custom event name.
@@ -18,6 +23,20 @@ Scoped property searches return properties associated with the selected events. 
 The expansion count must not delay the scoped results or keep the aggregate reveal barrier closed. It can add an expansion option below the results after they appear. A failed count leaves the scoped results usable, and a count from an earlier search must not affect the current search. Expanding explicitly starts a full-results request and uses the normal list loading state.
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
+
+## Empty-result measurement
+
+The classic All tab records `taxonomic filter empty result` when it shows an empty search after all contributing lists settle.
+A pending or failed request does not count as an empty result.
+Empty queries and repeated renders of the same trimmed query do not send another event.
+
+Both implementations send `scope = 'all'` for All and `scope = 'category'` for content categories.
+The rebuilt menu also labels its Recent and Pinned scopes.
+Existing `groupType` values remain unchanged: classic All uses `suggested_filters`, and rebuilt All leaves it unset.
+
+Older classic clients do not record All-tab empty results.
+Compare periods with the same coverage.
+Use `scope = 'category'` for a category-only measure after this change.
 
 ## Action definitions
 

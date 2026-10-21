@@ -457,54 +457,47 @@
                                         "type": "string"
                                     },
                                     "translations": {
-                                        "anyOf": [
-                                            {
-                                                "additionalProperties": {
-                                                    "properties": {
-                                                        "buttonText": {
-                                                            "description": "Translated button label.",
-                                                            "type": "string"
-                                                        },
-                                                        "choices": {
-                                                            "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
-                                                            "items": {
-                                                                "type": "string"
-                                                            },
-                                                            "type": "array"
-                                                        },
-                                                        "description": {
-                                                            "description": "Translated helper text.",
-                                                            "type": "string"
-                                                        },
-                                                        "link": {
-                                                            "description": "Translated URL. Link questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "lowerBoundLabel": {
-                                                            "description": "Translated lowest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "question": {
-                                                            "description": "Translated question text.",
-                                                            "type": "string"
-                                                        },
-                                                        "upperBoundLabel": {
-                                                            "description": "Translated highest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "type": "object"
-                                                },
-                                                "propertyNames": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
                                                     "type": "string"
                                                 },
-                                                "type": "object"
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
                                             },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ],
-                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `open` - open",
@@ -512,31 +505,38 @@
                                         "type": "string"
                                     },
                                     "validation": {
-                                        "description": "Validation rules for the response text, for example a minimum length.",
-                                        "items": {
-                                            "properties": {
-                                                "type": {
-                                                    "description": "Validation rule type for open-text questions.\n\n* `min_length` - min_length\n* `max_length` - max_length\n* `email` - email",
-                                                    "enum": ["min_length", "max_length", "email"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "minimum": 1,
-                                                            "type": "number"
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "properties": {
+                                                        "type": {
+                                                            "description": "Validation rule type for open-text questions.\n\n* `min_length` - min_length\n* `max_length` - max_length\n* `email` - email",
+                                                            "enum": ["min_length", "max_length", "email"],
+                                                            "type": "string"
                                                         },
-                                                        {
-                                                            "type": "null"
+                                                        "value": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "minimum": 1,
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Rule value for min_length or max_length validations."
                                                         }
-                                                    ],
-                                                    "description": "Rule value for min_length or max_length validations."
-                                                }
+                                                    },
+                                                    "required": ["type"],
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
                                             },
-                                            "required": ["type"],
-                                            "type": "object"
-                                        },
-                                        "type": "array"
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Validation rules for the response text, for example a minimum length."
                                     }
                                 },
                                 "required": ["type", "question"],
@@ -653,54 +653,47 @@
                                         "type": "string"
                                     },
                                     "translations": {
-                                        "anyOf": [
-                                            {
-                                                "additionalProperties": {
-                                                    "properties": {
-                                                        "buttonText": {
-                                                            "description": "Translated button label.",
-                                                            "type": "string"
-                                                        },
-                                                        "choices": {
-                                                            "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
-                                                            "items": {
-                                                                "type": "string"
-                                                            },
-                                                            "type": "array"
-                                                        },
-                                                        "description": {
-                                                            "description": "Translated helper text.",
-                                                            "type": "string"
-                                                        },
-                                                        "link": {
-                                                            "description": "Translated URL. Link questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "lowerBoundLabel": {
-                                                            "description": "Translated lowest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "question": {
-                                                            "description": "Translated question text.",
-                                                            "type": "string"
-                                                        },
-                                                        "upperBoundLabel": {
-                                                            "description": "Translated highest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "type": "object"
-                                                },
-                                                "propertyNames": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
                                                     "type": "string"
                                                 },
-                                                "type": "object"
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
                                             },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ],
-                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `link` - link",
@@ -836,54 +829,47 @@
                                         "type": "number"
                                     },
                                     "translations": {
-                                        "anyOf": [
-                                            {
-                                                "additionalProperties": {
-                                                    "properties": {
-                                                        "buttonText": {
-                                                            "description": "Translated button label.",
-                                                            "type": "string"
-                                                        },
-                                                        "choices": {
-                                                            "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
-                                                            "items": {
-                                                                "type": "string"
-                                                            },
-                                                            "type": "array"
-                                                        },
-                                                        "description": {
-                                                            "description": "Translated helper text.",
-                                                            "type": "string"
-                                                        },
-                                                        "link": {
-                                                            "description": "Translated URL. Link questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "lowerBoundLabel": {
-                                                            "description": "Translated lowest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "question": {
-                                                            "description": "Translated question text.",
-                                                            "type": "string"
-                                                        },
-                                                        "upperBoundLabel": {
-                                                            "description": "Translated highest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "type": "object"
-                                                },
-                                                "propertyNames": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
                                                     "type": "string"
                                                 },
-                                                "type": "object"
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
                                             },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ],
-                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `rating` - rating",
@@ -1022,54 +1008,47 @@
                                         "type": "boolean"
                                     },
                                     "translations": {
-                                        "anyOf": [
-                                            {
-                                                "additionalProperties": {
-                                                    "properties": {
-                                                        "buttonText": {
-                                                            "description": "Translated button label.",
-                                                            "type": "string"
-                                                        },
-                                                        "choices": {
-                                                            "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
-                                                            "items": {
-                                                                "type": "string"
-                                                            },
-                                                            "type": "array"
-                                                        },
-                                                        "description": {
-                                                            "description": "Translated helper text.",
-                                                            "type": "string"
-                                                        },
-                                                        "link": {
-                                                            "description": "Translated URL. Link questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "lowerBoundLabel": {
-                                                            "description": "Translated lowest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "question": {
-                                                            "description": "Translated question text.",
-                                                            "type": "string"
-                                                        },
-                                                        "upperBoundLabel": {
-                                                            "description": "Translated highest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "type": "object"
-                                                },
-                                                "propertyNames": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
                                                     "type": "string"
                                                 },
-                                                "type": "object"
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
                                             },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ],
-                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `single_choice` - single_choice",
@@ -1125,54 +1104,47 @@
                                         "type": "boolean"
                                     },
                                     "translations": {
-                                        "anyOf": [
-                                            {
-                                                "additionalProperties": {
-                                                    "properties": {
-                                                        "buttonText": {
-                                                            "description": "Translated button label.",
-                                                            "type": "string"
-                                                        },
-                                                        "choices": {
-                                                            "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
-                                                            "items": {
-                                                                "type": "string"
-                                                            },
-                                                            "type": "array"
-                                                        },
-                                                        "description": {
-                                                            "description": "Translated helper text.",
-                                                            "type": "string"
-                                                        },
-                                                        "link": {
-                                                            "description": "Translated URL. Link questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "lowerBoundLabel": {
-                                                            "description": "Translated lowest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        },
-                                                        "question": {
-                                                            "description": "Translated question text.",
-                                                            "type": "string"
-                                                        },
-                                                        "upperBoundLabel": {
-                                                            "description": "Translated highest rating label. Rating questions only.",
-                                                            "type": "string"
-                                                        }
-                                                    },
-                                                    "type": "object"
-                                                },
-                                                "propertyNames": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
                                                     "type": "string"
                                                 },
-                                                "type": "object"
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
                                             },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ],
-                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `multiple_choice` - multiple_choice",

@@ -1,11 +1,11 @@
-//! Worker selection strategies for unpinned routing keys.
+//! Worker selection strategies for the batcher's requests.
 //!
-//! The dispatcher owns the stateful concerns (grouping, sticky pins, ref-counts,
-//! in-flight accounting). This module is the pure decision layer: given the set
-//! of healthy workers and their per-worker load, pick a target. Keeping it free
-//! of dispatcher state makes the algorithms trivially unit-testable and lets the
-//! routing policy evolve (P2C cost functions, subsetting) without touching the
-//! dispatcher's bookkeeping.
+//! The batcher's worker assigner owns the stateful concerns (per-worker
+//! request and message load). This module is the pure decision layer: given
+//! the set of healthy workers and their per-worker load, pick a target.
+//! Keeping it free of batcher state makes the algorithms trivially
+//! unit-testable and lets the routing policy evolve (P2C cost functions,
+//! subsetting) without touching the batcher's bookkeeping.
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -15,8 +15,7 @@ use rand::{Rng, SeedableRng};
 
 use crate::worker_registry::WorkerId;
 
-/// How unpinned routing keys are assigned to workers. Pinned keys always go to
-/// their existing worker regardless of strategy.
+/// How requests are placed on workers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum RoutingStrategy {
     /// Power-of-two-choices: sample two random workers, pick the lighter. Herd
@@ -24,7 +23,7 @@ pub enum RoutingStrategy {
     /// samples a different random pair instead of converging on one global best.
     #[default]
     P2c,
-    /// Deterministic aperture: each dispatcher routes unpinned keys only within
+    /// Deterministic aperture: each consumer places requests only within
     /// its slice of the worker ring (see [`crate::aperture`]), with P2C
     /// selection inside the slice. Consolidates small batches onto few workers
     /// while the fleet's slices still tile the whole pool. Requires peer
@@ -66,7 +65,7 @@ fn load_of(load: &WorkerLoad, worker: &WorkerId) -> usize {
 }
 
 /// Stateful worker selector. Holds the routing strategy and, for P2C, the RNG
-/// used to sample candidates. One per dispatcher; selection requires `&mut self`
+/// used to sample candidates. One per batcher; selection requires `&mut self`
 /// because P2C advances the RNG.
 pub struct Router {
     strategy: RoutingStrategy,
@@ -95,12 +94,12 @@ impl Router {
         self.strategy
     }
 
-    /// Select a worker for one group. `healthy` lists candidate worker ids;
+    /// Select a worker for one request. `healthy` lists candidate worker ids;
     /// `load` is the current per-worker load (outstanding messages plus what has
     /// been provisionally assigned earlier in this round). Returns `None` when
     /// no workers are healthy.
     pub fn select(&mut self, healthy: &[WorkerId], load: &WorkerLoad) -> Option<WorkerId> {
-        // Aperture narrows the candidate slice upstream (in the dispatcher);
+        // Aperture narrows the candidate slice upstream (in the worker pool);
         // within the slice it selects exactly like P2C.
         select_p2c(healthy, load, &mut self.rng)
     }

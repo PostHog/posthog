@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -24,7 +25,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -35,6 +35,7 @@ import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/da
 import { DashboardsSceneMenuBar } from './DashboardsSceneMenuBar'
 import { DashboardsTableContainer } from './DashboardsTable'
 import { NewDashboardMenu } from './NewDashboardMenu'
+import { QuillDashboardsActions } from './QuillDashboardsActions'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -45,14 +46,14 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
+    const { currentTab } = useValues(dashboardsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
     const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
@@ -95,6 +96,8 @@ export function Dashboards(): JSX.Element {
                 actions={
                     crossProjectTabOpen ? (
                         <NewCrossProjectDashboardButton />
+                    ) : todayRailNav ? (
+                        <QuillDashboardsActions />
                     ) : (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Dashboard}
@@ -138,13 +141,7 @@ export function Dashboards(): JSX.Element {
                 sceneInset
             />
 
-            {crossProjectTabOpen ? (
-                <CrossProjectDashboardsList />
-            ) : (
-                <div>
-                    {dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}
-                </div>
-            )}
+            {crossProjectTabOpen ? <CrossProjectDashboardsList /> : <DashboardsTableContainer />}
         </SceneContent>
     )
 }

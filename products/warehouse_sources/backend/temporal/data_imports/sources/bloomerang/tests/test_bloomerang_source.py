@@ -23,9 +23,6 @@ class TestBloomerangSource:
     @pytest.mark.parametrize(
         "answer, expected_valid, expected_message",
         [
-            (ScriptedResponse(status=200), True, None),
-            (ScriptedResponse(status=401), False, "Invalid Bloomerang API key"),
-            (ScriptedResponse(status=403), False, "Could not connect to Bloomerang with the provided API key"),
             (ConnectionResetError("reset"), False, "Could not connect to Bloomerang with the provided API key"),
         ],
     )

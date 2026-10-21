@@ -74,7 +74,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_called_once()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
 
@@ -108,7 +108,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_completion.assert_called_once_with("http://localhost:8000/project/1/tasks/10?runId=run-1")
 
     @patch.object(SlackThreadHandler, "post_error")
@@ -156,7 +156,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_or_update_progress")
@@ -197,7 +197,7 @@ class TestPostSlackUpdate(TestCase):
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_post_progress.assert_not_called()
-        # Task is still running (PR opened mid-run) — reaction stays :eyes:, not :hedgehog:.
+        # Task is still running (PR opened mid-run) — reaction stays :eyes:.
         mock_update_reaction.assert_called_once_with("eyes")
 
     @parameterized.expand(
@@ -285,7 +285,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_delete_progress.assert_called_once()
         mock_post_completion.assert_not_called()
 
@@ -318,7 +318,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_delete_progress.assert_called_once()
         mock_post_error.assert_not_called()
 
@@ -385,7 +385,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
@@ -423,7 +423,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_not_called()
         mock_delete_progress.assert_called_once()
 
@@ -511,7 +511,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_not_called()
         mock_delete_progress.assert_called_once()
 
@@ -544,7 +544,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_not_called()
         mock_delete_progress.assert_called_once()
 
@@ -575,7 +575,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
@@ -606,7 +606,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_not_called()
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",

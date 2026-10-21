@@ -55,16 +55,22 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
-import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
+import {
+    PERSON_FREQUENCY_OPTIONS,
+    TriggerFrequencyOption,
+    getRegisteredTriggerTypes,
+} from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
-import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { BatchTriggerLogicProps, batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
 import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { RealtimeCohortAudienceNotice } from './components/RealtimeCohortAudienceNotice'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
+import { keepOnlyRealtimeCohort } from './realtimeCohortStatus'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -558,18 +564,25 @@ function WorkflowRecurringSchedulePicker(): JSX.Element {
     )
 }
 
-function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
-    const { workflow } = useValues(workflowLogic)
+function batchTriggerLogicProps(
+    actionId: string,
+    filters: any,
+    workflow: { actions?: HogFlowAction[] } | null
+): BatchTriggerLogicProps {
     const isAccountAudience = filters?.audience_type === 'accounts'
-    // Account audiences carry no person, so email dedup never applies to them.
-    const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({
+    return {
         id: actionId,
         filters,
-        dedupeKey,
+        // Account audiences carry no person, so email dedup never applies to them.
+        dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
         sendsEmail: hogFlowSendsEmail(workflow),
-    })
-    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
+    }
+}
+
+function StepTriggerAffectedUsers({ logicProps }: { logicProps: BatchTriggerLogicProps }): JSX.Element | null {
+    const { workflow } = useValues(workflowLogic)
+    const isAccountAudience = logicProps.filters?.audience_type === 'accounts'
+    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(batchTriggerLogic(logicProps))
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -714,8 +727,20 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { workflow } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const logicProps: BatchTriggerLogicProps = {
+        ...batchTriggerLogicProps(action.id, config.filters, workflow),
+        // A realtime cohort has to be the only condition, so picking one replaces the others.
+        onRealtimeCohortWithOtherConditions: (cohortId) => {
+            const onlyCohort = keepOnlyRealtimeCohort(config.filters.properties ?? [], cohortId)
+            if (onlyCohort) {
+                partialSetWorkflowActionConfig(action.id, { filters: { properties: onlyCohort } })
+            }
+        },
+    }
+    const { blastRadius } = useValues(batchTriggerLogic(logicProps))
 
     const accountAudienceAvailable =
         !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] &&
@@ -743,21 +768,22 @@ function StepTriggerConfigurationBatch({
             )}
             <div>
                 <span className="font-semibold">This batch will include</span>{' '}
-                <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
+                <StepTriggerAffectedUsers logicProps={logicProps} />
             </div>
             {isAccountAudience ? (
                 <StepTriggerBatchAccountFilters actionId={action.id} filters={config.filters} />
             ) : (
-                <div>
+                <div className="flex flex-col gap-2">
                     <PropertyFilters
                         pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
                         propertyFilters={config.filters.properties}
                         addText="Add condition"
+                        allowNew={!blastRadius?.realtime_cohort && !blastRadius?.realtime_cohort_with_other_conditions}
                         orFiltering
                         sendAllKeyUpdates
                         allowRelativeDateOptions
                         {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
-                        hideBehavioralCohorts
+                        hideBehavioralCohorts={!featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_CONDITIONS]}
                         logicalRowDivider
                         onChange={(properties) =>
                             partialSetWorkflowActionConfig(action.id, {
@@ -779,6 +805,7 @@ function StepTriggerConfigurationBatch({
                         hasRowOperator={false}
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                     />
+                    <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
                 </div>
             )}
 
@@ -866,16 +893,7 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
-const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
-const CALENDAR_DAY_TTL = 24 * 60 * 60
-
-const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
-    { value: null, label: 'Every time the trigger fires' },
-    { value: '{person.id}', label: 'One time' },
-    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
-]
-
-const TTL_OPTIONS = [
+export const TTL_OPTIONS = [
     { value: null, label: 'indefinitely' },
     { value: 5 * 60, label: '5 minutes' },
     { value: 15 * 60, label: '15 minutes' },
@@ -909,7 +927,7 @@ function TTLSelect({
 }
 
 function FrequencySection({
-    options = FREQUENCY_OPTIONS,
+    options = PERSON_FREQUENCY_OPTIONS,
     description = 'Limit how often users can enter this workflow',
 }: {
     options?: TriggerFrequencyOption[]

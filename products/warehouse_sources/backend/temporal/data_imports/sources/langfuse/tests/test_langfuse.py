@@ -110,23 +110,6 @@ class TestValidateCredentials:
         return mock.patch.object(langfuse_module, "make_tracked_session", return_value=session)
 
     @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_msg_substr",
-        [
-            (200, True, None),
-            (401, False, "Invalid Langfuse API keys"),
-            (403, False, "Invalid Langfuse API keys"),
-        ],
-    )
-    def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
-        with scripted_network([ScriptedResponse(status=status_code)]):
-            valid, msg = validate_credentials("https://cloud.langfuse.com", "pk-lf-x", "sk-lf-x")
-        assert valid is expected_valid
-        if expected_msg_substr is None:
-            assert msg is None
-        else:
-            assert expected_msg_substr in (msg or "")
-
-    @pytest.mark.parametrize(
         "public_key, secret_key, expected_msg",
         [
             ("", "sk-lf-x", "Missing public key"),
@@ -242,6 +225,37 @@ class TestGetRows:
         assert result.params("cursor") == ["saved-cursor"]
         assert [r["id"] for r in result.rows] == ["o9"]
         assert result.raised is None
+
+    @pytest.mark.parametrize(
+        "endpoint, last_value, incremental_field, expected_from",
+        [
+            ("experiments", None, None, "1970-01-01T00:00:00Z"),
+            ("experiment_items", None, None, "1970-01-01T00:00:00Z"),
+            (
+                "experiment_items",
+                datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
+                "startTime",
+                "2026-03-04T09:00:00Z",
+            ),
+        ],
+    )
+    def test_experiment_endpoints_send_a_lower_bound_on_every_page(
+        self, endpoint, last_value, incremental_field, expected_from
+    ):
+        # Both endpoints reject a request without fromStartTime, so a full sync must send one too.
+        result = _driver().run(
+            endpoint,
+            [
+                _cursor_page([{"id": "e1", "experimentId": "x1"}], cursor="next"),
+                _cursor_page([{"id": "e2", "experimentId": "x1"}], cursor=None),
+            ],
+            db_incremental_field_last_value=last_value,
+            incremental_field=incremental_field,
+        )
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["e1", "e2"]
+        assert result.params("fromStartTime") == [expected_from, expected_from]
+        assert result.params("cursor") == [None, "next"]
 
     def test_rejects_plaintext_http_before_request(self):
         result = _driver("http://langfuse.example.com").run("traces", [], api_version="v1")

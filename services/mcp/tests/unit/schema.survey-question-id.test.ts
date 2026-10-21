@@ -50,11 +50,27 @@ describe('Survey question id preservation', () => {
                 branching: { type: 'end' },
                 translations: { de: { link: 'https://example.com/de/notes' } },
             },
+            {
+                type: 'open',
+                question: 'Anything else?',
+                validation: null,
+            },
         ]
 
         const result = questionsSchema.safeParse(questions)
 
         expect(result.success).toBe(true)
         expect(result.data).toEqual(questions)
+    })
+
+    it.each([
+        ['survey-create', SurveysCreateBody().shape.questions],
+        ['survey-update', SurveysPartialUpdateBody().shape.questions],
+    ])('rejects null question translations through %s validation', (_label, questionsSchema) => {
+        const result = questionsSchema.safeParse([
+            { type: 'open', question: 'How was your experience?', translations: null },
+        ])
+
+        expect(result.success).toBe(false)
     })
 })

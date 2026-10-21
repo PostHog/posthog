@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
@@ -52,6 +53,8 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_LIBRARY_SEMANTIC_DOCUMENT_CAP,
+    BK_LIBRARY_SEMANTIC_UNFILTERED_LIMIT,
     BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
@@ -83,6 +86,7 @@ from .constants import (
     TRIAL_MAX_CHUNKS,
     TRIAL_QUIET_PERIOD,
 )
+from .libraries import file_new_learned_source
 from .llm_telemetry import RetrievalTrace
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -92,6 +96,7 @@ from .models import (
     KnowledgeChunk,
     KnowledgeDocument,
     KnowledgeGapSuggestion,
+    KnowledgeLibrarySource,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -555,7 +560,17 @@ def _source_list_annotations() -> dict[str, object]:
         "_ai_processing_approved": F("team__organization__is_ai_data_processing_approved"),
         "_learned_ticket_number": _learned_ticket_number_subquery(),
         "_learned_source_team_id": _learned_source_team_id_subquery(),
+        "_library_ids": _library_ids_subquery(),
     }
+
+
+def _library_ids_subquery() -> Subquery:
+    return Subquery(
+        KnowledgeLibrarySource.objects.filter(source_id=OuterRef("pk"))
+        .values("source_id")
+        .annotate(_ids=ArrayAgg("library_id", ordering="library_id"))
+        .values("_ids")[:1]
+    )
 
 
 @with_team_scope(canonical=True)
@@ -565,9 +580,15 @@ def list_for_team(
     search: str | None = None,
     source_type: str | None = None,
     added_by: str | None = None,
+    library_id: UUID | None = None,
+    unfiled: bool = False,
 ) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
     queryset = KnowledgeSource.objects.filter(team_id=team_id)
+    if library_id is not None:
+        queryset = queryset.filter(library_links__library_id=library_id)
+    elif unfiled:
+        queryset = queryset.filter(library_links__isnull=True)
     if source_type:
         queryset = queryset.filter(source_type=source_type)
     if added_by == AddedBy.HUMAN:
@@ -863,6 +884,8 @@ def _create_generated_knowledge_document(
             status=create_status.status,
             error_message=create_status.error_message,
         )
+        # First insert only. A retry returns the existing document above, so a removed link stays removed.
+        file_new_learned_source(team_id=team_id, source_id=source.id)
     elif not source.is_generated or source.source_type != SourceType.TEXT:
         raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
     else:
@@ -2461,6 +2484,8 @@ def _semantic_chunk_candidates(
     query_embedding: list[float],
     *,
     limit: int,
+    document_ids: list[str] | None = None,
+    ch_limit: int | None = None,
 ) -> list[_SemanticCandidate]:
     """
     Vector search over document_embeddings for BK chunks.
@@ -2468,6 +2493,9 @@ def _semantic_chunk_candidates(
     Returns up to ``limit * BK_SEMANTIC_OVERFETCH`` candidates under the
     distance cutoff, ordered by cosineDistance ASC. The caller re-joins to
     Postgres for safety filters and trims to ``limit``.
+
+    ``document_ids`` filters ``metadata.document_id`` (the knowledge document),
+    not the embedding row's ``document_id`` column, which stores the chunk id.
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keeps HogQL compiler off the import path
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -2475,26 +2503,30 @@ def _semantic_chunk_candidates(
     from posthog.clickhouse.query_tagging import Feature, Product, tag_queries  # noqa: PLC0415
     from posthog.models.team.team import Team  # noqa: PLC0415
 
-    ch_limit = limit * BK_SEMANTIC_OVERFETCH
+    resolved_limit = ch_limit if ch_limit is not None else limit * BK_SEMANTIC_OVERFETCH
+    document_filter = ""
+    if document_ids is not None:
+        document_filter = "AND JSONExtractString(metadata, 'document_id') IN {document_ids}"
 
     # Distance is computed in the inner SELECT and filtered in the outer WHERE
     # so cosineDistance runs once per row (ClickHouse can't reuse a SELECT alias
     # in the same level's WHERE — WHERE is evaluated first). Matters at 1536 dims.
-    hogql_query = """
+    hogql_query = f"""
         SELECT document_id, distance
         FROM (
             SELECT
                 document_id,
-                cosineDistance(embedding, {embedding}) AS distance
+                cosineDistance(embedding, {{embedding}}) AS distance
             FROM document_embeddings
-            WHERE model_name = {model_name}
-              AND product = {product}
-              AND document_type = {document_type}
-              AND team_id = {team_id}
+            WHERE model_name = {{model_name}}
+              AND product = {{product}}
+              AND document_type = {{document_type}}
+              AND team_id = {{team_id}}
+              {document_filter}
         )
-        WHERE distance < {cutoff}
+        WHERE distance < {{cutoff}}
         ORDER BY distance ASC
-        LIMIT {limit}
+        LIMIT {{limit}}
     """
 
     placeholders: dict[str, ast.Expr] = {
@@ -2504,8 +2536,10 @@ def _semantic_chunk_candidates(
         "document_type": ast.Constant(value=BK_EMBEDDING_DOCUMENT_TYPE),
         "team_id": ast.Constant(value=team_id),
         "cutoff": ast.Constant(value=BK_SEMANTIC_DISTANCE_CUTOFF),
-        "limit": ast.Constant(value=ch_limit),
+        "limit": ast.Constant(value=resolved_limit),
     }
+    if document_ids is not None:
+        placeholders["document_ids"] = ast.Constant(value=document_ids)
 
     team = Team.objects.get(pk=team_id)
     tag_queries(product=Product.CONVERSATIONS, feature=Feature.SEMANTIC_SEARCH)
@@ -2568,14 +2602,45 @@ def _rrf_fuse(
     return [cid for cid, _score in fused]
 
 
-def _safe_chunks_qs(team_id: int) -> QuerySet[KnowledgeChunk]:
+def _safe_chunks_qs(team_id: int, *, library_id: UUID | None = None) -> QuerySet[KnowledgeChunk]:
     """Base queryset for searchable/readable chunks: team-scoped + all safety gates."""
-    return KnowledgeChunk.objects.filter(
+    queryset = KnowledgeChunk.objects.filter(
         team_id=team_id,
         source__status=SourceStatus.READY,
         document__tombstoned_at__isnull=True,
         document__safety_verdict=SafetyVerdict.SAFE,
     )
+    if library_id is not None:
+        # Subquery, not a Python list: a learned library can hold every generated source.
+        queryset = queryset.filter(
+            source_id__in=KnowledgeLibrarySource.objects.filter(team_id=team_id, library_id=library_id).values(
+                "source_id"
+            )
+        )
+    return queryset
+
+
+def _library_has_sources(team_id: int, library_id: UUID) -> bool:
+    return KnowledgeLibrarySource.objects.filter(team_id=team_id, library_id=library_id).exists()
+
+
+def _library_document_ids(team_id: int, library_id: UUID) -> list[str] | None:
+    """Document ids for a library-scoped semantic query.
+
+    None means the library is over the ClickHouse IN cap, so the caller skips the predicate.
+    """
+    ids = list(
+        KnowledgeDocument.objects.filter(
+            team_id=team_id,
+            tombstoned_at__isnull=True,
+            source_id__in=KnowledgeLibrarySource.objects.filter(team_id=team_id, library_id=library_id).values(
+                "source_id"
+            ),
+        ).values_list("id", flat=True)[: BK_LIBRARY_SEMANTIC_DOCUMENT_CAP + 1]
+    )
+    if len(ids) > BK_LIBRARY_SEMANTIC_DOCUMENT_CAP:
+        return None
+    return [str(document_id) for document_id in ids]
 
 
 @dataclass(frozen=True)
@@ -2619,6 +2684,7 @@ def search_knowledge(
     limit: int = 10,
     use_semantic: bool = False,
     query_embedding: list[float] | None = None,
+    library_id: UUID | None = None,
 ) -> list[KnowledgeSearchResult]:
     """
     Hybrid (lexical + semantic) relevance search over BK chunks.
@@ -2633,6 +2699,18 @@ def search_knowledge(
     """
     limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
 
+    if library_id is not None and not _library_has_sources(team_id, library_id):
+        return []
+
+    semantic_document_ids: list[str] | None = None
+    semantic_ch_limit: int | None = None
+    if library_id is not None and use_semantic and query_embedding:
+        semantic_document_ids = _library_document_ids(team_id, library_id)
+        if semantic_document_ids is None:
+            semantic_ch_limit = BK_LIBRARY_SEMANTIC_UNFILTERED_LIMIT
+        elif not semantic_document_ids:
+            use_semantic = False
+
     # --- FTS anchors (always computed) ---
     processed = process_query(query)
     fts_anchors: list[KnowledgeChunk] = []
@@ -2640,7 +2718,7 @@ def search_knowledge(
         processed = processed.replace(" & ", " | ")
         search_query = SearchQuery(processed, config="english", search_type="raw")
         fts_anchors = list(
-            _safe_chunks_qs(team_id)
+            _safe_chunks_qs(team_id, library_id=library_id)
             .filter(content_search_vector=search_query)
             .annotate(rank=SearchRank(F("content_search_vector"), search_query))
             .only("id", "document_id", "ordinal", "char_count")
@@ -2651,7 +2729,21 @@ def search_knowledge(
     # --- Semantic candidates (hybrid path only) ---
     semantic_candidates: list[_SemanticCandidate] = []
     if use_semantic and query_embedding:
-        semantic_candidates = _semantic_chunk_candidates(team_id, query_embedding, limit=limit)
+        semantic_candidates = _semantic_chunk_candidates(
+            team_id,
+            query_embedding,
+            limit=limit,
+            document_ids=semantic_document_ids,
+            ch_limit=semantic_ch_limit,
+        )
+        if library_id is not None and semantic_document_ids is None and semantic_candidates:
+            # Drop non-members before RRF: they take semantic ranks and push members under the score floor.
+            member_ids = set(
+                _safe_chunks_qs(team_id, library_id=library_id)
+                .filter(id__in=[candidate.chunk_id for candidate in semantic_candidates])
+                .values_list("id", flat=True)
+            )
+            semantic_candidates = [c for c in semantic_candidates if c.chunk_id in member_ids]
 
     # --- Fusion or FTS-only ---
     # Fusion requires an actual embedding; when it's None (e.g. embedding-service
@@ -2665,7 +2757,9 @@ def search_knowledge(
         # re-join against Postgres with all safety filters and trim after.
         fetch_limit = limit * BK_SEMANTIC_OVERFETCH
         anchor_chunks = list(
-            _safe_chunks_qs(team_id).filter(id__in=fused_ids[:fetch_limit]).only("id", "document_id", "ordinal")
+            _safe_chunks_qs(team_id, library_id=library_id)
+            .filter(id__in=fused_ids[:fetch_limit])
+            .only("id", "document_id", "ordinal")
         )
         if not anchor_chunks:
             return []
@@ -2694,7 +2788,7 @@ def search_knowledge(
     )
 
     chunks = (
-        _safe_chunks_qs(team_id)
+        _safe_chunks_qs(team_id, library_id=library_id)
         .filter(window_filter)
         .select_related("source", "document")
         .only(
@@ -2734,6 +2828,7 @@ def search_knowledge_for_team(
     *,
     trace: RetrievalTrace,
     limit: int = 10,
+    library_id: UUID | None = None,
 ) -> list[KnowledgeSearchResult]:
     """
     Sync orchestration of hybrid BK search: embed the query, then call
@@ -2742,6 +2837,12 @@ def search_knowledge_for_team(
     Used by the DRF search endpoint (sync view). The async path is
     ``async_search_knowledge_for_team``. Both share ``search_knowledge``.
     """
+    # Rows are stored under the parent team, and a child environment can reach this through an environment token.
+    canonical_team_id = resolve_effective_team_id(team.id)
+    if library_id is not None:
+        with team_scope(canonical_team_id, canonical=True):
+            if not _library_has_sources(canonical_team_id, library_id):
+                return []
     embedding: list[float] | None = None
     try:
         response = generate_embedding(team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT)
@@ -2749,7 +2850,14 @@ def search_knowledge_for_team(
         _capture_query_embedding(team.id, response, trace)
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
-    return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+    return search_knowledge(
+        canonical_team_id,
+        query,
+        limit=limit,
+        use_semantic=embedding is not None,
+        query_embedding=embedding,
+        library_id=library_id,
+    )
 
 
 async def async_search_knowledge_for_team(

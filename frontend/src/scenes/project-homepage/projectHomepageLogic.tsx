@@ -9,7 +9,6 @@ import { MaxContextInput } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel } from '~/types'
 
 import type { Node } from '../../queries/schema/schema-general'
@@ -108,10 +107,9 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             {
                 loadRecentInsights: async () => {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsMyLastViewedRetrieve() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    const insights = await api.get<InsightModel[]>(
+                    return await api.get<InsightModel[]>(
                         `api/projects/${values.currentProjectId}/insights/my_last_viewed`
                     )
-                    return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                 },
             },
         ],

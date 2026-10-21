@@ -62,6 +62,8 @@ export const manifest: ProductManifest = {
         '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
         '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
         '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -75,7 +77,7 @@ export const manifest: ProductManifest = {
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
         workflowsLibraryTemplateFromMessage: (id?: string): string =>
             `/workflows/library/templates/new?messageId=${id}`,
-        broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+        broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
     },
@@ -100,6 +102,7 @@ export const manifest: ProductManifest = {
                 { name: 'Opt-outs', href: urls.workflows('opt-outs') },
                 { name: 'Suppression list', href: urls.workflows('suppression') },
                 { name: 'Reputation', href: urls.workflows('reputation') },
+                { name: 'Settings', href: urls.workflows('settings') },
             ],
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,

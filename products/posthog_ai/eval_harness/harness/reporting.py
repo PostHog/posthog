@@ -9,20 +9,20 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from posthog.dataclasses import frozen
 
 from ..engines.types import EvalSummary
+from .progress import TrialPhase, TrialProgress
 from .transcript import write_console
 from .trial_stats import ScorerTrialStats
 
+if TYPE_CHECKING:
+    from .dashboard import EvalDashboard
+
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
-
-POSTHOG_EVALUATIONS_URL = (
-    "https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/{experiment_id}?offline_date_from=-1d"
-)
 
 CaseStatus = Literal["ok", "timeout", "error"]
 
@@ -68,7 +68,7 @@ class _CaseProgress:
 class ProgressReporter:
     """Serializes harness output and renders the stable final summary."""
 
-    def __init__(self, total_suites: int, *, verbose: bool = False) -> None:
+    def __init__(self, total_suites: int, *, verbose: bool = False, dashboard: EvalDashboard | None = None) -> None:
         self._total_suites = total_suites
         self._verbose = verbose
         self._lock = asyncio.Lock()
@@ -82,9 +82,29 @@ class ProgressReporter:
         self._trial_stats: dict[str, Sequence[ScorerTrialStats]] = {}
         self._experiment_totals: dict[str, int] = {}
         self._posthog_urls: dict[str, str] = {}
+        self._posthog_offline_statuses: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
         self._active_cases: dict[str, _CaseProgress] = {}
         self._started = time.monotonic()
+        self._dashboard = dashboard
+
+    def _publish_trial(
+        self, trial_id: str, case: _CaseProgress, *, phase: TrialPhase | None = None, detail: str = ""
+    ) -> None:
+        if self._dashboard is not None:
+            self._dashboard.update_trial(
+                TrialProgress(
+                    trial_id=trial_id,
+                    experiment=case.experiment,
+                    name=case.name,
+                    trial_index=case.trial_index,
+                    phase=phase or case.phase,
+                    started=case.started,
+                    ended=time.monotonic() if phase in {"done", "error", "timeout", "canceled"} else None,
+                    log_dir=self._log_dirs.get(case.experiment),
+                    detail=detail,
+                )
+            )
 
     @asynccontextmanager
     async def live_updates(self) -> AsyncIterator[None]:
@@ -127,6 +147,7 @@ class ProgressReporter:
                 experiment=experiment, name=name, trial_index=trial_index, started=now, phase_started=now
             )
             self._active_cases[trial_id] = case
+            self._publish_trial(trial_id, case)
             await asyncio.to_thread(_emit, f"CASE START  {case.label()}  queued; id={trial_id}")
             return case.durations
 
@@ -136,6 +157,7 @@ class ProgressReporter:
             if case is None or case.phase == phase:
                 return
             case.transition(phase)
+            self._publish_trial(trial_id, case)
             await asyncio.to_thread(_emit, f"CASE PHASE  {case.label()}  {phase}")
 
     async def case_scored(self, trial_id: str, *, error: str | None = None) -> None:
@@ -150,6 +172,12 @@ class ProgressReporter:
             marker = (
                 "ERROR" if error is not None else {"ok": "DONE", "timeout": "TIMEOUT", "error": "ERROR"}[case.status]
             )
+            phase: TrialPhase = "done"
+            if error is not None or case.status == "error":
+                phase = "error"
+            elif case.status == "timeout":
+                phase = "timeout"
+            self._publish_trial(trial_id, case, phase=phase, detail=error or "")
             await asyncio.to_thread(_emit, f"CASE {marker:<7} {case.label()}  results ready")
 
     async def finish_cases(self, trial_ids: Sequence[str]) -> None:
@@ -158,6 +186,7 @@ class ProgressReporter:
                 case = self._active_cases.pop(trial_id, None)
                 if case is not None:
                     case.transition(case.phase)
+                    self._publish_trial(trial_id, case, phase="canceled")
 
     async def finish_experiment(self, experiment: str) -> None:
         await self.finish_cases(
@@ -165,6 +194,8 @@ class ProgressReporter:
         )
 
     def setup_started(self, phase: str) -> None:
+        if self._dashboard:
+            self._dashboard.setup_started(phase)
         _emit(f"SETUP START  {phase}")
 
     def print_run_header(
@@ -177,6 +208,10 @@ class ProgressReporter:
         trials: int,
         case_timeout_seconds: int,
     ) -> None:
+        if self._dashboard:
+            self._dashboard.configure(
+                f"{provider} | {agent_runtime} / {agent_model} | {max_sandboxes} sandboxes | {trials} trials per case"
+            )
         lines = [
             "Sandboxed eval run",
             f"Suites: {self._total_suites}",
@@ -199,6 +234,8 @@ class ProgressReporter:
         async with self._lock:
             self._experiment_totals[experiment_name] = planned_cases
             self._log_dirs[experiment_name] = log_dir
+            if self._dashboard:
+                self._dashboard.experiment_started(experiment_name, planned_cases)
             await asyncio.to_thread(_emit, f"EXPERIMENT START  {experiment_name}  [{planned_cases} cases]")
 
     async def case_done(
@@ -210,6 +247,7 @@ class ProgressReporter:
         status: CaseStatus = "ok",
         trial_id: str | None = None,
         error_type: str | None = None,
+        error_detail: str | None = None,
     ) -> None:
         async with self._lock:
             self._case_counts[experiment_name] += 1
@@ -229,6 +267,12 @@ class ProgressReporter:
                     marker = "READY" if status == "ok" else "TIMEOUT"
                     detail = "; execution complete; scoring pending"
                     case.transition("scoring")
+                self._publish_trial(
+                    trial_id,
+                    case,
+                    phase="error" if status == "error" else None,
+                    detail=error_detail or detail.removeprefix("; "),
+                )
             total = self._experiment_totals.get(experiment_name)
             progress = f"[{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
             await asyncio.to_thread(
@@ -245,9 +289,15 @@ class ProgressReporter:
         total_attempts: int,
         delay_seconds: float,
         error_type: str,
+        trial_id: str | None = None,
     ) -> None:
         async with self._lock:
             self._setup_retry_count += 1
+            if self._dashboard and trial_id:
+                self._dashboard.trial_retry(
+                    trial_id,
+                    f"Setup attempt {next_attempt}/{total_attempts} in {delay_seconds:.1f}s ({error_type}). No action required.",
+                )
             await asyncio.to_thread(
                 _emit,
                 f"CASE RETRY   {experiment_name} :: {case_name}  setup attempt {next_attempt}/{total_attempts} "
@@ -288,9 +338,12 @@ class ProgressReporter:
             progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
             await asyncio.to_thread(_emit, f"EXPERIMENT DONE  {experiment_name}  {progress}")
 
-    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
+    async def record_posthog_offline_result(self, experiment_name: str, status: str, *, url: str | None = None) -> None:
         async with self._lock:
-            self._posthog_urls[experiment_name] = POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id)
+            self._posthog_offline_statuses[experiment_name] = status
+            if url is not None:
+                self._posthog_urls[experiment_name] = url
+            await asyncio.to_thread(_emit, f"POSTHOG OFFLINE  {experiment_name}  {url or status}")
 
     def print_final_summary(
         self,
@@ -387,6 +440,8 @@ class ProgressReporter:
         posthog_url = self._posthog_urls.get(experiment_name)
         if posthog_url:
             lines.append(f"  PostHog: {posthog_url}")
+        if (offline_status := self._posthog_offline_statuses.get(experiment_name)) and offline_status != "uploaded":
+            lines.append(f"  PostHog offline: {offline_status}")
         lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:

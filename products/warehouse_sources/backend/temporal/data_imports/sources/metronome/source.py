@@ -32,8 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     DEFAULT_USAGE_HOURLY_HISTORY_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
     METRONOME_ENDPOINTS,
-    USAGE_HISTORY,
     usage_history_window,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -90,9 +90,9 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            # Appending would duplicate every period the lookback re-reads, so a bucketed usage
+            # Appending would duplicate every period the lookback re-reads, so a windowed
             # table has to merge on its primary key.
-            merge_only=tuple(USAGE_HISTORY),
+            merge_only=MERGE_ONLY,
             should_sync_default={name: METRONOME_ENDPOINTS[name].should_sync_default for name in ENDPOINTS},
         )
         for schema in schemas:
@@ -150,7 +150,7 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             caption="Create an API token in Metronome under **Developer > API tokens**. Metronome shows the token once, so copy it before closing the dialog.",
             docsUrl="https://posthog.com/docs/cdp/sources/metronome",
             iconPath="/static/services/metronome.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

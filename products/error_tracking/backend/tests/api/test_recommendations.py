@@ -2,30 +2,22 @@ from datetime import timedelta
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models.utils import uuid7
-
 from products.cdp.backend.facade.models import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
-from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
     ErrorTrackingSettings,
     ErrorTrackingStackFrame,
-    sync_issues_to_clickhouse,
 )
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 MOCK_ALERTS_META = {
     "alerts": [
@@ -41,18 +33,10 @@ MOCK_ALERTS_META_UPDATED = {
         {"key": "error-tracking-issue-spiking", "enabled": True},
     ]
 }
+MOCK_SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
 
 
-def _days_ago(n: int) -> str:
-    return (timezone.now() - timedelta(days=n)).isoformat()
-
-
-class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        materialize("events", "$exception_issue_id", is_nullable=True)
-
+class TestRecommendationsAPI(APIBaseTest):
     def _list(self):
         return self.client.get(f"/api/environments/{self.team.id}/error_tracking/recommendations/")
 
@@ -66,31 +50,25 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
-    @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_first_list_creates_all_recommendations(self, mock_alerts, mock_long_running):
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
+    def test_first_list_creates_registered_recommendations_and_hides_unregistered_types(self, mock_alerts):
+        ErrorTrackingRecommendation.objects.create(team=self.team, type="long_running_issues")
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
+        self.assertEqual(
+            ErrorTrackingRecommendation.objects.filter(team=self.team).exclude(type="long_running_issues").count(), 3
+        )
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
+        self.assertEqual(types, {"alerts", "rate_limits", "source_maps"})
 
-    @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
     )
-    def test_alerts_recomputes_on_every_list(self, mock_alerts, mock_long_running):
+    def test_alerts_recomputes_on_every_list(self, mock_alerts):
         mock_alerts.return_value = MOCK_ALERTS_META
         self._list()
 
@@ -102,36 +80,32 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(alerts["meta"], MOCK_ALERTS_META_UPDATED)
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running):
+    def test_source_maps_is_cached_until_interval_elapses(self, mock_alerts, mock_source_maps):
         with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen_time:
-            mock_long_running.return_value = {"issues": []}
             self._list()
-            self.assertEqual(mock_long_running.call_count, 1)
+            self.assertEqual(mock_source_maps.call_count, 1)
 
             # Re-listing within the same refresh window doesn't recompute.
             self._list()
-            self.assertEqual(mock_long_running.call_count, 1)
+            self.assertEqual(mock_source_maps.call_count, 1)
 
             # A full refresh_interval always crosses into the next window — recompute, regardless of phase.
-            frozen_time.shift(LongRunningIssuesRecommendation.refresh_interval)
+            frozen_time.shift(SourceMapsRecommendation.refresh_interval)
             self._list()
-            self.assertEqual(mock_long_running.call_count, 2)
+            self.assertEqual(mock_source_maps.call_count, 2)
 
-    @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_dismiss_persists_across_requests(self, mock_alerts, mock_long_running):
+    def test_dismiss_persists_across_requests(self, mock_alerts):
         response = self._list()
         alerts_id = next(r["id"] for r in response.json()["results"] if r["type"] == "alerts")
 
@@ -165,127 +139,6 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         meta = AlertsRecommendation().compute(self.team)
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
         self.assertFalse(by_key["error-tracking-issue-created"])
-
-    def _create_issue(self, created_at, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"):
-        issue = ErrorTrackingIssue.objects.create(
-            id=uuid7(),
-            team=self.team,
-            status=status,
-            name=name,
-            description="boom",
-        )
-        ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=created_at)
-        issue.refresh_from_db()
-        fingerprint = f"fp::{issue.id}"
-        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
-        ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, fingerprint=fingerprint).update(
-            first_seen=created_at
-        )
-        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
-        return issue
-
-    def _create_exception(self, issue_id, timestamp, fingerprint=None):
-        _create_event(
-            distinct_id="user_1",
-            event="$exception",
-            team=self.team,
-            properties={
-                "$exception_issue_id": str(issue_id),
-                "$exception_fingerprint": fingerprint or f"fp::{issue_id}",
-            },
-            timestamp=timestamp,
-        )
-
-    def test_long_running_returns_oldest_active_issues_with_recent_occurrences(self):
-        old_active = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Oldest")
-        mid_active = self._create_issue(created_at=timezone.now() - timedelta(days=20), name="MidAged")
-        recent_active = self._create_issue(created_at=timezone.now() - timedelta(days=3), name="Recent")
-        self._create_exception(old_active.id, _days_ago(1))
-        self._create_exception(mid_active.id, _days_ago(1))
-        # Recent issue still has activity but was first seen <7d ago, so it shouldn't qualify as long-running.
-        self._create_exception(recent_active.id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        names = [i["name"] for i in meta["issues"]]
-        self.assertEqual(names, ["Oldest", "MidAged"])
-
-    def test_long_running_ignores_issues_without_recent_occurrences(self):
-        stale = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Stale")
-        self._create_exception(stale.id, _days_ago(30))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(meta["issues"], [])
-
-    def test_long_running_excludes_non_active_issues(self):
-        resolved = self._create_issue(
-            created_at=timezone.now() - timedelta(days=60),
-            status=ErrorTrackingIssue.Status.RESOLVED,
-            name="Resolved",
-        )
-        self._create_exception(resolved.id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(meta["issues"], [])
-
-    def test_long_running_limits_to_five(self):
-        for i in range(15):
-            issue = self._create_issue(
-                created_at=timezone.now() - timedelta(days=60 - i),
-                name=f"Issue {i:02d}",
-            )
-            self._create_exception(issue.id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(len(meta["issues"]), 5)
-        self.assertEqual(meta["issues"][0]["name"], "Issue 00")
-        self.assertEqual(meta["issues"][4]["name"], "Issue 04")
-
-    def test_long_running_ignores_other_teams_issues(self):
-        other_issue_id = str(uuid4())
-        self._create_exception(other_issue_id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(meta["issues"], [])
-
-    def test_long_running_enrich_overrides_status_with_live_value(self):
-        issue = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Boom")
-        meta = {"issues": [{"id": str(issue.id), "name": "Boom", "status": ErrorTrackingIssue.Status.ACTIVE}]}
-        ErrorTrackingIssue.objects.filter(id=issue.id).update(status=ErrorTrackingIssue.Status.SUPPRESSED)
-
-        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
-
-        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.SUPPRESSED)
-
-    def test_long_running_enrich_with_empty_issues_returns_unchanged(self):
-        meta: dict = {"issues": []}
-
-        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
-
-        self.assertEqual(enriched, {"issues": []})
-
-    def test_long_running_enrich_keeps_cached_status_when_issue_missing(self):
-        meta = {"issues": [{"id": str(uuid4()), "name": "Gone", "status": ErrorTrackingIssue.Status.ACTIVE}]}
-
-        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
-
-        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.ACTIVE)
-
-    def test_long_running_is_completed_when_no_issues(self):
-        self.assertTrue(LongRunningIssuesRecommendation().is_completed({"issues": []}))
-
-    def test_long_running_is_completed_false_when_issues_present(self):
-        meta = {"issues": [{"id": "x"}]}
-        self.assertFalse(LongRunningIssuesRecommendation().is_completed(meta))
 
     def test_alerts_is_completed_when_all_enabled(self):
         self.assertTrue(AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED))
@@ -339,82 +192,73 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(RateLimitsRecommendation().is_completed({"rate_limits": []}))
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_refresh_with_force_false_does_not_recompute(self, mock_alerts, mock_long_running):
+    def test_refresh_with_force_false_does_not_recompute(self, mock_alerts, mock_source_maps):
         response = self._list()
-        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
-        mock_long_running.reset_mock()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "source_maps")
+        mock_source_maps.reset_mock()
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/?force=false"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_long_running.assert_not_called()
+        mock_source_maps.assert_not_called()
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_refresh_with_force_true_recomputes(self, mock_alerts, mock_long_running):
+    def test_refresh_with_force_true_recomputes(self, mock_alerts, mock_source_maps):
         response = self._list()
-        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
-        mock_long_running.reset_mock()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "source_maps")
+        mock_source_maps.reset_mock()
 
         response = self._refresh(rec_id)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_long_running.assert_called_once()
+        mock_source_maps.assert_called_once()
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_long_running):
+    def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_source_maps):
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         statuses = {r["type"]: r["status"] for r in response.json()["results"]}
-        self.assertEqual(
-            statuses,
-            {"alerts": "ready", "long_running_issues": "ready", "rate_limits": "ready", "source_maps": "ready"},
-        )
+        self.assertEqual(statuses, {"alerts": "ready", "rate_limits": "ready", "source_maps": "ready"})
         # Each recommendation row should have been computed exactly once via the celery task path.
         self.assertEqual(mock_alerts.call_count, 1)
-        self.assertEqual(mock_long_running.call_count, 1)
+        self.assertEqual(mock_source_maps.call_count, 1)
 
-    @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_poll_does_not_kick_off_new_computations(self, mock_alerts, mock_long_running):
+    def test_poll_does_not_kick_off_new_computations(self, mock_alerts):
         self._list()
         mock_alerts.reset_mock()
-        mock_long_running.reset_mock()
 
         response = self._poll()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_alerts.assert_not_called()
-        mock_long_running.assert_not_called()
 
     def _make_frame(self, lang: str, resolved: bool, created_hours_ago: int = 1) -> ErrorTrackingStackFrame:
         frame = ErrorTrackingStackFrame.objects.create(
@@ -512,25 +356,25 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(SourceMapsRecommendation().is_completed(meta))
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_stuck_computing_rows_are_re_kicked(self, mock_alerts, mock_long_running):
-        # Simulate a worker that died mid-compute for long_running: row stays in
+    def test_stuck_computing_rows_are_re_kicked(self, mock_alerts, mock_source_maps):
+        # Simulate a worker that died mid-compute for source_maps: row stays in
         # "computing" with a stale status_changed_at and never reaches "ready".
-        long_running = ErrorTrackingRecommendation.objects.create(
+        source_maps = ErrorTrackingRecommendation.objects.create(
             team=self.team,
-            type="long_running_issues",
+            type="source_maps",
             status=ErrorTrackingRecommendation.Status.COMPUTING,
             status_changed_at=timezone.now() - timedelta(minutes=10),
         )
 
         self._list()
 
-        long_running.refresh_from_db()
-        self.assertEqual(long_running.status, ErrorTrackingRecommendation.Status.READY)
-        mock_long_running.assert_called_once()
+        source_maps.refresh_from_db()
+        self.assertEqual(source_maps.status, ErrorTrackingRecommendation.Status.READY)
+        mock_source_maps.assert_called_once()

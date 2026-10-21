@@ -108,7 +108,7 @@ class FieldpulseSource(ResumableSource[FieldpulseSourceConfig, FieldpulseResumeC
             label="FieldPulse",
             caption="Contact support@fieldpulse.com to request and activate your FieldPulse API key.",
             iconPath="/static/services/fieldpulse.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

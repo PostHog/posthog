@@ -177,7 +177,7 @@ class ZyloSource(ResumableSource[ZyloSourceConfig, ZyloResumeConfig]):
             ),
             iconPath="/static/services/zylo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zylo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

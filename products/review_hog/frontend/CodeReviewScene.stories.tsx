@@ -166,7 +166,7 @@ const runningReview = completedReview({
     status_comment_url: null,
     full_review_published: false,
     in_progress: true,
-    progress: { review_stage: 'reviewing', done: 3, total: 8 },
+    progress: { review_stage: 'reviewing', done: 3, total: 8, review_mode: 'full' },
     must_fix_count: 0,
     should_fix_count: 0,
     consider_count: 0,

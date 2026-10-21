@@ -111,18 +111,21 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
             name=ExternalDataSourceType.AWSSYSTEMSMANAGER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Systems Manager",
-            caption="""Sync fleet inventory, compliance summaries, associations, and patch baselines from one AWS region.
+            caption="""Sync fleet inventory, compliance, associations, documents, patching, sessions, and OpsItems from one AWS region.
 
 Grant these IAM permissions for the tables you select:
-`ssm:DescribeInstanceInformation`, `ssm:GetInventory`, `ssm:ListResourceComplianceSummaries`,
-`ssm:ListAssociations`, and `ssm:DescribePatchBaselines`.
+`ssm:DescribeInstanceInformation`, `ssm:GetInventory`, `ssm:GetInventorySchema`, `ssm:ListInventoryEntries`,
+`ssm:ListResourceComplianceSummaries`, `ssm:ListComplianceItems`, `ssm:ListAssociations`,
+`ssm:DescribeAssociationExecutions`, `ssm:DescribeAssociationExecutionTargets`, `ssm:ListDocuments`,
+`ssm:DescribePatchBaselines`, `ssm:DescribeInstancePatchStates`, `ssm:DescribeInstancePatches`,
+`ssm:DescribeSessions`, `ssm:DescribeOpsItems`, and `ssm:ListOpsItemEvents`.
 
 Enter an access key ID and secret access key. Include a session token for temporary credentials.
 All tables use full refresh. Create a separate source for each region.""",
             iconPath="/static/services/aws_systems_manager.png",
             docsUrl=API_DOCS_URL,
             keywords=["aws", "ssm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

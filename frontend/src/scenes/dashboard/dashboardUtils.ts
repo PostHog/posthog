@@ -15,9 +15,14 @@ import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, QueryStatus, TileFilters } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    HogQLVariable,
+    MetricsDashboardVariable,
+    QueryStatus,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -211,7 +216,7 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const AUTO_PREVIEW_TILE_LIMIT: number = 22
+export const AUTO_PREVIEW_TILE_LIMIT: number = 35
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
@@ -382,8 +387,7 @@ export async function getInsightWithRetry(
             })}`
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            const result: InsightModel | null = await getJSONOrNull(insightResponse)
 
             if (
                 result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
@@ -421,13 +425,13 @@ export async function getInsightWithRetry(
                                     cacheUrl,
                                     methodOptions
                                 )
-                                const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
-                                if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
+                                const refreshedInsight: InsightModel | null =
+                                    await getJSONOrNull(refreshedInsightResponse)
+                                if (refreshedInsight) {
                                     return {
-                                        ...queryBasedInsight,
-                                        query_status: queryBasedInsight.query_status?.error
-                                            ? queryBasedInsight.query_status
+                                        ...refreshedInsight,
+                                        query_status: refreshedInsight.query_status?.error
+                                            ? refreshedInsight.query_status
                                             : finalStatus,
                                     }
                                 }
@@ -453,7 +457,7 @@ export async function getInsightWithRetry(
                                     // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
                                     const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
                                     if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
-                                        return getQueryBasedInsightModel(rerunResponse)
+                                        return rerunResponse
                                     }
                                     if (
                                         rerunResponse?.result == null &&
@@ -467,7 +471,7 @@ export async function getInsightWithRetry(
                                     if (rerunResponse?.result == null) {
                                         throw new Error('The rerun returned no result')
                                     }
-                                    return getQueryBasedInsightModel(rerunResponse)
+                                    return rerunResponse
                                 })
                                 if (!rerun) {
                                     throw new Error('The rerun returned no result')
@@ -616,17 +620,73 @@ export const dashboardSearchParamsFromOverrides = (
  * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
  * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
  */
+function withoutCurrent(variable: Partial<MetricsDashboardVariable>): Partial<MetricsDashboardVariable> {
+    const { current: _, ...definition } = variable
+    return definition
+}
+
+/** A saved metric variable goes into requests as its name and selection, and the server puts the saved definition back.
+ * A definition that is not saved yet goes in full, because the server does not know it. */
+export function withCompactMetricVariables(
+    filters: DashboardFilter,
+    saved: MetricsDashboardVariable[]
+): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map((variable) => {
+            const savedVariable = saved.find((other) => other.name === variable.name)
+            return savedVariable && equal(withoutCurrent(savedVariable), withoutCurrent(variable))
+                ? ({ name: variable.name, current: variable.current } as MetricsDashboardVariable)
+                : variable
+        }),
+    }
+}
+
+/** Saved filters with the filters from the URL on top. A metric variable that the URL names gets its saved definition. */
+export function combineSavedAndUrlFilters(saved: DashboardFilter, url: DashboardFilter): DashboardFilter {
+    // Until the dashboard loads, the saved definitions are unknown, so the server resolves the names.
+    if (!url.metricVariables || !saved.metricVariables) {
+        return combineDashboardFilters(saved, url)
+    }
+    const metricVariables = url.metricVariables.flatMap((variable) => {
+        if (variable.source) {
+            return [variable]
+        }
+        const savedVariable = saved.metricVariables?.find((other) => other.name === variable.name)
+        return savedVariable ? [{ ...savedVariable, current: variable.current }] : []
+    })
+    return combineDashboardFilters(saved, { ...url, metricVariables })
+}
+
+/** Analytics captures the page URL, so metric variables go into a URL as their names and selections only. A definition
+ * that is not saved yet stays in the page until the dashboard is saved. */
+function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map(
+            (variable) => ({ name: variable.name, current: variable.current }) as MetricsDashboardVariable
+        ),
+    }
+}
+
 export function searchParamsWithUrlFilters(
     searchParams: Record<string, any>,
     filters: DashboardFilter,
     persistedFilters: DashboardFilter = {}
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
-    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
+    const compact = withMetricVariableSelections(filters)
+    if (!dashboardFilterOverrideChangesFilters(compact, withMetricVariableSelections(persistedFilters))) {
         delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
         return nextSearchParams
     }
-    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+    return { ...nextSearchParams, ...encodeURLFilters(compact) }
 }
 
 export function dashboardFilterOverrideChangesFilters(

@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
@@ -134,30 +135,72 @@ export function SourceSetupPanel({
                     </div>
                 )}
                 {connections.length > 0 && (
-                    <div className="divide-y border-t">
-                        {connections.map((connection) => (
-                            <div key={connection.id} className="py-4 space-y-2">
-                                <div className="flex items-center flex-wrap gap-3">
-                                    <SourceIcon type={connection.sourceType} size="small" disableTooltip />
-                                    <strong>{connection.name}</strong>
-                                    <LemonTag type={connection.status === 'Needs attention' ? 'warning' : 'info'}>
-                                        {connection.status}
-                                    </LemonTag>
-                                </div>
-                                <p className="text-secondary text-sm mb-0">{connection.detail}</p>
-                                {connection.status === 'Needs attention' && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        to={urls.dataWarehouseSource(connection.id)}
-                                        targetBlank
-                                    >
-                                        Manage source
-                                    </LemonButton>
-                                )}
-                            </div>
-                        ))}
-                    </div>
+                    <LemonCollapse
+                        embedded
+                        multiple
+                        defaultActiveKeys={[connections[0].sourceType]}
+                        panels={Array.from(new Set(connections.map((connection) => connection.sourceType))).map(
+                            (sourceType) => {
+                                const group = connections.filter((connection) => connection.sourceType === sourceType)
+                                return {
+                                    key: sourceType,
+                                    header: {
+                                        className: 'focus-visible:-outline-offset-2',
+                                        children: (
+                                            <span className="flex flex-wrap items-center gap-2 min-w-0">
+                                                <SourceIcon type={sourceType} size="small" disableTooltip />
+                                                <strong>{nativeSourceDisplayLabel(sourceType)}</strong>
+                                                <span className="text-secondary">{`${group.length} ${group.length === 1 ? 'connection' : 'connections'}`}</span>
+                                            </span>
+                                        ),
+                                    },
+                                    content: (
+                                        <div className="divide-y">
+                                            {group.map((connection) => (
+                                                <div
+                                                    key={connection.id}
+                                                    className="flex flex-wrap items-start justify-between gap-3 py-3"
+                                                >
+                                                    <div className="min-w-0 flex-1 basis-64 space-y-2 break-words">
+                                                        <div className="flex items-center flex-wrap gap-2">
+                                                            <strong className="break-all">{connection.name}</strong>
+                                                            <LemonTag
+                                                                type={
+                                                                    connection.status === 'Needs attention'
+                                                                        ? 'warning'
+                                                                        : 'info'
+                                                                }
+                                                            >
+                                                                {connection.status}
+                                                            </LemonTag>
+                                                        </div>
+                                                        <p className="text-secondary text-sm mb-0 whitespace-pre-line">
+                                                            {connection.detail}
+                                                        </p>
+                                                    </div>
+                                                    {connection.status === 'Needs attention' && (
+                                                        <div className="shrink-0 ml-auto">
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                size="small"
+                                                                to={urls.dataWarehouseSource(
+                                                                    `managed-${connection.id}`
+                                                                )}
+                                                                targetBlank
+                                                                data-attr="marketing-connection-manage-source"
+                                                            >
+                                                                Manage source
+                                                            </LemonButton>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ),
+                                }
+                            }
+                        )}
+                    />
                 )}
                 {suggestions.length > 0 && !busy && (
                     <div className="divide-y border-t">

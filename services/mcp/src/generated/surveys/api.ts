@@ -28,6 +28,10 @@ export const SurveysListQueryParams = () => zod.object({
     created_by: zod.number().optional().describe('Filter surveys by the ID of the user who created them.'),
     ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    linked_flag_id: zod
+        .number()
+        .optional()
+        .describe('Filter surveys by the ID of the feature flag they are linked to.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()
@@ -525,7 +529,7 @@ export const SurveysCreateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -547,7 +551,7 @@ export const SurveysCreateBody = () => zod.object({
                                     .describe('Rule value for min_length or max_length validations.'),
                             })
                         )
-                        .optional()
+                        .nullish()
                         .describe('Validation rules for the response text, for example a minimum length.'),
                     branching: zod
                         .union([
@@ -647,7 +651,7 @@ export const SurveysCreateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -750,7 +754,7 @@ export const SurveysCreateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -874,7 +878,7 @@ export const SurveysCreateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -991,7 +995,7 @@ export const SurveysCreateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -1767,7 +1771,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -1789,7 +1793,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                     .describe('Rule value for min_length or max_length validations.'),
                             })
                         )
-                        .optional()
+                        .nullish()
                         .describe('Validation rules for the response text, for example a minimum length.'),
                     branching: zod
                         .union([
@@ -1889,7 +1893,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -1992,7 +1996,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -2116,7 +2120,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
@@ -2233,7 +2237,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                 link: zod.string().optional().describe('Translated URL. Link questions only.'),
                             })
                         )
-                        .nullish()
+                        .optional()
                         .describe(
                             "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost."
                         ),
