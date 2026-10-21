@@ -28,12 +28,14 @@ from products.signals.backend.activity_summary.render import (
     MAX_UNITS_PER_DAY,
     TASK_LINES,
     TASKS_HEADER,
+    VIEWS_HEADER,
     ActivityItem,
     Drop,
     Parent,
     RenderLimits,
     TaskItem,
     Unit,
+    ViewItem,
     activity_units,
     build_input,
     burst_cap,
@@ -41,6 +43,7 @@ from products.signals.backend.activity_summary.render import (
     sample_units,
     sampling_seed,
     task_units,
+    view_units,
 )
 from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
@@ -72,6 +75,13 @@ def _change(
 
 QUALITY = Parent(scope="Dashboard", item_id="10", name="Quality review")
 GROWTH = Parent(scope="Dashboard", item_id="11", name="Growth overview")
+
+
+def _view(
+    view_type: str, ref: str, name: str | None = None, days: int = 1, days_ago: float = 1, not_theirs: bool = False
+) -> ViewItem:
+    opened = tuple(sorted(_at(days_ago + n).date() for n in range(days)))
+    return ViewItem(at=_at(days_ago), type=view_type, ref=ref, name=name, days=opened, not_theirs=not_theirs)
 
 
 @parameterized.expand(
@@ -334,12 +344,16 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
     assert sum(1 for age in picked_ages if age < 7) > sum(1 for age in picked_ages if age >= 21)
 
 
-def test_build_input_renders_the_two_sections_in_order() -> None:
+def test_build_input_renders_the_three_sections_in_order() -> None:
     rendered = build_input(
         [_task("why", summary="Asked: why did signups drop?", tags=("growth",), days_ago=3)],
         [_change("Dashboard", "created", "Growth overview", days_ago=1)],
         as_of=AS_OF,
         seed=1,
+        views=[
+            _view("insight", "abc", "Weekly signups", days_ago=1),
+            _view("dashboard", "9", "Growth overview", days=3, days_ago=2),
+        ],
     )
 
     assert rendered is not None
@@ -350,11 +364,44 @@ def test_build_input_renders_the_two_sections_in_order() -> None:
             "",
             ACTIVITY_HEADER,
             '- 2026-10-18 created Dashboard "Growth overview"',
+            "",
+            VIEWS_HEADER,
+            '- Dashboard "Growth overview": opened 3 days, last 2026-10-17, edited 1 day',
+            '- Insight "Weekly signups": opened 1 day, last 2026-10-18',
         ]
     )
-    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.units) == (1, 1, 2)
+    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_view_lines, rendered.units) == (1, 1, 2, 4)
     assert rendered.input_chars == len(rendered.text)
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
+    assert build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "Settings")]) is None
+
+
+def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> None:
+    drops: Counter[str] = Counter()
+    views = [
+        _view("scene", "ErrorTrackingIssue", days=2),
+        _view("scene", "ErrorTracking", days=3, days_ago=2),
+        _view("scene", "Settings"),
+        _view("scene", "ProjectHomepage"),
+        _view("insight", "abc", "Weekly signups", days=5, not_theirs=True),
+        _view("feature_flag", "7", "new-checkout", days=2),
+        _view("notebook", "n1", "Daily report 2026-10-18"),
+        _view("dashboard", "9", None),
+    ]
+    activity = [
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=1),
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=1.5),
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=3, client="scout:feature-flags"),
+    ]
+
+    units = view_units(views, activity, drops)
+
+    assert sorted(unit.text for unit in units) == [
+        "- Error tracking pages: opened 4 days, last 2026-10-18",
+        '- Feature flag "new-checkout": opened 2 days, last 2026-10-18, edited 2 days',
+        '- Insight "Weekly signups": opened 5 days, last 2026-10-18, not theirs',
+    ]
+    assert dict(drops) == {Drop.GENERIC_SCENE: 2, Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
 
 
 @parameterized.expand(

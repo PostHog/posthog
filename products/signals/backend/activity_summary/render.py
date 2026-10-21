@@ -27,7 +27,7 @@ SUMMARY_MAX_WORDS = 60
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 5
+RENDER_VERSION = 6
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -37,6 +37,7 @@ CHARS_PER_TOKEN = 4
 # query applies the noise filters before this limit, so bulk agent writes cannot fill it.
 MAX_TASKS_PER_PERSON = 200
 MAX_ACTIVITY_ROWS_PER_PERSON = 1000
+MAX_VIEW_ROWS_PER_PERSON = 500
 
 # Units one source may keep from a single UTC day, newest first, so one busy afternoon cannot fill a section.
 MAX_UNITS_PER_DAY = 3
@@ -45,6 +46,7 @@ ACTIVITY_LINES = 15
 # Activity lines one UTC day may keep while other days have lines to show. A third of the section
 # leaves a busy day several lines and the rest of the window most of the slots.
 MAX_ACTIVITY_LINES_PER_DAY = 5
+VIEW_LINES = 15
 # Per-line caps, so one runaway title or intent cannot take the budget. With the default caps a full
 # prompt section stays under SECTIONS_MAX_CHARS; the hard stop is the backstop when the caps change.
 TASK_LINE_CHARS = 260
@@ -55,6 +57,7 @@ MAX_TAG_CHARS = 30
 ACTIVITY_LINE_CHARS = 220
 ACTIVITY_NAME_CHARS = 70
 ACTIVITY_INTENT_CHARS = 100
+VIEW_LINE_CHARS = 160
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
@@ -68,6 +71,7 @@ MIN_BARE_TITLE_WORDS = 8
 
 TASKS_HEADER = "Tasks the person gave to PostHog AI or the Slack agent ([tags] goal):"
 ACTIVITY_HEADER = "Things the person created or changed in PostHog (agent: why their coding agent did it):"
+VIEWS_HEADER = "Things the person opened in PostHog, by type (days: distinct days in the window; not theirs: someone else made it):"
 
 # Helper tasks that a task spawns for itself, such as repository selection, carry the parent's origin.
 SANDBOX_PROMPT_TITLE_PREFIX = "[sandbox_prompt:"
@@ -94,6 +98,44 @@ _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[A-Za-z]")
 _WHITESPACE = re.compile(r"\s+")
 
+# A view log row of this type records a page, and its ref is the frontend scene id.
+SCENE_VIEW_TYPE = "scene"
+# The product of each scene id prefix. A prefix matches its plural and any longer scene id of the
+# same product, such as "ErrorTrackingIssue". Other scenes, such as settings, the home page or a new
+# tab, say nothing about the work.
+_SCENE_PRODUCTS: tuple[tuple[str, str], ...] = (
+    ("Insight|SavedInsight|ProductAnalytics", "Product analytics"),
+    ("Dashboard", "Dashboards"),
+    ("WebAnalytics", "Web analytics"),
+    ("Replay|SessionRecording|SessionSummaries", "Session replay"),
+    ("Heatmap", "Heatmaps"),
+    ("ErrorTracking", "Error tracking"),
+    ("Experiment", "Experiments"),
+    ("FeatureFlag", "Feature flags"),
+    ("EarlyAccessFeature", "Early access features"),
+    ("Survey", "Surveys"),
+    ("ProductTour", "Product tours"),
+    ("Notebook", "Notebooks"),
+    ("Cohort", "Cohorts"),
+    ("Person|Group", "Persons and groups"),
+    ("Action|EventDefinition|PropertyDefinition|DataManagement", "Data management"),
+    ("SQLEditor|DataWarehouse|Sources|Models", "Data warehouse"),
+    ("Pipeline|Destination|Transformation|HogFunction|BatchExport", "Data pipelines"),
+    ("Workflow|Broadcast", "Workflows"),
+    ("AIObservability", "AI observability"),
+    ("MCPAnalytics", "MCP analytics"),
+    ("Logs", "Logs"),
+    ("Tracing", "Tracing"),
+    ("Endpoint", "Endpoints"),
+    ("RevenueAnalytics", "Revenue analytics"),
+    ("CustomerAnalytics", "Customer analytics"),
+    ("Inbox", "Inbox"),
+    ("Canvas", "Canvases"),
+)
+_SCENE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(rf"^(?:{prefixes})s?(?:[A-Z]|$)"), product) for prefixes, product in _SCENE_PRODUCTS
+)
+
 
 def _limit(default: int, *, max_value: int) -> Any:
     return dataclasses.field(default=default, metadata={"max_value": max_value})
@@ -109,6 +151,8 @@ class RenderLimits:
     task_lines: int = _limit(TASK_LINES, max_value=50)
     activity_lines: int = _limit(ACTIVITY_LINES, max_value=50)
     max_activity_lines_per_day: int = _limit(MAX_ACTIVITY_LINES_PER_DAY, max_value=50)
+    view_lines: int = _limit(VIEW_LINES, max_value=50)
+    view_line_chars: int = _limit(VIEW_LINE_CHARS, max_value=1000)
     max_units_per_day: int = _limit(MAX_UNITS_PER_DAY, max_value=20)
     sections_max_chars: int = _limit(SECTIONS_MAX_CHARS, max_value=32000)
     task_line_chars: int = _limit(TASK_LINE_CHARS, max_value=1000)
@@ -132,6 +176,7 @@ class Drop(StrEnum):
     SCOUT_CLIENT = "scout_client"
     AUTO_NAMED_OBJECT = "auto_named_object"
     UNNAMED_OBJECT = "unnamed_object"
+    GENERIC_SCENE = "generic_scene"
     DUPLICATE = "duplicate"
     GROUPED_INTO_PARENT = "grouped_into_parent"
     BURST_CAP = "burst_cap"
@@ -176,6 +221,20 @@ ParentLookup = Mapping[tuple[str, str], Sequence[Parent]]
 
 
 @frozen
+class ViewItem:
+    """One object or scene the person opened, with the days they opened it.
+
+    `name` is None for a scene, and for an object that has no file system entry."""
+
+    at: datetime.datetime
+    type: str
+    ref: str
+    name: str | None
+    days: tuple[datetime.date, ...]
+    not_theirs: bool = False
+
+
+@frozen
 class Unit:
     """One rendered line, dated by its latest activity."""
 
@@ -198,8 +257,10 @@ class RenderedInput:
     text: str
     n_tasks: int
     n_activity_lines: int
+    n_view_lines: int
     task_chars: int
     activity_chars: int
+    view_chars: int
     input_chars: int
     input_tokens_estimate: int
     drops: dict[str, int]
@@ -209,7 +270,7 @@ class RenderedInput:
 
     @property
     def units(self) -> int:
-        return self.n_tasks + self.n_activity_lines
+        return self.n_tasks + self.n_activity_lines + self.n_view_lines
 
 
 def _mask_token(match: re.Match[str]) -> str:
@@ -510,6 +571,72 @@ def activity_units(
     return sorted((Unit(at=line.at, text=line.text) for line in kept), key=lambda unit: (unit.at, unit.text))
 
 
+def scene_product(scene_id: str) -> str | None:
+    for pattern, product in _SCENE_PATTERNS:
+        if pattern.match(scene_id):
+            return product
+    return None
+
+
+def _scope_of(view_type: str) -> str:
+    """The activity log scope of a file system type, such as "FeatureFlag" for "feature_flag"."""
+    return "".join(word.capitalize() for word in view_type.split("/")[0].split("_"))
+
+
+def _days(count: int) -> str:
+    return f"{count} day" if count == 1 else f"{count} days"
+
+
+def view_units(
+    views: Iterable[ViewItem],
+    activity: Iterable[ActivityItem],
+    drops: Counter[str],
+    limits: RenderLimits = DEFAULT_LIMITS,
+) -> list[Unit]:
+    """One line per opened object and one per product of the opened scenes, the most opened first.
+
+    An object line also counts the days the person edited it, matched to their activity rows by
+    scope and name. These lines skip the per-day burst cap."""
+    edit_days: dict[tuple[str, str], set[datetime.date]] = {}
+    for item in activity:
+        if item.name and not (item.client or "").startswith(SCOUT_CLIENT_PREFIX):
+            edit_days.setdefault((item.scope, item.name.strip()), set()).add(_day(item.at))
+    ranked: list[tuple[int, datetime.datetime, str]] = []
+    scenes: dict[str, tuple[datetime.datetime, set[datetime.date]]] = {}
+    for view in views:
+        if view.type == SCENE_VIEW_TYPE:
+            product = scene_product(view.ref)
+            if product is None:
+                drops[Drop.GENERIC_SCENE] += 1
+                continue
+            at, days = scenes.get(product, (view.at, set()))
+            scenes[product] = (max(at, view.at), days | set(view.days))
+            continue
+        name = (view.name or "").strip()
+        if not name:
+            drops[Drop.UNNAMED_OBJECT] += 1
+            continue
+        if _AUTO_NAME.search(name):
+            drops[Drop.AUTO_NAMED_OBJECT] += 1
+            continue
+        opened = len(set(view.days))
+        name_text = cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
+        facts = [f"opened {_days(opened)}", f"last {_day(view.at).isoformat()}"]
+        if edited := len(edit_days.get((_scope_of(view.type), name), ())):
+            facts.append(f"edited {_days(edited)}")
+        if view.not_theirs:
+            facts.append("not theirs")
+        label = view.type.split("/")[0].replace("_", " ").capitalize()
+        ranked.append((opened, view.at, f'- {label} "{name_text}": {", ".join(facts)}'))
+    for product, (at, days) in scenes.items():
+        ranked.append((len(days), at, f"- {product} pages: opened {_days(len(days))}, last {_day(at).isoformat()}"))
+    ranked.sort(key=lambda entry: (-entry[0], -entry[1].timestamp(), entry[2]))
+    if len(ranked) > limits.view_lines:
+        drops[Drop.SAMPLE_CAP] += len(ranked) - limits.view_lines
+    units = [Unit(at=at, text=cap_line(text, limits.view_line_chars)) for _, at, text in ranked[: limits.view_lines]]
+    return sorted(units, key=lambda unit: (unit.at, unit.text))
+
+
 def dedupe_latest(units: Iterable[Unit], drops: Counter[str]) -> list[Unit]:
     """One unit per distinct text, the latest one, in chronological order."""
     latest: dict[str, Unit] = {}
@@ -585,6 +712,7 @@ def build_input(
     *,
     as_of: datetime.datetime,
     seed: int,
+    views: Iterable[ViewItem] = (),
     limits: RenderLimits = DEFAULT_LIMITS,
     parents: ParentLookup | None = None,
 ) -> RenderedInput | None:
@@ -592,27 +720,33 @@ def build_input(
 
     Order: the named filters, then the burst cap, then the recency-weighted sample, then the hard
     budget, so the sample is drawn from clean units only. `parents` groups activity lines under the
-    objects that hold them."""
+    objects that hold them. The views section shows its lines grouped by type after the budget,
+    because the budget drops the oldest unit of a section first."""
     drops: Counter[str] = Counter()
+    activity = list(activity)
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
     capped_before = drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP]
     activity_lines = activity_units(activity, drops, parents, limits)
     # Lines that `activity_units` dropped for its line cap or its per-day cap.
     activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
-    if not task_pool and not activity_lines:
+    view_lines = view_units(views, activity, drops, limits)
+    if not task_pool and not activity_lines and not view_lines:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
-    sections = [(TASKS_HEADER, chosen_tasks), (ACTIVITY_HEADER, activity_lines)]
+    sections = [(TASKS_HEADER, chosen_tasks), (ACTIVITY_HEADER, activity_lines), (VIEWS_HEADER, view_lines)]
     enforce_budget(sections, drops, limits.sections_max_chars)
+    sections[2] = (VIEWS_HEADER, sorted(sections[2][1], key=lambda unit: unit.text))
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
     return RenderedInput(
         text=text,
         n_tasks=len(sections[0][1]),
         n_activity_lines=len(sections[1][1]),
+        n_view_lines=len(sections[2][1]),
         task_chars=len(rendered[0]),
         activity_chars=len(rendered[1]),
+        view_chars=len(rendered[2]),
         input_chars=len(text),
         input_tokens_estimate=estimate_tokens(len(text)),
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
