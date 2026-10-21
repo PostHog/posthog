@@ -999,6 +999,9 @@ export function AgentsRoster(): JSX.Element {
                     {group.agents.length > 0 && (
                         <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
+                    {group.id === 'external' && group.agents.length > 0 && visibleSourceRecommendations.length > 0 && (
+                        <h4 className="m-0 text-sm font-semibold">Recommended for you</h4>
+                    )}
                     {group.id === 'external' && <SourceRecommendations />}
                 </div>
             ))}
