@@ -21,7 +21,7 @@ const UNSUPPORTED_PAGE_MESSAGES: Record<UnsupportedPageReason, string> = {
 
 function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState }): JSX.Element {
     const { uiHost, user } = useValues(extensionPanelLogic)
-    const { requestHostPermission, openPostHogPath, retry } = useActions(extensionPanelLogic)
+    const { requestHostPermission, openPostHogPath, openProjectPath, retry } = useActions(extensionPanelLogic)
     const host = new URL(uiHost).host
     const projectName = user?.team.name ?? 'this project'
 
@@ -74,10 +74,7 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
                     type="warning"
                     action={{
                         children: 'Open authorized URLs',
-                        onClick: () =>
-                            openPostHogPath(
-                                `/project/${user?.team.id}${urls.settings('project-toolbar', 'authorized-urls')}`
-                            ),
+                        onClick: () => openProjectPath(urls.settings('project-toolbar', 'authorized-urls')),
                         'data-attr': 'toolbar-extension-authorized-urls',
                     }}
                 >

@@ -1,10 +1,10 @@
 import { checkUrlIsAuthorized } from 'lib/components/AuthorizedUrlList/authorizedUrlMatching'
 
-import type { ToolbarEntitlementsApiEntitlements } from '~/generated/core/api.schemas'
+import type { ToolbarEntitlementsApiEntitlements, UserApi } from '~/generated/core/api.schemas'
 
 export type UnsupportedPageReason = 'browser-page' | 'insecure-page' | 'posthog-app' | 'extension-store'
 
-export type SessionResult = { status: 'signed-in' } | { status: 'signed-out' } | { status: 'error' }
+export type SessionUserResult = { status: 'signed-in'; user: UserApi } | { status: 'signed-out' } | { status: 'error' }
 
 export type ToolbarAccessResult =
     | { status: 'allowed'; entitlements: ToolbarEntitlementsApiEntitlements | null }
@@ -28,7 +28,8 @@ export interface ExtensionPanelInputs {
     uiHost: string
     /** `null` while the permission check is pending. */
     hostPermission: boolean | null
-    session: SessionResult | null
+    /** `null` while the session loads. */
+    sessionStatus: SessionUserResult['status'] | null
     toolbarAccess: ToolbarAccessResult | null
     /** The project's authorized URLs, `null` while they load. */
     authorizedUrls: string[] | 'error' | null
@@ -40,7 +41,7 @@ const EXTENSION_STORE_HOSTNAMES = new Set(['chromewebstore.google.com', 'chrome.
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 /** Mirrors the toolbar OAuth rules: http(s) only, and plain http only on loopback hosts. */
-export function unsupportedPageReason(tabUrl: string | null, uiHost: string): UnsupportedPageReason | null {
+function unsupportedPageReason(tabUrl: string | null, uiHost: string): UnsupportedPageReason | null {
     if (!tabUrl) {
         return 'browser-page'
     }
@@ -82,13 +83,13 @@ export function getExtensionPanelState(inputs: ExtensionPanelInputs): ExtensionP
         return { kind: 'host-permission-needed' }
     }
 
-    if (!inputs.session) {
+    if (!inputs.sessionStatus) {
         return { kind: 'checking' }
     }
-    if (inputs.session.status === 'signed-out') {
+    if (inputs.sessionStatus === 'signed-out') {
         return { kind: 'signed-out' }
     }
-    if (inputs.session.status === 'error') {
+    if (inputs.sessionStatus === 'error') {
         return { kind: 'error' }
     }
 
