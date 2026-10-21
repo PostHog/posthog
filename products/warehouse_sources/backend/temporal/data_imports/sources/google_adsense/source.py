@@ -8,6 +8,7 @@ from google.auth.exceptions import RefreshError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -93,6 +94,16 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
 
 @SourceRegistry.register
 class GoogleAdSenseSource(ResumableSource[GoogleAdSenseSourceConfig, GoogleAdSenseResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("GOOGLE_ADSENSE",),
+        script_hosts=("pagead2.googlesyndication.com", "googleads.g.doubleclick.net"),
+        npm=("@googleapis/adsense"),
+        cargo=("google-adsense2"),
+        maven=("com.google.apis:google-api-services-adsense"),
+        rubygems=("google-apis-adsense_v2"),
+        pypi=("google-api-python-client"),
+        composer=("google/apiclient-services"),
+    )
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.google.com/adsense/management/reference/rest"
