@@ -78,7 +78,7 @@ export function DevModeSetting(): JSX.Element {
             {minted ? (
                 <div className="flex flex-col gap-2">
                     <LemonBanner type="success">Copy this token now. It won't be shown again.</LemonBanner>
-                    <CodeSnippet language={Language.Text} wrap thing="token">
+                    <CodeSnippet className="ph-no-capture" language={Language.Text} wrap thing="token">
                         {minted.token}
                     </CodeSnippet>
                 </div>
