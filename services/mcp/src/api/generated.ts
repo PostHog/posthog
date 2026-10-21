@@ -44612,6 +44612,7 @@ export namespace Schemas {
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44631,6 +44632,7 @@ export namespace Schemas {
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      NewFlagNoTraffic: 'new_flag_no_traffic',
     } as const;
 
     /**
@@ -44692,7 +44694,8 @@ export namespace Schemas {
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `new_flag_no_traffic` - New Flag No Traffic */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -44728,6 +44731,7 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
@@ -44745,6 +44749,7 @@ export namespace Schemas {
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
@@ -44778,6 +44783,7 @@ export namespace Schemas {
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
