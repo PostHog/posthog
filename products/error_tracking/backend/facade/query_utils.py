@@ -53,8 +53,8 @@ def normalize_volume_resolution(volume_resolution: int) -> int:
     return max(volume_resolution, 1)
 
 
-CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
-RELEASE_EVENT_SELECTS = ["properties.$exception_releases"]
+CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_release"]
+RELEASE_EVENT_SELECTS = ["properties.$exception_release"]
 DEFAULT_EVENT_CONTEXT_INCLUDES = ["exception", "environment", "navigation", "correlation"]
 EVENT_CONTEXT_PROPERTY_SELECTS = {
     "exception": [
@@ -78,7 +78,7 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
         "properties.$app_version",
         "properties.$device_type",
     ],
-    "release": ["properties.$exception_releases"],
+    "release": ["properties.$exception_release"],
     "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
     "correlation": [
         "properties.$session_id",
@@ -160,21 +160,19 @@ def add_event_filter(filters: list[dict[str, object]], key: str, operator: str, 
 
 def add_release_filter(filters: list[dict[str, object]], release: str) -> None:
     escaped_release = escape_hogql_string(release)
-    releases_json = "ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')"
     filters.append(
         {
             "type": "hogql",
-            "key": f"position(toString(properties.$exception_releases), {escaped_release}) > 0",
+            "key": f"position(toString(properties.$exception_release), {escaped_release}) > 0",
         }
     )
     filters.append(
         {
             "type": "hogql",
             "key": (
-                f"arrayExists(r -> (r.1 = {escaped_release} "
-                f"OR JSONExtractString(r.2, 'version') = {escaped_release} "
-                f"OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = {escaped_release}), "
-                f"JSONExtractKeysAndValuesRaw({releases_json}))"
+                f"{escaped_release} IN (toString(properties.$exception_release.id), "
+                "toString(properties.$exception_release.version), "
+                "toString(properties.$exception_release.metadata.git.commit_id))"
             ),
         }
     )
@@ -371,7 +369,7 @@ def normalize_error_property(
 ) -> object:
     if name == "$exception_list":
         return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
-    if name in {"$exception_releases", "$cymbal_errors"}:
+    if name in {"$exception_release", "$cymbal_errors"}:
         return parse_jsonish(value)
     if name == "$exception_handled" and isinstance(value, str) and value.lower() in {"true", "false"}:
         return value.lower() == "true"
@@ -506,13 +504,7 @@ def build_top_in_app_frame(issue: dict[str, object], event_properties: dict[str,
 
 
 def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
-    releases = event_properties.get("$exception_releases")
-    release_values = (
-        releases if isinstance(releases, list) else list(releases.values()) if isinstance(releases, dict) else []
-    )
-    records = [record for value in release_values if (record := as_record(value)) is not None]
-    records.sort(key=lambda record: str(record.get("timestamp") or record.get("created_at") or ""), reverse=True)
-    release = records[0] if records else None
+    release = as_record(event_properties.get("$exception_release"))
     if release is None:
         return {}
     metadata = as_record(release.get("metadata"))
@@ -521,7 +513,7 @@ def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
         {
             "version": release.get("version"),
             "project": release.get("project"),
-            "timestamp": release.get("timestamp") or release.get("created_at"),
+            "timestamp": release.get("timestamp"),
             "commit_id": git.get("commit_id") if git else None,
             "branch": git.get("branch") if git else None,
             "repo_name": git.get("repo_name") if git else None,

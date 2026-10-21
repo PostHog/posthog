@@ -74,9 +74,9 @@ def test_release_filter_adds_substring_prefilter() -> None:
 
     assert filters[0] == {
         "type": "hogql",
-        "key": "position(toString(properties.$exception_releases), '2026.04.24') > 0",
+        "key": "position(toString(properties.$exception_release), '2026.04.24') > 0",
     }
-    assert "JSONExtractKeysAndValuesRaw" in str(filters[1]["key"])
+    assert "properties.$exception_release.version" in str(filters[1]["key"])
 
 
 @parameterized.expand(
@@ -322,13 +322,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "$lib": "posthog-js",
                 "$browser": "Chrome",
                 "$current_url": "https://example.test/checkout",
-                "$exception_releases": {
-                    "release-id-1": {
-                        "version": "2026.04.24",
-                        "project": "posthog-js",
-                        "timestamp": "2026-04-24T10:00:00Z",
-                        "metadata": {"git": {"commit_id": "commit-123", "branch": "main"}},
-                    }
+                "$exception_release": {
+                    "id": "release-id-1",
+                    "version": "2026.04.24",
+                    "project": "posthog-js",
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "metadata": {"git": {"commit_id": "commit-123", "branch": "main"}},
                 },
             }
         )
@@ -645,7 +644,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             issue_id=source_issue_id,
             fingerprint="merged-fingerprint",
             timestamp=merged_first_seen,
-            properties={"$exception_releases": {"release-id-1": {"version": "2026.04.01"}}},
+            properties={"$exception_release": {"id": "release-id-1", "version": "2026.04.01"}},
         )
         # Arrived after the fingerprint was created, but happened first.
         self.create_exception_event(
@@ -653,12 +652,11 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             fingerprint="merged-fingerprint",
             timestamp=merged_first_seen - timedelta(hours=2),
             properties={
-                "$exception_releases": {
-                    "release-id-0": {
-                        "version": "2026.03.31",
-                        "project": "posthog-js",
-                        "timestamp": "2026-03-31T09:00:00Z",
-                    }
+                "$exception_release": {
+                    "id": "release-id-0",
+                    "version": "2026.03.31",
+                    "project": "posthog-js",
+                    "timestamp": "2026-03-31T09:00:00Z",
                 }
             },
         )
@@ -688,13 +686,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                         },
                     }
                 ],
-                "$exception_releases": {
-                    "release-id-1": {
-                        "version": "2026.04.24",
-                        "project": "posthog-js",
-                        "timestamp": "2026-04-24T10:00:00Z",
-                        "metadata": {"git": {"commit_id": "commit-123", "branch": "main"}},
-                    }
+                "$exception_release": {
+                    "id": "release-id-1",
+                    "version": "2026.04.24",
+                    "project": "posthog-js",
+                    "timestamp": "2026-04-24T10:00:00Z",
+                    "metadata": {"git": {"commit_id": "commit-123", "branch": "main"}},
                 },
             }
         )
@@ -1161,7 +1158,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "$current_url": "https://example.test/checkout",
                 "$exception_level": "error",
                 "$exception_handled": False,
-                "$exception_releases": {"release-id": {"version": "2026.04.24"}},
+                "$exception_release": {"id": "release-id", "version": "2026.04.24"},
                 "$cymbal_errors": ["source map unavailable"],
                 "$trace_id": "00000000000000000000000000000123",
                 "$span_id": "0000000000000456",
@@ -1223,7 +1220,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert variables_frame["code_variables"] == expected_variables
         assert variables_properties["$exception_level"] == "error"
         assert variables_properties["$exception_handled"] is False
-        assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}
+        assert variables_properties["$exception_release"] == {"id": "release-id", "version": "2026.04.24"}
         assert variables_properties["$cymbal_errors"] == ["source map unavailable"]
         assert variables_properties["$trace_id"] == "00000000000000000000000000000123"
         assert variables_properties["$span_id"] == "0000000000000456"

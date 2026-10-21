@@ -169,7 +169,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     release = serializers.CharField(
         required=False,
         max_length=500,
-        help_text="Filter by exact release ID, version, or git commit ID captured in $exception_releases.",
+        help_text="Filter by exact release ID, version, or git commit ID captured in $exception_release.",
     )
     fingerprint = StringOrStringListField(
         required=False, help_text="Filter by exact exception fingerprint hash, not fuzzy search."
@@ -341,7 +341,7 @@ class ErrorTrackingTopFrameSerializer(serializers.Serializer):
     in_app = serializers.BooleanField(required=False, help_text="Whether the frame is an application frame.")
 
 
-class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
+class ErrorTrackingReleaseSummarySerializer(serializers.Serializer):
     version = serializers.CharField(required=False, help_text="Release version.")
     project = serializers.CharField(required=False, help_text="Release project/library.")
     timestamp = serializers.CharField(required=False, help_text="Release timestamp.")
@@ -417,8 +417,8 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
         required=False, allow_null=True, help_text="Top function associated with the issue."
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
-    latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
-    first_release = ErrorTrackingLatestReleaseSerializer(
+    latest_release = ErrorTrackingReleaseSummarySerializer(required=False, help_text="Latest release metadata.")
+    first_release = ErrorTrackingReleaseSummarySerializer(
         required=False,
         help_text=(
             "Release metadata from the issue's first event, found near first_seen and not limited by dateRange. "
