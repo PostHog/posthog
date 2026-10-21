@@ -10,6 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { ExperimentsTabEditorProvider } from '~/toolbar/experiments/ExperimentsTabEditorProvider'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant'
 import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
@@ -77,7 +78,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 )}
                             </div>
                             <Group name="variants">
-                                <div>
+                                <ExperimentsTabEditorProvider>
                                     <LemonCollapse
                                         size="medium"
                                         activeKey={selectedVariant}
@@ -106,7 +107,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                 }
                                             })}
                                     />
-                                </div>
+                                </ExperimentsTabEditorProvider>
                             </Group>
                         </div>
                     </div>

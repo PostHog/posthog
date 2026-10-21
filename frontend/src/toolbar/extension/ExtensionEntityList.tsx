@@ -28,7 +28,7 @@ interface ExtensionEntityListProps {
     dataAttrs: { search: string; row: string; create: string; openSaved: string }
 }
 
-/** The list a tool opens with: search, pick an item to edit it, or make a new one. */
+/** The list that opens the actions and experiments tools: search, pick an item to edit it, or make a new one. */
 export function ExtensionEntityList({
     noun,
     pluralNoun,

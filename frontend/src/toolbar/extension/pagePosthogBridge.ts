@@ -137,6 +137,7 @@ export class PagePosthogBridge {
             version: info.version ?? undefined,
             config: {
                 disable_scroll_properties: info.scrollPropertiesDisabled,
+                disable_web_experiments: info.webExperimentsDisabled,
                 scroll_root_selector: info.scrollRootSelector ?? undefined,
                 session_recording: info.sessionRecordingConfig,
             },

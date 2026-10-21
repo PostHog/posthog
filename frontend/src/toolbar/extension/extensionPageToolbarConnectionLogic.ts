@@ -49,6 +49,7 @@ export interface extensionPageToolbarConnectionLogicValues {
     requestedSelectors: string[]
     screenshotPreview: string | null
     selectedActionId: number | 'new' | null
+    selectedExperimentId: number | 'new' | null
     selectorCounter: Pick<SelectorMatchCounter, 'count'>
     wantedMode: PageToolbarMode
     webVitals: PageToolbarWebVitalsState | null
@@ -117,6 +118,7 @@ export interface extensionPageToolbarConnectionLogicMeta {
         heatmap: (pageToolbarState: PageToolbarState | null) => PageToolbarHeatmapState | null
         webVitals: (pageToolbarState: PageToolbarState | null) => PageToolbarWebVitalsState | null
         selectedActionId: (pageToolbarState: PageToolbarState | null) => number | 'new' | null
+        selectedExperimentId: (pageToolbarState: PageToolbarState | null) => number | 'new' | null
         selectorCounter: (pageToolbarState: PageToolbarState | null) => Pick<SelectorMatchCounter, 'count'>
     }
 }
@@ -217,6 +219,10 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
         selectedActionId: [
             (s) => [s.pageToolbarState],
             (pageToolbarState: PageToolbarState | null) => pageToolbarState?.actions.selectedActionId ?? null,
+        ],
+        selectedExperimentId: [
+            (s) => [s.pageToolbarState],
+            (pageToolbarState: PageToolbarState | null) => pageToolbarState?.experiments.selectedExperimentId ?? null,
         ],
         selectorCounter: [
             (s) => [s.pageToolbarState],

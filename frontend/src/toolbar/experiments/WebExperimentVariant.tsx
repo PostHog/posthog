@@ -1,4 +1,3 @@
-import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -8,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { useWebExperimentEditor } from '~/toolbar/experiments/webExperimentEditorContext'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
 import { WebExperimentTransformHeader } from '~/toolbar/experiments/WebExperimentTransformHeader'
 
@@ -17,12 +16,12 @@ interface WebExperimentVariantProps {
 }
 
 export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JSX.Element {
-    const { experimentForm, selectedExperimentId } = useValues(experimentsTabLogic)
+    const { variants, selectedExperimentId, renameVariant, addTransformation } = useWebExperimentEditor()
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
-    const { addNewTransformation, setExperimentFormValue } = useActions(experimentsTabLogic)
+    const transforms = variants[variant]?.transforms ?? []
     return (
         <div className="deprecated-space-y-4">
-            {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
+            {selectedExperimentId === 'new' && variants[variant]?.is_new && (
                 <div>
                     <LemonLabel>Variant key</LemonLabel>
                     <LemonInput
@@ -34,13 +33,8 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                         }}
                         onBlur={(e) => {
                             e.stopPropagation()
-                            if (experimentForm.variants && localTentativeValue !== variant) {
-                                const webVariant = experimentForm.variants[variant]
-                                if (webVariant) {
-                                    experimentForm.variants[localTentativeValue] = webVariant
-                                    delete experimentForm.variants[variant]
-                                    setExperimentFormValue('variants', experimentForm.variants)
-                                }
+                            if (localTentativeValue !== variant) {
+                                renameVariant(variant, localTentativeValue)
                             }
                         }}
                         placeholder='Example: "test-1"'
@@ -55,20 +49,17 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     icon={<IconPlus />}
                     onClick={(e) => {
                         e.stopPropagation()
-                        addNewTransformation(variant)
+                        addTransformation(variant)
                     }}
                 >
                     Add transformation
                 </LemonButton>
             </div>
-            {experimentForm?.variants &&
-            experimentForm?.variants[variant] &&
-            experimentForm?.variants[variant].transforms &&
-            experimentForm?.variants[variant].transforms?.length > 0 ? (
+            {transforms.length > 0 ? (
                 <LemonCollapse
                     size="small"
-                    defaultActiveKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
-                    panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
+                    defaultActiveKey={transforms.length === 1 ? 0 : undefined}
+                    panels={transforms.map((transform, transformIndex) => {
                         return {
                             key: transformIndex,
                             header: (

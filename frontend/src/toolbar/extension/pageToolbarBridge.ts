@@ -7,12 +7,14 @@ import type {
 
 import type { EventCategory } from '~/toolbar/debug/eventCategories'
 import type { PosthogDebugInfo } from '~/toolbar/debug/posthogDebugInfo'
-import type { ActionForm } from '~/toolbar/types'
+import type { ElementSelectorType } from '~/toolbar/experiments/elementSelectorTypes'
+import type { ActionForm, WebExperimentForm } from '~/toolbar/types'
 import type { WebVitalsMetrics } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 import type { ActionStepType, ElementType } from '~/types'
 
 import type { PageActionsCommand } from './extensionPageActionsLogic'
 import type { PageEventsCommand } from './extensionPageEventsLogic'
+import type { PageExperimentsCommand } from './extensionPageExperimentsLogic'
 import type { PageFlagsCommand } from './extensionPageFlagsLogic'
 import type { PageHeatmapCommand } from './extensionPageHeatmapLogic'
 import type { PageMoreCommand } from './extensionPageMoreLogic'
@@ -27,7 +29,16 @@ import type { PageWebVitalsCommand } from './extensionPageWebVitalsLogic'
 // pinned: extension port name, the panel and an already injected content script must agree on it
 export const PAGE_TOOLBAR_PORT = 'posthog-toolbar-page'
 
-export type PageToolbarMode = 'none' | 'heatmap' | 'inspect' | 'actions' | 'flags' | 'events' | 'web-vitals' | 'more'
+export type PageToolbarMode =
+    | 'none'
+    | 'heatmap'
+    | 'inspect'
+    | 'actions'
+    | 'flags'
+    | 'events'
+    | 'web-vitals'
+    | 'experiments'
+    | 'more'
 
 /** What the content script reads from the page's posthog-js through the page agent. */
 export interface PageAnalyticsInfo {
@@ -39,6 +50,7 @@ export interface PageAnalyticsInfo {
     heatmapsEnabled: boolean | null
     /** Null when the posthog-js version has no web vitals module. */
     webVitalsEnabled: boolean | null
+    webExperimentsDisabled: boolean
     /** The masking settings, with each value that isn't a string or a boolean replaced by `{}`. */
     sessionRecordingConfig: Record<string, unknown>
     sessionRecordingStatus: string | null
@@ -79,6 +91,7 @@ export interface PageToolCommands {
     events: PageEventsCommand
     'web-vitals': PageWebVitalsCommand
     more: PageMoreCommand
+    experiments: PageExperimentsCommand
 }
 
 export type PageToolName = keyof PageToolCommands
@@ -159,6 +172,33 @@ export interface PageToolbarActionsState {
     inspectingElement: number | null
     saving: boolean
     saveResult: ActionSaveResult | null
+}
+
+/** The experiment form without `original_html_state`, which only the page uses to undo a preview. */
+export type ExperimentFormDraft = Pick<WebExperimentForm, 'name' | 'variants'>
+
+export type ExperimentSaveResult =
+    | { status: 'saved'; experimentId: number; name: string | null }
+    | { status: 'failed'; error: string }
+
+export interface PageToolbarExperimentsState {
+    loading: boolean
+    experiments: { id: number; name: string | null }[]
+    /** True when the page's posthog-js config sets `disable_web_experiments`. */
+    webExperimentsDisabled: boolean
+    selectedExperimentId: number | 'new' | null
+    experimentForm: ExperimentFormDraft
+    /** Goes up when the page changes the form itself, for example when the user picks an element for a transform. */
+    formRevision: number
+    /** The variant the page shows. */
+    selectedVariant: string
+    selectedElementType: ElementSelectorType
+    /** The transform waiting for an element pick on the page. */
+    inspectingElement: number | null
+    addVariantAvailable: boolean
+    removeVariantAvailable: boolean
+    saving: boolean
+    saveResult: ExperimentSaveResult | null
 }
 
 export interface FlagInfo {
@@ -251,6 +291,7 @@ export interface PageToolbarState {
     flags: PageToolbarFlagsState
     events: PageToolbarEventsState
     webVitals: PageToolbarWebVitalsState
+    experiments: PageToolbarExperimentsState
     more: PageToolbarMoreState
 }
 

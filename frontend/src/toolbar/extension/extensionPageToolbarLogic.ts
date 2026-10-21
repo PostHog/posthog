@@ -5,6 +5,8 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import type { ElementWithMetadata } from '~/toolbar/types'
@@ -12,6 +14,7 @@ import type { ElementWithMetadata } from '~/toolbar/types'
 import type { FragileSelectorResult } from '../utils/selectorQuality'
 import { extensionPageActionsLogic } from './extensionPageActionsLogic'
 import { EMPTY_PAGE_EVENTS_STATE, extensionPageEventsLogic } from './extensionPageEventsLogic'
+import { extensionPageExperimentsLogic } from './extensionPageExperimentsLogic'
 import { extensionPageFlagsLogic } from './extensionPageFlagsLogic'
 import { extensionPageHeatmapLogic } from './extensionPageHeatmapLogic'
 import { extensionPageMoreLogic } from './extensionPageMoreLogic'
@@ -95,6 +98,7 @@ export interface extensionPageToolbarLogicValues {
     activeMetaIsSelected: boolean // elementsLogic
     inspectEnabled: boolean // elementsLogic
     selectedElement: HTMLElement | null // elementsLogic
+    buttonExperimentsVisible: boolean // experimentsTabLogic
     heatmapEnabled: boolean // heatmapToolbarMenuLogic
     countedSelectors: string[]
     inspectState: PageToolbarInspectState
@@ -124,6 +128,7 @@ export interface extensionPageToolbarLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         mode: (
             buttonActionsVisible: boolean,
+            buttonExperimentsVisible: boolean,
             openMenu: PanelMenuMode | null,
             inspectEnabled: boolean,
             heatmapEnabled: boolean
@@ -158,12 +163,15 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
             ['heatmapEnabled'],
             actionsTabLogic,
             ['buttonActionsVisible'],
+            experimentsTabLogic,
+            ['buttonExperimentsVisible'],
         ],
         logic: [
             extensionPageHeatmapLogic,
             extensionPageActionsLogic,
             extensionPageFlagsLogic,
             extensionPageWebVitalsLogic,
+            extensionPageExperimentsLogic,
         ],
     })),
     actions({
@@ -192,23 +200,26 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
     }),
     selectors({
         mode: [
-            (s) => [s.buttonActionsVisible, s.openMenu, s.inspectEnabled, s.heatmapEnabled],
+            (s) => [s.buttonActionsVisible, s.buttonExperimentsVisible, s.openMenu, s.inspectEnabled, s.heatmapEnabled],
             (
                 buttonActionsVisible: boolean,
+                buttonExperimentsVisible: boolean,
                 openMenu: PanelMenuMode | null,
                 inspectEnabled: boolean,
                 heatmapEnabled: boolean
             ): PageToolbarMode =>
-                // Actions come first, because picking an element for a step turns inspect on too.
+                // Actions and experiments come first, because picking an element for them turns inspect on too.
                 buttonActionsVisible
                     ? 'actions'
-                    : openMenu
-                      ? openMenu
-                      : inspectEnabled
-                        ? 'inspect'
-                        : heatmapEnabled
-                          ? 'heatmap'
-                          : 'none',
+                    : buttonExperimentsVisible
+                      ? 'experiments'
+                      : openMenu
+                        ? openMenu
+                        : inspectEnabled
+                          ? 'inspect'
+                          : heatmapEnabled
+                            ? 'heatmap'
+                            : 'none',
         ],
         inspectState: [
             (s) => [s.activeMeta, s.activeMetaIsSelected],
@@ -225,6 +236,9 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
             heatmapToolbarMenuLogic.actions.disableHeatmap()
             actionsTabLogic.actions.inspectForElementWithIndex(null)
             actionsTabLogic.actions.hideButtonActions()
+            if (values.buttonExperimentsVisible) {
+                extensionPageExperimentsLogic.actions.closeExperiments()
+            }
             extensionPageEventsLogic.findMounted()?.actions.setOpen(mode === 'events')
             // Each tool loads its data the first time it opens, and keeps it while the page tools run.
             const firstOpen = !cache.openedModes.has(mode)
@@ -237,6 +251,11 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
                 actionsTabLogic.actions.showButtonActions()
                 if (firstOpen) {
                     actionsLogic.actions.getActions()
+                }
+            } else if (mode === 'experiments') {
+                experimentsTabLogic.actions.showButtonExperiments()
+                if (firstOpen) {
+                    experimentsLogic.actions.getExperiments()
                 }
             } else if (mode === 'flags') {
                 if (firstOpen) {
@@ -282,6 +301,7 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
                 events: (command) => extensionPageEventsLogic.findMounted()?.actions.handleCommand(command),
                 'web-vitals': () => extensionPageWebVitalsLogic.actions.reloadWebVitals(),
                 more: (command) => extensionPageMoreLogic.findMounted()?.actions.handleCommand(command),
+                experiments: (command) => extensionPageExperimentsLogic.actions.handleCommand(command),
             }
             ;(handlers[message.tool] as (command: PageToolbarCommand['command']) => void)(message.command)
         },
@@ -318,6 +338,7 @@ export function getPageToolbarState(): PageToolbarState {
         flags: extensionPageFlagsLogic.values.pageState,
         events: extensionPageEventsLogic.findMounted()?.values.pageState ?? EMPTY_PAGE_EVENTS_STATE,
         webVitals: getPageWebVitalsState(extensionPageWebVitalsLogic.values.posthog),
+        experiments: extensionPageExperimentsLogic.values.pageState,
         more: extensionPageMoreLogic.values.pageState,
     }
 }

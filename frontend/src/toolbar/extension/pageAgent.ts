@@ -13,6 +13,7 @@ interface PagePosthog extends DebugInfoPosthog {
     __loaded?: boolean
     config?: DebugInfoPosthog['config'] & {
         disable_scroll_properties?: boolean
+        disable_web_experiments?: boolean
         scroll_root_selector?: string | string[]
         session_recording?: Record<string, unknown>
     }
@@ -76,6 +77,7 @@ function analyticsInfo(posthog: PagePosthog): PageAnalyticsInfo {
         webVitalsEnabled: posthog.webVitalsAutocapture
             ? !!read(() => posthog.webVitalsAutocapture?.isEnabled, false)
             : null,
+        webExperimentsDisabled: !!read(() => posthog.config?.disable_web_experiments, false),
         sessionRecordingConfig: Object.fromEntries(
             ['blockClass', 'maskTextClass', 'maskTextSelector', 'maskAllInputs']
                 .map((key): [string, unknown] => [key, sessionRecording[key]])

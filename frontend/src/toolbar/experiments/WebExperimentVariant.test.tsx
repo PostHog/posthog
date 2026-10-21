@@ -4,6 +4,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { initKeaTests } from '~/test/init'
+import { ExperimentsTabEditorProvider } from '~/toolbar/experiments/ExperimentsTabEditorProvider'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -28,7 +29,11 @@ describe('WebExperimentVariant', () => {
     it('opens the only transformation on mount', () => {
         setVariantTransforms(['.headline'])
 
-        render(<WebExperimentVariant variant="test" />)
+        render(
+            <ExperimentsTabEditorProvider>
+                <WebExperimentVariant variant="test" />
+            </ExperimentsTabEditorProvider>
+        )
 
         expect(screen.getByText('Select element')).toBeInTheDocument()
     })
@@ -36,7 +41,11 @@ describe('WebExperimentVariant', () => {
     it('lets you open a later transformation once the variant has several', async () => {
         setVariantTransforms(['.headline', '.subtitle'])
 
-        render(<WebExperimentVariant variant="test" />)
+        render(
+            <ExperimentsTabEditorProvider>
+                <WebExperimentVariant variant="test" />
+            </ExperimentsTabEditorProvider>
+        )
         await userEvent.click(screen.getByText('.subtitle'))
 
         const secondPanel = screen.getByText('.subtitle').closest('.LemonCollapsePanel') as HTMLElement

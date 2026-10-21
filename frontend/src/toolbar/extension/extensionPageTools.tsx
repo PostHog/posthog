@@ -13,8 +13,7 @@ export type PageToolMode = Exclude<PageToolbarMode, 'none'>
 export type ExtensionFeatureKey = 'heatmaps' | 'actions' | 'feature-flags' | 'experiments' | 'web-vitals'
 
 export interface PageToolDefinition {
-    /** Missing for a tool the panel only links to in PostHog. */
-    mode?: PageToolMode
+    mode: PageToolMode
     label: string
     description: string
     icon: JSX.Element
@@ -68,6 +67,7 @@ export const PAGE_TOOLS: PageToolDefinition[] = [
         feature: { key: 'web-vitals', path: urls.webAnalyticsWebVitals() },
     },
     {
+        mode: 'experiments',
         label: 'Experiments',
         description: 'Build no-code web experiments and preview their variants on the page',
         icon: <IconFlask />,
