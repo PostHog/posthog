@@ -64,7 +64,7 @@ The budget is a fixed amount per partition, not a share of a pod-wide amount, so
 
 ## Polling
 
-The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to `PollingStrategy` in `src/polling/`.
+The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to the selected implementation of the `PollingStrategy` trait in `src/polling/`.
 The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, stop, or fail.
 A poll is submitted when it reaches the batch size or the byte bound, or when `CONSUMER_BATCH_TIMEOUT_MS` passes after its first message.
 

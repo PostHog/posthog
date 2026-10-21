@@ -21,10 +21,10 @@ use crate::debug_recorder::DebugRecorder;
 use crate::partition_budget::BudgetLimits;
 use crate::settlement::{Commit, Settlement};
 
-use capped::CappedPolling;
+pub(crate) use capped::CappedPolling;
 use collector::Collector;
 pub(crate) use collector::PollLimits;
-use continuous::ContinuousPolling;
+pub(crate) use continuous::ContinuousPolling;
 pub(crate) use poll::{
     debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, InFlightPoll,
     PartitionDeliveries,
@@ -48,90 +48,31 @@ pub(crate) struct Parts {
     pub(crate) debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
-pub(crate) enum PollingStrategy {
-    Capped(Box<CappedPolling>),
-    Continuous(Box<ContinuousPolling>),
-}
+/// What the consumer loop asks of a polling strategy. The loop hands it each
+/// event and carries out the steps it returns.
+pub(crate) trait PollingStrategy {
+    fn reading(&mut self) -> bool;
 
-impl PollingStrategy {
-    pub(crate) fn new(selected: Selected, parts: Parts) -> Self {
-        match selected {
-            Selected::Capped {
-                max_in_flight_polls,
-            } => Self::Capped(Box::new(CappedPolling::new(parts, max_in_flight_polls))),
-            Selected::Continuous { in_flight } => {
-                Self::Continuous(Box::new(ContinuousPolling::new(parts, in_flight)))
-            }
-        }
-    }
+    fn deadline(&self) -> Option<Instant>;
 
-    pub(crate) fn reading(&mut self) -> bool {
-        match self {
-            Self::Capped(capped) => capped.reading(),
-            Self::Continuous(continuous) => continuous.reading(),
-        }
-    }
+    fn received<M: Message>(&mut self, message: &M, now: Instant);
 
-    pub(crate) fn deadline(&self) -> Option<Instant> {
-        match self {
-            Self::Capped(capped) => capped.deadline(),
-            Self::Continuous(continuous) => continuous.deadline(),
-        }
-    }
+    fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()>;
 
-    pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
-        match self {
-            Self::Capped(capped) => capped.received(message, now),
-            Self::Continuous(continuous) => continuous.received(message, now),
-        }
-    }
-
-    pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
-        match self {
-            Self::Capped(capped) => capped.completed(completion),
-            Self::Continuous(continuous) => continuous.completed(completion),
-        }
-    }
-
-    pub(crate) fn ticked(&mut self) {
-        match self {
-            Self::Capped(capped) => capped.ticked(),
-            Self::Continuous(continuous) => continuous.ticked(),
-        }
-    }
+    fn ticked(&mut self);
 
     /// Every message received before the revoke belongs to the old
     /// assignment: the batcher purges it, or Kafka delivers it again from the
     /// last commit.
-    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
-        match self {
-            Self::Capped(capped) => capped.revoked(topic_partitions),
-            Self::Continuous(continuous) => continuous.revoked(topic_partitions),
-        }
-    }
+    fn revoked(&mut self, topic_partitions: &[TopicPartition]);
 
     /// The poll in progress is not charged yet, so it is dropped and replays
     /// from the last commit.
-    pub(crate) fn shutdown(&mut self) {
-        match self {
-            Self::Capped(capped) => capped.shutdown(),
-            Self::Continuous(continuous) => continuous.shutdown(),
-        }
-    }
+    fn shutdown(&mut self);
 
-    pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
-        match self {
-            Self::Capped(capped) => capped.submitted(poll),
-            Self::Continuous(continuous) => continuous.submitted(poll),
-        }
-    }
+    fn submitted(&mut self, poll: InFlightPoll);
 
-    pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
-        match self {
-            Self::Capped(capped) => capped.next_step(now),
-            Self::Continuous(continuous) => continuous.next_step(now),
-        }
-    }
+    fn next_step(&mut self, now: Instant) -> Option<Step>;
 }
 
 fn report_revoked(stripped: u64) {
@@ -200,52 +141,37 @@ mod tests {
 
     const BATCH_TIMEOUT: Duration = Duration::from_millis(500);
 
-    struct Harness {
-        poller: PollingStrategy,
+    struct Harness<P> {
+        poller: P,
         settlement: Arc<dyn Settlement>,
         ledger: Arc<TopicOffsetLedger>,
         now: Instant,
     }
 
-    impl Harness {
-        fn new(selected: Selected) -> Self {
+    impl<P: PollingStrategy> Harness<P> {
+        fn new(make: impl FnOnce(Parts) -> P) -> Self {
             let ledger = Arc::new(TopicOffsetLedger::new());
             let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
                 Arc::clone(&ledger),
                 Duration::ZERO,
                 BudgetLimits::unset(),
             ));
-            let limits = PollLimits {
-                batch_size: 100,
-                batch_size_bytes: 0,
-                batch_timeout: BATCH_TIMEOUT,
-            };
+            let poller = make(Parts {
+                limits: PollLimits {
+                    batch_size: 100,
+                    batch_size_bytes: 0,
+                    batch_timeout: BATCH_TIMEOUT,
+                },
+                settlement: Arc::clone(&settlement),
+                group_id: "test".to_string(),
+                debug_recorder: None,
+            });
             Self {
-                poller: PollingStrategy::new(
-                    selected,
-                    Parts {
-                        limits,
-                        settlement: Arc::clone(&settlement),
-                        group_id: "test".to_string(),
-                        debug_recorder: None,
-                    },
-                ),
+                poller,
                 settlement,
                 ledger,
                 now: Instant::now(),
             }
-        }
-
-        fn capped(max_in_flight_polls: usize) -> Self {
-            Self::new(Selected::Capped {
-                max_in_flight_polls,
-            })
-        }
-
-        fn continuous(in_flight_events: u64) -> Self {
-            Self::new(Selected::Continuous {
-                in_flight: ChargeLimit::new(NonZeroU64::new(in_flight_events), None),
-            })
         }
 
         fn receive(&mut self, partition: i32, offsets: &[i64]) {
@@ -322,13 +248,26 @@ mod tests {
         }
     }
 
+    fn capped(max_in_flight_polls: usize) -> Harness<CappedPolling> {
+        Harness::new(|parts| CappedPolling::new(parts, max_in_flight_polls))
+    }
+
+    fn continuous(in_flight_events: u64) -> Harness<ContinuousPolling> {
+        Harness::new(|parts| {
+            ContinuousPolling::new(
+                parts,
+                ChargeLimit::new(NonZeroU64::new(in_flight_events), None),
+            )
+        })
+    }
+
     fn p(partition: i32) -> TopicPartition {
         TopicPartition::new("events", partition)
     }
 
     #[test]
     fn the_capped_strategy_stops_reading_at_its_cap_until_the_oldest_poll_is_covered() {
-        let mut harness = Harness::capped(1);
+        let mut harness = capped(1);
         assert!(harness.poller.reading());
 
         harness.receive(0, &[0, 1]);
@@ -344,7 +283,7 @@ mod tests {
 
     #[test]
     fn the_continuous_strategy_stops_reading_one_poll_past_its_limit_until_a_commit() {
-        let mut harness = Harness::continuous(1);
+        let mut harness = continuous(1);
 
         harness.receive(0, &[0, 1]);
         assert!(
@@ -366,7 +305,7 @@ mod tests {
 
     #[test]
     fn a_revoke_removes_the_partitions_messages_received_before_it() {
-        let mut harness = Harness::continuous(1_000);
+        let mut harness = continuous(1_000);
         harness.receive(0, &[10, 11]);
         harness.receive(1, &[20]);
 
@@ -383,7 +322,7 @@ mod tests {
 
     #[test]
     fn shutdown_drops_the_poll_in_progress_and_stops_once_in_flight_work_drains() {
-        let mut harness = Harness::continuous(1_000);
+        let mut harness = continuous(1_000);
         harness.receive(0, &[0]);
         harness.after_the_batch_timeout();
         harness.submit();

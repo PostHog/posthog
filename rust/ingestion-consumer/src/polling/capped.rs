@@ -8,7 +8,7 @@ use tokio::time::Instant;
 use tracing::warn;
 
 use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries};
-use super::{report_revoked, Collector, Parts, Step};
+use super::{report_revoked, Collector, Parts, PollingStrategy, Step};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::settlement::Settlement;
 
@@ -38,20 +38,22 @@ impl CappedPolling {
             debug_recorder: parts.debug_recorder,
         }
     }
+}
 
-    pub(crate) fn reading(&self) -> bool {
+impl PollingStrategy for CappedPolling {
+    fn reading(&mut self) -> bool {
         self.accepting_new_batches && self.in_flight_polls.len() < self.max_in_flight_polls
     }
 
-    pub(crate) fn deadline(&self) -> Option<Instant> {
+    fn deadline(&self) -> Option<Instant> {
         self.collector.deadline()
     }
 
-    pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
+    fn received<M: Message>(&mut self, message: &M, now: Instant) {
         self.collector.add(message, now);
     }
 
-    pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
+    fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
         let settlement = &*self.settlement;
         apply_completion(
             &mut self.in_flight_polls,
@@ -62,28 +64,28 @@ impl CappedPolling {
         Ok(())
     }
 
-    pub(crate) fn ticked(&mut self) {
+    fn ticked(&mut self) {
         self.commit_due = true;
     }
 
-    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
+    fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
         let building = self.collector.remove_partitions(topic_partitions) as u64;
         let in_flight = strip_revoked_partitions(&mut self.in_flight_polls, topic_partitions);
         self.report_in_flight();
         report_revoked(building + in_flight);
     }
 
-    pub(crate) fn shutdown(&mut self) {
+    fn shutdown(&mut self) {
         self.accepting_new_batches = false;
         self.collector.discard();
     }
 
-    pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
+    fn submitted(&mut self, poll: InFlightPoll) {
         self.in_flight_polls.push_back(poll);
         self.report_in_flight();
     }
 
-    pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
+    fn next_step(&mut self, now: Instant) -> Option<Step> {
         while self
             .in_flight_polls
             .front()
@@ -104,7 +106,9 @@ impl CappedPolling {
         }
         (!self.accepting_new_batches && self.in_flight_polls.is_empty()).then_some(Step::Stop)
     }
+}
 
+impl CappedPolling {
     fn retire_oldest_poll(&mut self) -> anyhow::Result<()> {
         let poll = pop_committable(&mut self.in_flight_polls)?;
         self.report_in_flight();

@@ -8,7 +8,7 @@ use tokio::time::Instant;
 use tracing::warn;
 
 use super::poll::{debug_partition_offsets, InFlightPoll, PartitionDeliveries};
-use super::{report_revoked, Collector, Parts, Step};
+use super::{report_revoked, Collector, Parts, PollingStrategy, Step};
 use crate::charge_limit::ChargeLimit;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::settlement::{Commit, Settlement};
@@ -39,10 +39,12 @@ impl ContinuousPolling {
             commit_due: false,
         }
     }
+}
 
+impl PollingStrategy for ContinuousPolling {
     /// The poll in progress is not counted, so the uncommitted charge can
     /// pass the limit by one poll.
-    pub(crate) fn reading(&mut self) -> bool {
+    fn reading(&mut self) -> bool {
         let at_limit = self.limits.reached(self.uncommitted.total());
         if at_limit && !self.at_limit {
             counter!("ingestion_consumer_in_flight_limit_reached_total").increment(1);
@@ -51,15 +53,15 @@ impl ContinuousPolling {
         self.accepting_new_batches && !at_limit
     }
 
-    pub(crate) fn deadline(&self) -> Option<Instant> {
+    fn deadline(&self) -> Option<Instant> {
         self.collector.deadline()
     }
 
-    pub(crate) fn received(&mut self, message: &impl Message, now: Instant) {
+    fn received<M: Message>(&mut self, message: &M, now: Instant) {
         self.collector.add(message, now);
     }
 
-    pub(crate) fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
+    fn completed(&mut self, completion: &GroupCompletion) -> anyhow::Result<()> {
         let settlement = &*self.settlement;
         let processed = self
             .in_flight
@@ -71,28 +73,28 @@ impl ContinuousPolling {
         Ok(())
     }
 
-    pub(crate) fn ticked(&mut self) {
+    fn ticked(&mut self) {
         self.commit_due = true;
     }
 
-    pub(crate) fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
+    fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
         let building = self.collector.remove_partitions(topic_partitions) as u64;
         self.uncommitted.revoked(topic_partitions);
         let in_flight = self.in_flight.drop_revoked(topic_partitions);
         report_revoked(building + in_flight);
     }
 
-    pub(crate) fn shutdown(&mut self) {
+    fn shutdown(&mut self) {
         self.accepting_new_batches = false;
         self.collector.discard();
     }
 
-    pub(crate) fn submitted(&mut self, poll: InFlightPoll) {
+    fn submitted(&mut self, poll: InFlightPoll) {
         self.uncommitted.charged(&poll);
         self.in_flight.submitted(poll);
     }
 
-    pub(crate) fn next_step(&mut self, now: Instant) -> Option<Step> {
+    fn next_step(&mut self, now: Instant) -> Option<Step> {
         if std::mem::take(&mut self.commit_due) {
             if let Some(commit) = self.settlement.take_due(now.into_std()) {
                 self.uncommitted.committed(&commit);

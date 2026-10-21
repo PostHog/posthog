@@ -24,8 +24,9 @@ use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::partition_budget::BudgetLimits;
 use crate::polling::{
-    self, debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, InFlightPoll,
-    PartitionDeliveries, Parts, PollLimits, PollingStrategy, Selected, Step,
+    self, debug_partition_offsets, debug_partition_spans, BatchStats, CappedPolling,
+    CollectedBatch, ContinuousPolling, InFlightPoll, PartitionDeliveries, Parts, PollLimits,
+    PollingStrategy, Selected, Step,
 };
 use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
 use crate::settlement::{self, Commit, Settlement};
@@ -313,29 +314,37 @@ impl IngestionConsumer {
             workers: self.worker_urls.clone(),
         });
 
-        let mut poller = PollingStrategy::new(
-            self.polling,
-            Parts {
-                limits: PollLimits {
-                    batch_size: self.batch_size,
-                    batch_size_bytes: self.batch_size_bytes,
-                    batch_timeout: self.batch_timeout,
-                },
-                settlement: Arc::clone(&self.settlement),
-                group_id: self.group_id.clone(),
-                debug_recorder: self.debug_recorder.clone(),
+        let parts = Parts {
+            limits: PollLimits {
+                batch_size: self.batch_size,
+                batch_size_bytes: self.batch_size_bytes,
+                batch_timeout: self.batch_timeout,
             },
-        );
-        self.run(&mut poller, completions, errors).await;
+            settlement: Arc::clone(&self.settlement),
+            group_id: self.group_id.clone(),
+            debug_recorder: self.debug_recorder.clone(),
+        };
+        match self.polling {
+            Selected::Capped {
+                max_in_flight_polls,
+            } => {
+                let poller = CappedPolling::new(parts, max_in_flight_polls);
+                self.run(poller, completions, errors).await;
+            }
+            Selected::Continuous { in_flight } => {
+                let poller = ContinuousPolling::new(parts, in_flight);
+                self.run(poller, completions, errors).await;
+            }
+        }
         if let Err(err) = self.commit_all() {
             warn!(error = %err, "Could not submit pending frontiers on exit");
         }
         info!("Consumer loop stopped");
     }
 
-    async fn run(
+    async fn run<P: PollingStrategy>(
         &self,
-        poller: &mut PollingStrategy,
+        mut poller: P,
         mut completions: mpsc::UnboundedReceiver<GroupCompletion>,
         mut errors: mpsc::UnboundedReceiver<String>,
     ) {
@@ -346,7 +355,7 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
         loop {
             while let Some(step) = poller.next_step(tokio::time::Instant::now()) {
-                if let Err(failure) = self.carry_out(step, poller) {
+                if let Err(failure) = self.carry_out(step, &mut poller) {
                     match failure {
                         Stopped::Drained => {}
                         Stopped::Commit(err) => self.fail_commit(err),
@@ -374,7 +383,7 @@ impl IngestionConsumer {
             // The rebalance callbacks run inside `recv`, also inside one the
             // select dropped, so the poller sees each revoke before it acts
             // on anything that woke the loop.
-            self.hand_over_revokes(poller);
+            self.hand_over_revokes(&mut poller);
 
             let failure = match woke {
                 Woke::Shutdown => {
@@ -409,7 +418,7 @@ impl IngestionConsumer {
         }
     }
 
-    fn carry_out(&self, step: Step, poller: &mut PollingStrategy) -> Result<(), Stopped> {
+    fn carry_out<P: PollingStrategy>(&self, step: Step, poller: &mut P) -> Result<(), Stopped> {
         match step {
             Step::Submit(collected) => {
                 let poll = self.submit_poll(collected).map_err(Stopped::Batch)?;
@@ -423,7 +432,7 @@ impl IngestionConsumer {
         }
     }
 
-    fn hand_over_revokes(&self, poller: &mut PollingStrategy) {
+    fn hand_over_revokes<P: PollingStrategy>(&self, poller: &mut P) {
         let revoked = std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
         if !revoked.is_empty() {
             poller.revoked(&revoked);

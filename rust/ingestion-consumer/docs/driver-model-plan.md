@@ -674,7 +674,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 
 **Interfaces:**
 
-- Add `PollingStrategy`: event handlers (`received`, `completed`, `revoked`, `ticked`, `shutdown`), `reading()`, `deadline()`, and `next_step() -> Option<Step>`. Add `CappedPolling`: the in-flight poll queue, the per-poll aggregation, and the admission cap.
+- Add the `PollingStrategy` trait: event handlers (`received`, `completed`, `revoked`, `ticked`, `shutdown`), `reading()`, `deadline()`, and `next_step() -> Option<Step>`. The consumer picks one implementation at construction and runs a loop generic over it, as it picks one `Settlement`. Add `CappedPolling`: the in-flight poll queue, the per-poll aggregation, and the admission cap.
 - Add `Collector`: one poll's messages and per-partition deliveries, built one message at a time, with the batch bounds and timeout.
 - Remove the per-message generation stamp from poll collection, and `FetchingPartitions`.
 - Modify `IngestionConsumerOptions`: `polling` replaces `max_in_flight_batches`.
