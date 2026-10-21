@@ -740,7 +740,11 @@ export class SesWebhookHandler {
                 // record which occurred. An empty `rawCode` means neither carrier held a value.
                 const reason = rawCode === '' ? 'missing' : 'invalid'
                 sesUnattributedEventsCounter.inc({ event_type: rec.eventType, reason })
-                logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
+                logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', {
+                    eventType: rec.eventType,
+                    messageId: rec.mail.messageId,
+                    reason,
+                })
                 continue
             }
 
