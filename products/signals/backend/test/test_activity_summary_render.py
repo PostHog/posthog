@@ -20,13 +20,17 @@ from products.signals.backend.activity_summary.prompt import (
 )
 from products.signals.backend.activity_summary.render import (
     ACTIVITY_HEADER,
+    ACTIVITY_LINE_CHARS,
+    ACTIVITY_LINES,
     DEFAULT_LIMITS,
+    MAX_ACTIVITY_LINES_PER_DAY,
     MAX_COMPLETION_TOKENS,
     MAX_UNITS_PER_DAY,
     TASK_LINES,
     TASKS_HEADER,
     ActivityItem,
     Drop,
+    Parent,
     RenderLimits,
     TaskItem,
     Unit,
@@ -59,8 +63,15 @@ def _change(
     client: str | None = None,
     days_ago: float = 1,
     intent: str | None = None,
+    item_id: str | None = None,
 ) -> ActivityItem:
-    return ActivityItem(at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent)
+    return ActivityItem(
+        at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent, item_id=item_id
+    )
+
+
+QUALITY = Parent(scope="Dashboard", item_id="10", name="Quality review")
+GROWTH = Parent(scope="Dashboard", item_id="11", name="Growth overview")
 
 
 @parameterized.expand(
@@ -157,6 +168,111 @@ def test_activity_units_render_the_agent_intent(_name: str, intents: list[str | 
         for index, intent in enumerate(intents)
     ]
     assert [unit.text for unit in activity_units(items, Counter())] == [expected]
+
+
+@parameterized.expand(
+    [
+        (
+            "insights on one dashboard merge with the dashboard's created row",
+            [
+                _change("Dashboard", "created", "Quality review", days_ago=3, item_id="10"),
+                _change("Insight", "created", "Records judged per day", days_ago=2.9, item_id="1"),
+                _change("Insight", "created", "Suggestion defect rates", days_ago=2.8, item_id="2"),
+                _change("Insight", "updated", "Suggestion defect rates", days_ago=2.7, item_id="2"),
+                _change("Insight", "created", "Unplaced funnel", days_ago=1, item_id="3"),
+            ],
+            {("Insight", "1"): (QUALITY,), ("Insight", "2"): (QUALITY,)},
+            [
+                '- 2026-10-16 created Dashboard "Quality review" with 2 Insights: '
+                '"Suggestion defect rates", "Records judged per day"',
+                '- 2026-10-18 created Insight "Unplaced funnel"',
+            ],
+            {Drop.GROUPED_INTO_PARENT: 3},
+        ),
+        (
+            "insights on a dashboard the person did not create group under it",
+            [
+                _change("Insight", "created", "Records judged per day", item_id="1"),
+                _change("Insight", "updated", "Suggestion defect rates", item_id="2"),
+            ],
+            {("Insight", "1"): (QUALITY,), ("Insight", "2"): (QUALITY,)},
+            [
+                '- 2026-10-18 created and updated 2 Insights on Dashboard "Quality review": '
+                '"Records judged per day", "Suggestion defect rates"'
+            ],
+            {Drop.GROUPED_INTO_PARENT: 1},
+        ),
+        (
+            "a lone insight names its dashboard and how many more it sits on",
+            [_change("Insight", "created", "Signup funnel", item_id="1")],
+            {("Insight", "1"): (GROWTH, QUALITY)},
+            ['- 2026-10-18 created Insight "Signup funnel" on Dashboard "Growth overview" (+1 more)'],
+            {},
+        ),
+        (
+            "an insight joins the dashboard that holds the other changed insights",
+            [
+                _change("Insight", "created", "Signup funnel", item_id="1"),
+                _change("Insight", "created", "Defect rates", item_id="2"),
+            ],
+            {("Insight", "1"): (GROWTH, QUALITY), ("Insight", "2"): (QUALITY,)},
+            ['- 2026-10-18 created 2 Insights on Dashboard "Quality review": "Defect rates", "Signup funnel"'],
+            {Drop.GROUPED_INTO_PARENT: 1},
+        ),
+        (
+            "an auto-named dashboard gives no context",
+            [_change("Insight", "created", "Signup funnel", item_id="1")],
+            {("Insight", "1"): (Parent(scope="Dashboard", item_id="12", name="Daily report 2026-10-18"),)},
+            ['- 2026-10-18 created Insight "Signup funnel"'],
+            {},
+        ),
+    ]
+)
+def test_activity_units_group_children_under_their_parent(
+    _name: str,
+    items: list[ActivityItem],
+    parents: dict[tuple[str, str], tuple[Parent, ...]],
+    expected: list[str],
+    expected_drops: dict[str, int],
+) -> None:
+    drops: Counter[str] = Counter()
+    assert [unit.text for unit in activity_units(items, drops, parents)] == expected
+    assert dict(drops) == expected_drops
+
+
+def test_a_group_line_lists_the_names_that_fit_and_marks_the_rest() -> None:
+    items = [
+        _change(
+            "Insight", "created", f"Insight number {n} with a fairly long name", days_ago=1 + n / 100, item_id=str(n)
+        )
+        for n in range(12)
+    ]
+    parents = {("Insight", str(n)): (QUALITY,) for n in range(12)}
+
+    [unit] = activity_units(items, Counter(), parents)
+
+    assert unit.text.startswith('- 2026-10-18 created 12 Insights on Dashboard "Quality review": "Insight number 0')
+    assert unit.text.endswith('", …')
+    assert len(unit.text) <= ACTIVITY_LINE_CHARS
+
+
+@parameterized.expand(
+    [
+        ("other days take the slots a burst would fill", 12, MAX_ACTIVITY_LINES_PER_DAY),
+        ("a burst fills the slots no other day takes", 3, ACTIVITY_LINES - 3),
+        ("a lone busy day still fills the section", 0, ACTIVITY_LINES),
+    ]
+)
+def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, expected_burst_lines: int) -> None:
+    drops: Counter[str] = Counter()
+    burst = [_change("Insight", "created", f"Burst {n}", days_ago=1 - n / 1000) for n in range(ACTIVITY_LINES + 5)]
+    older = [_change("Notebook", "updated", f"Older {day}", days_ago=day) for day in range(2, 2 + older_days)]
+
+    units = activity_units(burst + older, drops)
+
+    assert len(units) == ACTIVITY_LINES
+    assert sum(1 for unit in units if "Burst" in unit.text) == expected_burst_lines
+    assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
 
 
 def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
@@ -348,18 +464,30 @@ def _answer(**overrides: Any) -> str:
             {"focus_areas": []},
         ),
         (
-            "topic, product and recent_shift are cut to their caps",
+            "topic, product and recent_shift are cut at a word boundary inside their caps",
             _answer(
-                focus_areas=[{"topic": "t" * 500, "strength": "high", "last_seen": "2026-10-17"}],
-                products=["p" * 500],
-                recent_shift="s" * 2000,
+                focus_areas=[{"topic": "adoption " * 50, "strength": "high", "last_seen": "2026-10-17"}],
+                products=["analytics " * 50],
+                recent_shift="shift " * 400,
             ),
             True,
             {
-                "focus_areas": [{"topic": "t" * MAX_TOPIC_CHARS, "strength": "high", "last_seen": "2026-10-17"}],
-                "products": ["p" * MAX_PRODUCT_CHARS],
-                "recent_shift": "s" * MAX_RECENT_SHIFT_CHARS,
+                "focus_areas": [
+                    {
+                        "topic": " ".join(["adoption"] * ((MAX_TOPIC_CHARS - 1) // 9)) + "…",
+                        "strength": "high",
+                        "last_seen": "2026-10-17",
+                    }
+                ],
+                "products": [" ".join(["analytics"] * ((MAX_PRODUCT_CHARS - 1) // 10)) + "…"],
+                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
             },
+        ),
+        (
+            "one long word is cut and marked",
+            _answer(products=["p" * 500]),
+            False,
+            {"products": ["p" * (MAX_PRODUCT_CHARS - 1) + "…"]},
         ),
     ]
 )
