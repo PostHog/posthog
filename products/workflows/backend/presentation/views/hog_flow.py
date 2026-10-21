@@ -609,43 +609,16 @@ def _strip_replay_vision_code(inputs: Any) -> None:
             analysis.pop(key, None)
 
 
-def _alert_configuration_ids(filters: dict) -> list[uuid_mod.UUID] | None:
-    """The alerts an `$alert_transition` trigger names, or None when a named one is not an alert id."""
-    ids: list[uuid_mod.UUID] = []
-    properties = filters.get("properties")
-    for prop in properties if isinstance(properties, list) else []:
-        if not isinstance(prop, dict) or prop.get("key") != "alert_configuration_id":
-            continue
-        # Only an exact event-property filter restricts which events match. Another type, such
-        # as a flag, compiles to a condition that does not read the event at all.
-        if prop.get("type") != "event" or (prop.get("operator") or "exact") != "exact":
-            continue
-        value = prop.get("value")
-        for item in value if isinstance(value, list) else [value]:
-            try:
-                ids.append(uuid_mod.UUID(str(item)))
-            except ValueError:
-                return None
-    return ids
-
-
 def _alert_trigger_error(request: Request | None, team: Team, filters: dict, *, is_draft: bool) -> str | None:
     """Why the caller may not save this `$alert_transition` trigger, or None.
 
     An alert's transitions carry its source product's data, and a workflow runs without the
-    person who saved it, so access is checked here, against each named alert.
+    person who saved it, so the alerts platform reads the named alerts and checks access to each.
     """
     # Alerts belong to a project's main environment, and their transitions carry its team id. A
     # workflow saved in another environment would be stored under that team and never run.
     if team.id != team.project_id:
         return "Alert triggers work only in the project's main environment. Switch to it to add this trigger."
-    configuration_ids = _alert_configuration_ids(filters)
-    if configuration_ids is None:
-        return "Pick alerts from the list for this trigger."
-    if not configuration_ids:
-        return (
-            None if is_draft else "Pick an alert for this trigger. Without one it runs for every alert in the project."
-        )
     user = getattr(request, "user", None)
     user_access_control = (
         UserAccessControl(user=user, team=team)
@@ -655,9 +628,10 @@ def _alert_trigger_error(request: Request | None, team: Team, filters: dict, *, 
     )
     return workflow_trigger_refusal(
         team_id=team.id,
-        configuration_ids=configuration_ids,
+        filters=filters,
         user_access_control=user_access_control,
         token_scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+        allow_no_alerts=is_draft,
     )
 
 
