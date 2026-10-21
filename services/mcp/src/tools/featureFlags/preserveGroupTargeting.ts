@@ -5,6 +5,13 @@
  * flag-level value, so it can lose its group targeting. The merge therefore restores these
  * omitted fields from the stored flag (PostHog/posthog#46501).
  *
+ * The read tools add a `condition_id` to each condition set (see conditionIds.ts). When the payload
+ * carries any condition_id, each set takes the stored set with the same ID as its source, at any
+ * position. A set without an ID is then new. The merge refuses an ID that matches no stored set. The
+ * flag usually changed after the agent read it. A property whose key its source does not
+ * hold is typed as in a set without a source. The rules below that pair sets by position and by
+ * content apply only to a payload without IDs.
+ *
  * An incoming condition set takes the stored set at its own index as its source when every stored
  * set keeps its property keys at its index. New sets may only follow the stored ones. On a flag
  * whose stored sets aggregate on different group types, nothing else tells a moved set from an
@@ -74,7 +81,10 @@
 import { isDeepStrictEqual } from 'node:util'
 
 import { ToolInputValidationError } from '@/lib/errors'
-import { isRecord } from '@/lib/plain-object'
+import { canonicalJson, hasKey, isRecord } from '@/lib/plain-object'
+
+import { explicitlyClearsAggregation, isPresentGroupIndex, resolveGroupIndex, storedAggregation } from './aggregation'
+import { conditionId } from './conditionIds'
 
 export type FlagProperty = {
     key?: string
@@ -106,10 +116,6 @@ function isPresentType(type: unknown): type is string {
     return typeof type === 'string' && type.length > 0
 }
 
-function isPresentGroupIndex(index: unknown): index is number {
-    return typeof index === 'number' && Number.isFinite(index)
-}
-
 /**
  * `!== 'group'` is the complement of PERSON_AGGREGATED_PROPERTY_TYPES in filters_validation.py.
  * It holds only while 'group' is the sole type outside that tuple. A Python test asserts that:
@@ -118,14 +124,6 @@ function isPresentGroupIndex(index: unknown): index is number {
  */
 function isPersonAggregatedType(type: unknown): type is string {
     return isPresentType(type) && type !== 'group'
-}
-
-function hasKey(obj: Record<string, unknown> | null | undefined, key: string): boolean {
-    return !!obj && Object.prototype.hasOwnProperty.call(obj, key)
-}
-
-function explicitlyClearsAggregation(obj: Record<string, unknown> | null | undefined): boolean {
-    return hasKey(obj, 'aggregation_group_type_index') && !isPresentGroupIndex(obj?.aggregation_group_type_index)
 }
 
 function hasExplicitPersonProperty(group: FlagConditionGroup): boolean {
@@ -159,17 +157,6 @@ function indexProperties(properties: FlagProperty[] | null | undefined): Map<str
         byKey.set(prop.key, list)
     }
     return byKey
-}
-
-/** A set with no index of its own aggregates on the flag level, which the API distributes on write. */
-function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: number | undefined): number | null {
-    return (
-        resolveGroupIndex(
-            explicitlyClearsAggregation(group),
-            group.aggregation_group_type_index,
-            flagLevelGroupIndex
-        ) ?? null
-    )
 }
 
 /** `aggregation` is null for a set that aggregates on persons. */
@@ -285,18 +272,6 @@ function keepsCondition(incoming: FlagConditionGroup, source: ExistingSet): bool
     )
 }
 
-/**
- * Two values that isDeepStrictEqual treats as equal give the same string. The string only keys a
- * lookup. The exact comparison still runs on what the lookup finds.
- */
-function canonicalJson(value: unknown): string {
-    const sortKeys = (_key: string, nested: unknown): unknown =>
-        isRecord(nested)
-            ? Object.fromEntries(Object.entries(nested).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-            : nested
-    return JSON.stringify(value, sortKeys) ?? 'undefined'
-}
-
 /** Sets that keepsFilters treats as having the same filters on the same keys share this signature. */
 function filterSignature(propsByKey: Map<string, FlagProperty[]>): string {
     return JSON.stringify(
@@ -351,19 +326,6 @@ function groupPersonSetsByFilters(existingSets: (ExistingSet | undefined)[]): Ma
 function keepsKeys(incoming: FlagConditionGroup | undefined, existingSet: ExistingSet | undefined): boolean {
     const incomingKeys = isRecord(incoming) ? indexProperties(incoming.properties) : new Map()
     return hasSameKeySet(incomingKeys, existingSet?.propsByKey ?? new Map())
-}
-
-/** Callers fold an explicit null into `pinnedToPerson` first. `explicitIndex` cannot tell a
- * null from an absent key. */
-function resolveGroupIndex(
-    pinnedToPerson: boolean,
-    explicitIndex: unknown,
-    fallbackIndex: number | undefined
-): number | undefined {
-    if (pinnedToPerson) {
-        return undefined
-    }
-    return isPresentGroupIndex(explicitIndex) ? explicitIndex : fallbackIndex
 }
 
 function usableCandidates(
@@ -522,12 +484,13 @@ function resolveSetAggregation(
 
 function typeSetProperties(
     group: FlagConditionGroup,
-    typeCandidatesByKey: Map<string, FlagProperty[]> | undefined,
+    sourceSet: ExistingSet | undefined,
+    fallbackCandidatesByKey: Map<string, FlagProperty[]> | undefined,
     crossSetPropsByKey: Map<string, FlagProperty[]>,
     setGroupTypeIndex: number | undefined,
-    source: SourceAggregation | undefined,
     matchedSets: ExistingSet[]
 ): FlagConditionGroup {
+    const source: SourceAggregation | undefined = sourceSet && (sourceSet.aggregation === null ? 'person' : 'group')
     const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
         out.properties = out.properties.map((prop) => {
@@ -538,9 +501,17 @@ function typeSetProperties(
             if (typeof key !== 'string') {
                 return prop
             }
-            const candidates = typeCandidatesByKey?.get(key)
+            const candidates = sourceSet?.propsByKey.get(key)
             if (matchedSets.length === 0) {
-                return mergeProperty(prop, candidates, crossSetPropsByKey.get(key), setGroupTypeIndex, source)
+                // A key the source does not hold is typed as in a set without a source.
+                const sourceHoldsKey = candidates !== undefined
+                return mergeProperty(
+                    prop,
+                    sourceHoldsKey ? candidates : fallbackCandidatesByKey?.get(key),
+                    crossSetPropsByKey.get(key),
+                    setGroupTypeIndex,
+                    sourceHoldsKey ? source : undefined
+                )
             }
             // The set either moved from one of the matched sets or copies its filters in place. Each
             // reading types the property from a different person set. Only a type that every reading
@@ -563,8 +534,12 @@ function typeSetProperties(
     return out
 }
 
+function groupPaths(indexes: number[]): string {
+    return indexes.map((index) => `filters.groups[${index}]`).join(', ')
+}
+
 function unresolvedAggregationMessage(unresolved: number[]): string {
-    const paths = unresolved.map((index) => `filters.groups[${index}]`).join(', ')
+    const paths = groupPaths(unresolved)
     return (
         "This flag's release conditions don't all target the same thing: some target persons and others a " +
         'group type, or they target different group types. This update adds, removes, or reorders conditions, ' +
@@ -572,6 +547,92 @@ function unresolvedAggregationMessage(unresolved: number[]): string {
         `Set aggregation_group_type_index on each of these conditions: ${paths}. ` +
         'Use a group type index to target that group type, or null to target persons. Then send the update again.'
     )
+}
+
+function staleConditionIdMessage(stale: number[]): string {
+    const paths = groupPaths(stale)
+    return (
+        `The condition_id on ${paths} matches no condition on the flag. ` +
+        'A condition_id only matches conditions on the flag you read it from. If you copied this condition ' +
+        'from another flag or an experiment, remove its condition_id and send it as a new condition. ' +
+        'Otherwise the flag may have changed after you read it. Read the flag again, then build the update ' +
+        'from its current conditions and their condition_id values.'
+    )
+}
+
+function sourcesByConditionId(
+    conditionIds: (string | undefined)[],
+    existingSets: (ExistingSet | undefined)[]
+): (ExistingSet | undefined)[] {
+    const storedById = new Map<string, ExistingSet>()
+    for (const existingSet of existingSets) {
+        if (!existingSet) {
+            continue
+        }
+        const id = conditionId(existingSet.group, existingSet.aggregation)
+        if (!storedById.has(id)) {
+            storedById.set(id, existingSet)
+        }
+    }
+    const stale = conditionIds.flatMap((id, index) => (id !== undefined && !storedById.has(id) ? [index] : []))
+    if (stale.length > 0) {
+        throw new ToolInputValidationError(staleConditionIdMessage(stale), {
+            fields: ['filters.groups.N.condition_id:stale_condition_id'],
+        })
+    }
+    return conditionIds.map((id) => (id === undefined ? undefined : storedById.get(id)))
+}
+
+type SetSources = { sourceSets: (ExistingSet | undefined)[]; matchedPersonSets: ExistingSet[][] }
+
+function matchSetsByPositionAndContent(
+    incomingGroups: FlagConditionGroup[],
+    existingSets: (ExistingSet | undefined)[],
+    mixedAggregation: boolean
+): SetSources {
+    const keptKeys = existingSets.map((existingSet, index) => keepsKeys(incomingGroups[index], existingSet))
+    // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
+    const positionHolds = !mixedAggregation || (incomingGroups.length >= existingSets.length && keptKeys.every(Boolean))
+    const sourceSets = incomingGroups.map((group, index) => {
+        const existingSet = existingSets[index]
+        const ambiguous =
+            mixedAggregation &&
+            !!existingSet &&
+            isRecord(group) &&
+            existingSets.some(
+                (other) =>
+                    !!other &&
+                    other.aggregation !== existingSet.aggregation &&
+                    hasSameKeySet(other.propsByKey, existingSet.propsByKey)
+            ) &&
+            !keepsFilters(group, existingSet)
+        return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
+    })
+    const keptConditions = existingSets.map((existingSet, index) => {
+        const group = incomingGroups[index]
+        return !!existingSet && isRecord(group) && keepsCondition(group, existingSet)
+    })
+    const personSetsByFilters = groupPersonSetsByFilters(existingSets)
+    const changedTypings = new Set(
+        [...personSetsByFilters.values()]
+            .flat()
+            .filter((sameTyping) => sameTyping.indexes.some((otherIndex) => !keptConditions[otherIndex]))
+    )
+    const matchedPersonSets = sourceSets.map((sourceSet, index) => {
+        const group = incomingGroups[index]
+        if (sourceSet?.aggregation !== null || !isRecord(group)) {
+            return []
+        }
+        return (personSetsByFilters.get(filterSignature(indexProperties(group.properties))) ?? [])
+            .filter(
+                (sameTyping) =>
+                    sameTyping.indexes.some((otherIndex) => otherIndex !== index) &&
+                    keepsFilters(group, sameTyping.set) &&
+                    (!keptConditions[index] || changedTypings.has(sameTyping))
+            )
+            .map((sameTyping) => sameTyping.set)
+    })
+    return { sourceSets, matchedPersonSets }
 }
 
 /**
@@ -619,6 +680,17 @@ export function preserveGroupTargetingFilters(
     if (Array.isArray(result.groups)) {
         const existingSets = indexExistingSets(existing, existingFlagGroupIndex)
         const crossSetPropsByKey = indexPropertiesAcrossSets(existingSets)
+        const conditionIds: (string | undefined)[] = []
+        result.groups = result.groups.map((group) => {
+            if (!isRecord(group)) {
+                conditionIds.push(undefined)
+                return group
+            }
+            const { condition_id, ...rest } = group
+            conditionIds.push(typeof condition_id === 'string' ? condition_id : undefined)
+            return rest
+        })
+        const carriesConditionIds = conditionIds.some((id) => id !== undefined)
         const pinnedToPerson = result.groups.map(
             (group) => isRecord(group) && isPinnedToPerson(group, incomingClearsAggregation)
         )
@@ -626,51 +698,10 @@ export function preserveGroupTargetingFilters(
         const storedAggregations = new Set(aggregations.filter((aggregation) => aggregation !== undefined))
         const mixedAggregation = storedAggregations.size > 1
         const aggregatesOnPersonsOnly = storedAggregations.size === 1 && storedAggregations.has(null)
-        const incomingGroups = result.groups
-        const keptKeys = existingSets.map((existingSet, index) => keepsKeys(incomingGroups[index], existingSet))
-        // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
-        const positionHolds =
-            !mixedAggregation || (incomingGroups.length >= existingSets.length && keptKeys.every(Boolean))
-        const sourceSets = existingSets.map((existingSet, index) => {
-            const group = incomingGroups[index]
-            const ambiguous =
-                mixedAggregation &&
-                !!existingSet &&
-                isRecord(group) &&
-                existingSets.some(
-                    (other) =>
-                        !!other &&
-                        other.aggregation !== existingSet.aggregation &&
-                        hasSameKeySet(other.propsByKey, existingSet.propsByKey)
-                ) &&
-                !keepsFilters(group, existingSet)
-            return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
-        })
+        const { sourceSets, matchedPersonSets }: SetSources = carriesConditionIds
+            ? { sourceSets: sourcesByConditionId(conditionIds, existingSets), matchedPersonSets: [] }
+            : matchSetsByPositionAndContent(result.groups, existingSets, mixedAggregation)
         const personSources = sourceSets.map((sourceSet) => (sourceSet?.aggregation === null ? sourceSet : undefined))
-        const keptConditions = existingSets.map((existingSet, index) => {
-            const group = incomingGroups[index]
-            return !!existingSet && isRecord(group) && keepsCondition(group, existingSet)
-        })
-        const personSetsByFilters = groupPersonSetsByFilters(existingSets)
-        const changedTypings = new Set(
-            [...personSetsByFilters.values()]
-                .flat()
-                .filter((sameTyping) => sameTyping.indexes.some((otherIndex) => !keptConditions[otherIndex]))
-        )
-        const matchedPersonSets = personSources.map((personSource, index) => {
-            const group = incomingGroups[index]
-            if (!personSource || !isRecord(group)) {
-                return []
-            }
-            return (personSetsByFilters.get(filterSignature(indexProperties(group.properties))) ?? [])
-                .filter(
-                    (sameTyping) =>
-                        sameTyping.indexes.some((otherIndex) => otherIndex !== index) &&
-                        keepsFilters(group, sameTyping.set) &&
-                        (!keptConditions[index] || changedTypings.has(sameTyping))
-                )
-                .map((sameTyping) => sameTyping.set)
-        })
 
         const personSetPropsFor = (index: number): (Map<string, FlagProperty[]> | undefined)[] =>
             sourceSets[index]
@@ -707,19 +738,18 @@ export function preserveGroupTargetingFilters(
             if (!isRecord(group)) {
                 return group
             }
-            const typeCandidatesByKey =
-                sourceSets[index]?.propsByKey ??
-                (!mixedAggregation || statesOwnGroupType[index] ? crossSetPropsByKey : undefined)
+            const fallbackCandidatesByKey =
+                !mixedAggregation || statesOwnGroupType[index] || sourceSets[index] ? crossSetPropsByKey : undefined
             return typeSetProperties(
                 group,
-                typeCandidatesByKey,
+                sourceSets[index],
+                fallbackCandidatesByKey,
                 crossSetPropsByKey,
                 resolveGroupIndex(
                     pinnedToPerson[index] ?? false,
                     group.aggregation_group_type_index,
                     effectiveFlagGroupIndex
                 ),
-                sourceSets[index] ? (personSources[index] ? 'person' : 'group') : undefined,
                 matchedPersonSets[index] ?? []
             )
         })
