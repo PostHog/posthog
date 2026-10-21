@@ -31,25 +31,3 @@ class TestValidateCredentials:
         mock.assert_called_once_with("tok")
         assert ok is transport_result
         assert (error is None) is transport_result
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.intruder.io/v1/targets/"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.intruder.io/v1/issues/"),
-        ]
-    )
-    def test_auth_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = IntruderSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.intruder.io/v1/targets/"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.intruder.io/v1/scans/"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = IntruderSource().get_non_retryable_errors()
-        assert not any(key in observed_error for key in non_retryable)

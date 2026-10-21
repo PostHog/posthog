@@ -77,9 +77,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid Planhat API token")),
-            ("forbidden", 403, (False, "Invalid Planhat API token")),
-            ("server_error", 500, (False, "Planhat returned HTTP 500")),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:

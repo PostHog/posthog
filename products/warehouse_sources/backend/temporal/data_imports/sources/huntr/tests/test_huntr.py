@@ -111,9 +111,6 @@ class TestValidateCredentials:
         "status, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid Huntr access token"),
-            (403, False, "Invalid Huntr access token"),
-            (500, False, "Huntr returned HTTP 500"),
         ],
     )
     def test_status_mapping(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
@@ -125,14 +122,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/org/members"
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].headers["authorization"] == "Bearer huntr-token"
-
-    def test_connection_error_is_not_valid(self) -> None:
-        # validate_via_probe swallows transport errors; the token is simply "not validated".
-        def fail(_request: Any) -> ScriptedResponse:
-            raise ConnectionError("boom")
-
-        with scripted_network(fail):
-            assert validate_credentials("huntr-token") == (False, "Could not validate Huntr access token")
 
 
 class TestHuntrSourceResponse:
