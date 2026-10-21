@@ -1,4 +1,5 @@
 import re
+import json
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any
@@ -83,8 +84,6 @@ class SlackGallery:
     initial_comment: str
     file_uploads: list[dict[str, Any]] = field(default_factory=list)
     blocks: list[dict[str, Any]] = field(default_factory=list)
-    image_block_index: int = 0
-    image_links: list[dict[str, Any] | None] = field(default_factory=list)
 
 
 def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
@@ -291,7 +290,7 @@ def _prepare_slack_gallery(
         lines.append(summary_skipped_over_budget_message(billing_url))
 
     file_uploads: list[dict[str, Any]] = []
-    image_links: list[dict[str, Any] | None] = []
+    insight_links: list[dict[str, Any]] = []
     failed_names: list[str] = []
     unattached_assets: list[ExportedAsset] = []
     for asset in assets:
@@ -314,7 +313,10 @@ def _prepare_slack_gallery(
             unattached_assets.append(asset)
             continue
         file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
-        image_links.append(_insight_link_block(asset))
+        if asset.insight:
+            if insight_links:
+                insight_links.append({"type": "text", "text": " · "})
+            insight_links.append({"type": "link", "url": asset.insight.url, "text": _insight_name(asset)})
 
     if failed_names:
         lines.append("_Could not generate: " + ", ".join(failed_names) + "_")
@@ -355,7 +357,8 @@ def _prepare_slack_gallery(
                 },
             }
         )
-    image_block_index = len(blocks)
+    if insight_links:
+        blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": insight_links}]})
     blocks.extend(_subscription_footer_blocks(subscription, resource_info, integration))
 
     return SlackGallery(
@@ -363,8 +366,6 @@ def _prepare_slack_gallery(
         initial_comment="\n\n".join(lines),
         file_uploads=file_uploads,
         blocks=blocks,
-        image_block_index=image_block_index,
-        image_links=image_links,
     )
 
 
@@ -579,21 +580,15 @@ def send_slack_message_with_integration(
 
 
 async def _send_slack_message_with_retry(
-    client: AsyncWebClient, max_retries: int = 3, *, wait_for_uploaded_images: bool = False, **kwargs: Any
+    client: AsyncWebClient, max_retries: int = 3, **kwargs: Any
 ) -> AsyncSlackResponse:
-    upload_processing_attempts = max_retries + 3 if wait_for_uploaded_images else max_retries
-    for attempt in range(upload_processing_attempts):
+    for attempt in range(max_retries):
         try:
             return await client.chat_postMessage(**kwargs)
         except (TimeoutError, SlackApiError) as e:
-            retry_limit = max_retries
             if isinstance(e, SlackApiError):
                 slack_error = e.response.get("error", "")
                 if slack_error == "invalid_blocks":
-                    if wait_for_uploaded_images and any(
-                        "invalid slack file" in message for message in e.response.get("errors", [])
-                    ):
-                        retry_limit = upload_processing_attempts
                     log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
                 elif slack_error in _RETRYABLE_SLACK_ERRORS:
                     log_event = "_send_slack_message_with_retry.transient_error_retrying"
@@ -602,13 +597,13 @@ async def _send_slack_message_with_retry(
             else:
                 log_event = "_send_slack_message_with_retry.timeout_retrying"
 
-            if attempt >= retry_limit - 1:
+            if attempt >= max_retries - 1:
                 raise
 
             logger.warning(
                 log_event,
                 attempt=attempt + 1,
-                max_retries=retry_limit,
+                max_retries=max_retries,
                 channel=kwargs.get("channel"),
                 is_thread=bool(kwargs.get("thread_ts")),
                 exc_info=True,
@@ -700,10 +695,12 @@ async def deliver_slack_gallery(
 
         for attempt in range(3):
             try:
-                message_fields: dict[str, Any] = {}
-                if not gallery.blocks:
-                    message_fields = {"channel": gallery.channel, "initial_comment": gallery.initial_comment}
-                upload_response = await async_client.files_upload_v2(
+                message_fields: dict[str, Any] = {"channel": gallery.channel}
+                if gallery.blocks:
+                    message_fields["blocks"] = json.dumps(gallery.blocks)
+                else:
+                    message_fields["initial_comment"] = gallery.initial_comment
+                await async_client.files_upload_v2(
                     file_uploads=gallery.file_uploads,
                     **message_fields,
                 )
@@ -714,37 +711,6 @@ async def deliver_slack_gallery(
                 if attempt >= 2:
                     raise
                 await asyncio.sleep(2**attempt)
-
-        if gallery.blocks:
-            uploaded_files = upload_response["files"]
-            if len(uploaded_files) != len(gallery.file_uploads):
-                raise ValueError("Slack did not return all uploaded chart files")
-            image_blocks = []
-            for index, (uploaded_file, upload) in enumerate(zip(uploaded_files, gallery.file_uploads, strict=True)):
-                if gallery.image_links and (link := gallery.image_links[index]):
-                    image_blocks.append(link)
-                image_blocks.append(
-                    {
-                        "type": "image",
-                        "slack_file": {"id": uploaded_file["id"]},
-                        "alt_text": upload["title"],
-                        "title": {"type": "plain_text", "text": upload["title"][:2000]},
-                    }
-                )
-            blocks = [
-                *gallery.blocks[: gallery.image_block_index],
-                *image_blocks,
-                *gallery.blocks[gallery.image_block_index :],
-            ]
-            await _send_slack_message_with_retry(
-                async_client,
-                wait_for_uploaded_images=True,
-                channel=gallery.channel,
-                text=gallery.initial_comment,
-                blocks=blocks,
-                unfurl_links=False,
-                unfurl_media=False,
-            )
 
     logger.info(
         "deliver_slack_gallery.uploaded",

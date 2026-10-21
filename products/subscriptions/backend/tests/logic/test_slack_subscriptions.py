@@ -1,3 +1,4 @@
+import json
 import asyncio
 from typing import Any
 
@@ -720,38 +721,30 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             assert mock_async_client.chat_postMessage.call_count == 1
             mock_sleep.assert_not_awaited()
 
-    @parameterized.expand([(0,), (4,)])
-    @patch("products.subscriptions.backend.logic.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
-    def test_deliver_slack_gallery_uploads_files(
-        self, processing_errors: int, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
-    ) -> None:
+    @parameterized.expand([(1,), (10,)])
+    def test_deliver_slack_gallery_uploads_files(self, MockSlackIntegration: MagicMock, file_count: int) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True, "files": [{"id": "F1"}]})
-        pending_image = _make_slack_api_error("invalid_blocks", errors=["invalid slack file"])
-        mock_async.chat_postMessage.side_effect = [pending_image] * processing_errors + [{"ts": "1.234"}]
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
         gallery = SlackGallery(
             channel="C1",
             initial_comment="hi",
-            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+            file_uploads=[
+                {"content": b"x", "filename": f"chart-{index}.png", "title": f"Chart {index}"}
+                for index in range(file_count)
+            ],
             blocks=[
                 {"type": "header", "text": {"type": "plain_text", "text": "Your subscription is ready! 🎉"}},
                 {"type": "divider"},
             ],
-            image_block_index=1,
         )
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
         mock_async.files_upload_v2.assert_awaited_once()
         kwargs = mock_async.files_upload_v2.await_args.kwargs
-        assert "channel" not in kwargs
+        assert kwargs["channel"] == "C1"
         assert "initial_comment" not in kwargs
-        message = mock_async.chat_postMessage.await_args.kwargs
-        assert message["channel"] == "C1"
-        assert message["blocks"][0] == gallery.blocks[0]
-        assert message["blocks"][1]["slack_file"] == {"id": "F1"}
-        assert message["blocks"][2] == gallery.blocks[1]
-        assert mock_async.chat_postMessage.await_count == processing_errors + 1
-        assert mock_sleep.await_count == processing_errors
+        assert json.loads(kwargs["blocks"]) == gallery.blocks
         assert kwargs["file_uploads"] == gallery.file_uploads
+        mock_async.chat_postMessage.assert_not_awaited()
         assert result.main_message_sent is True
 
     @patch("products.subscriptions.backend.logic.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
@@ -802,7 +795,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
         )
         mock_async.files_upload_v2.assert_awaited_once()
-        mock_async.chat_postMessage.assert_awaited_once()
+        mock_async.chat_postMessage.assert_not_awaited()
 
 
 class TestSlackErrorTruncation(APIBaseTest):
@@ -994,6 +987,18 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assert gallery.channel == "C123"
         assert len(gallery.file_uploads) == 1  # failed asset excluded
         assert gallery.file_uploads[0]["content"] == b"PNGBYTES"
+        links = [block for block in gallery.blocks if block["type"] == "rich_text"]
+        assert links == [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "link", "url": self.insight.url, "text": self.insight.name}],
+                    }
+                ],
+            }
+        ]
         assert "View in PostHog" in gallery.initial_comment
         # Failed assets are listed by name with a "Could not generate" notice
         assert "Could not generate" in gallery.initial_comment
