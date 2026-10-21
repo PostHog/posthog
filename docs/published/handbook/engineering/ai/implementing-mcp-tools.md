@@ -577,6 +577,8 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   Keep plan-limit guidance aligned with backend permissions. For `project-create`, `organization-get` exposes the plan feature limits and each team's `project_id` and `is_demo`. Count distinct project IDs among non-demo teams; neither the project list length nor the environment count matches the backend rule. Visible lists can omit inaccessible projects, so a count below the limit does not guarantee permission. The backend remains authoritative.
+
    For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
    needs from each result row. This adds a compact text response for clients that cannot read
    `structuredContent`, while preserving the full structured payload for the app and explicit
