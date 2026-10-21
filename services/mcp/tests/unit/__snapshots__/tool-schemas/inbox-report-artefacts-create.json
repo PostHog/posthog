@@ -12,8 +12,52 @@
         "content": {
             "description": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema."
         },
+        "expected_reviewers": {
+            "description": "State returned by reviewer_state before selection began. Required when the shared writer is enabled.",
+            "properties": {
+                "control_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Current reviewer control artefact ID, or null before migration."
+                },
+                "reviewers_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Current reviewer artefact ID, or null before the first list."
+                }
+            },
+            "required": ["reviewers_id", "control_id"],
+            "type": "object"
+        },
+        "operation_id": {
+            "description": "Stable ID for this selection. Reuse this ID and payload on retries.",
+            "type": "string"
+        },
         "report_id": {
             "description": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "type": "string"
+        },
+        "reviewer_outcome": {
+            "default": "selected",
+            "description": "A successful selection, a deliberate empty result, or an unavailable lookup.\n\n* `selected` - Selected\n* `no_suitable_owner` - No suitable owner\n* `lookup_failed` - Lookup failed",
+            "enum": ["selected", "no_suitable_owner", "lookup_failed"],
+            "type": "string"
+        },
+        "reviewer_retry_reason": {
+            "description": "Reason the reviewer lookup failed.",
+            "maxLength": 500,
             "type": "string"
         }
     },
