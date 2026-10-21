@@ -182,9 +182,12 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)
-                                    holdPulseOrder(metrics.map((tile) => tile.key))
+                                    holdPulseOrder(
+                                        metric.key,
+                                        metrics.map((tile) => tile.key)
+                                    )
                                 } else {
-                                    releasePulseOrder()
+                                    releasePulseOrder(metric.key)
                                 }
                             }}
                             card={

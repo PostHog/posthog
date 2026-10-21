@@ -265,7 +265,7 @@ export const HighlightPinStatusEnumApi = {
 export interface HighlightPinApi {
     /** Key of a number the person keeps on their home. */
     key: string
-    /** `ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight or one that is not a trend.
+    /** `ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. After a failure or a timeout the highlights are computed again within a minute.
      *
      * * `ready` - Ready
      * * `computing` - Computing

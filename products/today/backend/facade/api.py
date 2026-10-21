@@ -58,11 +58,11 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 
 
 def get_pulse_pins(*, team: Team, user: User) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.get_pins(team_id=team.id, user_id=user.id))
+    return contracts.PulsePins(pins=pulse_pins.get_pins(team=team, user_id=user.id))
 
 
 def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.set_pins(team_id=team.id, user_id=user.id, pins=pins))
+    return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))
 
 
 PIN_CANDIDATES = 20

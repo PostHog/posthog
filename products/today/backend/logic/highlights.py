@@ -62,7 +62,7 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     day = now.astimezone(team.timezone_info).date()
     pins = [
         PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
-        for pin in pulse_pins.get_pins(team_id=team.id, user_id=user.id)
+        for pin in pulse_pins.get_pins(team=team, user_id=user.id)
     ]
     key = _key(team, user, scopes)
     pins_key = _pins_key(pins)
@@ -185,7 +185,7 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         pinned={
             metric.key: metric for result in inputs.pin_results for metric in PINNED_METRICS.validate_json(result.found)
         },
-        computing={key for key in pins if key in still_pending or key not in attempted},
+        computing=set() if inputs.final else {key for key in pins if key in still_pending or key not in attempted},
     )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
@@ -195,12 +195,11 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         else HighlightsStatus.READY
     )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
-    errored = {key for result in inputs.pin_results for key in result.errored} - {
-        pin.key for pin in highlights.pins if pin.status == HighlightPinStatus.READY
-    }
-    still_computing = any(pin.status == HighlightPinStatus.COMPUTING for pin in highlights.pins)
-    row.failed_sources = bool(failed) or bool(errored) or (inputs.final and still_computing)
-    row.ready_at = timezone.now()
+    ready = {pin.key for pin in highlights.pins if pin.status == HighlightPinStatus.READY}
+    errored = {key for result in inputs.pin_results for key in result.errored}
+    retryable = (still_pending | errored | (set(pins) - attempted)) - ready
+    row.failed_sources = inputs.final and (bool(failed) or bool(retryable))
+    row.ready_at = row.ready_at or timezone.now()
     row.save(update_fields=["status", "content", "failed_sources", "ready_at"])
     if row.status == HighlightsStatus.READY:
         TodayHighlights.objects.for_team(inputs.team_id).filter(

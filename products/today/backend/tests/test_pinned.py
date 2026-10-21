@@ -42,11 +42,9 @@ class TestPinnedNumbers(BaseTest):
         )
 
         for key in ("insight:first", "insight:second"):
-            pulse_pins.set_pins(team_id=child.id, user_id=self.user.id, pins=[PulsePin(key=key, name=key)])
+            pulse_pins.set_pins(team=child, user_id=self.user.id, pins=[PulsePin(key=key, name=key)])
 
-        self.assertEqual(
-            [pin.key for pin in pulse_pins.get_pins(team_id=child.id, user_id=self.user.id)], ["insight:second"]
-        )
+        self.assertEqual([pin.key for pin in pulse_pins.get_pins(team=child, user_id=self.user.id)], ["insight:second"])
 
     @parameterized.expand(
         [

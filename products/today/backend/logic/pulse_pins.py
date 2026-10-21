@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from pydantic import TypeAdapter, ValidationError
 
-from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models import Team
 
 from ..facade import contracts
 from ..models import TodayPulsePins
@@ -13,8 +13,8 @@ MAX_PULSE_PINS = 4
 _PINS = TypeAdapter(list[contracts.PulsePin])
 
 
-def get_pins(*, team_id: int, user_id: int) -> list[contracts.PulsePin]:
-    row = TodayPulsePins.objects.for_team(team_id).filter(user_id=user_id).first()
+def get_pins(*, team: Team, user_id: int) -> list[contracts.PulsePin]:
+    row = TodayPulsePins.objects.for_team(_canonical(team), canonical=True).filter(user_id=user_id).first()
     if row is None:
         return []
     try:
@@ -23,8 +23,8 @@ def get_pins(*, team_id: int, user_id: int) -> list[contracts.PulsePin]:
         return []
 
 
-def set_pins(*, team_id: int, user_id: int, pins: list[contracts.PulsePin]) -> list[contracts.PulsePin]:
-    team_id = resolve_effective_team_id(team_id)
+def set_pins(*, team: Team, user_id: int, pins: list[contracts.PulsePin]) -> list[contracts.PulsePin]:
+    team_id = _canonical(team)
     kept: dict[str, contracts.PulsePin] = {}
     for pin in pins:
         kept.setdefault(pin.key, pin)
@@ -42,6 +42,10 @@ def set_pins(*, team_id: int, user_id: int, pins: list[contracts.PulsePin]) -> l
             pins=stored, updated_at=timezone.now()
         )
     return kept_pins
+
+
+def _canonical(team: Team) -> int:
+    return team.parent_team_id or team.id
 
 
 def delete_for_teams(team_ids: list[int]) -> None:

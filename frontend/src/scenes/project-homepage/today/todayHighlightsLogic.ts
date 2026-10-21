@@ -25,7 +25,7 @@ export const HIGHLIGHTS_POLL_MS = 2_000
 const HIGHLIGHTS_WAIT_MS = 2_000
 const PULSE_SEARCH_DEBOUNCE_MS = 200
 const PENDING_PINS_RETRY_MS = 10_000
-const PENDING_PINS_RETRIES = 12
+const PENDING_PINS_RETRIES = 60
 const PINS_LOAD_RETRY_MS = 5_000
 const PINS_LOAD_RETRIES = 3
 export const PULSE_TILES = 4
@@ -69,7 +69,10 @@ export interface todayHighlightsLogicValues {
     pulseInsightResults: PulsePinApi[]
     pulseInsightResultsLoading: boolean
     pulseInsightSearchFailed: boolean
-    pulseOrderHeld: string[] | null
+    pulseOrderHeld: {
+        keys: string[]
+        owner: string
+    } | null
     pulsePins: PulsePinApi[]
     pulsePinsLoaded: boolean
     pulsePinsLoading: boolean
@@ -94,8 +97,12 @@ export interface todayHighlightsLogicActions {
         item: HighlightItemApi
         position: number
     }
-    holdPulseOrder: (keys: string[]) => {
+    holdPulseOrder: (
+        owner: string,
         keys: string[]
+    ) => {
+        keys: string[]
+        owner: string
     }
     loadHighlights: () => any
     loadHighlightsFailure: (
@@ -162,7 +169,10 @@ export interface todayHighlightsLogicActions {
     pulsePinsSaved: () => {
         value: true
     }
-    releasePulseOrder: () => {
+    releasePulseOrder: (owner: string) => {
+        owner: string
+    }
+    retryComputingPins: () => {
         value: true
     }
     setHiddenHighlights: (hidden: Record<string, string>) => {
@@ -213,7 +223,7 @@ export interface todayHighlightsLogicMeta {
         forYouHighlights: (
             highlights: HighlightsApi | null,
             hiddenHighlights: Record<string, string>,
-            doneHighlightKeys: any,
+            doneHighlightKeys: string[],
             currentProjectId: number | string
         ) => HighlightItemApi[]
     }
@@ -243,8 +253,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePinsSaved: true,
         pulseEditorOpened: true,
         togglePulsePin: (pin: PulsePinApi, source: PulsePinSource) => ({ pin, source }),
-        holdPulseOrder: (keys: string[]) => ({ keys }),
-        releasePulseOrder: true,
+        holdPulseOrder: (owner: string, keys: string[]) => ({ owner, keys }),
+        releasePulseOrder: (owner: string) => ({ owner }),
+        retryComputingPins: true,
     }),
     loaders(({ values, cache }) => ({
         pulseInsightResults: [
@@ -309,10 +320,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             { loadPulseInsightResults: () => false, loadPulseInsightResultsFailure: () => true },
         ],
         pulseOrderHeld: [
-            null as string[] | null,
+            null as { owner: string; keys: string[] } | null,
             {
-                holdPulseOrder: (_, { keys }) => keys,
-                releasePulseOrder: () => null,
+                holdPulseOrder: (_, { owner, keys }) => ({ owner, keys }),
+                releasePulseOrder: (state, { owner }) => (state?.owner === owner ? null : state),
             },
         ],
         hiddenHighlights: [
@@ -356,7 +367,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             (
                 pulsePins: PulsePinApi[],
                 highlights: HighlightsApi | null,
-                pulseOrderHeld: string[] | null
+                pulseOrderHeld: { owner: string; keys: string[] } | null
             ): TodayPulseTile[] => {
                 const suggested = (highlights?.pulse ?? []).filter(
                     (metric) => !pulsePins.some((pin) => pin.key === metric.key)
@@ -375,9 +386,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 if (!pulseOrderHeld) {
                     return tiles
                 }
+                const held = pulseOrderHeld.keys
                 const place = (key: string): number => {
-                    const index = pulseOrderHeld.indexOf(key)
-                    return index === -1 ? pulseOrderHeld.length : index
+                    const index = held.indexOf(key)
+                    return index === -1 ? held.length : index
                 }
                 return [...tiles].sort((a, b) => place(a.key) - place(b.key))
             },
@@ -524,6 +536,25 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 return () => clearTimeout(retry)
             }, 'pulsePinsLoadRetry')
         },
+        loadPulsePinsSuccess: () => {
+            actions.retryComputingPins()
+        },
+        retryComputingPins: () => {
+            if (values.highlights?.status === 'computing') {
+                return
+            }
+            const pinStillComputing = values.pulseTiles.some(
+                (tile) => isPlaceholderTile(tile) && tile.placeholder === 'computing'
+            )
+            if (!pinStillComputing || (cache.pendingPinRetries ?? 0) >= PENDING_PINS_RETRIES) {
+                return
+            }
+            cache.pendingPinRetries = (cache.pendingPinRetries ?? 0) + 1
+            cache.disposables.add(() => {
+                const retry = window.setTimeout(() => actions.loadHighlights(), PENDING_PINS_RETRY_MS)
+                return () => clearTimeout(retry)
+            }, 'pendingPinsRetry')
+        },
         loadHighlightsSuccess: ({ highlights }) => {
             if (!highlights) {
                 return
@@ -535,16 +566,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 }, 'highlightsPoll')
                 return
             }
-            const pinStillComputing = values.pulseTiles.some(
-                (tile) => isPlaceholderTile(tile) && tile.placeholder === 'computing'
-            )
-            if (pinStillComputing && (cache.pendingPinRetries ?? 0) < PENDING_PINS_RETRIES) {
-                cache.pendingPinRetries = (cache.pendingPinRetries ?? 0) + 1
-                cache.disposables.add(() => {
-                    const retry = window.setTimeout(() => actions.loadHighlights(), PENDING_PINS_RETRY_MS)
-                    return () => clearTimeout(retry)
-                }, 'pendingPinsRetry')
-            }
+            actions.retryComputingPins()
             if (cache.highlightsLoadedCaptured) {
                 return
             }
