@@ -787,6 +787,8 @@ class TestSignalSpend(BaseTest):
         )
         old.created_at -= timedelta(days=3)
         old.save(update_fields=["created_at"])
+        scout.created_at -= timedelta(days=2)
+        scout.save(update_fields=["created_at"])
         LegacySignalSpend.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             scout_run=scout,
@@ -802,6 +804,7 @@ class TestSignalSpend(BaseTest):
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
         assert SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).created_at == old.created_at
         owner = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
+        assert owner.created_at == scout.created_at
         assert (owner.token_cost_microusd, owner.task_count) == (200, 1)
         assert owner.finalized_at is None  # Legacy status cannot prove teardown completion.
         record_llm_spend("new-call", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="grouping")

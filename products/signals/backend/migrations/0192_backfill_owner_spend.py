@@ -4,6 +4,7 @@ from django.db import migrations, transaction
 def backfill_owner_spend(apps, schema_editor):
     Source = apps.get_model("signals", "LegacySignalSpend")
     Spend = apps.get_model("signals", "SignalSpend")
+    Scout = apps.get_model("signals", "SignalScoutRun")
     TaskRun = apps.get_model("tasks", "TaskRun")
     alias = schema_editor.connection.alias
     last_id = None
@@ -35,6 +36,15 @@ def backfill_owner_spend(apps, schema_editor):
                     spend.report_id = run["task__signal_report_id"]
                 receipts = list(Source._base_manager.using(alias).filter(team_id=source.team_id, **owner))
                 spend.created_at = min(spend.created_at, *(receipt.created_at for receipt in receipts))
+                if source.scout_run_id:
+                    scout_started = (
+                        Scout._base_manager.using(alias)
+                        .filter(id=source.scout_run_id, team_id=source.team_id)
+                        .values_list("created_at", flat=True)
+                        .first()
+                    )
+                    if scout_started is not None:
+                        spend.created_at = min(spend.created_at, scout_started)
                 spend.token_cost_microusd = spend.llm_cost_microusd + sum(
                     receipt.token_cost_microusd or 0 for receipt in receipts
                 )

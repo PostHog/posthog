@@ -246,8 +246,7 @@ class TestScoutSpendSettlement(BaseTest):
         scout = SignalScoutRun.objects.for_team(self.team.id).create(
             team=self.team, task_run=run, skill_name="example-scout", skill_version=1
         )
-        with patch("products.signals.backend.spend.usage_billing_enabled", return_value=True):
-            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
         with (
             patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"),
             self.assertRaises(TaskTokenUsageUnavailable),
