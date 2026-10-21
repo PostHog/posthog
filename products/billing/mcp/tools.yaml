@@ -530,7 +530,7 @@ tools:
                     not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
                     "type,team" will fail with a 400 error.
             interval:
-                description: Time bucket size, one of "day" or "week". Default "day".
+                description: Time bucket size, one of "day", "week" or "month". Default "day".
             top_projects:
                 description: >
                     Maximum number of projects to return, ranked by total, when breakdowns includes "team". The projects
