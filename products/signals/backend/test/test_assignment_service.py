@@ -445,8 +445,8 @@ class TestReportAssignmentService(BaseTest):
                 team_id=self.team.id,
                 report_id=report_id,
                 repository="example/repo",
-                title=self.report.title,
-                summary=self.report.summary,
+                title="A report",
+                summary="A report summary",
                 actionability=ActionabilityAssessment(
                     actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
                     explanation="A fix is possible",
