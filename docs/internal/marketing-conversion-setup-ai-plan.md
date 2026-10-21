@@ -1,0 +1,93 @@
+# Conversion recommendations in Marketing analytics
+
+Conversion recommendations scan a project's custom events and existing actions and suggest up to three business outcomes to measure.
+The API and MCP tools expose saved recommendations independently of the frontend.
+The `marketing-analytics-conversion-setup-ai` feature flag gates the API and MCP tools.
+The existing Marketing analytics setup flag must also be enabled.
+
+## Analysis lifecycle
+
+A start request begins the first analysis after checking permission to generate.
+Analyses cover 30 days until one completes successfully; later analyses cover 14 days and require an explicit refresh request.
+Runs and completed results are stored per project, so reading saved state does not start another analysis.
+After a successful scan, a project waits one hour from completion before starting another scan.
+Failed scans can be retried immediately, and active scans are reused.
+The backend enforces this interval for UI and MCP requests; it never starts a scheduled rescan.
+An update retains the last completed recommendations while it runs.
+Interrupted runs become failed after five minutes and require an explicit retry.
+
+Each recommendation includes its source event or action, an explanation, a proposed intent (conversion, customer, or revenue), and up to two actionable checks specific to the proposed goal.
+Count-only suggestions do not ask about revenue units, currency, or hypothetical revenue upgrades.
+A revenue suggestion must reference a numeric property observed in the source metadata.
+A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
+Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
+Recommendations do not create or modify goals, and do not depend on conversion previews or the new dashboard.
+
+## Discovery and access
+
+Discovery reads aggregate counts for up to 20 custom events in the selected window and metadata for up to 20 existing actions.
+It excludes system events, applies the project's test-account filters, and respects event/action access controls.
+Action candidates retain their identity and existing filters; their volume is not evaluated during discovery.
+The scan does not inspect warehouse tables or create views.
+
+Starting analysis requires project admin access, AI data-processing consent, the feature flag, and `marketing_analytics:write` for scoped API keys.
+The worker rechecks access, consent, and the flag before reading source data.
+Read-only MCP sessions cannot start analysis.
+Runs belong to the requested environment, matching its events and configured goals.
+Discovery, goal context, locking, and generation permissions use that same environment; parent and child scans remain separate.
+The model receives aggregate evidence, source metadata, and summaries of existing goals, including goals absent from the recent candidate catalog.
+Summaries include source identity, name, measurement, revenue/customer flags, and whether filters apply; they omit filter values, individual event payloads, and person records.
+Configured action summaries respect action access controls.
+Selection prioritizes distinct business outcomes not already measured, and can return no suggestions when only weaker steps from an already measured journey remain.
+The backend also drops suggestions for sources marked as already configured.
+Generation uses the Go AI gateway and the production prompt and tool schema.
+When the organization enables AI privacy mode, the request includes the gateway privacy header so prompts and responses are not recorded in AI telemetry.
+The synthetic evaluation runner always requests that privacy mode.
+
+## API and MCP
+
+- `GET /api/projects/:project_id/marketing_analytics/conversion_recommendations/` reads saved results and current run state.
+- `POST /api/projects/:project_id/marketing_analytics/conversion_recommendations/start/` starts analysis with `{ "refresh": false }` for the first run or `{ "refresh": true }` for an explicit update.
+- `marketing-analytics-conversion-recommendations` exposes the read operation in MCP.
+- `marketing-analytics-start-conversion-recommendations` exposes the start operation in MCP only after the organization approves AI data processing.
+  Reading saved recommendations does not require new AI processing consent; the backend still enforces access and the feature flag.
+
+Starting a run persists an analysis record and enqueues a task after the transaction commits.
+Concurrent starts reuse an active run, and repeated initial requests reuse the existing run.
+The start endpoint is limited to five requests per hour per user.
+
+The setup plan no longer generates rules that suggest creating conversion goals or enabling Revenue or Customer.
+Misconfigured goal warnings and integration diagnostics remain available.
+Without AI recommendations enabled, users configure goals manually; capability readiness still explains missing revenue or customer definitions.
+
+## Frontend follow-up
+
+The Setup integration ships separately and consumes these endpoints.
+It starts the first analysis once, shows saved results, and offers explicit updates and navigation to the existing goal editor.
+The backend and MCP tools do not depend on that integration.
+
+## Verification
+
+The static IDOR coverage check verifies that recommendation runs appear in the generated environment-scoped model list.
+After changing model scope, regenerate that list with `python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models`, then run the same command without the regeneration flag.
+
+Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
+MCP tests cover tool schemas, feature flag gating, and access from read-only sessions.
+
+The standalone recommendation evaluation uses eleven synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
+It does not exercise discovery queries, permissions, persistence, or Celery; those have separate tests.
+A deterministic dry run checks the evaluation plumbing without calling a model:
+
+```sh
+python -m products.marketing_analytics.evals.recommendation_cards_runner --output /tmp/marketing-recommendations-dry-run.json
+```
+
+A live run requires configured Go AI gateway credentials and available model credit:
+
+```sh
+python -m products.marketing_analytics.evals.recommendation_cards_runner --live --trials 3 --output /tmp/marketing-recommendations-live.json
+```
+
+Reports record the requested and returned model, token usage, source hashes, and per-trial output.
+Interrupted runs preserve completed trials.
+Passing the deterministic contract checks is not a semantic quality score; live explanations and business questions still need review.

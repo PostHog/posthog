@@ -88,6 +88,7 @@ OK_ANSWERS: tuple[Answer, ...] = (
 #   connects without urllib3.
 NOT_CHECKABLE: dict[str, str] = {
     "Ably": "config",
+    "AmazonS3": "config",
     "AppStoreConnect": "config",
     "AppleSearchAds": "config",
     "AzureBlob": "config",
@@ -116,6 +117,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Github": "config",
     "GoogleAds": "driver",
     "GoogleAnalytics": "database",
+    "GoogleCloudStorage": "config",
     "GooglePlayConsole": "config",
     "GoogleSearchConsole": "database",
     "GoogleSheets": "config",
@@ -384,7 +386,6 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Adapty",
     "AdobeAnalytics",
     "Ahrefs",
-    "AmazonS3",
     "Anvil",
     "Apollo",
     "Arcade",
@@ -414,7 +415,6 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Fieldpulse",
     "GainsightCs",
     "Getdx",
-    "GoogleCloudStorage",
     "GrowthBook",
     "Gusto",
     "Harness",
