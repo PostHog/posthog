@@ -9,8 +9,9 @@ import type {
     UserApi,
 } from '~/generated/core/api.schemas'
 import { canonicalizeUiHost } from '~/toolbar/toolbarConfigLogic'
+import { fetchToolbarEntitlements } from '~/toolbar/toolbarEntitlementsLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { safeFetch } from '~/toolbar/utils'
+import { joinWithUiHost, safeFetch } from '~/toolbar/utils'
 
 import {
     getActiveTab,
@@ -22,14 +23,17 @@ import {
     setStoredUiHost,
 } from './extensionBrowser'
 import type { ExtensionFeatureKey } from './extensionFeatures'
-import { ExtensionPanelState, SessionResult, ToolbarAccessResult, getExtensionPanelState } from './extensionPanelState'
+import {
+    ExtensionPanelState,
+    SessionUserResult,
+    ToolbarAccessResult,
+    getExtensionPanelState,
+} from './extensionPanelState'
 
-export const DEFAULT_UI_HOST = 'https://us.posthog.com'
+const DEFAULT_UI_HOST = 'https://us.posthog.com'
 
 // Matches the toolbar's entitlements request timeout.
 const REQUEST_TIMEOUT_MS = 5000
-
-const ENTITLEMENTS_PATH = '/api/user/toolbar_entitlements/'
 
 const REFRESH_ON_TAB_CHANGE_MS = 30 * 1000
 
@@ -40,15 +44,16 @@ const RECHECK_ON_TAB_CHANGE: ExtensionPanelState['kind'][] = [
     'error',
 ]
 
-export type SessionUserResult = { status: 'signed-in'; user: UserApi } | { status: 'signed-out' } | { status: 'error' }
-
 /** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
 async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
+    return await readResponse(
+        safeFetch(`${uiHost}${path}`, { credentials: 'include', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    )
+}
+
+async function readResponse(request: Promise<Response>): Promise<{ status: number; data: unknown }> {
     try {
-        const response = await safeFetch(`${uiHost}${path}`, {
-            credentials: 'include',
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        })
+        const response = await request
         const data = response.ok ? await response.json() : null
         return { status: response.status, data }
     } catch {
@@ -65,7 +70,7 @@ export interface extensionPanelLogicValues {
     hostPermission: boolean | null
     panelState: ExtensionPanelState
     projectSwitchFailed: boolean
-    session: SessionResult | null
+    projectUrl: (path: string) => string
     sessionUser: SessionUserResult | null
     sessionUserLoading: boolean
     tabUrl: string | null | undefined
@@ -141,6 +146,9 @@ export interface extensionPanelLogicActions {
     openPostHogPath: (path: string) => {
         path: string
     }
+    openProjectPath: (path: string) => {
+        path: string
+    }
     requestHostPermission: () => {
         value: true
     }
@@ -168,13 +176,13 @@ export interface extensionPanelLogicActions {
 export interface extensionPanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         user: (sessionUser: SessionUserResult | null) => UserApi | null
-        session: (sessionUser: SessionUserResult | null) => SessionResult | null
+        projectUrl: (uiHost: string, user: UserApi | null) => (path: string) => string
         entitlements: (toolbarAccess: ToolbarAccessResult | null) => ToolbarEntitlementsApiEntitlements | null
         panelState: (
             tabUrl: string | null | undefined,
             uiHost: string,
             hostPermission: boolean | null,
-            session: SessionResult | null,
+            sessionUser: SessionUserResult | null,
             toolbarAccess: ToolbarAccessResult | null,
             authorizedUrls: string[] | 'error' | null
         ) => ExtensionPanelState
@@ -197,6 +205,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         requestHostPermission: true,
         switchProject: (teamId: number) => ({ teamId }),
         openPostHogPath: (path: string) => ({ path }),
+        openProjectPath: (path: string) => ({ path }),
         openFeature: (feature: ExtensionFeatureKey, path: string) => ({ feature, path }),
         retry: true,
         setProjectSwitchFailed: (failed: boolean) => ({ failed }),
@@ -239,7 +248,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             {
                 loadToolbarAccess: async (): Promise<ToolbarAccessResult | null> => {
                     const uiHost = values.uiHost
-                    const { status, data } = await fetchWithSession(uiHost, ENTITLEMENTS_PATH)
+                    const { status, data } = await readResponse(fetchToolbarEntitlements(uiHost))
                     if (values.uiHost !== uiHost) {
                         return null
                     }
@@ -294,10 +303,11 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             (sessionUser: SessionUserResult | null): UserApi | null =>
                 sessionUser?.status === 'signed-in' ? sessionUser.user : null,
         ],
-        session: [
-            (s) => [s.sessionUser],
-            (sessionUser: SessionUserResult | null): SessionResult | null =>
-                sessionUser ? { status: sessionUser.status } : null,
+        projectUrl: [
+            (s) => [s.uiHost, s.user],
+            (uiHost: string, user: UserApi | null) =>
+                (path: string): string =>
+                    joinWithUiHost(uiHost, user ? `/project/${user.team.id}${path}` : path),
         ],
         entitlements: [
             (s) => [s.toolbarAccess],
@@ -305,16 +315,23 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 toolbarAccess?.status === 'allowed' ? toolbarAccess.entitlements : null,
         ],
         panelState: [
-            (s) => [s.tabUrl, s.uiHost, s.hostPermission, s.session, s.toolbarAccess, s.authorizedUrls],
+            (s) => [s.tabUrl, s.uiHost, s.hostPermission, s.sessionUser, s.toolbarAccess, s.authorizedUrls],
             (
                 tabUrl: string | null | undefined,
                 uiHost: string,
                 hostPermission: boolean | null,
-                session: SessionResult | null,
+                sessionUser: SessionUserResult | null,
                 toolbarAccess: ToolbarAccessResult | null,
                 authorizedUrls: string[] | 'error' | null
             ): ExtensionPanelState =>
-                getExtensionPanelState({ tabUrl, uiHost, hostPermission, session, toolbarAccess, authorizedUrls }),
+                getExtensionPanelState({
+                    tabUrl,
+                    uiHost,
+                    hostPermission,
+                    sessionStatus: sessionUser?.status ?? null,
+                    toolbarAccess,
+                    authorizedUrls,
+                }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -330,11 +347,13 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         setHostPermission: ({ granted }) => {
             if (granted) {
                 actions.loadSessionUser()
+                actions.loadToolbarAccess()
             }
         },
         retry: () => {
             if (values.hostPermission) {
                 actions.loadSessionUser()
+                actions.loadToolbarAccess()
             }
         },
         setTabUrl: () => {
@@ -347,6 +366,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             if (values.hostPermission && Date.now() - (cache.lastRefresh ?? 0) > REFRESH_ON_TAB_CHANGE_MS) {
                 cache.lastRefresh = Date.now()
                 actions.loadSessionUser()
+                actions.loadToolbarAccess()
                 toolbarPosthogJS.reloadFeatureFlags()
             }
         },
@@ -359,7 +379,6 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 // Evaluates toolbar rollout flags for this person, as the floating toolbar does.
                 toolbarPosthogJS.identify(user.distinct_id)
             }
-            actions.loadToolbarAccess()
             actions.loadAuthorizedUrls({ organizationId: user.organization.id, projectId: user.team.project_id })
         },
         switchProject: async ({ teamId }) => {
@@ -372,14 +391,17 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 actions.setProjectSwitchFailed(true)
             }
             actions.loadSessionUser()
+            actions.loadToolbarAccess()
         },
         openPostHogPath: ({ path }) => {
-            void openTab(`${values.uiHost}${path}`)
+            void openTab(joinWithUiHost(values.uiHost, path))
+        },
+        openProjectPath: ({ path }) => {
+            void openTab(values.projectUrl(path))
         },
         openFeature: ({ feature, path }) => {
             toolbarPosthogJS.capture('toolbar extension feature opened', { feature })
-            const teamId = values.user?.team.id
-            actions.openPostHogPath(teamId ? `/project/${teamId}${path}` : path)
+            actions.openProjectPath(path)
         },
     })),
     subscriptions({

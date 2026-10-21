@@ -283,16 +283,10 @@ function watchExtensionPagesPlugin(dirname) {
     }
 }
 
-export function getToolbarExtensionBuildConfig(dirname) {
+function toolbarExtensionBaseConfig(dirname) {
     return {
-        name: 'Toolbar extension',
-        entryPoints: { panel: 'src/toolbar/extension/panel.tsx' },
-        format: 'esm',
-        // Keeps lazily imported code (such as hedgehog mode, reached through lemon-ui) out of panel.js.
-        splitting: true,
-        chunkNames: 'chunks/[name]-[hash]',
         outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
-        // panel.html names its files directly, so they carry no hash.
+        // The pages and scripts name their files directly, so they carry no hash.
         entryNames: '[name]',
         // Extension pages resolve assets against their own folder, so URLs stay relative.
         publicPath: undefined,
@@ -301,6 +295,18 @@ export function getToolbarExtensionBuildConfig(dirname) {
             ...commonConfig.define,
             __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
         },
+    }
+}
+
+export function getToolbarExtensionBuildConfig(dirname) {
+    return {
+        ...toolbarExtensionBaseConfig(dirname),
+        name: 'Toolbar extension',
+        entryPoints: { panel: 'src/toolbar/extension/panel.tsx' },
+        format: 'esm',
+        // Keeps lazily imported code (such as hedgehog mode, reached through lemon-ui) out of panel.js.
+        splitting: true,
+        chunkNames: 'chunks/[name]-[hash]',
         extraPlugins: [createToolbarModulePlugin(dirname), watchExtensionPagesPlugin(dirname)],
     }
 }
@@ -308,18 +314,11 @@ export function getToolbarExtensionBuildConfig(dirname) {
 /** Firefox doesn't run a module as a background script, so the background script is one classic script. */
 export function getToolbarExtensionScriptsBuildConfig(dirname) {
     return {
+        ...toolbarExtensionBaseConfig(dirname),
         name: 'Toolbar extension scripts',
         entryPoints: { background: 'src/toolbar/extension/background.ts' },
         format: 'iife',
         splitting: false,
-        outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
-        entryNames: '[name]',
-        publicPath: undefined,
-        loader: { ...commonConfig.loader, '.svg': 'dataurl' },
-        define: {
-            ...commonConfig.define,
-            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
-        },
         extraPlugins: [createToolbarModulePlugin(dirname)],
     }
 }
