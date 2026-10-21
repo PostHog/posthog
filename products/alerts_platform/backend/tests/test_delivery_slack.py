@@ -188,6 +188,18 @@ class TestSlackTransport(APIBaseTest):
             with pytest.raises(DeliveryError):
                 SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
 
+    def test_a_message_whose_image_slack_cannot_fetch_goes_again_without_it(self) -> None:
+        message = alert_message(image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"))
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            post = slack_integration.return_value.client.chat_postMessage
+            post.side_effect = [SlackApiError("invalid_blocks", {"error": "invalid_blocks"}), {"ts": "1700000000.1"}]
+            handle = SlackTransport().deliver(team_id=self.team.id, target=self.target, message=message)
+
+        assert post.call_count == 2
+        assert "image" not in [block["type"] for block in post.call_args.kwargs["blocks"]]
+        # An edit restates what was posted, so it never names the image again.
+        assert handle.root_content["blocks"] == post.call_args.kwargs["blocks"]
+
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
         target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": self.integration.id})
 
