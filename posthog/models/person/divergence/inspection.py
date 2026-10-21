@@ -181,16 +181,19 @@ def inspect_persons(
 
 def inspect_mappings(team_id: int, distinct_ids: Sequence[str]) -> list[Inspection]:
     dids = list(dict.fromkeys(distinct_ids))
-    pg = observe.pg_mapping_rows(team_id, dids)
+    team_exists = Team.objects.filter(id=team_id).exists()
+    pg = observe.pg_mapping_rows(team_id, dids) if team_exists else {}
     ch = observe.ch_mapping_states(team_id, dids)
     owners = sorted({c.winner_person_uuid for c in ch.values()})
-    owner_states = observe.pg_person_states(team_id, owners) if owners else {}
+    owner_states = observe.pg_person_states(team_id, owners) if team_exists and owners else {}
     history = _mapping_history(team_id, dids)
     results = []
     for distinct_id in dids:
         ch_state = ch.get(distinct_id)
         owner_state = observe.person_pg_state(owner_states, ch_state.winner_person_uuid) if ch_state else None
-        verdict = classify_mapping(pg.get(distinct_id), ch_state, ch_owner_pg_state=owner_state)
+        verdict = classify_mapping(
+            pg.get(distinct_id), ch_state, ch_owner_pg_state=owner_state, team_exists=team_exists
+        )
         results.append(
             Inspection(
                 kind="mapping",
