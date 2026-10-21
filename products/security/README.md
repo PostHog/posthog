@@ -19,9 +19,10 @@ This product pulls them, decides them in-process, and answers the hub's question
   Turning the flag off stops every refusal at once.
 - Signup, login, sessions and the AI gateway call `facade.api.access_refused`.
   On an enforced surface, a block refuses the request, logs `security_access_refused` and counts `posthog_security_access_refusals_total`.
-  The caller answers with the error code `access_blocked`.
+  Signup and app callers answer with the error code `access_blocked`.
+  AI gateway callers answer in their own shape: OAuth authorization returns `access_denied`, the desktop token endpoint returns `reason: "blocked"`, and the wizard endpoints return a 403 with the AI gateway block message.
   On any other surface, a block logs `security_access_would_block`, counts `posthog_security_access_would_block_total` and refuses nobody.
-  Staff who impersonate a blocked account get through, and the match counts as a would-block.
+  On the app surface, staff who impersonate a blocked account get through, and the match counts as a would-block.
   `posthog_security_access_decisions_total` counts every decision, so an empty would-block series still shows that the checks ran.
 - Exemptions do not depend on the flag.
   `is_email_code_exempt` lets an account skip the emailed login code.
