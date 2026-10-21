@@ -962,6 +962,12 @@ class EnterpriseExperimentsViewSet(
         is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
         check reports `not_checked` when the organization's flag calls skip the events table,
         and when the project has no active flag, because the web SDK then requests no flags.
+
+        A running experiment whose flag is disabled gets `paused_from_experiment`, as info, when
+        its latest pause or resume since launch is a pause of the experiment. Otherwise it gets
+        `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
+        history gets the warning, because the pause is not read. A draft whose flag is already
+        active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
         """
         experiment: Experiment = self.get_object()
         health = get_experiment_health(

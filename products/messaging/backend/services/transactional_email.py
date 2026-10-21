@@ -67,6 +67,7 @@ def _content(template: MessageTemplate, from_integration_id: int | None) -> Tran
         text=email.get("text") or "",
         from_integration_id=from_integration_id,
         message_category_id=template.message_category_id,
+        sensitive=template.sensitive,
     )
 
 

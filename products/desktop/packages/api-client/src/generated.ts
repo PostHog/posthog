@@ -20818,6 +20818,15 @@ export namespace Schemas {
      * * `link` - link
      */
     export type SurveyLinkQuestionSchemaTypeEnum = "link";
+    export type SurveyQuestionTranslationSchema = Partial<{
+        question: string;
+        description: string;
+        buttonText: string;
+        lowerBoundLabel: string;
+        upperBoundLabel: string;
+        choices: Array<string>;
+        link: string;
+    }>;
     export type SurveyLinkQuestionSchema = {
         id?: string | undefined;
         type: SurveyLinkQuestionSchemaTypeEnum;
@@ -20829,10 +20838,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * HTTPS or mailto URL for link questions.
          */
         link: string;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `multiple_choice` - multiple_choice
@@ -20849,6 +20862,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Multiple selections allowed. No branching logic supported.
          */
@@ -20871,6 +20887,11 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
+        validation?: (Array<SurveyQuestionValidationRule> | null) | undefined;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `rating` - rating
@@ -20892,10 +20913,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         display?: SurveyRatingQuestionSchemaDisplayEnum | undefined;
         scale?: number | undefined;
         lowerBoundLabel?: string | undefined;
         upperBoundLabel?: string | undefined;
+        isNpsQuestion?: boolean | undefined;
         branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
@@ -20913,6 +20938,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
          */
@@ -20927,6 +20955,26 @@ export namespace Schemas {
         | SurveyRatingQuestionSchema
         | SurveySingleChoiceQuestionSchema
         | SurveyMultipleChoiceQuestionSchema;
+    /**
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email
+     */
+    export type SurveyQuestionValidationRuleTypeEnum =
+        | "min_length"
+        | "max_length"
+        | "email";
+    export type SurveyQuestionValidationRule = {
+        /**
+         * Validation rule type for open-text questions.
+         *
+         * * `min_length` - min_length
+         * * `max_length` - max_length
+         * * `email` - email
+         */
+        type: SurveyQuestionValidationRuleTypeEnum;
+        value?: (number | null) | undefined;
+    };
     export type SurveySerializerCreateUpdateOnly = {
         id: string;
         name: string;
