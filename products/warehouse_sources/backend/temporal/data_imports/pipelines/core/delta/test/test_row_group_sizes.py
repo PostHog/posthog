@@ -135,3 +135,15 @@ class TestRowGroupSizeReader:
 
         assert (stalled.bytes_by_path, later.bytes_by_path) == ({}, {})
         assert footers.read == [many]
+
+    def test_a_filesystem_that_cannot_open_frees_its_slots(self, files: dict[str, int]) -> None:
+        slots = _ReadSlots(len(files))
+
+        def broken(_sizes: object) -> pafs.FileSystem:
+            raise OSError("no credentials")
+
+        reader = RowGroupSizeReader("table", open_filesystem=broken, cache=_FooterCache(100), slots=slots)
+        with pytest.raises(OSError):
+            reader.largest_row_groups(files)
+
+        assert slots.acquire(len(files)) == len(files)

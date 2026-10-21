@@ -13,7 +13,7 @@ import threading
 import urllib.parse
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 
 import pyarrow.fs as pafs
 import pyarrow.parquet as pq
@@ -58,9 +58,9 @@ class _ReadSlots:
             self._used += granted
             return granted
 
-    def release(self) -> None:
+    def release(self, count: int = 1) -> None:
         with self._lock:
-            self._used -= 1
+            self._used -= count
 
 
 def _read_footer(path: str, filesystem: pafs.FileSystem, expired: threading.Event, slots: _ReadSlots) -> int | None:
@@ -169,12 +169,17 @@ class RowGroupSizeReader:
 
         # Add action paths are URI-encoded; the storage handler takes decoded paths.
         storage_paths = {path: urllib.parse.unquote(path) for path in to_read}
-        filesystem = self._open_filesystem({storage_paths[path]: size for path, size in to_read.items()})
         expired = threading.Event()
-        futures = {
-            self._executor.submit(_read_footer, storage_paths[path], filesystem, expired, self._slots): path
-            for path in to_read
-        }
+        futures: dict[Future[int | None], str] = {}
+        try:
+            filesystem = self._open_filesystem({storage_paths[path]: size for path, size in to_read.items()})
+            for path in to_read:
+                future = self._executor.submit(_read_footer, storage_paths[path], filesystem, expired, self._slots)
+                futures[future] = path
+        except BaseException:
+            # Each submitted read frees its own slot; the rest were never handed to a worker.
+            self._slots.release(len(to_read) - len(futures))
+            raise
         done, not_done = wait(futures, timeout=self._timeout_s)
         expired.set()
 
