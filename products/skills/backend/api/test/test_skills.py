@@ -17,6 +17,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
@@ -94,7 +95,7 @@ class TestLLMSkillAPI(APIBaseTest):
         )
         # The create endpoint seeds the creator as owner, so a fixture built straight from the ORM
         # has to as well. Publishing to the community is owner-only.
-        set_skill_owners(self.team, name, [owner])
+        set_skill_owners(self.team, name, [owner], acting_user=None)
         return skill
 
     # --- Create ---
@@ -490,7 +491,9 @@ class TestLLMSkillAPI(APIBaseTest):
             # skills version alone cannot see it, and the list serializes owners.
             (
                 "owner_change",
-                lambda self: set_skill_owners(self.team, "skill-a", [self._create_user("newowner@example.com")]),
+                lambda self: set_skill_owners(
+                    self.team, "skill-a", [self._create_user("newowner@example.com")], acting_user=None
+                ),
             ),
             ("category", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").update(category="scout")),
             ("hard_delete", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").delete()),
@@ -509,9 +512,9 @@ class TestLLMSkillAPI(APIBaseTest):
     )
     def test_list_etag_changes_after_a_store_change(self, _label, change):
         self.create_skill(name="skill-a", description="Does A things.")
-        set_skill_owners(self.team, "skill-a", [])
+        set_skill_owners(self.team, "skill-a", [], acting_user=None)
         self.create_skill(name="skill-b", description="Does B things.")
-        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")])
+        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")], acting_user=None)
         first = self.client.get(self._url())
 
         change(self)
@@ -1662,7 +1665,7 @@ class TestLLMSkillAPI(APIBaseTest):
         v2 = self.create_skill(name="typoo", version=2)
         LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
         member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
-        set_skill_owners(self.team, "typoo", [member])
+        set_skill_owners(self.team, "typoo", [member], acting_user=None)
         updated_at_before = v2.updated_at
 
         response = self.client.post(
@@ -2362,7 +2365,7 @@ class TestSkillWriteAnalytics(APIBaseTest):
             created_by=self.user,
         )
         LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
-        set_skill_owners(self.team, "tracked-skill", [self.user])
+        set_skill_owners(self.team, "tracked-skill", [self.user], acting_user=None)
 
     @parameterized.expand(
         [
@@ -2435,6 +2438,105 @@ class TestSkillWriteAnalytics(APIBaseTest):
         assert props["files_replaced"] is False
         assert props["owners_changed"] is False
         assert props["edits_used"] is False
+
+
+class TestSkillActivityLog(APIBaseTest):
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="logged-skill",
+            description="A logged skill.",
+            body="# V1",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
+        set_skill_owners(self.team, "logged-skill", [self.user], acting_user=None)
+        ActivityLog.objects.filter(team_id=self.team.id).delete()
+
+    def _skill_rows(self) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMSkill"))
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "new-skill", "description": "New.", "body": "# New"}, "created", False),
+            ("publish", "patch", "name/logged-skill", {"body": "# V2", "base_version": 1}, "updated", True),
+            ("archive", "post", "name/logged-skill/archive", None, "deleted", True),
+            ("duplicate", "post", "name/logged-skill/duplicate", {"new_name": "copied-skill"}, "created", False),
+            ("rename", "post", "name/logged-skill/rename", {"new_name": "renamed-skill"}, "updated", True),
+            ("create file", "post", "name/logged-skill/files", {"path": "notes.md", "content": "hi"}, "updated", True),
+            (
+                "rename file",
+                "post",
+                "name/logged-skill/files-rename",
+                {"old_path": "old.md", "new_path": "new.md"},
+                "updated",
+                True,
+            ),
+            ("delete file", "delete", "name/logged-skill/files/old.md", None, "updated", True),
+        ]
+    )
+    def test_each_write_logs_one_row_for_the_logical_skill(
+        self, _label, method, path, data, expected_activity, keeps_item_id
+    ) -> None:
+        response = getattr(self.client, method)(self._url(path), data=data or {}, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_204_NO_CONTENT), (
+            response.content
+        )
+        rows = self._skill_rows()
+        assert [row.activity for row in rows] == [expected_activity]
+        assert rows[0].user == self.user
+        assert (rows[0].item_id == str(self.skill.pk)) is keeps_item_id
+
+    def test_publish_records_the_version_note_and_what_changed(self) -> None:
+        response = self.client.patch(
+            self._url("name/logged-skill"),
+            data={
+                "body": "# V2",
+                "description": "Now described.",
+                "files": [{"path": "added.md", "content": "new"}],
+                "base_version": 1,
+                "version_description": "Tighten the instructions",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = self._skill_rows()
+        assert len(rows) == 1
+        assert rows[0].detail is not None
+        changes = {change["field"]: change for change in rows[0].detail["changes"]}
+        assert changes["version"]["before"] == 1
+        assert changes["version"]["after"] == 2
+        assert changes["version_description"]["after"] == "Tighten the instructions"
+        assert changes["body"]["before"] is None and changes["body"]["after"] is None
+        assert changes["description"]["after"] == "Now described."
+        assert changes["files"]["after"] == {"added": ["added.md"], "removed": ["old.md"], "edited": []}
+
+    def test_owner_change_logs_the_owner_ids_without_publishing(self) -> None:
+        member = self._create_user("owner2@example.com")
+
+        response = self.client.patch(self._url("name/logged-skill"), data={"owners": [str(member.uuid)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = self._skill_rows()
+        assert len(rows) == 1
+        assert rows[0].detail is not None
+        assert rows[0].detail["changes"][0]["field"] == "owners"
+        assert rows[0].detail["changes"][0]["before"] == [self.user.id]
+        assert rows[0].detail["changes"][0]["after"] == [member.id]
+
+    def test_system_archive_logs_a_system_row(self) -> None:
+        archive_skill(self.team, "logged-skill", acting_user=None)
+
+        rows = self._skill_rows()
+        assert [(row.activity, row.is_system, row.item_id) for row in rows] == [("deleted", True, str(self.skill.pk))]
 
 
 class TestSkillAccessControlRBAC(APIBaseTest):
@@ -2641,8 +2743,8 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             access_level="editor",
             organization_member=membership,
         )
-        set_skill_owners(self.team, theirs.name, [self.member])
-        set_skill_owners(self.team, self.skill.name, [self.user])
+        set_skill_owners(self.team, theirs.name, [self.member], acting_user=None)
+        set_skill_owners(self.team, self.skill.name, [self.user], acting_user=None)
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
@@ -2682,7 +2784,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
     def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
         mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
         self._grant_llm_skill_access("editor")
-        set_skill_owners(self.team, self.skill.name, [self.member])
+        set_skill_owners(self.team, self.skill.name, [self.member], acting_user=None)
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
@@ -3160,7 +3262,7 @@ class TestLLMSkillOwners(APIBaseTest):
         member = self._member("filterowner@example.com")
         create_skill(self.team, user=self.user, name="theirs", description="d", body="# b")
         create_skill(self.team, user=self.user, name="mine", description="d", body="# b")
-        set_skill_owners(self.team, "theirs", [member])
+        set_skill_owners(self.team, "theirs", [member], acting_user=None)
 
         response = self.client.get(self._url() + f"?owner_id={member.id}")
 
@@ -3172,7 +3274,7 @@ class TestLLMSkillOwners(APIBaseTest):
         # rather than surfacing the skills through a stale row.
         member = self._member("goneowner@example.com")
         create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
-        set_skill_owners(self.team, "orphaned", [member])
+        set_skill_owners(self.team, "orphaned", [member], acting_user=None)
 
         url = self._url() + f"?owner_id={member.id}"
         etag = self.client.get(url)["ETag"]
@@ -3188,7 +3290,7 @@ class TestLLMSkillOwners(APIBaseTest):
         # former member's profile must not keep leaking through skill-get.
         member = self._member("leaving@example.com")
         create_skill(self.team, user=self.user, name="leaky", description="d", body="# b")
-        set_skill_owners(self.team, "leaky", [self.user, member])
+        set_skill_owners(self.team, "leaky", [self.user, member], acting_user=None)
 
         member.organization_memberships.filter(organization=self.organization).delete()
 
@@ -3206,8 +3308,8 @@ class TestLLMSkillOwners(APIBaseTest):
         alice = self._member("alice@example.com")
         bob = self._member("bob@example.com")
 
-        set_skill_owners(env_a, "shared-name", [alice])
-        set_skill_owners(env_b, "shared-name", [bob])
+        set_skill_owners(env_a, "shared-name", [alice], acting_user=None)
+        set_skill_owners(env_b, "shared-name", [bob], acting_user=None)
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
