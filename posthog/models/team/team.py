@@ -20,6 +20,7 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
+from posthog.migration_helpers import deprecate_field
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
@@ -670,12 +671,7 @@ class Team(UUIDTClassicModel):
     def aggregate_users_by_distinct_id(self) -> bool:
         return str(self.pk) in get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
 
-    # This correlation_config is intended to be used initially for
-    # `excluded_person_property_names` but will be used as a general config
-    # repository for correlation related settings.
-    # NOTE: we're not doing any schema checking here, just storing whatever is
-    # thrown at us. Correlation code can handle schema related issues.
-    correlation_config = field_access_control(models.JSONField(default=dict, null=True, blank=True), "project", "admin")
+    correlation_config = deprecate_field(models.JSONField(default=dict, null=True, blank=True))
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)

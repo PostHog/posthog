@@ -360,6 +360,13 @@ class TestDispatchAlertInsightChart(APIBaseTest):
         mock_prepare.assert_not_called()
         assert mock_send.call_args.kwargs["extra_properties"]["insight_chart_url"] == "https://supplied/url"
 
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_alert_the_platform_took_over_after_it_was_loaded_sends_nothing(self, mock_send: MagicMock) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.PLATFORM)
+
+        assert dispatch_alert_notification(self.alert, self.alert_check, ["breach"], render_chart=False) is None
+        mock_send.assert_not_called()
+
 
 class TestDisableInvalidAlert(APIBaseTest):
     def setUp(self) -> None:

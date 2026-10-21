@@ -21,9 +21,6 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 
 logger = structlog.get_logger(__name__)
 
-# Minutes for the 15-minute and hourly cadences, a calendar unit for the rest. A calendar unit reads its cadence
-# from the unit, so its minutes only feed the shard offset, which an anchored unit ignores.
-
 
 @frozen
 class BackfillCounts:
