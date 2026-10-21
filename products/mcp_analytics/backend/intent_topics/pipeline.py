@@ -23,7 +23,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
-from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist
+from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist, rollups
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -100,6 +100,8 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> Ru
         seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in intents], now=window_end)
         to_emit = embedding_sync.select_intents_to_emit(intents, seen)
         emitted = embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+        hourly = corpus.fetch_hourly_calls(team, since=window_start, until=window_end)
+        rollups.insert_hourly_calls(team.pk, hourly, now=window_end)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
@@ -133,6 +135,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
             team_id=team.pk, run_id=run.run_id, window_start=window_start, window_end=window_end, topics=topics, pca=pca
         )
         sync_execute(sql, params)
+        rollups.rebuild_topic_daily(team_id=team.pk, window_start=window_start, window_end=window_end)
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,

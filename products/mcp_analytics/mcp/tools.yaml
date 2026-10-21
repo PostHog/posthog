@@ -310,6 +310,108 @@ wrappers:
             - version
             - tags
         reads_ingested_data: events
+    query-mcp-intent-topics:
+        schema_ref: MCPIntentTopicsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Intent topics for the server or one MCP tool
+        description: >
+            Return the intent topics agents pursue on this MCP server, ranked by calls, each with its share of
+            intent-carrying calls, the change versus the previous window of the same length, sessions, outlier calls
+            and the tools most used for it, plus coverage (how many calls carried an intent and how many have a topic).
+            Pass an optional toolName to scope to one effective tool and a dateRange (defaults to the last 7 days).
+            Reads the nightly rollup, so it is fast for any window; property filters do not apply. Use to answer
+            "what do agents use this server for?", "how has use of tool X changed over the past 3 months?" (compare
+            two date ranges or read trend_pp) and "what is the average use of tool X over the past 5 days?".
+        system_prompt_hint: Intent topics with share, trend and tools, for the server or one tool
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        reads_ingested_data: events
+        feature_flag: mcp-analytics-intent-topics
+    query-mcp-tool-intent-profile:
+        schema_ref: MCPToolIntentProfileQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: How one MCP tool is used (focus, top topics, drift, outliers)
+        description: >
+            Profile one effective tool: focus score and band (consolidated, mixed or spread: 1 means every call
+            serves one topic, 0 an even spread), its top intent topics with a calls-per-day sparkline over the
+            window, drift versus the previous window (new, growing, shrinking and gone topics by share) and the
+            outlier intents that sit outside every topic. Pass toolName and an optional dateRange. Use to answer
+            "is the intent for tool X consolidated or all over the place?", "what are the outlier uses of tool X?"
+            and "where is tool X's use drifting?".
+        system_prompt_hint: One tool's intent focus, top topics with sparklines, drift and outliers
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        reads_ingested_data: events
+        feature_flag: mcp-analytics-intent-topics
+    query-mcp-similar-tools:
+        schema_ref: MCPSimilarToolsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Tools with a similar intended use
+        description: >
+            Rank the other tools on this server by how closely their intent topic mix matches one tool's, as the
+            cosine similarity of the two tools' topic share vectors over the window, with the topics both serve.
+            Pass toolName and an optional dateRange. Use to answer "what tools have a similar intended use as tool
+            X?" and to spot overlapping or redundant tools.
+        system_prompt_hint: Other tools ranked by similarity of intent topic mix to one tool
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        reads_ingested_data: events
+        feature_flag: mcp-analytics-intent-topics
+    query-mcp-intent-map:
+        schema_ref: MCPIntentMapQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Intent map points and topic bubbles
+        description: >
+            Return the 2D intent map: topic bubbles (label, summary, position, calls, share) and the most called
+            intent texts as points (position, topic, outlier flag, calls, tool), up to the limit (default 2000,
+            maximum 5000), with the total number of matching points. Optional toolName, topicId and bounds narrow
+            the points. Positions come from a PCA projection of the intent embeddings; close points mean similar
+            intents. Use to read individual intents inside a topic or to list what sits far from every topic.
+        system_prompt_hint: Topic bubbles and intent points for the 2D intent map
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        reads_ingested_data: events
+        feature_flag: mcp-analytics-intent-topics
     query-mcp-tool-descriptions:
         schema_ref: MCPToolDescriptionsQuery
         enabled: true

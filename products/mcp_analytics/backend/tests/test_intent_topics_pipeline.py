@@ -12,7 +12,8 @@ import numpy as np  # noqa: E402
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
-from products.mcp_analytics.backend.intent_topics import pipeline  # noqa: E402
+from products.mcp_analytics.backend.intent_topics import pipeline, rollups  # noqa: E402
+from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls  # noqa: E402
 from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # noqa: E402
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin  # noqa: E402
@@ -57,6 +58,13 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         assert mock_emit.call_args.kwargs["metadata"]["calls"] == 2
         run = MCPIntentClusteringRun.objects.get(team=self.team, run_id=outcome.run_id)
         assert run.kind == "sync" and run.n_embeddings_requested == 1
+        hourly = execute_hogql_query(
+            query="SELECT intent_hash, tool, calls FROM mcp_intent_calls_hourly ORDER BY calls DESC", team=self.team
+        ).results
+        assert hourly == [
+            (intent_hash("new intent"), "query-trends", 2),
+            (intent_hash("already embedded"), "query-trends", 1),
+        ]
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
     def test_skips_without_consent(self, mock_emit) -> None:
@@ -88,6 +96,20 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             insert_intent_embedding(
                 self.team.pk, f"b{i:03d}", f"list flags {i}", at=NOW - timedelta(days=3), embedding=vector
             )
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [
+                HourlyCalls(hour=NOW - timedelta(days=2), hash=f"a{i:03d}", tool="query-trends", calls=2, sessions=1)
+                for i in range(60)
+            ]
+            + [
+                HourlyCalls(
+                    hour=NOW - timedelta(days=3), hash=f"b{i:03d}", tool="feature-flag-get-all", calls=1, sessions=1
+                )
+                for i in range(60)
+            ],
+            now=NOW,
+        )
 
     def _assignments(self) -> list[tuple]:
         return execute_hogql_query(
@@ -118,6 +140,11 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         rows = self._assignments()
         assert sorted(r[0] for r in rows) == sorted(str(t.pk) for t in topics)
         assert [r[1] for r in rows] == [60, 60]
+        daily = execute_hogql_query(
+            query="SELECT topic_id, sum(calls), sum(intents) FROM mcp_intent_topic_daily GROUP BY topic_id ORDER BY sum(calls) DESC",
+            team=self.team,
+        ).results
+        assert [(r[1], r[2]) for r in daily] == [(120, 60), (60, 60)]
 
     @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
     def test_second_refit_keeps_topic_ids(self, _mock_labels) -> None:

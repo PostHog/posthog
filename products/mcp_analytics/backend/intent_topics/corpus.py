@@ -11,7 +11,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team.team import Team
 
-from products.mcp_analytics.backend.hogql_queries.base import EFFECTIVE_TOOL_SQL
+from products.mcp_analytics.backend.hogql_queries.base import CONVERSATION_ID_SQL, EFFECTIVE_TOOL_SQL
 from products.mcp_analytics.backend.intent_hash import INTENT_HASH_HOGQL, INTENT_PROPERTY
 from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -130,3 +130,47 @@ def fetch_seen_hashes(team: Team, hashes: Sequence[str], *, now: datetime) -> se
         response = execute_hogql_query(query=query, team=team)
         seen.update(row[0] for row in response.results)
     return seen
+
+
+@dataclass(frozen=True)
+class HourlyCalls:
+    hour: datetime
+    hash: str
+    tool: str
+    calls: int
+    sessions: int
+
+
+_HOURLY_CALLS_SQL = f"""
+SELECT
+    toStartOfHour(timestamp) AS hour,
+    {INTENT_HASH_HOGQL} AS intent_hash,
+    {EFFECTIVE_TOOL_SQL} AS tool,
+    count() AS calls,
+    uniq({CONVERSATION_ID_SQL}) AS sessions
+FROM events
+WHERE event = '$mcp_tool_call'
+  AND timestamp >= {{since}}
+  AND timestamp < {{until}}
+  AND notEmpty(toString(properties.{INTENT_PROPERTY}))
+GROUP BY hour, intent_hash, tool
+ORDER BY hour, intent_hash, tool
+LIMIT {{limit}}
+"""
+
+
+def fetch_hourly_calls(team: Team, *, since: datetime, until: datetime, limit: int = 1_000_000) -> list[HourlyCalls]:
+    """Calls and conversations per (hour, intent text, tool) in [since, until)."""
+    query = parse_select(
+        _HOURLY_CALLS_SQL,
+        placeholders={
+            "since": ast.Constant(value=since),
+            "until": ast.Constant(value=until),
+            "limit": ast.Constant(value=limit),
+        },
+    )
+    response = execute_hogql_query(query=query, team=team)
+    return [
+        HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), sessions=int(row[4]))
+        for row in response.results
+    ]

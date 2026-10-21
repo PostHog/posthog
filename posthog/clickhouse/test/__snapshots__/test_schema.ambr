@@ -1448,9 +1448,44 @@
       y Float32,
       is_outlier UInt8,
       intent_text String, -- truncated copy for the map and outlier lists
-      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      calls_in_run UInt32, -- calls carrying this intent when it was embedded
+      tool LowCardinality(String), -- top tool for this intent when it was embedded
       timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_assignments', cityHash64(intent_hash))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_mcp_intent_calls_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_mcp_intent_calls_hourly
+  (
+      team_id Int64,
+      hour DateTime('UTC'),
+      intent_hash String,
+      tool LowCardinality(String),
+      calls UInt32,
+      sessions UInt32,
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_calls_hourly', cityHash64(intent_hash))
+  
+  '''
+# ---
+# name: test_create_table_query[distributed_mcp_intent_topic_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_mcp_intent_topic_daily
+  (
+      team_id Int64,
+      day Date,
+      tool LowCardinality(String),
+      topic_id String, -- '' when the intent had no topic yet
+      calls UInt64,
+      sessions UInt64,
+      outlier_calls UInt64,
+      intents UInt64, -- distinct intent texts
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_topic_daily', cityHash64(team_id))
   
   '''
 # ---
@@ -8422,13 +8457,58 @@
       y Float32,
       is_outlier UInt8,
       intent_text String, -- truncated copy for the map and outlier lists
-      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      calls_in_run UInt32, -- calls carrying this intent when it was embedded
+      tool LowCardinality(String), -- top tool for this intent when it was embedded
       timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp)
   
       PARTITION BY toYYYYMM(timestamp)
       ORDER BY (team_id, intent_hash)
       TTL toDateTime(timestamp) + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_mcp_intent_calls_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_mcp_intent_calls_hourly
+  (
+      team_id Int64,
+      hour DateTime('UTC'),
+      intent_hash String,
+      tool LowCardinality(String),
+      calls UInt32,
+      sessions UInt32,
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_calls_hourly', '{replica}', inserted_at)
+  
+      PARTITION BY toYYYYMM(hour)
+      ORDER BY (team_id, hour, intent_hash, tool)
+      TTL hour + INTERVAL 6 MONTH
+      SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_mcp_intent_topic_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_mcp_intent_topic_daily
+  (
+      team_id Int64,
+      day Date,
+      tool LowCardinality(String),
+      topic_id String, -- '' when the intent had no topic yet
+      calls UInt64,
+      sessions UInt64,
+      outlier_calls UInt64,
+      intents UInt64, -- distinct intent texts
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_topic_daily', '{replica}', inserted_at)
+  
+      PARTITION BY toYYYYMM(day)
+      ORDER BY (team_id, day, tool, topic_id)
+      TTL day + INTERVAL 12 MONTH
       SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
   '''
@@ -10940,9 +11020,44 @@
       y Float32,
       is_outlier UInt8,
       intent_text String, -- truncated copy for the map and outlier lists
-      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      calls_in_run UInt32, -- calls carrying this intent when it was embedded
+      tool LowCardinality(String), -- top tool for this intent when it was embedded
       timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_assignments', cityHash64(intent_hash))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_mcp_intent_calls_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_mcp_intent_calls_hourly
+  (
+      team_id Int64,
+      hour DateTime('UTC'),
+      intent_hash String,
+      tool LowCardinality(String),
+      calls UInt32,
+      sessions UInt32,
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_calls_hourly', cityHash64(intent_hash))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_mcp_intent_topic_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_mcp_intent_topic_daily
+  (
+      team_id Int64,
+      day Date,
+      tool LowCardinality(String),
+      topic_id String, -- '' when the intent had no topic yet
+      calls UInt64,
+      sessions UInt64,
+      outlier_calls UInt64,
+      intents UInt64, -- distinct intent texts
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_topic_daily', cityHash64(team_id))
   
   '''
 # ---
@@ -14370,13 +14485,58 @@
       y Float32,
       is_outlier UInt8,
       intent_text String, -- truncated copy for the map and outlier lists
-      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      calls_in_run UInt32, -- calls carrying this intent when it was embedded
+      tool LowCardinality(String), -- top tool for this intent when it was embedded
       timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp)
   
       PARTITION BY toYYYYMM(timestamp)
       ORDER BY (team_id, intent_hash)
       TTL toDateTime(timestamp) + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_mcp_intent_calls_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_mcp_intent_calls_hourly
+  (
+      team_id Int64,
+      hour DateTime('UTC'),
+      intent_hash String,
+      tool LowCardinality(String),
+      calls UInt32,
+      sessions UInt32,
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_calls_hourly', '{replica}', inserted_at)
+  
+      PARTITION BY toYYYYMM(hour)
+      ORDER BY (team_id, hour, intent_hash, tool)
+      TTL hour + INTERVAL 6 MONTH
+      SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_mcp_intent_topic_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_mcp_intent_topic_daily
+  (
+      team_id Int64,
+      day Date,
+      tool LowCardinality(String),
+      topic_id String, -- '' when the intent had no topic yet
+      calls UInt64,
+      sessions UInt64,
+      outlier_calls UInt64,
+      intents UInt64, -- distinct intent texts
+      inserted_at DateTime64(3, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_topic_daily', '{replica}', inserted_at)
+  
+      PARTITION BY toYYYYMM(day)
+      ORDER BY (team_id, day, tool, topic_id)
+      TTL day + INTERVAL 12 MONTH
       SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
   '''
