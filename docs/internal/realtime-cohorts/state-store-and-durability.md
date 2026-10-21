@@ -330,7 +330,7 @@ Three metrics follow coverage:
 - **RocksDB's info logs** have a size cap.
   The info `LOG` rolls at `COHORT_MAX_LOG_FILE_SIZE_BYTES` (256 MiB), and RocksDB keeps `COHORT_KEEP_LOG_FILE_NUM` (10) files, the active one included, so the info logs use at most about 2.5 GiB.
   RocksDB deletes the older files at every open, so the first boot under the cap frees logs that an earlier build left on the volume.
-  A value of 0 keeps the RocksDB default: no size roll, and up to 1000 old files that RocksDB never deletes.
+  Both values must be greater than 0, or the processor does not start.
 - **Volume usage by file type** is the `store_file_bytes` gauge, labelled `sst`, `wal`, `info_log`, `manifest`, `other` and `checkpoint`.
   The `checkpoint` value counts only local checkpoint files that the live store does not share, such as SSTs that compaction replaced.
 
