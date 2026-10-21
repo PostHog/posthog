@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 MAX_TIKTOK_DAYS_TO_QUERY = 29
-BASE_URL = "https://business-api.tiktok.com/open_api/v1.3"
+TIKTOK_API_VERSION_V13 = "v1.3"
+TIKTOK_API_VERSION_V2 = "v2.0"
+BASE_URL = f"https://business-api.tiktok.com/open_api/{TIKTOK_API_VERSION_V13}"
 MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS = 365
 
 METRICS_FIELDS = [
@@ -572,3 +574,48 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         AD_AUDIENCE_REPORT_METRICS_FIELDS,
     ),
 }
+
+
+WEBSITE_ATTRIBUTION_REPORTS = {
+    "campaign_website_attribution_report": "campaign_id",
+    "ad_group_website_attribution_report": "adgroup_id",
+    "ad_website_attribution_report": "ad_id",
+}
+
+for report_name, dimension in WEBSITE_ATTRIBUTION_REPORTS.items():
+    TIKTOK_ADS_CONFIG[report_name] = EndpointConfig(
+        resource={
+            "name": report_name,
+            "table_name": report_name,
+            "primary_key": [dimension, "stat_time_day"],
+            "endpoint": {
+                "path": f"https://business-api.tiktok.com/open_api/{TIKTOK_API_VERSION_V2}/report/integrated/get/",
+                "method": "GET",
+                "params": {
+                    "advertiser_ids": json.dumps(["{advertiser_id}"]),
+                    "dimensions": json.dumps([dimension, "stat_time_day"]),
+                    "metrics": json.dumps(
+                        [
+                            "spend",
+                            "complete_payment",
+                            "total_complete_payment_rate",
+                            "cta_complete_payment",
+                            "cta_complete_payment_value",
+                        ]
+                    ),
+                    "page_size": 1000,
+                    "start_date": "{start_date}",
+                    "end_date": "{end_date}",
+                    "page": 1,
+                },
+                "data_selector": "data.list",
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=[STAT_TIME_DAY_INCREMENTAL_FIELD],
+        partition_keys=["stat_time_day"],
+        partition_mode="datetime",
+        partition_format="week",
+        endpoint_type=EndpointType.REPORT,
+        should_sync_default=False,
+    )

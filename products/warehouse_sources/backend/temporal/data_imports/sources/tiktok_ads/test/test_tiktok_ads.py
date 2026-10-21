@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -423,3 +424,109 @@ class TestTikTokAdsTransientErrorRetry:
         assert isinstance(result.raised, ValueError)
         assert "non-retryable" in str(result.raised)
         assert len(result.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "dimension"),
+    [
+        ("campaign_website_attribution_report", "campaign_id"),
+        ("ad_group_website_attribution_report", "adgroup_id"),
+        ("ad_website_attribution_report", "ad_id"),
+    ],
+)
+def test_website_attribution_reports_paginate_and_flatten(endpoint: str, dimension: str) -> None:
+    day = datetime.now().strftime("%Y-%m-%d")
+    result = _drive(
+        endpoint,
+        [
+            _page_response(
+                1,
+                2,
+                [
+                    {
+                        "dimensions": {dimension: "101", "stat_time_day": day},
+                        "metrics": {"cta_complete_payment": "2", "cta_complete_payment_value": "48.25"},
+                    }
+                ],
+            ),
+            _page_response(
+                2,
+                2,
+                [
+                    {
+                        "dimensions": {dimension: "102", "stat_time_day": day},
+                        "metrics": {"cta_complete_payment": "0", "cta_complete_payment_value": "0.00"},
+                    }
+                ],
+            ),
+        ],
+        api_version="v2.0",
+        incremental_field="stat_time_day",
+        db_incremental_field_last_value=day,
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {dimension: "101", "stat_time_day": day, "cta_complete_payment": "2", "cta_complete_payment_value": "48.25"},
+        {dimension: "102", "stat_time_day": day, "cta_complete_payment": "0", "cta_complete_payment_value": "0.00"},
+    ]
+    assert result.params("page") == ["1", "2"]
+    for request in result.requests:
+        assert request.url.startswith("https://business-api.tiktok.com/open_api/v2.0/report/integrated/get/")
+        advertiser_ids = request.param("advertiser_ids")
+        dimensions = request.param("dimensions")
+        metrics = request.param("metrics")
+        assert advertiser_ids is not None and dimensions is not None and metrics is not None
+        assert json.loads(advertiser_ids) == [ADVERTISER_ID]
+        assert json.loads(dimensions) == [dimension, "stat_time_day"]
+        assert {"cta_complete_payment", "cta_complete_payment_value"} <= set(json.loads(metrics))
+        assert request.param("advertiser_id") is None
+        assert request.param("report_type") is None
+        assert request.param("data_level") is None
+        start_date, end_date = request.param("start_date"), request.param("end_date")
+        assert start_date is not None and end_date is not None
+        assert start_date <= day <= end_date
+    assert result.saved_states[0].page == 2
+
+
+def test_website_attribution_report_rejects_legacy_pin() -> None:
+    result = _drive("campaign_website_attribution_report", [], api_version="v1.3")
+    assert isinstance(result.raised, ValueError)
+    assert "Change the source API version to v2.0" in str(result.raised)
+    assert result.requests == []
+
+
+@pytest.mark.parametrize("api_version", ["v1.3", "v2.0"])
+def test_legacy_ad_reports_keep_their_request_and_identifiers(api_version: str) -> None:
+    day = datetime.now().strftime("%Y-%m-%d")
+    result = _drive(
+        "ad_report",
+        [
+            _page_response(
+                1, 1, [{"dimensions": {"ad_id": "legacy-creative", "stat_time_day": day}, "metrics": {"spend": "1.00"}}]
+            )
+        ],
+        api_version=api_version,
+        incremental_field="stat_time_day",
+        db_incremental_field_last_value=day,
+    )
+    assert result.raised is None
+    assert result.rows[0]["ad_id"] == "legacy-creative"
+    request = result.requests[0]
+    assert request.url.startswith("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/")
+    assert request.param("advertiser_id") == ADVERTISER_ID
+    assert request.param("advertiser_ids") is None
+    assert request.param("report_type") == "BASIC"
+    assert request.param("data_level") == "AUCTION_AD"
+
+
+@pytest.mark.parametrize(("api_version", "website_reports_available"), [("v1.3", False), ("v2.0", True)])
+def test_source_discovery_honors_the_version_pin(api_version: str, website_reports_available: bool) -> None:
+    schemas = TikTokAdsSource().get_schemas(
+        TikTokAdsSourceConfig(advertiser_id=ADVERTISER_ID, tiktok_integration_id=1),
+        team_id=1,
+        api_version=api_version,
+        names=["campaign_report", "campaign_website_attribution_report"],
+    )
+    names = {schema.name for schema in schemas}
+    assert "campaign_report" in names
+    assert ("campaign_website_attribution_report" in names) == website_reports_available
