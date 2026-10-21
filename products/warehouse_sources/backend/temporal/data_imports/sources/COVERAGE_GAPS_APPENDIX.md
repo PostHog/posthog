@@ -5695,13 +5695,13 @@ Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI
 
 ## Harness — **thin**
 
-Today (4): `environments`, `executions`, `pipelines`, `services`
+Today (7): `environments`, `executions`, `infrastructures`, `organizations`, `pipelines`, `projects`, `services`
 
 Diffed against: <https://apidocs.harness.io/_bundle/index.yaml>
 
-- [ ] `Projects (GET /ng/api/projects)` — resolve project identifiers on synced resources into project names and organizational context (high)
-- [ ] `Organizations (GET /ng/api/organizations)` — resolve organization identifiers on synced resources for named organizational reporting (high)
-- [ ] `Infrastructures (GET /ng/api/infrastructures)` — explain infrastructure references and deployment targets within synced pipeline definitions and environments (high)
+- [x] `Projects (GET /ng/api/projects)` — resolve project identifiers on synced resources into project names and organizational context (high)
+- [x] `Organizations (GET /ng/api/organizations)` — resolve organization identifiers on synced resources for named organizational reporting (high)
+- [x] `Infrastructures (GET /ng/api/infrastructures)` — explain infrastructure references and deployment targets within synced pipeline definitions and environments (high)
 - [ ] `Approval instances (GET /v1/orgs/{org}/projects/{project}/approvals/execution/{execution-id})` — measure manual approval bottlenecks and identify approval outcomes within pipeline executions (medium)
 - [ ] `Pipeline execution notes (GET /pipeline/api/pipelines/execution/{planExecutionId}/notes)` — connect execution outcomes with operator comments and explanations (medium)
 - [ ] `Pipeline execution annotations (GET /pipeline/api/pipelines/execution/{planExecutionId}/annotations)` — join execution outcomes with structured annotations and deployment context (medium)
