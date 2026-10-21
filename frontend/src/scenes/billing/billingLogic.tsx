@@ -639,7 +639,7 @@ export interface billingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveBillingAlert: (
             billingAlert: BillingAlertConfig | null,
-            fakeBillingAlert: any
+            fakeBillingAlert: FakeBillingAlert
         ) => BillingAlertConfig | null
         minimumBillingAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
         canAccessBilling: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean

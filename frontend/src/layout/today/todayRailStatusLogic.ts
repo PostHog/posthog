@@ -60,13 +60,13 @@ export interface todayRailStatusLogicMeta {
             healthSeverity: TodayRailSeverity,
             healthText: string | null
         ) => string
-        billingSeverity: (effectiveBillingAlert: any) => TodayRailSeverity
-        billingText: (effectiveBillingAlert: any) => string | null
-        orgSeverity: (billingSeverity: TodayRailSeverity, pendingInvitesLabel: any) => TodayRailSeverity
+        billingSeverity: (effectiveBillingAlert: BillingAlertConfig | null) => TodayRailSeverity
+        billingText: (effectiveBillingAlert: BillingAlertConfig | null) => string | null
+        orgSeverity: (billingSeverity: TodayRailSeverity, pendingInvitesLabel: string | null) => TodayRailSeverity
         orgProblems: (
             billingSeverity: TodayRailSeverity,
             billingText: string | null,
-            pendingInvitesLabel: any
+            pendingInvitesLabel: string | null
         ) => string[]
     }
 }
