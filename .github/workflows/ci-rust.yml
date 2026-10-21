@@ -118,11 +118,12 @@ jobs:
                       proto/
                       .github/rust-images.yml
                       .github/actions/rust-compute-affected/
+                      .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
                   clean: false
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -300,6 +301,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-rust/
                       .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
@@ -318,7 +320,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -418,7 +420,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -683,7 +685,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -915,6 +917,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-rust/
                       .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
@@ -933,7 +936,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
