@@ -162,8 +162,8 @@ pub async fn retire(
 ) -> anyhow::Result<()> {
     let config = &config.personhog_kafka();
     let store = store(client, prefix);
-    let live = store
-        .get_changelog_config()
+    let (live, mod_revision) = store
+        .get_changelog_config_with_mod_revision()
         .await?
         .context("config/changelog is not seeded")?;
     if !live.draining.iter().any(|g| g.topic == topic) {
@@ -182,7 +182,10 @@ pub async fn retire(
             );
         }
     }
-    if !store.retire_changelog_topic(topic).await? {
+    if !store
+        .retire_changelog_topic(&live, mod_revision, topic)
+        .await?
+    {
         bail!("the config moved; refresh and retry");
     }
     Ok(())

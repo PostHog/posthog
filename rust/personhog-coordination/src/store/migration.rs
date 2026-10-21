@@ -259,14 +259,16 @@ impl PersonhogStore {
         Ok(self.inner.txn(txn).await?.succeeded())
     }
 
-    /// Drop a drained generation from the config, guarded on its revision.
-    pub async fn retire_changelog_topic(&self, topic: &str) -> Result<bool> {
+    /// Drop a drained generation from the config the caller's drain checks
+    /// read, only while that config is still current.
+    pub async fn retire_changelog_topic(
+        &self,
+        config: &ChangelogConfig,
+        mod_revision: i64,
+        topic: &str,
+    ) -> Result<bool> {
         count_call("retire_changelog_topic");
-        let Some((mut config, mod_revision)) =
-            self.get_changelog_config_with_mod_revision().await?
-        else {
-            return Ok(false);
-        };
+        let mut config = config.clone();
         let before = config.draining.len();
         config.draining.retain(|g| g.topic != topic);
         if config.draining.len() == before {

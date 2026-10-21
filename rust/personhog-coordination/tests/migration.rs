@@ -417,7 +417,26 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
             "partition {partition} drained again for its restart: {events:?}"
         );
     }
-    assert!(store.retire_changelog_topic(TOPIC).await.unwrap());
+    // A retire lands only on the config its drain checks read.
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    store.put_changelog_config(&config).await.unwrap();
+    assert!(!store
+        .retire_changelog_topic(&config, rev, TOPIC)
+        .await
+        .unwrap());
+    let (config, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store
+        .retire_changelog_topic(&config, rev, TOPIC)
+        .await
+        .unwrap());
     assert!(store
         .get_changelog_config()
         .await
