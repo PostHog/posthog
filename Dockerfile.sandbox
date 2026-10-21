@@ -20,6 +20,8 @@ ENV NODE_VERSION=24.22.1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     brotli \
     build-essential \
+    # Upgrades the CA bundle that the pinned base image freezes.
+    ca-certificates \
     cmake \
     curl \
     git \
@@ -69,7 +71,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN corepack enable
 
 # --- Rarely changes: prebuilt binaries ---
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 COPY --from=clickhouse/clickhouse-server:26.9.13.15 /usr/bin/clickhouse /usr/local/bin/clickhouse
 RUN ln -s clickhouse /usr/local/bin/clickhouse-client
 

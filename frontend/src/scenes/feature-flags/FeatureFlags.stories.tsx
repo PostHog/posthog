@@ -321,18 +321,17 @@ const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featu
     )
 }
 
+const assertErrorTextVisible = (canvasElement: HTMLElement, expectedText: string): void => {
+    const errors = Array.from(canvasElement.querySelectorAll('.Field--error'))
+    const match = errors.some((el) => el.textContent?.includes(expectedText))
+    if (!match) {
+        const seen = errors.map((el) => el.textContent?.trim()).join(' | ') || '(no .Field--error elements)'
+        throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
+    }
+}
+
 const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string): Promise<void> => {
-    await waitFor(
-        () => {
-            const errors = Array.from(canvasElement.querySelectorAll('.Field--error'))
-            const match = errors.some((el) => el.textContent?.includes(expectedText))
-            if (!match) {
-                const seen = errors.map((el) => el.textContent?.trim()).join(' | ') || '(no .Field--error elements)'
-                throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
-            }
-        },
-        { timeout: 5000 }
-    )
+    await waitFor(() => assertErrorTextVisible(canvasElement, expectedText), { timeout: 5000 })
 }
 
 // These stories drive the form into a known validation-failure state via the logic so visual
@@ -406,12 +405,27 @@ export const NewRemoteConfigFlagPayloadError: Story = {
     play: async ({ canvasElement }) => {
         const logic = await waitForMountedFeatureFlagLogic()
 
-        logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
-        logic.actions.setFeatureFlagValue('is_remote_configuration', true)
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
-        logic.actions.submitFeatureFlag()
+        const submitRemoteConfigFlagWithoutPayload = (): void => {
+            logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
+            logic.actions.setFeatureFlagValue('is_remote_configuration', true)
+            logic.actions.submitFeatureFlag()
+        }
+        submitRemoteConfigFlagWithoutPayload()
 
-        await waitForErrorText(canvasElement, 'Payload is required')
+        // A late second new-flag load replaces the form with NEW_FLAG and turns remote config off.
+        // Resubmit a bounded number of times, so a product bug that keeps resetting the form still fails.
+        let resubmitsLeft = 2
+        await waitFor(
+            () => {
+                if (!logic.values.featureFlag.is_remote_configuration && resubmitsLeft > 0) {
+                    resubmitsLeft--
+                    submitRemoteConfigFlagWithoutPayload()
+                }
+                assertErrorTextVisible(canvasElement, 'Payload is required')
+            },
+            { timeout: 10000 }
+        )
     },
 }

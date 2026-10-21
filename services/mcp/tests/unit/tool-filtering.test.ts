@@ -1146,7 +1146,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'experiment-behavior-comparison',
                 'experiment-setup-context',
                 'data-warehouse-scene',
-                'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
@@ -1157,7 +1156,7 @@ describe('Tool Filtering - Feature Flags', () => {
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(36)
+        expect(flags).toHaveLength(35)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
