@@ -15,25 +15,26 @@ import hashlib
 import datetime
 import dataclasses
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
 from typing import Any
 from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.activity_summary.prompt import SUMMARY_MAX_WORDS
+# Words of the stored summary. It lives here and not in `prompt`, because `prompt` imports from this module.
+SUMMARY_MAX_WORDS = 60
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 4
+RENDER_VERSION = 6
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
 CHARS_PER_TOKEN = 4
 
-# Rows read per person before any filter, newest first. They bound query and memory cost for very
-# active people; the filters and caps below work on what is left.
+# Rows read per person, newest first. They bound query and memory cost for very active people. The
+# query applies the noise filters before this limit, so bulk agent writes cannot fill it.
 MAX_TASKS_PER_PERSON = 200
 MAX_ACTIVITY_ROWS_PER_PERSON = 1000
 MAX_VIEW_ROWS_PER_PERSON = 500
@@ -42,6 +43,9 @@ MAX_VIEW_ROWS_PER_PERSON = 500
 MAX_UNITS_PER_DAY = 3
 TASK_LINES = 12
 ACTIVITY_LINES = 15
+# Activity lines one UTC day may keep while other days have lines to show. A third of the section
+# leaves a busy day several lines and the rest of the window most of the slots.
+MAX_ACTIVITY_LINES_PER_DAY = 5
 VIEW_LINES = 15
 # Per-line caps, so one runaway title or intent cannot take the budget. With the default caps a full
 # prompt section stays under SECTIONS_MAX_CHARS; the hard stop is the backstop when the caps change.
@@ -70,7 +74,7 @@ ACTIVITY_HEADER = "Things the person created or changed in PostHog (agent: why t
 VIEWS_HEADER = "Things the person opened in PostHog, by type (days: distinct days in the window; not theirs: someone else made it):"
 
 # Helper tasks that a task spawns for itself, such as repository selection, carry the parent's origin.
-SANDBOX_PROMPT_TITLE = re.compile(r"^\[sandbox_prompt:")
+SANDBOX_PROMPT_TITLE_PREFIX = "[sandbox_prompt:"
 # Titles a button or a workflow writes, with only an id changing. Each collapses to one line with a count.
 TEMPLATED_TASK_TITLES: tuple[re.Pattern[str], ...] = (re.compile(r"^Fix failing CI checks in PR #\d+$"),)
 _TEMPLATE_ID = re.compile(r"#\d+")
@@ -146,7 +150,9 @@ class RenderLimits:
     window_days: int = _limit(WINDOW_DAYS, max_value=90)
     task_lines: int = _limit(TASK_LINES, max_value=50)
     activity_lines: int = _limit(ACTIVITY_LINES, max_value=50)
+    max_activity_lines_per_day: int = _limit(MAX_ACTIVITY_LINES_PER_DAY, max_value=50)
     view_lines: int = _limit(VIEW_LINES, max_value=50)
+    view_line_chars: int = _limit(VIEW_LINE_CHARS, max_value=1000)
     max_units_per_day: int = _limit(MAX_UNITS_PER_DAY, max_value=20)
     sections_max_chars: int = _limit(SECTIONS_MAX_CHARS, max_value=32000)
     task_line_chars: int = _limit(TASK_LINE_CHARS, max_value=1000)
@@ -172,6 +178,7 @@ class Drop(StrEnum):
     UNNAMED_OBJECT = "unnamed_object"
     GENERIC_SCENE = "generic_scene"
     DUPLICATE = "duplicate"
+    GROUPED_INTO_PARENT = "grouped_into_parent"
     BURST_CAP = "burst_cap"
     SAMPLE_CAP = "sample_cap"
     SECTIONS_BUDGET = "sections_budget"
@@ -197,6 +204,20 @@ class ActivityItem:
     name: str | None
     client: str | None
     intent: str | None = None
+    item_id: str | None = None
+
+
+@frozen
+class Parent:
+    """An object that holds another, such as the dashboard an insight sits on."""
+
+    scope: str
+    item_id: str
+    name: str
+
+
+# Parents of an object in preference order, keyed by the object's (scope, item_id).
+ParentLookup = Mapping[tuple[str, str], Sequence[Parent]]
 
 
 @frozen
@@ -222,6 +243,16 @@ class Unit:
 
 
 @frozen
+class _ActivityLine:
+    """A rendered activity line with the fields that rank it."""
+
+    at: datetime.datetime
+    text: str
+    created: bool
+    rows: int
+
+
+@frozen
 class RenderedInput:
     text: str
     n_tasks: int
@@ -233,6 +264,9 @@ class RenderedInput:
     input_chars: int
     input_tokens_estimate: int
     drops: dict[str, int]
+    # Units of each source before its line cap, so a caller can tell when the cap binds.
+    task_pool: int
+    activity_pool: int
 
     @property
     def units(self) -> int:
@@ -314,7 +348,7 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLim
     templated: dict[str, list[datetime.datetime]] = {}
     for task in tasks:
         title = task.title.strip()
-        if SANDBOX_PROMPT_TITLE.match(title):
+        if title.startswith(SANDBOX_PROMPT_TITLE_PREFIX):
             drops[Drop.SANDBOX_PROMPT_TASK] += 1
             continue
         if (label := _templated_label(title)) is not None:
@@ -342,15 +376,183 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLim
     return units
 
 
-def activity_units(
-    items: Iterable[ActivityItem], drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS
-) -> list[Unit]:
-    """Changes collapsed to one line per object, creates first, then the most changed, then the newest.
+ObjectKey = tuple[str, str, str]
 
-    A line carries the newest agent intent of its rows. Lines are already collapsed per object, so
-    they skip the per-day burst cap: a busy day of changes to different objects lands on one date
-    and the cap would keep only a few of them."""
-    collapsed: dict[tuple[str, str, str], list[ActivityItem]] = {}
+
+def _intent_suffix(rows: Iterable[ActivityItem], max_chars: int) -> str:
+    intents = [row for row in rows if row.intent and row.intent.strip()]
+    if not intents:
+        return ""
+    intent = max(intents, key=lambda row: row.at).intent or ""
+    intent_text = cap_line(clean_text(intent, max_chars * 2), max_chars)
+    return f" (agent: {intent_text})" if intent_text else ""
+
+
+def _display_name(name: str) -> str:
+    return cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
+
+
+def _quoted_names(names: Sequence[str], max_chars: int) -> str:
+    """Quoted names joined by commas, as many as fit in `max_chars`, with "…" for the rest."""
+    text = ", ".join(f'"{name}"' for name in names)
+    if len(text) <= max_chars:
+        return text
+    text = ""
+    for name in names:
+        part = f'"{name}"' if not text else f', "{name}"'
+        if len(text) + len(part) + len(", …") > max_chars:
+            break
+        text += part
+    return f"{text}, …" if text else "…"
+
+
+def _usable_parents(parents: Sequence[Parent]) -> list[Parent]:
+    """Parents with a name worth showing: a scheduled job's auto-named object says nothing."""
+    usable: list[Parent] = []
+    for parent in parents:
+        name = parent.name.strip()
+        if name and not _AUTO_NAME.search(name) and parent not in usable:
+            usable.append(parent)
+    return usable
+
+
+def _object_line(
+    scope: str, activity: str, name: str, rows: Sequence[ActivityItem], context: str, limits: RenderLimits
+) -> _ActivityLine:
+    latest = max(row.at for row in rows)
+    count = f" (x{len(rows)})" if len(rows) > 1 else ""
+    line = f'- {_day(latest).isoformat()} {activity} {scope} "{_display_name(name)}"{context}{count}'
+    return _ActivityLine(
+        at=latest,
+        text=cap_line(line + _intent_suffix(rows, limits.activity_intent_chars), limits.activity_line_chars),
+        created=activity == "created",
+        rows=len(rows),
+    )
+
+
+def _group_line(
+    parent: Parent,
+    own: Sequence[ObjectKey],
+    children: Sequence[ObjectKey],
+    collapsed: Mapping[ObjectKey, list[ActivityItem]],
+    limits: RenderLimits,
+) -> _ActivityLine:
+    """One line for a parent and the children merged into it, children ranked like lines."""
+    rows = [row for key in (*own, *children) for row in collapsed[key]]
+    latest = max(row.at for row in rows)
+    ranked_children = sorted(
+        children,
+        key=lambda key: (
+            key[1] != "created",
+            -len(collapsed[key]),
+            -max(row.at for row in collapsed[key]).timestamp(),
+            key[2],
+        ),
+    )
+    names = list(dict.fromkeys(_display_name(key[2]) for key in ranked_children))
+    counts = Counter(scope for scope, _ in dict.fromkeys((key[0], key[2]) for key in children))
+    child_text = ", ".join(f"{count} {scope}{'s' if count != 1 else ''}" for scope, count in sorted(counts.items()))
+    parent_text = f'{parent.scope} "{_display_name(parent.name)}"'
+    if any(key[1] == "created" for key in own):
+        head = f"created {parent_text} with {child_text}: "
+    else:
+        activities = sorted({key[1] for key in children}, key=lambda activity: (activity != "created", activity))
+        head = f"{' and '.join(activities)} {child_text} on {parent_text}: "
+    head = f"- {_day(latest).isoformat()} {head}"
+    intent = _intent_suffix(rows, limits.activity_intent_chars)
+    line = head + _quoted_names(names, limits.activity_line_chars - len(head) - len(intent)) + intent
+    return _ActivityLine(
+        at=latest,
+        text=cap_line(line, limits.activity_line_chars),
+        created=any(row.activity == "created" for row in rows),
+        rows=len(rows),
+    )
+
+
+def _lines_with_parents(
+    collapsed: Mapping[ObjectKey, list[ActivityItem]], parents: ParentLookup, drops: Counter[str], limits: RenderLimits
+) -> list[_ActivityLine]:
+    """One line per object, with the objects that share a parent merged into one line for the parent.
+
+    The parent's own rows merge into its line. An object whose parent holds no other changed object
+    keeps its own line and names the parent."""
+    child_parents: dict[ObjectKey, list[Parent]] = {}
+    for key, rows in collapsed.items():
+        found = [parent for row in rows if row.item_id for parent in parents.get((row.scope, row.item_id), ())]
+        if usable := _usable_parents(found):
+            child_parents[key] = usable
+    by_identity = {(parent.scope, parent.item_id): parent for usable in child_parents.values() for parent in usable}
+    own: dict[Parent, list[ObjectKey]] = {}
+    for key, rows in collapsed.items():
+        identities = dict.fromkeys((row.scope, row.item_id) for row in rows if row.item_id)
+        for identity in identities:
+            if (parent := by_identity.get(identity)) is not None:
+                own.setdefault(parent, []).append(key)
+    # Each child picks the parent that holds the most changed objects, so a group forms where the work was.
+    weight = Counter(parent for usable in child_parents.values() for parent in usable)
+    weight.update({parent: len(keys) for parent, keys in own.items()})
+    chosen: dict[Parent, list[ObjectKey]] = {}
+    for key, usable in child_parents.items():
+        chosen.setdefault(max(usable, key=lambda parent: weight[parent]), []).append(key)
+
+    lines: list[_ActivityLine] = []
+    merged: set[ObjectKey] = set()
+    for parent, children in chosen.items():
+        parent_own = [key for key in own.get(parent, []) if key not in child_parents]
+        distinct_children = {(key[0], key[2]) for key in children}
+        if len(distinct_children) < 2 and not parent_own:
+            continue
+        lines.append(_group_line(parent, parent_own, children, collapsed, limits))
+        merged.update(parent_own, children)
+        drops[Drop.GROUPED_INTO_PARENT] += len(parent_own) + len(children) - 1
+    for key, rows in collapsed.items():
+        if key in merged:
+            continue
+        context = ""
+        if key in child_parents:
+            usable = child_parents[key]
+            parent = max(usable, key=lambda parent: weight[parent])
+            more = f" (+{len(usable) - 1} more)" if len(usable) > 1 else ""
+            context = f' on {parent.scope} "{_display_name(parent.name)}"{more}'
+        lines.append(_object_line(*key, rows, context, limits))
+    return lines
+
+
+def _spread_across_days(
+    ranked: Sequence[_ActivityLine], drops: Counter[str], limits: RenderLimits
+) -> list[_ActivityLine]:
+    """The first `limits.activity_lines` lines in rank order, at most `limits.max_activity_lines_per_day` from one UTC day.
+
+    Lines over a day's cap fill the slots that no other day takes, so a single busy day still shows."""
+    kept: list[_ActivityLine] = []
+    deferred: list[_ActivityLine] = []
+    per_day: Counter[datetime.date] = Counter()
+    for line in ranked:
+        if per_day[_day(line.at)] >= limits.max_activity_lines_per_day:
+            deferred.append(line)
+        elif len(kept) < limits.activity_lines:
+            per_day[_day(line.at)] += 1
+            kept.append(line)
+        else:
+            drops[Drop.SAMPLE_CAP] += 1
+    backfill = deferred[: limits.activity_lines - len(kept)]
+    if len(deferred) > len(backfill):
+        drops[Drop.BURST_CAP] += len(deferred) - len(backfill)
+    return kept + backfill
+
+
+def activity_units(
+    items: Iterable[ActivityItem],
+    drops: Counter[str],
+    parents: ParentLookup | None = None,
+    limits: RenderLimits = DEFAULT_LIMITS,
+) -> list[Unit]:
+    """Changes collapsed to one line per object, or per parent, creates first, then the most changed, then the newest.
+
+    A line carries the newest agent intent of its rows. A day keeps at most `limits.max_activity_lines_per_day`
+    lines while other days have lines left, not the `MAX_UNITS_PER_DAY` of tasks: lines are already
+    collapsed per object, and a busy day of changes to different objects is more than three things."""
+    collapsed: dict[ObjectKey, list[ActivityItem]] = {}
     for item in items:
         name = (item.name or "").strip()
         if item.scope in NOISY_ACTIVITY_SCOPES:
@@ -363,30 +565,10 @@ def activity_units(
             drops[Drop.AUTO_NAMED_OBJECT] += 1
         else:
             collapsed.setdefault((item.scope, item.activity, name), []).append(item)
-    ranked = sorted(
-        collapsed.items(),
-        key=lambda entry: (
-            entry[0][1] != "created",
-            -len(entry[1]),
-            -max(row.at for row in entry[1]).timestamp(),
-        ),
-    )
-    if len(ranked) > limits.activity_lines:
-        drops[Drop.SAMPLE_CAP] += len(ranked) - limits.activity_lines
-    units: list[Unit] = []
-    for (scope, activity, name), rows in ranked[: limits.activity_lines]:
-        latest = max(row.at for row in rows)
-        count = f" (x{len(rows)})" if len(rows) > 1 else ""
-        name_text = cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
-        line = f'- {_day(latest).isoformat()} {activity} {scope} "{name_text}"{count}'
-        intents = [row for row in rows if row.intent and row.intent.strip()]
-        if intents:
-            intent = max(intents, key=lambda row: row.at).intent or ""
-            intent_text = cap_line(clean_text(intent, limits.activity_intent_chars * 2), limits.activity_intent_chars)
-            if intent_text:
-                line += f" (agent: {intent_text})"
-        units.append(Unit(at=latest, text=cap_line(line, limits.activity_line_chars)))
-    return sorted(units, key=lambda unit: (unit.at, unit.text))
+    lines = _lines_with_parents(collapsed, parents or {}, drops, limits)
+    ranked = sorted(lines, key=lambda line: (not line.created, -line.rows, -line.at.timestamp(), line.text))
+    kept = _spread_across_days(ranked, drops, limits)
+    return sorted((Unit(at=line.at, text=line.text) for line in kept), key=lambda unit: (unit.at, unit.text))
 
 
 def scene_product(scene_id: str) -> str | None:
@@ -414,7 +596,7 @@ def view_units(
     """One line per opened object and one per product of the opened scenes, the most opened first.
 
     An object line also counts the days the person edited it, matched to their activity rows by
-    scope and name. Like activity lines, these lines skip the per-day burst cap."""
+    scope and name. These lines skip the per-day burst cap."""
     edit_days: dict[tuple[str, str], set[datetime.date]] = {}
     for item in activity:
         if item.name and not (item.client or "").startswith(SCOUT_CLIENT_PREFIX):
@@ -451,7 +633,7 @@ def view_units(
     ranked.sort(key=lambda entry: (-entry[0], -entry[1].timestamp(), entry[2]))
     if len(ranked) > limits.view_lines:
         drops[Drop.SAMPLE_CAP] += len(ranked) - limits.view_lines
-    units = [Unit(at=at, text=cap_line(text, VIEW_LINE_CHARS)) for _, at, text in ranked[: limits.view_lines]]
+    units = [Unit(at=at, text=cap_line(text, limits.view_line_chars)) for _, at, text in ranked[: limits.view_lines]]
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
@@ -532,16 +714,21 @@ def build_input(
     seed: int,
     views: Iterable[ViewItem] = (),
     limits: RenderLimits = DEFAULT_LIMITS,
+    parents: ParentLookup | None = None,
 ) -> RenderedInput | None:
     """The rendered input of one (project, person) pair, or None when nothing survives the filters.
 
     Order: the named filters, then the burst cap, then the recency-weighted sample, then the hard
-    budget, so the sample is drawn from clean units only. The views section shows its lines grouped
-    by type after the budget, because the budget drops the oldest unit of a section first."""
+    budget, so the sample is drawn from clean units only. `parents` groups activity lines under the
+    objects that hold them. The views section shows its lines grouped by type after the budget,
+    because the budget drops the oldest unit of a section first."""
     drops: Counter[str] = Counter()
     activity = list(activity)
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
-    activity_lines = activity_units(activity, drops, limits)
+    capped_before = drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP]
+    activity_lines = activity_units(activity, drops, parents, limits)
+    # Lines that `activity_units` dropped for its line cap or its per-day cap.
+    activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
     view_lines = view_units(views, activity, drops, limits)
     if not task_pool and not activity_lines and not view_lines:
         return None
@@ -563,4 +750,6 @@ def build_input(
         input_chars=len(text),
         input_tokens_estimate=estimate_tokens(len(text)),
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
+        task_pool=len(task_pool),
+        activity_pool=activity_pool,
     )

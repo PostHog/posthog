@@ -9,12 +9,13 @@ import json
 import datetime
 from typing import Any
 
-PROMPT_VERSION = 3
+from products.signals.backend.activity_summary.render import SUMMARY_MAX_WORDS, cap_line
 
-SUMMARY_MAX_WORDS = 60
+PROMPT_VERSION = 4
+
 MAX_FOCUS_AREAS = 6
 MAX_PRODUCTS = 10
-# Per-field caps, so one runaway field cannot make the stored summary large.
+# Per-field caps, so one runaway field cannot make the stored summary large. A cut ends at a word boundary.
 MAX_TOPIC_CHARS = 80
 MAX_PRODUCT_CHARS = 40
 MAX_RECENT_SHIFT_CHARS = 300
@@ -97,7 +98,7 @@ def _clean(value: Any, max_chars: int | None = None) -> str | None:
     text = " ".join(value.split())
     if text.lower() in _NULL_STRINGS:
         return None
-    return text[:max_chars].strip() if max_chars is not None else text
+    return cap_line(text, max_chars) if max_chars is not None else text
 
 
 def cap_words(text: str, max_words: int = SUMMARY_MAX_WORDS) -> str:

@@ -1900,7 +1900,11 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
         "confidence": FloatDatabaseField(
             name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
         ),
-        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
+        "reasoning": _string_field(
+            "reasoning",
+            nullable=True,
+            description="AI author's design decisions and trade-offs behind the definition, as review context.",
+        ),
         "source_insight_short_id": _string_field(
             "source_insight_short_id",
             nullable=True,

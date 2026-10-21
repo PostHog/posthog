@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.activity_summary.inputs import user_activity, user_tasks, user_views
+from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
@@ -178,6 +178,7 @@ def update_activity_summary(
         seed=sampling_seed(now.date().isoformat(), team_id, user_id),
         views=views,
         limits=limits,
+        parents=activity_parents(team_id, activity),
     )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
