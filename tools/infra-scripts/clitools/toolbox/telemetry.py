@@ -81,9 +81,13 @@ def capture_invocation(distinct_id: str, properties: dict) -> None:
     try:
         # Imported lazily so a missing SDK degrades to a no-op instead of breaking
         # the import of this module. Install with `pip install -r requirements.txt`.
-        from posthog import (
-            Posthog,  # type: ignore[import-not-found]  # noqa: PLC0415 — optional dep, kept off the import path
-        )
+        try:
+            from posthog import (
+                Posthog,  # type: ignore[import-not-found]  # noqa: PLC0415 — optional dep, kept off the import path
+            )
+        except ImportError:
+            # The repo's flox venv has the same SDK, published as `posthoganalytics` instead of `posthog`.
+            from posthoganalytics import Posthog  # noqa: PLC0415 — optional dep, kept off the import path
 
         resolved_distinct_id = distinct_id or "unknown"
         client = Posthog(project_api_key=api_key, host=host)
