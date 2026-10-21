@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
+from django.db.models import Q
+
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
@@ -125,11 +127,6 @@ class ReviewerRules:
         rows = SignalReportArtefact.objects.filter(
             team_id=team_id, report_id=report_id, type="suggested_reviewers"
         ).order_by("created_at", "id")
-        if (
-            not rows.filter(actor_kind="user").exists()
-            and not rows.filter(actor_kind__isnull=True, created_by__isnull=False).exists()
-        ):
-            return ReviewerCorrections()
         changes = [
             (log.user_id, change)
             for log in ActivityLog.objects.filter(
@@ -187,7 +184,12 @@ class ReviewerRules:
             reviewers=cls._read_reviewers(reviewers),
             corrections=ReviewerCorrections.model_validate_json(corrections.content)
             if corrections
-            else cls._legacy_corrections(team_id=team_id, report_id=report_id),
+            else ReviewerCorrections(
+                # Until the first protected write recovers old edits, readers must not treat them as absent.
+                needs_review=rows.filter(type="suggested_reviewers")
+                .filter(Q(actor_kind="user") | Q(actor_kind__isnull=True, created_by__isnull=False))
+                .exists()
+            ),
         )
 
     def read(self) -> ReviewerSnapshot:
@@ -249,6 +251,8 @@ class ReviewerRules:
                 proposed = snapshot.reviewers
             elif expected != snapshot.state and (edit is None or edit.action in {"replace", "confirm"}):
                 raise StaleReviewerProposal("Reviewers or corrections changed. Read the report again before saving.")
+            if not enrolled and corrections.needs_review:
+                corrections = self._legacy_corrections(team_id=self.team.id, report_id=self.report_id)
         if edit is not None:
             if edit.action == "confirm":
                 if not protected:

@@ -1262,7 +1262,7 @@ class ReviewerStateSerializer(serializers.Serializer):
 class ReviewerProposalSerializer(serializers.Serializer):
     expected_reviewers = ReviewerStateSerializer(
         required=False,
-        help_text="State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.",
+        help_text="Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.",
     )
     reviewer_outcome = serializers.ChoiceField(
         choices=ReviewerSelectionOutcome.choices,
@@ -1284,7 +1284,7 @@ class ReviewerControlResponseSerializer(serializers.Serializer):
     )
     confirmed = serializers.BooleanField(help_text="A person explicitly confirmed the complete reviewer list.")
     needs_review = serializers.BooleanField(
-        help_text="Older edits lack complete correction records. Automatic replacement is paused."
+        help_text="Older edits need recovery on the next protected write, or have incomplete history. Automatic changes are paused until recovery or list confirmation."
     )
     enabled = serializers.BooleanField(help_text="Whether this report uses saved reviewer corrections.")
 
@@ -2807,19 +2807,6 @@ class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSeria
         help_text="Always `suggested_reviewers` on this path.",
     )
 
-    reviewer_assignment = serializers.SerializerMethodField(help_text="Reviewer corrections after this edit.")
-
-    class Meta(SignalReportArtefactSerializer.Meta):
-        fields = [*SignalReportArtefactSerializer.Meta.fields, "reviewer_assignment"]
-
-    @extend_schema_field(ReviewerControlResponseSerializer)
-    def get_reviewer_assignment(self, obj: SignalReportArtefact) -> dict[str, object]:
-        result = dict(
-            ReviewerControlResponseSerializer(ReviewerRules(team=obj.team, report_id=str(obj.report_id))).data
-        )
-        result["state"]["reviewers_id"] = str(obj.id)
-        return result
-
     @extend_schema_field(SuggestedReviewerEntryReadSerializer(many=True))
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         return super().get_content(obj)
@@ -2856,15 +2843,6 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         if "targets" in attrs and attrs["action"] not in {"add", "remove"}:
             raise serializers.ValidationError({"targets": "Targets require an add or remove action."})
         return attrs
-
-
-@extend_schema_serializer(many=False)
-class SignalReportArtefactListResponseSerializer(serializers.Serializer):
-    count = serializers.IntegerField(help_text="Number of artefacts.")
-    next = serializers.URLField(allow_null=True, help_text="Next page, if any.")
-    previous = serializers.URLField(allow_null=True, help_text="Previous page, if any.")
-    results = SignalReportArtefactSerializer(many=True, help_text="Artefacts in this page.")
-    reviewer_assignment = ReviewerControlResponseSerializer(help_text="Current reviewer corrections and state token.")
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected

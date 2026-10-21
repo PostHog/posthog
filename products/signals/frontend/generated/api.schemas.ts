@@ -807,7 +807,7 @@ export interface ReviewerControlResponseApi {
     excluded_user_uuids: string[]
     /** A person explicitly confirmed the complete reviewer list. */
     confirmed: boolean
-    /** Older edits lack complete correction records. Automatic replacement is paused. */
+    /** Older edits need recovery on the next protected write, or have incomplete history. Automatic changes are paused until recovery or list confirmation. */
     needs_review: boolean
     /** Whether this report uses saved reviewer corrections. */
     enabled: boolean
@@ -2451,8 +2451,6 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      * @nullable
      */
     readonly task_id: string | null
-    /** Reviewer corrections after this edit. */
-    readonly reviewer_assignment: ReviewerControlResponseApi
 }
 
 /**
@@ -3904,23 +3902,13 @@ export interface SignalReportArtefactApi {
     readonly task_id: string | null
 }
 
-export interface SignalReportArtefactListResponseApi {
-    /** Number of artefacts. */
+export interface PaginatedSignalReportArtefactListApi {
     count: number
-    /**
-     * Next page, if any.
-     * @nullable
-     */
-    next: string | null
-    /**
-     * Previous page, if any.
-     * @nullable
-     */
-    previous: string | null
-    /** Artefacts in this page. */
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
     results: SignalReportArtefactApi[]
-    /** Current reviewer corrections and state token. */
-    reviewer_assignment: ReviewerControlResponseApi
 }
 
 /**
@@ -3945,7 +3933,7 @@ export const ReviewerSelectionOutcomeEnumApi = {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** State returned by reviewer_state before selection began. Required when reviewer corrections are enabled. */
+    /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
     /** A successful selection, a deliberate empty result, or an unavailable lookup.
      *
@@ -7812,7 +7800,7 @@ export const ActionabilityEnumApi = {
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
-    /** State returned by reviewer_state before selection began. Required when reviewer corrections are enabled. */
+    /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
     /** A successful selection, a deliberate empty result, or an unavailable lookup.
      *

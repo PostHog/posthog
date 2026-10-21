@@ -28,6 +28,7 @@ import type {
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
     PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
@@ -54,7 +55,6 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
-    ReviewerControlResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
     ScoutCheckSummaryApi,
@@ -88,7 +88,6 @@ import type {
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
-    SignalReportArtefactListResponseApi,
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
@@ -924,21 +923,6 @@ export const signalsReportsReingestCreate = async (
     })
 }
 
-export const getSignalsReportsReviewerStateRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/reviewer_state/`
-}
-
-export const signalsReportsReviewerStateRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ReviewerControlResponseApi> => {
-    return apiMutator<ReviewerControlResponseApi>(getSignalsReportsReviewerStateRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/reviewers/`
 }
@@ -1087,8 +1071,8 @@ export const signalsReportArtefactsList = async (
     reportId: string,
     params?: SignalsReportArtefactsListParams,
     options?: RequestInit
-): Promise<SignalReportArtefactListResponseApi> => {
-    return apiMutator<SignalReportArtefactListResponseApi>(
+): Promise<PaginatedSignalReportArtefactListApi> => {
+    return apiMutator<PaginatedSignalReportArtefactListApi>(
         getSignalsReportArtefactsListUrl(projectId, reportId, params),
         {
             ...options,

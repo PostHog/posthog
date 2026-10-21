@@ -56,10 +56,15 @@ def test_concurrent_claims_have_one_winner() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_concurrent_reviewer_proposals_have_one_winner() -> None:
+@pytest.mark.parametrize("legacy_human_edit", [False, True])
+def test_concurrent_reviewer_proposals_have_one_winner(legacy_human_edit: bool) -> None:
     organization = Organization.objects.create(name="Assignment test")
     team = Team.objects.create(organization=organization)
     report = SignalReport.objects.create(team=team, status="ready")
+    if legacy_human_edit:
+        SignalReportArtefact.objects.create(
+            team=team, report=report, type="suggested_reviewers", content="[]", actor_kind="user"
+        )
     proposal = ReviewerProposal(
         expected_state=ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)).state
     )

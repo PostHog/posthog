@@ -47,7 +47,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
-    SignalReportArtefactListResponseApi,
+    PaginatedSignalReportArtefactListApi,
     ReviewerEditActionEnumApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
@@ -845,7 +845,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const artefacts = [...response.results]
                     while (response.next) {
                         // nosemgrep: prefer-codegen-api -- follows the server-provided pagination next link.
-                        response = await api.get<SignalReportArtefactListResponseApi>(response.next)
+                        response = await api.get<PaginatedSignalReportArtefactListApi>(response.next)
                         await breakpoint()
                         artefacts.push(...response.results)
                     }

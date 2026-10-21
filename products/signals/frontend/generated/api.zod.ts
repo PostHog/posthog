@@ -1074,7 +1074,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe(
-                'State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.'
+                'Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.'
             ),
         reviewer_outcome: zod
             .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
@@ -2559,7 +2559,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe(
-                'State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.'
+                'Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.'
             ),
         reviewer_outcome: zod
             .enum(['selected', 'no_suitable_owner', 'lookup_failed'])

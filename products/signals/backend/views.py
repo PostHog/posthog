@@ -240,8 +240,6 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
-    ReviewerControlResponseSerializer,
-    SignalReportArtefactListResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -2894,13 +2892,6 @@ class SignalReportViewSet(
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(responses={200: ReviewerControlResponseSerializer})
-    @action(detail=True, methods=["get"], url_path="reviewer_state", required_scopes=["task:read"])
-    def reviewer_state(self, request: Request, **kwargs) -> Response:
-        report = self.get_object()
-        service = ReviewerRules(team=self.team, report_id=str(report.id))
-        return Response(ReviewerControlResponseSerializer(service).data)
-
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
         report = cast(SignalReport, self.get_object())
@@ -5552,7 +5543,7 @@ class SignalReportCheckViewSet(
             "artefact by id for the full metadata."
         ),
         parameters=[_REPORT_ID_PARAMETER],
-        responses={200: SignalReportArtefactListResponseSerializer},
+        responses={200: SignalReportArtefactSerializer(many=True)},
         operation_id="signals_report_artefacts_list",
     ),
     retrieve=extend_schema(
@@ -5656,12 +5647,7 @@ class SignalReportArtefactViewSet(
         # converted its gate rows. Merged into the materialized log (de-duplicated against the real
         # task_run artefacts) and re-sorted newest-first so each legacy row lands at its original
         # timestamp, then paginated as one list so `count` and ordering both account for them.
-        rules = ReviewerRules(team=self.team, report_id=str(self.parents_query_dict["report_id"]))
         real_artefacts = list(queryset)
-        reviewer_assignment = ReviewerControlResponseSerializer(rules).data
-        displayed_reviewers = next((row for row in real_artefacts if row.type == "suggested_reviewers"), None)
-        # A concurrent write must not give an older displayed list a newer state token.
-        reviewer_assignment["state"]["reviewers_id"] = str(displayed_reviewers.id) if displayed_reviewers else None
         synthetic = SignalReport.synthetic_legacy_task_run_artefacts(
             report_id=self.parents_query_dict["report_id"],
             team_id=self.team.id,
@@ -5720,7 +5706,6 @@ class SignalReportArtefactViewSet(
                 }
             )
         )
-        response.data["reviewer_assignment"] = reviewer_assignment
         return response
 
     def update(self, request, *args, **kwargs):

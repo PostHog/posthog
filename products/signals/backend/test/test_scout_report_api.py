@@ -1611,7 +1611,7 @@ class TestScoutReportAPI(APIBaseTest):
         root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
         selected = {"action": "add", "content": [{"user_uuid": str(self.user.uuid)}]}
         assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
-        before = human.get(f"{root}/reviewer_state/").json()
+        before = human.get(f"{root}/").json()["reviewer_assignment"]
         assert before["pinned_user_uuids"] == [str(self.user.uuid)]
         assert (
             human.put(
@@ -1630,7 +1630,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert stale.status_code == 200, stale.json()
         assert stale.json()["warnings"][0]["field"] == "suggested_reviewers"
         assert not stale.json()["reviewers_set"]
-        state = human.get(f"{root}/reviewer_state/").json()
+        state = human.get(f"{root}/").json()["reviewer_assignment"]
         request.update(expected_reviewers=state["state"])
         with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             for _ in range(2):
@@ -1640,14 +1640,14 @@ class TestScoutReportAPI(APIBaseTest):
             autostart.assert_not_called()
         assert report.artefacts.filter(type="suggested_reviewers").count() == 2
         assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
-        state = human.get(f"{root}/reviewer_state/").json()
+        state = human.get(f"{root}/").json()["reviewer_assignment"]
         response = human.post(
             f"{root}/reviewers/resume/",
             {"expected_reviewers": state["state"]},
             format="json",
         )
         assert response.status_code == 404
-        assert human.get(f"{root}/reviewer_state/").json()["pinned_user_uuids"] == [str(self.user.uuid)]
+        assert human.get(f"{root}/").json()["reviewer_assignment"]["pinned_user_uuids"] == [str(self.user.uuid)]
         failed = self.client.post(
             self._edit_url(str(run.id)),
             {
