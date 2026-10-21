@@ -5,10 +5,14 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+import structlog
+
 from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+logger = structlog.get_logger(__name__)
 
 
 # TODO: Remove the per-query rollout option after the events cluster migration is complete.
@@ -62,6 +66,25 @@ def strip_events_route(query: dict[str, Any], *, drop_empty: bool = False) -> li
                 nodes.append(node)
         node = node.get("source")
     return nodes
+
+
+def events_route_is_explicit(team_modifiers: object, modifiers: "HogQLQueryModifiers | None") -> bool:
+    """Whether the query or its project chose the events route, instead of leaving it to the rollout settings.
+
+    A project's stored modifiers can choose the events table, but never the cluster.
+    """
+    if modifiers is not None and any(getattr(modifiers, key) is not None for key in EVENTS_ROUTE_MODIFIER_KEYS):
+        return True
+    return isinstance(team_modifiers, dict) and team_modifiers.get("useNewEventsSchema") is not None
+
+
+def get_new_events_cluster_host_or_none() -> str | None:
+    """The native events host, or None when it is not set or its setting cannot be read."""
+    try:
+        return get_new_events_cluster_host()
+    except Exception:
+        logger.exception("Failed to resolve the native events cluster host")
+        return None
 
 
 _query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)

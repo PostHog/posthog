@@ -41,14 +41,25 @@ def metadata_connection(
 
 
 def submit_native_metadata(
-    job: dict[str, Any], *, polling: bool = False, deadline: float | None = None
+    job: dict[str, Any],
+    *,
+    native_host: str,
+    team_id: int | None = None,
+    polling: bool = False,
+    deadline: float | None = None,
 ) -> Future[Any] | None:
+    job = {
+        **job,
+        "cluster": settings.CLICKHOUSE_EVENTS_CLUSTER,
+        "connection": metadata_connection(native_host=native_host, team_id=team_id, polling=polling),
+    }
     return _submit_metadata(job, native=True, polling=polling, deadline=deadline)
 
 
 def submit_legacy_metadata(
     job: dict[str, Any], *, polling: bool = False, deadline: float | None = None
 ) -> Future[Any] | None:
+    job = {**job, "cluster": settings.CLICKHOUSE_CLUSTER, "connection": metadata_connection(polling=polling)}
     return _submit_metadata(job, native=False, polling=polling, deadline=deadline)
 
 

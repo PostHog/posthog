@@ -124,16 +124,13 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
     def test_connection_preparation_failure_does_not_block_the_other_cluster(self, failed: str) -> None:
         from posthog.clickhouse.cancel import cancel_query_on_cluster
 
-        healthy: Future[bool] = Future()
-        healthy.set_result(True)
         failure = RuntimeError("credentials unavailable")
         with (
             patch(
-                "posthog.clickhouse.cancel.metadata_connection",
+                "posthog.clickhouse.native_metadata.metadata_connection",
                 side_effect=[failure, {}] if failed == "legacy" else [{}, failure],
             ),
-            patch("posthog.clickhouse.cancel.submit_legacy_metadata", return_value=healthy),
-            patch("posthog.clickhouse.cancel.submit_native_metadata", return_value=healthy),
+            patch("posthog.clickhouse.native_metadata._run_metadata_process", return_value=True),
         ):
             cancel_query_on_cluster(44, "example-query")
 

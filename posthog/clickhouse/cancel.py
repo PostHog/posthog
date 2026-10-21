@@ -9,7 +9,8 @@ from statshog.defaults.django import statsd
 from posthog.api.services.query import logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import default_client
-from posthog.clickhouse.native_metadata import metadata_connection, submit_legacy_metadata, submit_native_metadata
+from posthog.clickhouse.metadata_worker import PHYSICAL_QUERY_ID_PREDICATE, physical_query_id_prefix
+from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.new_events_schema import get_new_events_cluster_host, native_events_cluster_ineligibility
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -39,37 +40,23 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         except Exception:
             logger.exception("Failed to resolve native query cancellation host")
             native_enabled = False
-        if not native_enabled:
+        if not native_host or not native_enabled:
             _cancel_legacy_query(team_id, client_query_id)
             return
 
         deadline = monotonic() + 20
         common = {
-            "prefix": f"{team_id}_{client_query_id}_",
+            "prefix": physical_query_id_prefix(team_id, client_query_id),
             "fallback": settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER,
         }
         try:
-            legacy = submit_legacy_metadata(
-                {
-                    **common,
-                    "operation": "legacy_cancel",
-                    "cluster": CLICKHOUSE_CLUSTER,
-                    "connection": metadata_connection(),
-                },
-                deadline=deadline,
-            )
+            legacy = submit_legacy_metadata({**common, "operation": "legacy_cancel"}, deadline=deadline)
         except Exception as exc:
             legacy = Future()
             legacy.set_exception(exc)
         try:
             native = submit_native_metadata(
-                {
-                    **common,
-                    "operation": "native_cancel",
-                    "cluster": settings.CLICKHOUSE_EVENTS_CLUSTER,
-                    "connection": metadata_connection(native_host=native_host, team_id=team_id),
-                },
-                deadline=deadline,
+                {**common, "operation": "native_cancel"}, native_host=native_host, team_id=team_id, deadline=deadline
             )
         except Exception as exc:
             native = Future()
@@ -100,14 +87,15 @@ def _cancel_legacy_query(team_id: int, client_query_id: str) -> None:
     initiator_host = None
     try:
         with default_client(database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
+            # nosemgrep: clickhouse-fstring-param-audit - the predicate is a constant SQL expression
             result = sync_execute(
-                """
+                f"""
                 SELECT FQDN(), query_id
                 FROM distributed_system_processes
-                WHERE startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8
+                WHERE {PHYSICAL_QUERY_ID_PREDICATE}
                 SETTINGS max_execution_time = 2
                 """,
-                {"client_query_id": f"{team_id}_{client_query_id}_"},
+                {"client_query_id": physical_query_id_prefix(team_id, client_query_id)},
                 sync_client=client,
             )
         initiator_host, query_id = result[0] if (result and len(result[0]) == 2) else (None, None)
@@ -128,10 +116,10 @@ def _cancel_legacy_query(team_id: int, client_query_id: str) -> None:
     elif settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER:
         logger.debug("No initiator host found for query %s, cancelling query on cluster", client_query_id)
         with default_client(database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
-            # nosemgrep: clickhouse-fstring-param-audit - CLICKHOUSE_CLUSTER from settings constant
+            # nosemgrep: clickhouse-fstring-param-audit - CLICKHOUSE_CLUSTER and the predicate are constants
             result = sync_execute(
-                f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8 SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
-                {"client_query_id": f"{team_id}_{client_query_id}_"},
+                f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {PHYSICAL_QUERY_ID_PREDICATE} SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
+                {"client_query_id": physical_query_id_prefix(team_id, client_query_id)},
                 sync_client=client,
             )
         logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)

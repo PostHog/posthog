@@ -8,6 +8,14 @@ from typing import Any
 from clickhouse_driver import Client
 
 _MAX_CONCURRENT_HOST_KILLS = 8
+# A physical query ID is the prefix plus the 8-character generate_short_id() suffix from validated_client_query_id().
+PHYSICAL_QUERY_ID_PREDICATE = (
+    "startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8"
+)
+
+
+def physical_query_id_prefix(team_id: int, client_query_id: str) -> str:
+    return f"{team_id}_{client_query_id}_"
 
 
 def run_metadata_job(job: dict[str, Any]) -> Any:
@@ -46,7 +54,7 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
         raise ValueError("Unsupported metadata operation")
 
     params = {"cluster": job["cluster"], "client_query_id": job["prefix"]}
-    predicate = "startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8"
+    predicate = PHYSICAL_QUERY_ID_PREDICATE
     if operation == "native_cancel":
         # nosemgrep: clickhouse-fstring-param-audit - predicate is a constant SQL expression above
         matches = execute(
