@@ -40,7 +40,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     select_pairs,
 )
-from products.signals.backend.activity_summary.render import RENDER_VERSION
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
@@ -86,6 +86,8 @@ class ActivitySummaryTickPlan:
     emit_embeddings: bool
     capture_events: bool
     stop_reason: str | None
+    # A default, so a plan that a workflow history recorded before this field existed still decodes.
+    limits: RenderLimits = DEFAULT_LIMITS
 
 
 @frozen
@@ -96,6 +98,8 @@ class ActivitySummaryPairInput:
     min_update_interval_hours: float
     emit_embeddings: bool
     capture_events: bool
+    # A default, so a pair input that a tick queued before this field existed still decodes.
+    limits: RenderLimits = DEFAULT_LIMITS
 
 
 @frozen
@@ -145,12 +149,13 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         candidates=len(due),
         updates_left=updates_left,
         cost_left_usd=cost_left,
-        max_update_cost_usd=max_update_cost_usd(),
+        max_update_cost_usd=max_update_cost_usd(config.limits),
         max_concurrency=config.max_concurrency,
         min_units=config.min_units,
         min_update_interval_hours=config.min_update_interval_hours,
         emit_embeddings=config.emit_embeddings,
         capture_events=config.capture_events,
+        limits=config.limits,
         stop_reason=stop_reason,
     )
 
@@ -213,6 +218,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             input.user_id,
             min_units=input.min_units,
             min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
+            limits=input.limits,
         )
         called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
     except Exception as error:
@@ -326,6 +332,7 @@ class ActivitySummaryTickWorkflow:
                             min_update_interval_hours=plan.min_update_interval_hours,
                             emit_embeddings=plan.emit_embeddings,
                             capture_events=plan.capture_events,
+                            limits=plan.limits,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,

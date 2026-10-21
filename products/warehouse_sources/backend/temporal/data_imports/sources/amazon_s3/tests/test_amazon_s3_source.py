@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from unittest.mock import patch
 
 import pyarrow as pa
 import structlog
@@ -13,8 +14,10 @@ from deltalake import write_deltalake
 from fsspec import AbstractFileSystem
 from fsspec.implementations.local import LocalFileSystem
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     ObjectStoreConfig,
     StoreConfig,
@@ -27,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import ObjectStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import source_inputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazons3 import (
     AmazonS3SourceConfig,
 )
@@ -206,16 +210,31 @@ def test_validate_credentials(
 
 
 @pytest.mark.parametrize(
-    "sync_type, last_value, expected_files, expected_keys",
+    "sync_type, last_value, expected_files, expected_keys, mirrors",
     [
-        (ExternalDataSchemaSyncType.FULL_REFRESH, None, ["a.csv", "b.csv", "c.csv"], None),
-        (ExternalDataSchemaSyncType.INCREMENTAL, None, ["c.csv", "b.csv", "a.csv"], ["_file_name", "_file_row_number"]),
+        (ExternalDataSchemaSyncType.FULL_REFRESH, None, ["a.csv", "b.csv", "c.csv"], None, False),
+        (
+            ExternalDataSchemaSyncType.INCREMENTAL,
+            None,
+            ["c.csv", "b.csv", "a.csv"],
+            ["_file_name", "_file_row_number"],
+            False,
+        ),
         # The file at the watermark is read again, and the merge key replaces its rows.
         (
             ExternalDataSchemaSyncType.INCREMENTAL,
             FIRST_MODIFIED_AT + timedelta(minutes=1),
             ["b.csv", "a.csv"],
             ["_file_name", "_file_row_number"],
+            False,
+        ),
+        # With the flag the run replaces the rows of the files it reads, so it needs no key.
+        (
+            ExternalDataSchemaSyncType.INCREMENTAL,
+            FIRST_MODIFIED_AT + timedelta(minutes=1),
+            ["b.csv", "a.csv"],
+            None,
+            True,
         ),
         # The pipeline can hand the watermark back without a timezone.
         (
@@ -223,10 +242,13 @@ def test_validate_credentials(
             (FIRST_MODIFIED_AT + timedelta(minutes=2)).replace(tzinfo=None),
             ["a.csv"],
             ["_file_name", "_file_row_number"],
+            False,
         ),
         # An append has no key, so the file at the watermark must not be read again.
-        (ExternalDataSchemaSyncType.APPEND, FIRST_MODIFIED_AT + timedelta(minutes=1), ["a.csv"], None),
-        (ExternalDataSchemaSyncType.APPEND, None, ["c.csv", "b.csv", "a.csv"], None),
+        (ExternalDataSchemaSyncType.APPEND, FIRST_MODIFIED_AT + timedelta(minutes=1), ["a.csv"], None, False),
+        (ExternalDataSchemaSyncType.APPEND, None, ["c.csv", "b.csv", "a.csv"], None, False),
+        # The flag does not change an append.
+        (ExternalDataSchemaSyncType.APPEND, FIRST_MODIFIED_AT + timedelta(minutes=1), ["a.csv"], None, True),
     ],
 )
 def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
@@ -235,6 +257,7 @@ def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
     last_value: datetime | None,
     expected_files: list[str],
     expected_keys: list[str] | None,
+    mirrors: bool,
 ) -> None:
     # Path order is the reverse of age order, so the test tells the two apart.
     for minutes, name in enumerate(["c.csv", "b.csv", "a.csv"]):
@@ -251,14 +274,65 @@ def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
     )
     inputs.schema_metadata = schema.schema_metadata
     inputs.sync_type = sync_type
+    inputs.source_cursor = SourceCursorManager.from_sync_type_config(source, {}, structlog.get_logger())
 
-    response = source.source_for_pipeline(config, inputs)
-    rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
+    with patch.object(source_base, "_mirrors_files", return_value=mirrors):
+        response = source.source_for_pipeline(config, inputs)
+        rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
 
     assert [(row["_file_name"], row["_file_row_number"]) for row in rows] == [
         (f"orders/{name}", row_number) for name in expected_files for row_number in (0, 1)
     ]
     assert response.primary_keys == expected_keys
+    mirrored = mirrors and sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+    assert response.replace_scope == (
+        ReplaceScope(
+            column="_file_name",
+            replaced=frozenset(f"orders/{name}" for name in expected_files),
+            retained=frozenset({"orders/a.csv", "orders/b.csv", "orders/c.csv"}),
+        )
+        if mirrored
+        else None
+    )
+
+
+def test_a_mirrored_sync_of_a_bucket_that_did_not_change_reads_nothing(tmp_path: Path) -> None:
+    for minutes, name in enumerate(["b.csv", "a.csv"]):
+        write(tmp_path, f"exports/orders/{name}", b"id\n1\n", FIRST_MODIFIED_AT + timedelta(minutes=minutes))
+    source = _LocalAmazonS3Source(tmp_path)
+    config = make_config()
+    [schema] = source.get_schemas(config, team_id=1)
+
+    def sync(stored: dict[str, Any]) -> tuple[SourceResponse, int, SourceCursorManager]:
+        inputs = source_inputs(
+            schema.name,
+            incremental_field=schema.incremental_fields[0]["field"],
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value=FIRST_MODIFIED_AT + timedelta(minutes=1),
+        )
+        inputs.schema_metadata = schema.schema_metadata
+        inputs.sync_type = ExternalDataSchemaSyncType.INCREMENTAL
+        cursor = SourceCursorManager.from_sync_type_config(source, stored, structlog.get_logger())
+        inputs.source_cursor = cursor
+        with patch.object(source_base, "_mirrors_files", return_value=True):
+            response = source.source_for_pipeline(config, inputs)
+            rows = sum(table.num_rows for table in cast(Iterable[pa.Table], response.items()))
+        return response, rows, cursor
+
+    first, first_rows, cursor = sync({})
+    unchanged, unchanged_rows, _ = sync({"source_cursor": cursor.staged_payload()})
+    write(tmp_path, "exports/orders/b.csv", b"id\n1\n2\n", FIRST_MODIFIED_AT + timedelta(minutes=2))
+    rewritten, rewritten_rows, _ = sync({"source_cursor": cursor.staged_payload()})
+
+    # The file at the watermark is read again on every run, so only the stored listing can tell
+    # that nothing changed.
+    assert (first.replace_scope is not None, first_rows) == (True, 1)
+    assert (unchanged.replace_scope, unchanged_rows) == (None, 0)
+    validate_incremental_sync(True, unchanged, is_first_sync=False)
+    assert (rewritten.replace_scope is not None and rewritten.replace_scope.replaced, rewritten_rows) == (
+        frozenset({"orders/a.csv", "orders/b.csv"}),
+        3,
+    )
 
 
 @pytest.mark.parametrize(
