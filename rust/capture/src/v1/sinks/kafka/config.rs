@@ -9,6 +9,11 @@ use crate::v1::sinks::types::Destination;
 /// is stripped to key `HOSTS` in the hashmap fed to this struct.
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
+    pub security_protocol: Option<String>,
+    pub sasl_mechanism: Option<String>,
+    pub sasl_user: Option<String>,
+    #[envconfig(from = "SASL_PASSWORD")]
+    pub sasl_password: Option<common_kafka::security::KafkaCredential>,
     // -- Connection --
     /// Comma-separated broker list (e.g. "broker1:9092,broker2:9092").
     pub hosts: String,
@@ -124,6 +129,15 @@ impl Config {
     /// Validate kafka-specific configuration invariants that would otherwise
     /// blow up at rdkafka producer creation or silently break runtime health.
     pub fn validate(&self) -> anyhow::Result<()> {
+        let mut client = rdkafka::ClientConfig::new();
+        common_kafka::security::KafkaSecurityConfig {
+            kafka_security_protocol: self.security_protocol.clone(),
+            kafka_sasl_mechanism: self.sasl_mechanism.clone(),
+            kafka_sasl_user: self.sasl_user.clone(),
+            kafka_sasl_password: self.sasl_password.clone(),
+        }
+        .apply(&mut client, self.tls);
+        common_kafka::security::validate_security_config(&client)?;
         anyhow::ensure!(!self.hosts.is_empty(), "empty kafka hosts");
 
         anyhow::ensure!(

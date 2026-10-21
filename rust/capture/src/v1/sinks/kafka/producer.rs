@@ -184,11 +184,14 @@ impl KafkaProducer {
         if !config.client_id.is_empty() {
             client_config.set("client.id", &config.client_id);
         }
-        if config.tls {
-            client_config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
+        common_kafka::security::KafkaSecurityConfig {
+            kafka_security_protocol: config.security_protocol.clone(),
+            kafka_sasl_mechanism: config.sasl_mechanism.clone(),
+            kafka_sasl_user: config.sasl_user.clone(),
+            kafka_sasl_password: config.sasl_password.clone(),
         }
+        .apply(&mut client_config, config.tls);
+        common_kafka::security::validate_security_config(&client_config)?;
 
         let producer: FutureProducer<KafkaContext> = client_config.create_with_context(ctx)?;
 
