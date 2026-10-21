@@ -33,7 +33,7 @@ const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
 }
 
 function openLabel(metric: HighlightMetricApi): string {
-    if (metric.dashboard_id !== null) {
+    if (metric.dashboard_id !== null || metric.reason === 'dashboard') {
         return metric.dashboard_name ? `Open ${metric.dashboard_name}` : 'Open dashboard'
     }
     return metric.key.startsWith('insight:') ? 'Open insight' : 'Open as a trend'

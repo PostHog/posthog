@@ -236,7 +236,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         holdPulseOrder: (keys: string[]) => ({ keys }),
         releasePulseOrder: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         pulseInsightResults: [
             [] as PulsePinApi[],
             {
@@ -252,8 +252,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             [] as PulsePinApi[],
             {
                 loadPulsePins: async (): Promise<PulsePinApi[]> => {
+                    const edits = cache.pinEdits ?? 0
                     try {
-                        return (await todayPulsePinsRetrieve(String(values.currentProjectId))).pins
+                        const { pins } = await todayPulsePinsRetrieve(String(values.currentProjectId))
+                        return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 404) {
                             return []
@@ -398,6 +400,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     listeners(({ actions, values, cache }) => ({
         setPinnedPulseKeys: async ({ metrics }, breakpoint) => {
             cache.pendingPinRetries = 0
+            cache.pinEdits = (cache.pinEdits ?? 0) + 1
             const previous: Promise<unknown> = cache.pinsSave ?? Promise.resolve()
             const save = (cache.pinsSave = previous
                 .catch(() => undefined)
@@ -534,6 +537,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 opportunity_count: highlights.items.filter((item) => item.label === 'opportunity').length,
                 sources: highlights.items.map((item) => item.source),
                 pulse_count: highlights.pulse.length,
+                pinned_count: highlights.pins.length,
                 pulse_reasons: highlights.pulse.map((metric) => metric.reason),
                 pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })

@@ -382,7 +382,7 @@ class HighlightMetricSerializer(DataclassSerializer):
     reason = serializers.ChoiceField(
         choices=HighlightMetricReason.choices,
         allow_null=True,
-        help_text="Why the pulse shows the metric: `pinned` for a number the person chose to keep, `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.",
+        help_text="Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for a number the person pinned, which `pins` lists, and for metrics computed before this field existed.",
     )
     dashboard_name = serializers.CharField(
         allow_null=True,

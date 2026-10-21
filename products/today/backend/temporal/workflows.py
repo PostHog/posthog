@@ -44,7 +44,7 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
         await _finalize(inputs, list(results), pin_results)
         for _ in range(PIN_ATTEMPTS - 1):
             last = pin_results[-1]
-            if not last.pending or last.failed:
+            if not last.pending:
                 break
             await asyncio.sleep(PIN_RETRY_SECONDS)
             pin_results.append(await _resolve_pins(inputs, [pin for pin in inputs.pins if pin.key in last.pending]))

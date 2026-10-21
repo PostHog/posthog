@@ -5,6 +5,7 @@ from contextlib import suppress
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from functools import partial
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -72,7 +73,7 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     )
     latest = rows.first()
     if latest is None or latest.pins_key != pins_key or _is_due(latest, now):
-        _start(team, user, scopes, day, key, pins, pins_key)
+        _start(team, user, scopes, day, key, pins, pins_key, after=latest.id if latest else None)
         status = HighlightsStatus.COMPUTING
     else:
         status = HighlightsStatus(latest.status)
@@ -117,8 +118,9 @@ def _start(
     key: str,
     pins: list[PinnedNumber],
     pins_key: str,
+    after: UUID | None,
 ) -> None:
-    lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}"
+    lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}:{after}"
     if not cache.add(lock, True, START_LOCK_SECONDS):
         return
     row = TodayHighlights.objects.for_team(team.id).create(

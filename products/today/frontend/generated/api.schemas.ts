@@ -153,7 +153,7 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
-    /** Why the pulse shows the metric: `pinned` for a number the person chose to keep, `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for metrics computed before this field existed.
+    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for a number the person pinned, which `pins` lists, and for metrics computed before this field existed.
      *
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often

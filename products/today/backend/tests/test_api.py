@@ -465,12 +465,16 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             connect = _temporal()
             during = self._get(connect, pulse=("k1", "k2")).json()
             after = self._get(_temporal(), pulse=("k1", "k2")).json()
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": []}, format="json")
+            back = _temporal()
+            self._get(back, pulse=("k1", "k2"))
 
         self.assertEqual(
             (
                 [pin["key"] for pin in saved.json()["pins"]],
                 read.json() == saved.json(),
-                connect.return_value.start_workflow.called,
+                (connect.return_value.start_workflow.called, back.return_value.start_workflow.called),
                 (during["status"], [m["key"] for m in during["pulse"]]),
                 [m["key"] for m in after["pulse"]],
                 [(pin["key"], pin["status"]) for pin in after["pins"]],
@@ -478,7 +482,7 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             (
                 ["k2", "a", "b", "c"],
                 True,
-                True,
+                (True, True),
                 ("computing", ["k1", "k2"]),
                 ["k2", "k1"],
                 [("k2", "ready"), ("a", "unavailable"), ("b", "unavailable"), ("c", "unavailable")],

@@ -19,7 +19,7 @@ from products.product_analytics.backend import insight_series
 from products.product_analytics.backend.facade.api import chartable_insights, get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesPending
 from products.product_analytics.backend.insight_series import _visible
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 
 class TestVisibleResults(SimpleTestCase):
@@ -477,6 +477,16 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
 
     def test_the_pin_search_offers_only_matching_insights_that_show_as_a_series(self) -> None:
         line = self._insight(series=[{"kind": "EventsNode", "event": "signed up"}])
+        teammates = self._insight(series=[{"kind": "EventsNode", "event": "signed up"}])
+        InsightViewed.objects.create(
+            team=self.team, user=self.user, insight=line, last_viewed_at=timezone.now() - timedelta(days=2)
+        )
+        InsightViewed.objects.create(
+            team=self.team,
+            user=self._create_user("teammate@example.com"),
+            insight=teammates,
+            last_viewed_at=timezone.now(),
+        )
         Insight.objects.create(
             team=self.team,
             name="Sign-ups by browser",
@@ -494,7 +504,7 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
 
         found = chartable_insights(team=self.team, user=self.user, search="sign", limit=20)
 
-        self.assertEqual([insight.short_id for insight in found], [line.short_id])
+        self.assertEqual([insight.short_id for insight in found], [line.short_id, teammates.short_id])
 
     def test_an_insight_the_person_cannot_view_returns_none(self) -> None:
         self.organization.available_product_features = [
