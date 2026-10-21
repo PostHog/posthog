@@ -90,6 +90,7 @@ export interface messageTemplateLogicValues {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -114,6 +115,7 @@ export interface messageTemplateLogicValues {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -200,6 +202,7 @@ export interface messageTemplateLogicActions {
         id: string
         name: string
         sensitive?: boolean | undefined
+        tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -215,6 +218,7 @@ export interface messageTemplateLogicActions {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -234,6 +238,9 @@ export interface messageTemplateLogicActions {
     }
     saveDraftFailed: () => {
         value: true
+    }
+    saveTags: (tags: string[]) => {
+        tags: string[]
     }
     saveTemplate: (template: any) => any
     saveTemplateFailure: (
@@ -268,9 +275,6 @@ export interface messageTemplateLogicActions {
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
-    }
-    saveTags: (tags: string[]) => {
-        tags: string[]
     }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
@@ -313,6 +317,7 @@ export interface messageTemplateLogicActions {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -329,6 +334,7 @@ export interface messageTemplateLogicActions {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -358,6 +364,7 @@ export interface messageTemplateLogicActions {
         id: string
         name: string
         sensitive?: boolean | undefined
+        tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -373,6 +380,7 @@ export interface messageTemplateLogicActions {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -389,6 +397,7 @@ export interface messageTemplateLogicActions {
         id: string
         name: string
         sensitive?: boolean | undefined
+        tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -404,6 +413,7 @@ export interface messageTemplateLogicActions {
             id: string
             name: string
             sensitive?: boolean | undefined
+            tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
