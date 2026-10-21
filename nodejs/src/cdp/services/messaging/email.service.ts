@@ -417,11 +417,14 @@ export class EmailService {
                     teamId: invocation.teamId,
                     workflowMetadata: invocation.hogFunction.metadata,
                     sender: integration,
-                    recipients: [
-                        ...(params.to?.email && params.to.email.trim() ? [params.to.email.trim()] : []),
-                        ...extractEmailsFromAddressList(params.cc),
-                        ...extractEmailsFromAddressList(params.bcc),
-                    ],
+                    // With no `to` the send skips below for missing data, so a suppressed cc or bcc must not decide it.
+                    recipients: params.to?.email?.trim()
+                        ? [
+                              params.to.email.trim(),
+                              ...extractEmailsFromAddressList(params.cc),
+                              ...extractEmailsFromAddressList(params.bcc),
+                          ]
+                        : [],
                 },
                 'delivery'
             )
