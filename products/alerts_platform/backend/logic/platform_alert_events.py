@@ -15,8 +15,8 @@ import json
 import hashlib
 from collections.abc import Collection, Sequence
 from dataclasses import fields
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Final
 from uuid import UUID
 
 import structlog
@@ -31,8 +31,11 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     PlatformAlertHistory,
+    PlatformCheckEntry,
     PlatformCheckEvent,
     PlatformCheckEventPage,
+    PlatformCheckPage,
+    PlatformLastCheck,
     PlatformStateChange,
     SourceKind,
 )
@@ -354,6 +357,16 @@ def history(
     }
 
 
+# A source reads these to fill in a page it can show without them, so a stalled query gives up
+# rather than holding the request.
+_READ_BUDGET: Final = {"max_execution_time": 5}
+
+
+def _microseconds(moment: datetime) -> str:
+    # A datetime parameter is sent to the second, which would move a window's end past checks inside it.
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
 # Deduplicated as `_HISTORY_SQL` is. The quiet checks are dropped before the deduplication, which
 # is safe because two copies of one check are identical rows. The total is a window over every
 # matching check, so one query answers both the page and the count a paginated list needs.
@@ -407,3 +420,110 @@ def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, lim
         ),
         total=rows[0][-1] if rows else 0,
     )
+
+
+_CHECKS_SQL = f"""
+SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total
+FROM (
+    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
+      AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
+    ORDER BY alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s OFFSET %(offset)s
+"""
+
+_CHECK_COUNT_SQL = f"""
+SELECT count()
+FROM (
+    SELECT alert_id, evaluation_key
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND grouping_key = ''
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
+      AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
+    LIMIT 1 BY alert_id, evaluation_key
+)
+"""
+
+
+def check_page(
+    team_id: int, configuration_id: UUID, *, since: datetime, until: datetime, limit: int, offset: int
+) -> PlatformCheckPage:
+    """One configuration's checks in `[since, until)`, newest first, with how many the window holds.
+
+    Only the ungrouped instance is read, for the same reason as `history`. Raises on a ClickHouse
+    failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    parameters = {
+        "team_id": team_id,
+        "configuration_id": configuration_id,
+        "since": _microseconds(since),
+        "until": _microseconds(until),
+        "limit": limit,
+        "offset": offset,
+    }
+    rows = sync_execute(_CHECKS_SQL, parameters, team_id=team_id, settings=_READ_BUDGET)
+    if rows:
+        total = rows[0][5]
+    elif offset:
+        # A page past the end has no row to carry the window's count, so it is counted on its own.
+        total = sync_execute(_CHECK_COUNT_SQL, parameters, team_id=team_id, settings=_READ_BUDGET)[0][0]
+    else:
+        total = 0
+    return PlatformCheckPage(
+        total=total,
+        checks=tuple(
+            PlatformCheckEntry(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                state=PlatformAlertState(state),
+                value=value,
+                error_message=error_message or None,
+            )
+            for occurred_at, evaluation_key, state, value, error_message, _ in rows
+        ),
+    )
+
+
+# Deduplication does not matter here, because two copies of one check are identical rows. The tuple
+# keeps a NULL value, which `argMax` would otherwise skip in favor of an older check's.
+_LAST_CHECKS_SQL = f"""
+SELECT configuration_id, max(occurred_at), argMax(tuple(value), (occurred_at, evaluation_key)).1
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id IN %(configuration_ids)s
+  AND grouping_key = ''
+GROUP BY configuration_id
+"""
+
+
+def last_checks(team_id: int, configuration_ids: Collection[UUID]) -> dict[UUID, PlatformLastCheck]:
+    """Each configuration's newest check across its whole history, in one query.
+
+    Only the ungrouped instance is read, as in `history`. A configuration with no check is left out.
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _LAST_CHECKS_SQL,
+        {"team_id": team_id, "configuration_ids": list(configuration_ids)},
+        team_id=team_id,
+        settings=_READ_BUDGET,
+    )
+    return {
+        configuration_id: PlatformLastCheck(checked_at=checked_at, value=value)
+        for configuration_id, checked_at, value in rows
+    }
