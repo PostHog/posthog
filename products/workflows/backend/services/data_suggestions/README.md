@@ -1,7 +1,6 @@
 # Data suggestions
 
 Suggests workflows built from a project's own events, on the Workflows empty state.
-Everything is behind the `workflows-data-suggestions` feature flag.
 
 ## How it works
 
