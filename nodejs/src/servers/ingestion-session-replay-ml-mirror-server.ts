@@ -40,12 +40,13 @@ import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 export { type IngestionSessionReplayMlMirrorServerConfig, buildMlMirrorServerConfig } from './ml-mirror-server-config'
 
 /** Boot-time smoke test so a broken addon crashes startup instead of dropping all traffic later. */
-async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
+export async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
     const inner = JSON.stringify({
         event: '$snapshot_items',
         properties: {
             $session_id: 's',
             $window_id: 'w',
+            $snapshot_source: 'web',
             $snapshot_items: [{ type: 3, timestamp: Date.now(), data: { source: 5, id: 1, text: 'health check' } }],
         },
     })
@@ -162,6 +163,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                     // lane follows its producer flag. The URL lane collects on its own flag,
                     // because collecting alone measures without sending anything anywhere.
                     collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                    maxImageBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGE_BYTES,
                     collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
                 },
                 // Producing needs collection: without it the anonymizer returns no URLs, and

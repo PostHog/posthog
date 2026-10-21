@@ -607,5 +607,17 @@ def sync_signing_secret_on_rotation(sender, team, **kwargs):
 
     Runs inside the rotation's transaction (Team.rotate_secret_token_and_save), so a
     failure here rolls the whole rotation back: the two stores can never diverge.
+    A secret rotated independently via the conversations endpoint is its own authority
+    and must not be clobbered by a legacy-token rotation.
     """
-    SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
+    # Locked get_or_create: a plain select_for_update().first() holds no lock when the row
+    # doesn't exist yet, letting a concurrent independent rotation be overwritten.
+    row, created = (
+        SigningSecret.objects.for_team(team.id)
+        .select_for_update()
+        .get_or_create(team=team, defaults={"secret": team.secret_api_token})
+    )
+    if created or row.rotated_independently:
+        return
+    row.secret = team.secret_api_token
+    row.save(update_fields=["secret"])

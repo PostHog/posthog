@@ -20,6 +20,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -65,11 +66,17 @@ def patch_side_effects():
     """Mock only the external side effects (Kafka, analytics, ClickHouse). The Postgres state
     machine is the SUT and is exercised against a real DB."""
     with (
+        patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=AsyncMock())) as connect_mock,
         patch(f"{GROUPING_MODULE_PATH}.emit_embedding_request") as emit_mock,
         patch(f"{GROUPING_MODULE_PATH}.posthoganalytics.capture") as capture_mock,
         patch(f"{GROUPING_MODULE_PATH}.soft_delete_report_signals") as soft_delete_mock,
     ):
-        yield {"emit": emit_mock, "capture": capture_mock, "soft_delete": soft_delete_mock}
+        yield {
+            "emit": emit_mock,
+            "capture": capture_mock,
+            "soft_delete": soft_delete_mock,
+            "temporal": connect_mock.return_value,
+        }
 
 
 def _existing_match(report_id: str) -> ExistingReportMatch:
@@ -118,11 +125,21 @@ def _build_input(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_new_match_creates_potential_report_below_threshold(ateam):
+async def test_new_match_creates_potential_report_below_threshold(ateam, patch_side_effects):
     """A first signal below weight threshold creates a POTENTIAL report, not promoted yet."""
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
 
+    await database_sync_to_async(record_llm_spend)(
+        "example-generation",
+        token_cost_microusd=123_456,
+        team_id=ateam.id,
+        signal_id=input_.signal_id,
+        stage="actionability",
+    )
     result = await assign_and_emit_signal_activity(input_)
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["total_spend"] == 12.3456
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["spend_accounting_failed_stages"] == []
+    patch_side_effects["temporal"].start_workflow.assert_not_called()
 
     assert result.promoted is False
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
@@ -216,6 +233,7 @@ async def test_potential_promotes_when_weight_crosses_threshold(ateam):
     assert refreshed.total_weight == pytest.approx(WEIGHT_THRESHOLD * 1.2)
     assert refreshed.signal_count == 2
     assert refreshed.promoted_at is not None
+    assert str(refreshed.triggering_signal_id) == input_.signal_id
 
 
 @pytest.mark.asyncio
@@ -271,8 +289,10 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam):
     - leave status at CANDIDATE
     - increment weight + signal_count atomically
     """
+    original_driver = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
+        triggering_signal_id=original_driver,
         status=SignalReport.Status.CANDIDATE,
         total_weight=2.0,
         signal_count=3,
@@ -286,6 +306,8 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam):
     assert refreshed.status == SignalReport.Status.CANDIDATE
     assert refreshed.total_weight == pytest.approx(2.5)
     assert refreshed.signal_count == 4
+
+    assert refreshed.triggering_signal_id == original_driver
 
 
 @pytest.mark.asyncio
@@ -388,13 +410,21 @@ async def test_ready_repromotes_to_candidate_on_a_bucket_regardless_of_weight(at
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(ateam):
-    """A signal that would group into a RESOLVED report must not reopen it. Instead a fresh
-    POTENTIAL report is created and symmetrically linked to the resolved one via related_to
-    artefacts, and the resolved report keeps its status and signal count."""
+@pytest.mark.parametrize(
+    "report_status,flag_result,recurs",
+    [
+        (SignalReport.Status.RESOLVED, False, True),
+        (SignalReport.Status.MONITORING, False, True),
+        (SignalReport.Status.MONITORING, RuntimeError("flag service unavailable"), True),
+        (SignalReport.Status.MONITORING, True, False),
+    ],
+)
+async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(
+    ateam: Team, report_status: str, flag_result: bool | Exception, recurs: bool
+) -> None:
     resolved = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.RESOLVED,
+        status=report_status,
         total_weight=1.5,
         signal_count=2,
         title="original title",
@@ -402,7 +432,21 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
     )
     input_ = _build_input(ateam.id, _existing_match(str(resolved.id)), weight=WEIGHT_THRESHOLD)
 
-    result = await assign_and_emit_signal_activity(input_)
+    with patch(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        return_value=flag_result if isinstance(flag_result, bool) else False,
+        side_effect=flag_result if isinstance(flag_result, Exception) else None,
+    ):
+        result = await assign_and_emit_signal_activity(input_)
+
+    if not recurs:
+        assert result.report_id == str(resolved.id)
+        refreshed = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
+        assert refreshed.status == SignalReport.Status.MONITORING
+        assert refreshed.signal_count == 3
+        assert refreshed.title == "original title"
+        assert refreshed.summary == "original summary"
+        return
 
     # A brand-new report was created, not the resolved one.
     assert result.report_id != str(resolved.id)
@@ -422,7 +466,7 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
 
     # The resolved report is untouched — not reopened, no new signal counted.
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
-    assert refreshed_resolved.status == SignalReport.Status.RESOLVED
+    assert refreshed_resolved.status == report_status
     assert refreshed_resolved.signal_count == 2
 
 
@@ -1137,7 +1181,17 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
+    await database_sync_to_async(record_llm_spend)(
+        "example-generation",
+        token_cost_microusd=123_456,
+        team_id=ateam.id,
+        signal_id=input_.signal_id,
+        stage="actionability",
+    )
     result = await assign_and_emit_signal_activity(input_)
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["total_spend"] == 12.3456
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["spend_accounting_failed_stages"] == []
+    patch_side_effects["temporal"].start_workflow.assert_not_called()
 
     assert result.promoted is False
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
@@ -1301,3 +1355,29 @@ async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ate
 
     events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
     assert "signal_report_daily_limit_paused" not in events
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
+    original_driver = uuid.uuid4()
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=2,
+        researching_signal_count=2,
+        triggering_signal_id=original_driver,
+    )
+    for _ in range(3):
+        signal = _build_input(ateam.id, _existing_match(str(report.id)))
+        await assign_and_emit_signal_activity(signal)
+        await database_sync_to_async(report.refresh_from_db)()
+        assert report.triggering_signal_id == original_driver
+        if report.signal_count == 3:
+            assert report.pending_triggering_signal_id is None
+        elif report.signal_count == 4:
+            next_driver = signal.signal_id
+            assert str(report.pending_triggering_signal_id) == next_driver
+        else:
+            assert str(report.pending_triggering_signal_id) == next_driver

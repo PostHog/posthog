@@ -140,7 +140,14 @@ def write_case_logs(
     return paths
 
 
-def append_case_scores(case_dir: Path, case_name: str, scores: dict[str, Any], *, trial_id: str | None = None) -> None:
+def append_case_scores(
+    case_dir: Path,
+    case_name: str,
+    scores: dict[str, Any],
+    *,
+    trial_id: str | None = None,
+    phase_durations: dict[str, float] | None = None,
+) -> None:
     slug = _case_log_slug(case_name, trial_id)
     summary_path = case_dir / f"{slug}.summary.txt"
     if not summary_path.exists():
@@ -148,6 +155,9 @@ def append_case_scores(case_dir: Path, case_name: str, scores: dict[str, Any], *
 
     rendered = json.dumps(scores, indent=2, default=str)
     with summary_path.open("a") as f:
+        if phase_durations:
+            f.write("=== phase_seconds ===\n")
+            f.write(json.dumps(phase_durations, indent=2) + "\n")
         f.write("=== scores ===\n")
         f.write(rendered)
         f.write("\n")

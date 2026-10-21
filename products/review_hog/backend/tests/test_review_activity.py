@@ -751,8 +751,9 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
     "trigger_source,run_index,expected_budget_left,expected_changed_code_only",
     [
         pytest.param("automatic", 1, 2, False, id="first_review"),
-        pytest.param("automatic", 2, 2, False, id="second_automatic_turn_reviews_the_whole_pr"),
+        pytest.param("automatic", 2, 2, True, id="second_automatic_turn_reviews_the_push"),
         pytest.param("automatic", 3, 2, True, id="later_automatic_turn_reviews_the_push"),
+        pytest.param("comment", 2, None, False, id="requested_second_review"),
         pytest.param("comment", 3, None, False, id="requested_review"),
         pytest.param(None, 3, None, False, id="payload_from_before_the_field"),
     ],
@@ -761,7 +762,7 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
     trigger_source: str | None, run_index: int, expected_budget_left: int | None, expected_changed_code_only: bool
 ) -> None:
     # Automatic reviews are the safeguard that stops at must-fix findings once the budget is spent, and after
-    # the first whole-PR turns they only comment on what a push changed. A review someone asks for surfaces
+    # the first review they only comment on what a push changed. A review someone asks for surfaces
     # everything the turn keeps, across the pull request.
     dedupe = AsyncMock(return_value=FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1))
     with (

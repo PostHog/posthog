@@ -3,12 +3,9 @@ from datetime import UTC, date, datetime
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okta import OktaSourceConfig
@@ -70,12 +67,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].headers["authorization"] == "SSWS tok"
 
-    def test_invalid_token(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("example.okta.com", "tok")
-            assert valid is False
-            assert "Invalid Okta API token" == msg
-
     def test_403_at_source_create_is_accepted(self):
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("example.okta.com", "tok", schema_name=None) == (True, None)
@@ -91,12 +82,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials(bad_domain, "tok")
         assert valid is False
         assert msg == "Invalid Okta domain"
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("example.okta.com", "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be rejected,

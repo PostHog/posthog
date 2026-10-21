@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
+    codebase_detection = detect(env=("^SIGNOZ_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://signoz.io/api-reference/"
 
@@ -57,7 +60,7 @@ class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
             name=ExternalDataSourceType.SIGNOZ,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SigNoz",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Connect your SigNoz workspace to sync logs, traces, alert rules, dashboards, and notification channels into the PostHog Data warehouse.
 
 Enter your SigNoz host (your SigNoz Cloud tenant, e.g. `example.signoz.io`, or your self-hosted URL) and an API key.

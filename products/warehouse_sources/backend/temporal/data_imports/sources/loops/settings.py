@@ -16,7 +16,7 @@ class LoopsEndpointConfig:
     name: str
     # Path under https://app.loops.so/api (e.g. "/v1/campaigns").
     path: str
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     # Stable created-date field to partition by, or None when the payload has no
     # creation timestamp (mailing lists, contact properties, components).
     partition_key: Optional[str] = None
@@ -28,6 +28,9 @@ class LoopsEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # Set for per-object endpoints fetched once per row of a parent list endpoint.
     fanout: Optional[DependentEndpointConfig] = None
+    # Set for per-node endpoints. Node ids come only from each workflow's detail, so the fan-out
+    # is two levels deep (workflows list -> workflow -> node) and runs through a custom iterator.
+    per_workflow_node: bool = False
     # Unused by Loops' full-refresh endpoints; kept so the config satisfies FanoutEndpointLike.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
@@ -73,7 +76,7 @@ LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
     "contact_properties": LoopsEndpointConfig(
         name="contact_properties",
         path="/v1/contacts/properties",
-        primary_key="key",
+        primary_keys=("key",),
         paginated=False,
         extra_params={"list": "all"},
     ),
@@ -94,7 +97,7 @@ LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
     "campaign_metrics": LoopsEndpointConfig(
         name="campaign_metrics",
         path="/v1/campaigns/{campaignId}/metrics",
-        primary_key="campaignId",
+        primary_keys=("campaignId",),
         paginated=False,
         fanout=DependentEndpointConfig(
             parent_name="campaigns",
@@ -114,7 +117,7 @@ LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
     "transactional_email_metrics": LoopsEndpointConfig(
         name="transactional_email_metrics",
         path="/v1/transactional-emails/{transactionalId}/metrics",
-        primary_key="transactionalId",
+        primary_keys=("transactionalId",),
         paginated=False,
         fanout=DependentEndpointConfig(
             parent_name="transactional_emails",
@@ -125,6 +128,13 @@ LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
             parent_params={"perPage": PAGE_SIZE},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
+    ),
+    "workflow_node_metrics": LoopsEndpointConfig(
+        name="workflow_node_metrics",
+        path="/v1/workflows/{workflowId}/nodes/{nodeId}/metrics",
+        primary_keys=("workflowId", "nodeId"),
+        paginated=False,
+        per_workflow_node=True,
     ),
 }
 

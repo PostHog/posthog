@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -60,6 +61,13 @@ BING_ADS_LISTING_MESSAGE_OVERRIDES: dict[str, str] = {
 
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^BING_ADS_", "^MICROSOFT_ADS_"),
+        pypi=("bingads",),
+        composer=("microsoft/bingads",),
+        maven=("com.microsoft.bingads:microsoft.bingads",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v13",)
     default_version = "v13"
@@ -282,7 +290,10 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 "The linked Bing Ads integration could not be found. Please reconnect your Bing Ads integration."
             ) from e
 
-        developer_token = credentials_service.get_secret("BING_ADS_DEVELOPER_TOKEN")
+        secrets = credentials_service.get_secrets(
+            ["BING_ADS_DEVELOPER_TOKEN", "BING_ADS_CLIENT_ID", "BING_ADS_CLIENT_SECRET"]
+        )
+        developer_token = secrets["BING_ADS_DEVELOPER_TOKEN"]
         if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
         if not integration.access_token:
@@ -298,6 +309,8 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             access_token=integration.access_token,
             refresh_token=integration.refresh_token,
             developer_token=developer_token,
+            client_id=secrets["BING_ADS_CLIENT_ID"],
+            client_secret=secrets["BING_ADS_CLIENT_SECRET"],
         )
         try:
             return client.list_accounts()

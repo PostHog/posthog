@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FieldpulseSource(ResumableSource[FieldpulseSourceConfig, FieldpulseResumeConfig]):
+    codebase_detection = detect(env=("^FIELDPULSE_",))
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
 
@@ -105,7 +108,7 @@ class FieldpulseSource(ResumableSource[FieldpulseSourceConfig, FieldpulseResumeC
             label="FieldPulse",
             caption="Contact support@fieldpulse.com to request and activate your FieldPulse API key.",
             iconPath="/static/services/fieldpulse.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

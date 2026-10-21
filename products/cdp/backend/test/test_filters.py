@@ -439,6 +439,19 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in called_directly
 
+    def test_filters_can_use_hogql_sha1(self) -> None:
+        compiled = compile_filters_bytecode(
+            {
+                "properties": [
+                    {"type": "hogql", "key": "sha1(properties.value) = 'a9993e364706816aba3e25717850c26c9cd0d89d'"}
+                ]
+            },
+            self.team,
+        )
+        assert "bytecode_error" not in compiled
+        assert execute_bytecode(compiled["bytecode"], {"properties": {"value": "abc"}}).result is True
+        assert execute_bytecode(compiled["bytecode"], {"properties": {"value": "def"}}).result is False
+
     def test_filters_reject_a_function_the_runtime_does_not_have(self):
         # max2 exists in the Python standard library and not in the Node VM. A data global such as
         # event is not callable either, because the VM resolves a direct call against its function

@@ -250,11 +250,13 @@ export interface ChartConfig {
     yScaleType?: 'linear' | 'log'
     // — Axis formatting —
 
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean
@@ -293,7 +295,9 @@ export interface ChartConfig {
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
-     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+     *  label can't push the plot off screen. Horizontal charts raise the cap to 30% of the chart
+     *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
+     *  render labels untruncated. */
     maxCategoryLabelWidth?: number
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
@@ -453,7 +457,8 @@ export interface BarsConfig {
      *  still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
-     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+     *  value, so `step = range / N`. Zero also removes spacing within grouped bars.
+     *  Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
     /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
      *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
@@ -520,6 +525,8 @@ export interface LineChartConfig extends ChartConfig {
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
  *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Gap between bar bands (0–1, default 0.2). Zero also removes within-group spacing. */
+    bandPadding?: number
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to

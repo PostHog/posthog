@@ -10,6 +10,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.http import StreamingHttpResponse
+from django.test import SimpleTestCase
 
 import httpx
 from parameterized import parameterized
@@ -33,6 +34,7 @@ from products.ai_observability.backend.llm import (
     get_default_models,
     get_playground_models,
 )
+from products.ai_observability.backend.llm.types import OutputSchema
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 PLAYGROUND_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -233,6 +235,45 @@ class TestLLMProxyThrottles(APIBaseTest):
         assert serializer.validated_data["seed"] == 42
 
 
+RESPONSE_SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+
+class TestLLMProxyCompletionSerializerResponseFormat(SimpleTestCase):
+    def _validate(self, response_format: object) -> LLMProxyCompletionSerializer:
+        serializer = LLMProxyCompletionSerializer(
+            data={
+                "system": "",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "model": "gpt-4.1-mini",
+                "provider": "openai",
+                "response_format": response_format,
+            }
+        )
+        serializer.is_valid()
+        return serializer
+
+    def test_fills_name_and_strict_defaults(self) -> None:
+        serializer = self._validate({"type": "json_schema", "json_schema": {"schema": RESPONSE_SCHEMA}})
+
+        assert serializer.errors == {}
+        assert serializer.validated_data["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": RESPONSE_SCHEMA, "strict": True},
+        }
+
+    @parameterized.expand(
+        [
+            ("unknown_type", {"type": "json_object", "json_schema": {"schema": RESPONSE_SCHEMA}}, "type"),
+            ("missing_schema", {"type": "json_schema", "json_schema": {"name": "x"}}, "json_schema"),
+            ("schema_not_an_object", {"type": "json_schema", "json_schema": {"schema": ["a"]}}, "json_schema"),
+        ]
+    )
+    def test_rejects_malformed_response_format(self, _name: str, response_format: dict, error_key: str) -> None:
+        serializer = self._validate(response_format)
+
+        assert error_key in serializer.errors["response_format"]
+
+
 class TestPlaygroundModelAllowlist(TestCase):
     def test_playground_models_are_subset_of_supported_models(self) -> None:
         for _, config in PROVIDERS:
@@ -286,15 +327,15 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
     @patch("products.ai_observability.backend.api.proxy.Client")
     def test_completion_allows_playground_model(self, mock_client_cls) -> None:
         mock_client_cls.return_value.stream.return_value = iter([])
-        response = self.client.post(
-            "/api/llm_proxy/completion/",
-            data=self._completion_payload("gpt-4.1-mini", "openai"),
-            format="json",
-        )
+        payload = self._completion_payload("gpt-4.1-mini", "openai")
+        payload["response_format"] = {"type": "json_schema", "json_schema": {"schema": RESPONSE_SCHEMA}}
+        response = self.client.post("/api/llm_proxy/completion/", data=payload, format="json")
         assert response.status_code == 200
         # Consume the streaming response to trigger the generator
         b"".join(response.streaming_content)  # type: ignore[attr-defined]
         mock_client_cls.return_value.stream.assert_called_once()
+        completion_request = mock_client_cls.return_value.stream.call_args.args[0]
+        assert completion_request.output_schema == OutputSchema(schema=RESPONSE_SCHEMA)
 
     @patch("products.ai_observability.backend.api.proxy.Client")
     def test_byok_key_bypasses_playground_allowlist(self, mock_client_cls) -> None:
@@ -325,6 +366,31 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         assert returned_ids == PLAYGROUND_MODEL_IDS
 
     @parameterized.expand([(True,), (False,)])
+    def test_openai_decision_models_use_the_existing_key(self, flag: bool) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="OpenAI",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "example-token"},
+            created_by=self.user,
+        )
+        with (
+            patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5-mini"]),
+            patch("products.ai_observability.backend.api.proxy.decision_evaluations_enabled", return_value=flag),
+        ):
+            response = self.client.get("/api/llm_proxy/models/", {"provider_key_id": str(key.id)})
+        assert response.status_code == 200
+        models = {model["id"]: model for model in response.json()}
+        assert models["gpt-5-mini"]["supports_decisions"] is False
+        assert models["gpt-5-mini"]["supports_chat"] is True
+        assert ("gpt-6-luna" in models) is flag
+        if flag:
+            assert models["gpt-6-luna"]["supports_decisions"] is True
+            assert models["gpt-6-luna"]["supports_chat"] is True
+            assert models["gpt-6-luna"]["provider"] == "OpenAI"
+
+    @parameterized.expand([(True,), (False,)])
     def test_openrouter_decision_models_use_the_existing_key(self, flag: bool) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -335,20 +401,31 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         )
         with (
             patch(
-                "products.ai_observability.backend.api.proxy.Client.list_models", return_value=["typesafe/jev-router"]
+                "products.ai_observability.backend.api.proxy.Client.list_models",
+                return_value=["typesafe/jev-router", "example/dual-model"],
             ),
             patch("products.ai_observability.backend.api.proxy.decision_evaluations_enabled", return_value=flag),
             patch(
                 "products.ai_observability.backend.api.proxy.decision_model_ids",
-                return_value=frozenset({"typesafe/jev-1.13"}),
+                return_value=frozenset({"typesafe/jev-1.13", "example/dual-model"}),
             ),
+            patch(
+                "products.ai_observability.backend.api.proxy.non_chat_model_ids",
+                return_value=frozenset({"typesafe/jev-1.13"}),
+            ) as non_chat_models,
         ):
             response = self.client.get("/api/llm_proxy/models/", {"provider_key_id": str(key.id)})
 
         assert response.status_code == 200
         models = {model["id"]: model for model in response.json()}
         assert models["typesafe/jev-router"]["supports_decisions"] is False
+        assert models["typesafe/jev-router"]["supports_chat"] is True
+        assert models["example/dual-model"]["supports_chat"] is True
+        assert models["example/dual-model"]["supports_decisions"] is flag
         assert ("typesafe/jev-1.13" in models) is flag
         if flag:
             assert models["typesafe/jev-1.13"]["provider"] == "OpenRouter"
             assert models["typesafe/jev-1.13"]["supports_decisions"] is True
+            assert models["typesafe/jev-1.13"]["supports_chat"] is False
+        else:
+            non_chat_models.assert_not_called()

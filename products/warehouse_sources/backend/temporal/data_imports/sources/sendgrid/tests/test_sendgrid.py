@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
@@ -168,16 +169,102 @@ class TestOffHostGuard:
         assert len(result.requests) == 1
         assert result.saved_states == []
 
-    def test_off_host_resume_url_raises(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "resume_state"),
+        [
+            ("marketing_lists", SendGridResumeConfig(next_url="http://169.254.169.254/latest/meta-data/")),
+            # The fan-out child seeds its page from the saved child_state, a different path than
+            # the top-level `next_url`, so the host check has to hold there too.
+            (
+                "singlesend_link_stats",
+                SendGridResumeConfig(
+                    fanout_state={
+                        "completed": [],
+                        "current": "/marketing/stats/singlesends/s1/links",
+                        "child_state": {"next_url": "http://169.254.169.254/latest/meta-data/"},
+                    }
+                ),
+            ),
+        ],
+    )
+    def test_off_host_resume_url_raises(self, endpoint: str, resume_state: SendGridResumeConfig) -> None:
         result = _run(
-            "marketing_lists",
-            [],
-            SendGridResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"),
+            endpoint,
+            route({"/marketing/singlesends": [_response({"result": [{"id": "s1"}], "_metadata": {}})]}),
+            resume_state,
         )
 
         assert isinstance(result.raised, ValueError)
         assert "unexpected URL" in str(result.raised)
-        assert result.requests == []
+        assert not any("169.254.169.254" in url for url in result.urls)
+
+
+_SINGLESENDS_PATH = "/marketing/singlesends"
+
+
+def _links_path(singlesend_id: str) -> str:
+    return f"/marketing/stats/singlesends/{singlesend_id}/links"
+
+
+class TestSingleSendLinkStatsFanOut:
+    def test_walks_every_single_send_and_tags_rows_with_its_id(self) -> None:
+        singlesends_next = "https://api.sendgrid.com/v3/marketing/singlesends?page_token=p2&page_size=100"
+        links_next = "https://api.sendgrid.com/v3/marketing/stats/singlesends/s1/links?page_token=l2&page_size=50"
+        link = {"url": "https://example.com/a", "url_location": 0, "ab_variation": "all", "ab_phase": "all"}
+
+        result = _run(
+            "singlesend_link_stats",
+            route(
+                {
+                    _SINGLESENDS_PATH: [
+                        _response({"result": [{"id": "s1"}, {"id": "gone"}], "_metadata": {"next": singlesends_next}}),
+                        _response({"result": [{"id": "s3"}], "_metadata": {}}),
+                    ],
+                    _links_path("s1"): [
+                        _response({"results": [{**link, "clicks": 4}], "_metadata": {"next": links_next}}),
+                        _response({"results": [{**link, "url_location": 1, "clicks": 2}], "_metadata": {}}),
+                    ],
+                    # A single send deleted after the parent listing must not fail the table.
+                    _links_path("gone"): [ScriptedResponse(status=404, json={"errors": [{"message": "not found"}]})],
+                    _links_path("s3"): [_response({"results": [{**link, "clicks": 9}], "_metadata": {}})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # Without the parent id the rows of different single sends collide on the primary key.
+        assert result.rows == [
+            {**link, "clicks": 4, "singlesend_id": "s1"},
+            {**link, "url_location": 1, "clicks": 2, "singlesend_id": "s1"},
+            {**link, "clicks": 9, "singlesend_id": "s3"},
+        ]
+        assert result.urls[2] == links_next
+        assert result.requests[0].param("page_size") == "100"
+        assert result.requests[1].param("page_size") == "50"
+
+    def test_resume_skips_completed_single_sends_and_continues_the_current_one(self) -> None:
+        links_next = "https://api.sendgrid.com/v3/marketing/stats/singlesends/s2/links?page_token=l2&page_size=50"
+
+        result = _run(
+            "singlesend_link_stats",
+            route(
+                {
+                    _SINGLESENDS_PATH: [_response({"result": [{"id": "s1"}, {"id": "s2"}], "_metadata": {}})],
+                    _links_path("s2"): [_response({"results": [{"url": "https://example.com/b"}], "_metadata": {}})],
+                }
+            ),
+            SendGridResumeConfig(
+                fanout_state={
+                    "completed": [_links_path("s1")],
+                    "current": _links_path("s2"),
+                    "child_state": {"next_url": links_next},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.urls[1] == links_next
+        assert result.rows == [{"url": "https://example.com/b", "singlesend_id": "s2"}]
 
 
 def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
@@ -330,6 +417,21 @@ class TestGetEndpointPermissions:
         assert reason is not None
         for fragment in fragments:
             assert fragment in reason
+
+    def test_fanout_endpoint_probes_its_parent_listing(self) -> None:
+        # The child path needs a single send id, so probing it as is would 404 and hide a denial.
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            permissions = get_endpoint_permissions("k", ["singlesend_link_stats"])
+
+        assert network.requests_log[0].path == "/v3/marketing/singlesends"
+        assert permissions["singlesend_link_stats"] is not None
+
+    def test_unbounded_endpoint_probes_a_small_one_with_the_same_scope(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            permissions = get_endpoint_permissions("k", ["unsubscribe_group_suppressions"])
+
+        assert network.requests_log[0].path == "/v3/asm/groups"
+        assert permissions["unsubscribe_group_suppressions"] is not None
 
     def test_unknown_endpoint_is_treated_as_reachable(self) -> None:
         assert self._probe(403, ["not_an_endpoint"]) == {"not_an_endpoint": None}

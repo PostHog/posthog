@@ -15,6 +15,24 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     INSIGHT = "insight", "Insight"
 
 
+class PlatformAlertOwner(LabeledStrEnum):
+    """The one stack that evaluates and delivers an alert, and the only one that writes it."""
+
+    SOURCE = "source", "Source"
+    PLATFORM = "platform", "Platform"
+
+
+class DeliveryPath(LabeledStrEnum):
+    """How the platform sends an alert it owns.
+
+    `HOG_FUNCTION` sends nothing natively. The source emits the internal events its own stack
+    emitted, and the alert's HogFunctions send exactly what they sent before the cutover.
+    """
+
+    NATIVE = "native", "Native"
+    HOG_FUNCTION = "hog_function", "HogFunction"
+
+
 class PlatformAlertState(LabeledStrEnum):
     """Where one alert instance stands."""
 
@@ -22,6 +40,15 @@ class PlatformAlertState(LabeledStrEnum):
     FIRING = "firing", "Firing"
     ERRORED = "errored", "Errored"
     SNOOZED = "snoozed", "Snoozed"
+    BROKEN = "broken", "Broken"
+
+
+class PlatformAlertCheckStatus(LabeledStrEnum):
+    """Whether a configuration's checks succeed. It holds for every instance of the configuration,
+    because a failed check returns no group to attribute the failure to."""
+
+    OK = "ok", "OK"
+    ERRORED = "errored", "Errored"
     BROKEN = "broken", "Broken"
 
 

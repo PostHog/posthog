@@ -52,6 +52,11 @@ def _materialize_result(quality_audit: QualityAuditMode) -> MaterializeViewResul
 
 
 class TestQualityGateBranching:
+    metrics: dict[str, MagicMock]
+
+    def setup_method(self) -> None:
+        self.metrics = {}
+
     async def _run(
         self,
         activity_results: list,
@@ -98,7 +103,7 @@ class TestQualityGateBranching:
                 "get_managed_warehouse_shadow_storage_mib_metrics",
                 "get_managed_warehouse_shadow_storage_delta_mib_metrics",
             ):
-                stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
+                self.metrics[metric] = stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
             result = await MaterializeViewWorkflow().run(inputs or _inputs())
         return result, execute_activity
 
@@ -146,6 +151,7 @@ class TestQualityGateBranching:
                 schema_name="models",
                 table_name="orders",
                 error=shadow_error,
+                run_mode="incremental",
             )
         )
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
@@ -160,6 +166,12 @@ class TestQualityGateBranching:
                 )
                 assert result.trino_materialized is True
                 assert result.job_id == "shadow-job"
+
+        finished = self.metrics["get_node_finished_metric"]
+        assert finished.call_args.args == ("failed" if shadow_error else "completed", "managed_warehouse")
+        assert finished.call_args.kwargs.get("error_class", "none") == ("other" if shadow_error else "none")
+        assert finished.call_args.kwargs["run_mode"] == "incremental"
+        assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
 
     async def test_a_clickhouse_run_does_not_wait_for_a_slow_trino_shadow(self) -> None:
         results = {

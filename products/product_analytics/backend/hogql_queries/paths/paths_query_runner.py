@@ -1,6 +1,7 @@
 import itertools
 from collections import defaultdict
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from re import (
     compile as re_compile,
@@ -38,7 +39,6 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner

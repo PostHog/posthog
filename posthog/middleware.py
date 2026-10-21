@@ -457,7 +457,7 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "notebooks":
                 notebook_short_id = path_parts[1]
                 return Notebook.objects.filter(deleted=False, short_id=notebook_short_id)
-            elif path_parts[0] == "feature_flags":
+            elif path_parts[0] in ("feature_flags", "feature-flags"):
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
@@ -1436,13 +1436,15 @@ class SocialAuthExceptionMiddleware:
 
 
 # Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
-# organization, which this check never judges. Settling the balance is how a member lifts a
-# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+# organization, which this check never judges. Partner consent can target an organization that the
+# partner pays for, which this check also never judges. Settling the balance is how a member lifts
+# a deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
-    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/", "/agentic/authorize"),
     "/organization-deactivated": (
         "/organization-deactivated",
         "/signup/",
+        "/agentic/authorize",
         "/organization/billing",
         "/billing/authorization_status",
     ),

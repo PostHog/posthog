@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import asyncio
 import logging
 from collections.abc import Callable, Collection, Sequence
@@ -39,6 +40,7 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+FINAL_POLL_READ_SECONDS = 5
 # Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
 # read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
 # a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
@@ -320,6 +322,7 @@ async def _create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
     origin_key: str | None = None,
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -379,6 +382,7 @@ async def _create_task_and_trigger(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
+        mcp_tool_allowlist=mcp_tool_allowlist,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
         origin_key=origin_key,
@@ -483,6 +487,7 @@ async def poll_for_turn(
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
+    poll_deadline: float | None = None,
 ) -> TurnPollResult:
     """Poll S3 logs until the agent finishes a turn.
 
@@ -491,8 +496,11 @@ async def poll_for_turn(
     runs once this budget is exhausted, so a caller must keep it below its own activity
     `start_to_close_timeout` or the salvage never gets a chance to fire (the Signals
     scout passes its 15-minute per-run budget for exactly this reason).
+    `poll_deadline` uses the monotonic clock so setup, I/O, and earlier turns cannot
+    extend the caller's shared time budget. Leave recovery time after this deadline.
     """
     poll_budget = MAX_POLL_SECONDS if max_poll_seconds is None else max_poll_seconds
+    started_at = time.monotonic()
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
@@ -509,22 +517,42 @@ async def poll_for_turn(
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
     while elapsed < poll_budget:
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
-        elapsed += POLL_INTERVAL_SECONDS
+        if poll_deadline is not None:
+            remaining = poll_deadline - time.monotonic()
+            if remaining > 0:
+                await asyncio.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+            elapsed = int(time.monotonic() - started_at)
+        else:
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            elapsed += POLL_INTERVAL_SECONDS
         # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
         # the workflow's inactivity timeout from firing while the agent is still working
-        if workflow_handle is not None:
+        if workflow_handle is not None and (poll_deadline is None or time.monotonic() < poll_deadline):
             try:
-                await workflow_handle.signal("heartbeat")
+                heartbeat = workflow_handle.signal("heartbeat")
+                if poll_deadline is None:
+                    await heartbeat
+                else:
+                    await asyncio.wait_for(heartbeat, timeout=max(0, poll_deadline - time.monotonic()))
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
             # Poll the logs.
-            log_state = await sync_to_async(
+            read_logs = sync_to_async(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
             )(task_run, skip_lines)
+            if poll_deadline is None:
+                log_state = await read_logs
+            else:
+                remaining = poll_deadline - time.monotonic()
+                log_state = await asyncio.wait_for(
+                    read_logs, timeout=remaining if remaining > 0 else FINAL_POLL_READ_SECONDS
+                )
+                elapsed = int(time.monotonic() - started_at)
+        except TimeoutError:
+            break
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -610,6 +638,8 @@ async def poll_for_turn(
         # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
         # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
         skip_lines = max(skip_lines, log_state.total_lines)
+        if poll_deadline is not None and time.monotonic() >= poll_deadline:
+            break
         refreshed = await _refresh_task_run(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
@@ -638,6 +668,8 @@ async def poll_for_turn(
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
     refreshed = await _refresh_task_run(task_run.id)
+    if poll_deadline is not None:
+        elapsed = int(time.monotonic() - started_at)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,
@@ -705,6 +737,7 @@ async def poll_for_agent_task(
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
+    poll_deadline: float | None = None,
 ) -> TurnPollResult:
     run = await sync_to_async(TaskRun.objects.get)(
         id=task_run.run_id, task_id=task_run.task_id, team_id=task_run.team_id
@@ -717,6 +750,7 @@ async def poll_for_agent_task(
         output_fn=output_fn,
         workflow_handle=workflow_handle,
         max_poll_seconds=max_poll_seconds,
+        poll_deadline=poll_deadline,
     )
 
 

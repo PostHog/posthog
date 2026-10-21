@@ -18,6 +18,7 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+import insightTrustCheck from './insights/trustCheck'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 import { mergeToolFactories } from './mergeToolFactories'
@@ -26,6 +27,7 @@ import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookRunCell from './notebooks/runCell'
 import notebookRun from './notebooks/runNotebook'
 import notebookRunStatus from './notebooks/runNotebookStatus'
 import notebookSetVariables from './notebooks/setVariables'
@@ -97,6 +99,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Insights
     'insight-query': queryInsight,
+    'insight-trust-check': insightTrustCheck,
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,
@@ -112,6 +115,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
     'notebooks-run': notebookRun,
+    'notebooks-run-cell': notebookRunCell,
     'notebooks-run-status': notebookRunStatus,
     'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
