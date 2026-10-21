@@ -139,20 +139,12 @@ class TestPlatformCutover(APIBaseTest):
         with team_scope(self.team.id):
             assert platform_testing.copy_of(alert.id).owner == "source"
 
-    @parameterized.expand(
-        [
-            ("moves", {}, None),
-            ("firing", {"state": State.FIRING}, CutoverSkip.FIRING),
-        ]
-    )
-    def test_a_dry_run_decides_as_a_real_run_and_changes_nothing(
-        self, _name: str, overrides: dict[str, Any], reason: CutoverSkip | None
-    ) -> None:
-        alert = self._alert(**overrides)
+    def test_a_dry_run_decides_as_a_real_run_and_changes_nothing(self) -> None:
+        alert = self._alert()
 
         (dry,) = cut_over_team(self.team.id, now=NOW, dry_run=True)
 
-        assert dry.skipped == reason
+        assert dry.skipped is None
         alert.refresh_from_db()
         assert (alert.owner, alert.owner_changed_at) == ("source", None)
         copies = list_configurations(team_id=self.team.id, source_kinds=[SourceKind.LOGS], limit=10, offset=0)

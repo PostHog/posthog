@@ -82,27 +82,24 @@ def cut_over_team(team_id: int, *, now: datetime | None = None, dry_run: bool = 
 
 def _cut_over_alert(alert_id: UUID, now: datetime | None, *, dry_run: bool) -> CutoverSkip | None:
     with transaction.atomic():
-        skipped = _move_locked_alert(alert_id, now)
-        if dry_run:
-            # Only once the decision is made, because a block marked for rollback refuses queries.
-            transaction.set_rollback(True)
-    return skipped
-
-
-def _move_locked_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
-    alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
-    # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
-    at = now or timezone.now()
-    if alert.platform_owned:
-        return CutoverSkip.ALREADY_MOVED
-    if in_an_environment(alert):
-        return CutoverSkip.ENVIRONMENT
-    if alert.state in FIRING_STATES:
-        return CutoverSkip.FIRING
-    if _logs_check_owed(alert.id, at):
-        return CutoverSkip.CHECK_DUE
-    if not hand_over(alert, at):
-        return CutoverSkip.PLATFORM_FIRING
+        try:
+            alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
+            # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
+            at = now or timezone.now()
+            if alert.platform_owned:
+                return CutoverSkip.ALREADY_MOVED
+            if in_an_environment(alert):
+                return CutoverSkip.ENVIRONMENT
+            if alert.state in FIRING_STATES:
+                return CutoverSkip.FIRING
+            if _logs_check_owed(alert.id, at):
+                return CutoverSkip.CHECK_DUE
+            if not hand_over(alert, at):
+                return CutoverSkip.PLATFORM_FIRING
+        finally:
+            # After the last query, because a block marked for rollback refuses queries.
+            if dry_run:
+                transaction.set_rollback(True)
     return None
 
 

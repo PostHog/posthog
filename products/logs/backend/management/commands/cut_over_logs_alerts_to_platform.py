@@ -34,5 +34,4 @@ class Command(BaseCommand):
         delivery = Counter(str(alert.choice.path) for alert in paths.alerts)
         moved = "would_move" if dry_run else "moved"
         outcomes = Counter(str(result.skipped or moved) for result in results)
-        prefix = "dry run, nothing moved: " if dry_run else ""
-        self.stdout.write(f"{prefix}team={team_id} {dict(outcomes) or 'no alerts'} paths={dict(delivery)}")
+        self.stdout.write(f"team={team_id} {dict(outcomes) or 'no alerts'} paths={dict(delivery)}")
