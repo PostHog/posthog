@@ -77,7 +77,7 @@ The thinking indicator stops at stream end, and a history error stays visible ev
 `sandbox_stream_recovered` records successful recovery after history reconciliation, with the phase, run status, attempt counts, and elapsed time.
 Neither event includes transcript contents or proxy tokens.
 
-After deployment, verify recovery with `tasks-stream-via-proxy` both enabled and disabled: interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
+After deployment, verify recovery on both stream legs (agent proxy and Django): interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
 Also exhaust retries and verify that Retry works for both an active run and an ended run with an unreadable history snapshot.
 
 ```text
