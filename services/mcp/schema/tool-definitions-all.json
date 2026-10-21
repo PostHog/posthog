@@ -4282,8 +4282,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-delete": {
         "description": "Delete a check. The API soft-deletes it, so its run history stays queryable in system.information_schema.data_quality_check_runs and past failures can still be dated.",
@@ -4298,8 +4297,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-results": {
         "description": "The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending rows — re-run that query to investigate a failure.",
@@ -4314,8 +4312,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-run": {
         "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
@@ -4330,8 +4327,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-schedule": {
         "description": "Set how often every enabled check on a metric runs, or stop running them automatically. Name the subject with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric gets a schedule when it takes its first check, so this fails with a 404 until then.",
@@ -4346,8 +4342,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-types": {
         "description": "The check types this project can author, each with the JSON schema its config is validated against. Pass subject_type to see only the types that kind of subject supports.",
@@ -4362,8 +4357,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-update": {
         "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The subject it audits is fixed, so subject_type and subject_uuid are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
@@ -4378,8 +4372,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-subjects": {
         "description": "Every table, view, metric and PostHog table in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read. A subject whose time_column is set can take a lookback_hours window.",
@@ -4394,8 +4387,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",

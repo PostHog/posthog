@@ -54,12 +54,6 @@ class _Response:
 class TestDataQualityNotifications(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag = patch(
-            "products.data_quality.backend.logic.notifications.is_data_quality_checks_enabled_for_team_id",
-            return_value=True,
-        )
-        flag.start()
-        self.addCleanup(flag.stop)
         self.view = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
