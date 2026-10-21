@@ -18,6 +18,8 @@ Usage:
 Scans are read-only. A scan that stops resumes with --resume. The report (report.jsonl) holds one row per
 key that is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
 A repair writes nothing without --apply, and records one action per key in an actions file.
+Rescan after every repair run. The rescan confirms the fix, and finds any ClickHouse write lost when a run was
+killed before it recorded its outcomes.
 """
 
 import time
