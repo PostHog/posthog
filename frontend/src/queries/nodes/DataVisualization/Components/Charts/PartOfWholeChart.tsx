@@ -7,6 +7,7 @@ import { SqlPieGraph } from './SqlPieGraph'
 import { SqlProportionBar } from './SqlProportionBar'
 
 export interface PartOfWholeChartProps {
+    labelFormatter?: (label: string) => string
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
     visualizationType: ChartDisplayType

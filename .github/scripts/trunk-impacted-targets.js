@@ -364,11 +364,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
     // More single-suite workflows, held to the trees their suites read:
-    // replay-vision evals and ClickHouse HCL checks are Python; the
+    // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
@@ -386,7 +385,7 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
     ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
     ['.github/workflows/build-hobby-installer.yml', HOBBY],
-    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-credentials-service.yml', 'service:credentials-service'],
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
     // Publish and CD workflows found after the first deploy pass.
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
@@ -497,6 +496,7 @@ const TRIPWIRE_RULES = [
     // The vendored paths-filter action and its CI (see CI_TOOLING). The
     // .depot/ shadow of the action follows through canonicalPath.
     ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/actions/shared-image-releases/**', CI_TOOLING],
     ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
     // Feed turbo-discover's backend product selection, so they take the
     // python lanes the same way the snob selector does.
@@ -621,7 +621,7 @@ const TRIPWIRE_RULES = [
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
-    // loads at runtime and user_product_list.py keys off the `path` values of.
+    // loads at runtime and starred_products.py keys off the `path` values of.
     // So both sides of the fe/py split can hold a reference to what one manifest
     // renames, and both claim their full lane family here.
     //
@@ -1886,7 +1886,7 @@ const DOMAIN_LANES = new Map([
     ['repo-config-lane', laneOf('repo-config')],
     ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'credentials-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 

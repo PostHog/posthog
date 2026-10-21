@@ -1,5 +1,5 @@
 {
-  "$comment": "What apps/code/scripts/update-openapi-client.ts generates into packages/api-client/src/generated.ts: `paths` are the endpoints the desktop calls through the typed client; `schemas` are the component schemas desktop code imports as `Schemas.<Name>` directly. Everything either of those references is generated with it. See the 'API client' section of products/desktop/AGENTS.md for how to add one.",
+  "$comment": "What packages/api-client/scripts/update-openapi-client.ts generates into packages/api-client/src/generated.ts: `paths` are the endpoints the desktop calls through the typed client; `schemas` are the component schemas desktop code imports as `Schemas.<Name>` directly. Everything either of those references is generated with it. See the 'API client' section of products/desktop/AGENTS.md for how to add one.",
   "paths": [
     "/api/projects/{project_id}/actions/{id}/",
     "/api/projects/{project_id}/cohorts/{id}/",

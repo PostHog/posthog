@@ -525,7 +525,7 @@ def build_agent_description(
         `pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, the iteration_number,
         recipe_snapshot (`{{"feature_sql": "..."}}`), model_spec (`{{"model_class": "...", "model_params": {{...}}}}`),
         holdout_score (the AUC you computed), status (`"kept"` if it beats your best AUC so far, else
-        `"discarded"`), a one-line agent_description, and a one-sentence `summary`. Do NOT batch these up to record at the end —
+        `"discarded"`), a one-line agent_description, a one-sentence `summary`, and a short `headline`. Do NOT batch these up to record at the end —
         the user watches the iteration trail stream in live as you work, so each must land as it happens.
         Judge `status` against your best-so-far at the time you record; if a later iteration wins, that
         is simply reflected by the climbing scores, not by rewriting earlier ones. These also drive
@@ -538,6 +538,11 @@ def build_agent_description(
         - Good: "Counting how often people opened a dashboard in their first week predicted downloads
           better than total activity."
         - Weak: "LogReg on dash_open_7d + log1p(evt_cnt), holdout AUC 0.81 vs 0.78, kept."
+
+        `headline` is the row title for the experiment. Keep it to 60 characters or fewer, in the same
+        plain words as `summary`, and say what the experiment tried or learned.
+        - Good: "Moved training cutoffs to midnight to match scoring"
+        - Good: "Coding-task activity became the strongest signal"
 
         ### Step 4 — Iterate
 
@@ -691,8 +696,10 @@ def build_agent_description(
            - `recommended_next`: concretely what a future run should try next given what you found.{notebook_field}
            The backend derives the rest of the summary (the kept ladder and dead-ends) from your
            recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
-           These two fields are your notes and can stay as dense as is useful. Also pass two fields
+           These two fields are your notes and can stay as dense as is useful. Also pass three fields
            for people, in the same plain words as each iteration's `summary`:
+           - `headline`: the run title, 60 characters or fewer, on what this run learned, in the same
+             style as each iteration's `headline`.
            - `reader_summary`: one or two sentences on what this run learned about user behavior.
            - `next_steps`: a short list (at most 5) of what to try next, a few words each.
            Also pass `model_explanation`, which the model card charts. Use exactly this shape:
@@ -883,7 +890,7 @@ def _describe_unscorable_champion(unscorable: UnscorableChampion | None, *, resc
     if rescue:
         rescue_text = """
 
-            **This is a rescue run.** The pipeline has no iteration budget left, so this run gets a
+            **This is a rescue run.** No research run is due for this pipeline, so this run gets a
             small fixed budget only to make scoring work again. Prefer a cheap, simple model whose
             `features.sql` scores today's inference population well inside the query limits over a
             model with a higher `holdout_score`."""
@@ -934,6 +941,7 @@ def run_training(
     iteration_budget: int,
     user_id: int | None,
     rescue: bool = False,
+    kickoff_reason: str = AutoresearchTrainingRun.KickoffReason.MANUAL,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -965,6 +973,7 @@ def run_training(
         training_run = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
+            kickoff_reason=kickoff_reason,
             iteration_budget=iteration_budget,
             started_at=now,
         )

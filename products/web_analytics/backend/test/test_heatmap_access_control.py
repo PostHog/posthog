@@ -93,6 +93,10 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
             ("editor", "PATCH", status.HTTP_200_OK, {"name": "updated"}),
             ("editor", "POST_REGENERATE", status.HTTP_200_OK, None),
             ("none", "GET", status.HTTP_403_FORBIDDEN, None),
+            ("viewer", "GET_HISTORY", status.HTTP_200_OK, None),
+            ("viewer", "POST_HISTORY_CAPTURE", status.HTTP_403_FORBIDDEN, None),
+            ("editor", "POST_HISTORY_CAPTURE", status.HTTP_202_ACCEPTED, None),
+            ("none", "GET_HISTORY", status.HTTP_403_FORBIDDEN, None),
         ]
     )
     def test_access_level_matrix(self, access_level, method, expected_status, patch_body):
@@ -106,6 +110,15 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
             response = self.client.patch(self._detail_url(), data=patch_body, format="json")
         elif method == "POST_REGENERATE":
             response = self.client.post(self._detail_url() + "regenerate/")
+        elif method == "GET_HISTORY":
+            with patch("products.web_analytics.backend.api.heatmaps_api.history_enabled", return_value=True):
+                response = self.client.get(self._detail_url() + "screenshot_history/")
+        elif method == "POST_HISTORY_CAPTURE":
+            with (
+                patch("products.web_analytics.backend.api.heatmaps_api.history_enabled", return_value=True),
+                patch("products.web_analytics.backend.heatmap_history.history_enabled", return_value=True),
+            ):
+                response = self.client.post(self._detail_url() + "screenshot_history/capture/")
         else:
             raise AssertionError(f"Unsupported method {method}")
 

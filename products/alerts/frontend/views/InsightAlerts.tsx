@@ -70,6 +70,8 @@ function AlertRowMenu({ alert, destinationCount, deleting, onDelete }: AlertRowM
 
 export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
     const { push } = useActions(router)
+    const { searchParams } = useValues(router)
+    const listSearchParams = { ...searchParams, alert_id: undefined }
     const logic = alertsLogic()
     const { deleteAlert, loadAlerts, toggleAlertEnabled } = useActions(logic)
     const {
@@ -97,7 +99,12 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                 return (
                     <>
                         <LemonTableLink
-                            to={urls.alert(alert.id)}
+                            to={
+                                urls.alert(alert.id) +
+                                (searchParams.created_by
+                                    ? `&created_by=${encodeURIComponent(searchParams.created_by)}`
+                                    : '')
+                            }
                             className={alert.enabled ? '' : 'text-muted'}
                             title={
                                 <div className="flex flex-row gap-3 items-center">
@@ -223,19 +230,19 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         <>
             {alertForEditModal && (
                 <EditAlertModal
-                    onClose={() => push(urls.alerts())}
+                    onClose={() => push(urls.alerts(), listSearchParams)}
                     isOpen
                     alert={alertForEditModal}
                     useAlertCheckPreview
                     onEditSuccess={() => {
                         loadAlerts()
-                        push(urls.alerts())
+                        push(urls.alerts(), listSearchParams)
                     }}
                 />
             )}
 
             {alertId && !alertForEditModal && !alertLoading && (
-                <AlertNotFoundModal isOpen onClose={() => push(urls.alerts())} />
+                <AlertNotFoundModal isOpen onClose={() => push(urls.alerts(), listSearchParams)} />
             )}
 
             <AlertsFiltersBar />

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]):
+    codebase_detection = detect(env=("^RETENTLY_",), script_hosts=("cdn.retently.com",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://www.retently.com/api/"
@@ -52,7 +55,7 @@ class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]
             name=ExternalDataSourceType.RETENTLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Retently",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["nps", "csat", "ces", "survey", "customer feedback"],
             caption="""Enter your Retently API key to pull your customer feedback data into the PostHog Data warehouse.
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]):
+    codebase_detection = detect(env=("^(HEY_REACH|HEYREACH)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://documenter.getpostman.com/view/23808049/2sA2xb5F75"
 
@@ -112,7 +115,7 @@ class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]
             docsUrl="https://posthog.com/docs/cdp/sources/heyreach",
             iconPath="/static/services/heyreach.png",
             keywords=["linkedin outreach", "sales engagement", "heyreach"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

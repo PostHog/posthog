@@ -30,6 +30,10 @@ def launch_preparation_metric_context(
 
 
 def record_launch_preparation_ms(duration_ms: int, status: Literal["COMPLETED", "FAILED"]) -> None:
+    from products.tasks.backend.temporal.metrics import (  # noqa: PLC0415 — Temporal registration imports ModalSandbox
+        record_startup_step_event,
+    )
+
     attributes = _launch_preparation_attributes.get()
     if attributes is None:
         return
@@ -41,3 +45,4 @@ def record_launch_preparation_ms(duration_ms: int, status: Literal["COMPLETED", 
         ).record(timedelta(milliseconds=duration_ms))
     except Exception:
         pass
+    record_startup_step_event("launch_preparation", duration_ms, {**attributes, "status": status})

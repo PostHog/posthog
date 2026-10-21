@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
@@ -12,9 +12,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -23,16 +26,17 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { MetricTile } from '../components/MetricTile'
+import { ProductNav } from '../components/ProductNav'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunConclusionTag } from '../components/runTables'
-import { RepoScopeChip, ScopeBar, WorkflowScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
+import { ScopeBar, WorkflowScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -42,6 +46,7 @@ import { githubCommitUrl, githubWorkflowUrl } from '../lib/github'
 import { jobCacheKey } from '../lib/jobs'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { withScope } from '../lib/scope'
+import { repoScopeLogic } from './repoScopeLogic'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Spend by runner tier: tier, job count, cost (or 'free'), share bar scaled to billable spend. */
@@ -96,6 +101,8 @@ function runRowKey(run: WorkflowRunRow): string {
 }
 
 export function WorkflowRunsScene(): JSX.Element {
+    // Remembers this repository, so the product root reopens it.
+    useMountedLogic(repoScopeLogic)
     const {
         runRows,
         runsLoading,
@@ -128,6 +135,7 @@ export function WorkflowRunsScene(): JSX.Element {
     const { loadRuns, loadRunActivity, loadRunnerCosts, loadJobAggregates, setRunExpanded } =
         useActions(workflowRunsLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
     // The rim spinner means "these numbers are updating", so each read only counts once it has data on
@@ -289,228 +297,252 @@ export function WorkflowRunsScene(): JSX.Element {
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Workflow" resourceType={{ type: 'health' }} />
-                <CIAnalyticsLoadError
-                    title="Couldn't load this workflow's runs"
-                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
-                    onRetry={loadRuns}
-                    loading={runsLoading}
-                />
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
+                <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load this workflow's runs"
+                        description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                        onRetry={loadRuns}
+                        loading={runsLoading}
+                    />
+                </ProductNav>
             </SceneContent>
         )
     }
 
     return (
         <SceneContent className="pb-16">
-            {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
-            <SceneTitleSection
-                name="Workflow"
-                resourceType={{ type: 'health' }}
+            <RepoSceneTitle
+                repo={`${repoOwner}/${repoName}`}
                 actions={
-                    <LemonButton type="secondary" size="small" to={githubUrl} targetBlank sideIcon={<IconExternal />}>
-                        View on GitHub
-                    </LemonButton>
-                }
-            />
-            <ScopeBar
-                repoSlot={
-                    <RepoScopeChip
-                        label={`${repoOwner}/${repoName}`}
-                        to={withScope(urls.engineeringAnalytics(), searchParams, sourceId)}
-                    />
-                }
-                crumbs={[
-                    {
-                        label: workflowName,
-                        node: (
-                            <WorkflowScopeChip
-                                repoOwner={repoOwner}
-                                repoName={repoName}
-                                workflowName={workflowName}
-                                sourceId={sourceId}
-                            />
-                        ),
-                    },
-                ]}
-                showDate={false}
-            />
-            <EntityHeader
-                icon={<IconGear />}
-                title={workflowName}
-                slug={`${repoOwner}/${repoName}`}
-                right={verdictPill}
-            />
-            {workflowHealthFailed && (
-                <LemonBanner type="warning">
-                    These figures could not load, so they cover only the runs in the table below rather than the whole
-                    window. Refresh to try again.
-                </LemonBanner>
-            )}
-            <ScopePanel busy={panelBusy} controls={<WorkflowScopeControls />}>
-                <div className="flex flex-wrap gap-2.5">
-                    <MetricTile
-                        label="Pass rate"
-                        tooltip={`${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
-                            healthSummary.conclusiveRuns
-                        )} runs with a pass-or-fail result passed.`}
-                        value={percent(healthSummary.passRate)}
-                        loading={workflowHealthLoading}
-                    />
-                    <MetricTile
-                        label="Runs"
-                        tooltip={
-                            healthSummary.reruns > 0
-                                ? `Includes ${humanFriendlyNumber(healthSummary.reruns)} re-run cycles.`
-                                : undefined
-                        }
-                        value={compactCount(healthSummary.totalRuns)}
-                        sub={runsTruncated ? `table shows the most recent ${runRows.length}` : undefined}
-                        loading={workflowHealthLoading}
-                    />
-                    <MetricTile
-                        label="Duration p50"
-                        tooltip="Median duration over successful runs. Runs under 10 seconds with no work are excluded when longer samples exist. All-fast workflows use every successful run."
-                        value={
-                            healthSummary.medianSeconds != null
-                                ? humanFriendlyDuration(healthSummary.medianSeconds)
-                                : '—'
-                        }
-                        sub={
-                            healthSummary.p95Seconds != null
-                                ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
-                                : undefined
-                        }
-                        loading={workflowHealthLoading}
-                    />
-                    <MetricTile
-                        label="Estimated median queue time"
-                        tooltip="Estimated median wait from job created to started: each job's median, weighted by how often the job ran."
-                        value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
-                        sub={jobAggregatesFailed ? "Couldn't load" : undefined}
-                        loading={jobAggregatesLoading}
-                    />
-                    <MetricTile
-                        label="Cost"
-                        tooltip={
-                            costSummary?.estimatedCostUsd != null
-                                ? `${compactMinutes(costSummary.billableMinutes)} billable · ${compactUsd(
-                                      !workflowHealthFailed && healthSummary.totalRuns > 0
-                                          ? costSummary.estimatedCostUsd / healthSummary.totalRuns
-                                          : null
-                                  )} per run.`
-                                : runnerCostsFailed
-                                  ? undefined
-                                  : 'Available once the job-level source is synced.'
-                        }
-                        value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
-                        sub={
-                            costSummary?.estimatedCostUsd != null
-                                ? undefined
-                                : runnerCostsFailed
-                                  ? "Couldn't load"
-                                  : 'Job-level source not synced'
-                        }
-                        loading={runnerCostsLoading || workflowHealthLoading}
-                    />
-                </div>
-                <Section id="health" title="Health" busy={healthBusy}>
-                    {runActivityFailed ? (
-                        <CIAnalyticsLoadError
-                            title="Couldn't load run activity"
-                            onRetry={loadRunActivity}
-                            loading={runActivityLoading}
-                        />
-                    ) : hasEnoughRunActivity(activityRuns) ? (
-                        <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
-                    ) : runActivityLoading ? (
-                        <LemonSkeleton className="h-80 w-full" />
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={githubUrl} target="_blank" />}>
+                            View on GitHub
+                            <IconExternal />
+                        </Button>
                     ) : (
-                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                            Not enough completed runs in the window to chart yet. Widen the date range or the run scope.
-                        </LemonCard>
-                    )}
-                </Section>
-                <Section id="jobs" title="Jobs">
-                    {jobAggregatesFailed ? (
-                        <CIAnalyticsLoadError
-                            title="Couldn't load jobs"
-                            onRetry={loadJobAggregates}
-                            loading={jobAggregatesLoading}
-                        />
-                    ) : (
-                        <JobAggregatesTable
-                            aggregates={jobAggregates}
-                            loading={jobAggregatesLoading}
-                            totalCostUsd={costSummary?.estimatedCostUsd ?? null}
-                        />
-                    )}
-                </Section>
-                <Section id="cost" title="Cost" busy={costBusy}>
-                    {runnerCostsFailed ? (
-                        <CIAnalyticsLoadError
-                            title="Couldn't load cost"
-                            onRetry={loadRunnerCosts}
-                            loading={runnerCostsLoading}
-                        />
-                    ) : runnerCosts.length > 0 ? (
-                        <RunnerTierCard costs={runnerCosts} />
-                    ) : runnerCostsLoading ? (
-                        <LemonSkeleton className="h-40 w-full" />
-                    ) : (
-                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                            No cost data. The job-level source isn't synced, or nothing ran in the window. Widen the
-                            date range, or check the source's sync status.
-                        </LemonCard>
-                    )}
-                </Section>
-                <Section id="runs" title="Runs">
-                    {/* Container queries drop the secondary columns when the scene is narrow, so Duration and
-                        Started stay in view. */}
-                    <LemonCard hoverEffect={false} className="overflow-hidden p-0 @container/runs">
-                        <LemonTable<WorkflowRunRow>
-                            dataSource={runRows}
-                            columns={runColumns}
+                        <LemonButton
+                            type="secondary"
                             size="small"
-                            embedded
-                            loading={runsLoading}
-                            rowKey={runRowKey}
-                            useURLForSorting={false}
-                            defaultSorting={{ columnKey: 'started', order: -1 }}
-                            pagination={{ pageSize: 25 }}
-                            onRow={(run) => ({
-                                className: 'cursor-pointer',
-                                onClick: () =>
-                                    setRunExpanded(
-                                        runRowKey(run),
-                                        !expandedRunKeys.includes(runRowKey(run)),
-                                        run.runId,
-                                        run.runAttempt,
-                                        run.ciEngine
-                                    ),
-                            })}
-                            expandable={{
-                                noIndent: true,
-                                isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
-                                expandedRowRender: (run) => (
-                                    <GroupedJobsTable
-                                        jobs={runJobs[jobCacheKey(run.id, run.runAttempt, run.ciEngine)]}
-                                        loading={runJobsLoading}
-                                        embedded
+                            to={githubUrl}
+                            targetBlank
+                            sideIcon={<IconExternal />}
+                        >
+                            View on GitHub
+                        </LemonButton>
+                    )
+                }
+            />
+            <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                <div className="flex flex-col gap-4">
+                    <ScopeBar
+                        crumbs={[
+                            {
+                                label: 'Workflows',
+                                to: withScope(
+                                    urls.engineeringAnalyticsWorkflows(`${repoOwner}/${repoName}`),
+                                    searchParams,
+                                    sourceId
+                                ),
+                            },
+                            {
+                                label: workflowName,
+                                node: (
+                                    <WorkflowScopeChip
+                                        repoOwner={repoOwner}
+                                        repoName={repoName}
+                                        workflowName={workflowName}
+                                        sourceId={sourceId}
                                     />
                                 ),
-                            }}
-                            emptyState="No runs for this workflow in the connected source."
-                            nouns={['run', 'runs']}
-                            data-attr="engineering-analytics-workflow-runs-table"
-                        />
-                        <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                            {runsTruncated
-                                ? `Showing the most recent ${runRows.length} runs in the window.`
-                                : `${runRows.length} runs in the window.`}
+                            },
+                        ]}
+                        showDate={false}
+                    />
+                    <EntityHeader
+                        icon={<IconGear />}
+                        title={workflowName}
+                        slug={`${repoOwner}/${repoName}`}
+                        right={verdictPill}
+                    />
+                    {workflowHealthFailed && (
+                        <LemonBanner type="warning">
+                            These figures could not load, so they cover only the runs in the table below rather than the
+                            whole window. Refresh to try again.
+                        </LemonBanner>
+                    )}
+                    <ScopePanel busy={panelBusy} controls={<WorkflowScopeControls />}>
+                        <div className="flex flex-wrap gap-2.5">
+                            <MetricTile
+                                label="Pass rate"
+                                tooltip={`${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
+                                    healthSummary.conclusiveRuns
+                                )} runs with a pass-or-fail result passed.`}
+                                value={percent(healthSummary.passRate)}
+                                loading={workflowHealthLoading}
+                            />
+                            <MetricTile
+                                label="Runs"
+                                tooltip={
+                                    healthSummary.reruns > 0
+                                        ? `Includes ${humanFriendlyNumber(healthSummary.reruns)} re-run cycles.`
+                                        : undefined
+                                }
+                                value={compactCount(healthSummary.totalRuns)}
+                                sub={runsTruncated ? `table shows the most recent ${runRows.length}` : undefined}
+                                loading={workflowHealthLoading}
+                            />
+                            <MetricTile
+                                label="Duration p50"
+                                tooltip="Median duration over successful runs. Runs under 10 seconds with no work are excluded when longer samples exist. All-fast workflows use every successful run."
+                                value={
+                                    healthSummary.medianSeconds != null
+                                        ? humanFriendlyDuration(healthSummary.medianSeconds)
+                                        : '—'
+                                }
+                                sub={
+                                    healthSummary.p95Seconds != null
+                                        ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
+                                        : undefined
+                                }
+                                loading={workflowHealthLoading}
+                            />
+                            <MetricTile
+                                label="Estimated median queue time"
+                                tooltip="Estimated median wait from job created to started: each job's median, weighted by how often the job ran."
+                                value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
+                                sub={jobAggregatesFailed ? "Couldn't load" : undefined}
+                                loading={jobAggregatesLoading}
+                            />
+                            <MetricTile
+                                label="Cost"
+                                tooltip={
+                                    costSummary?.estimatedCostUsd != null
+                                        ? `${compactMinutes(costSummary.billableMinutes)} billable · ${compactUsd(
+                                              !workflowHealthFailed && healthSummary.totalRuns > 0
+                                                  ? costSummary.estimatedCostUsd / healthSummary.totalRuns
+                                                  : null
+                                          )} per run.`
+                                        : runnerCostsFailed
+                                          ? undefined
+                                          : 'Available once the job-level source is synced.'
+                                }
+                                value={
+                                    costSummary?.estimatedCostUsd != null
+                                        ? compactUsd(costSummary.estimatedCostUsd)
+                                        : '—'
+                                }
+                                sub={
+                                    costSummary?.estimatedCostUsd != null
+                                        ? undefined
+                                        : runnerCostsFailed
+                                          ? "Couldn't load"
+                                          : 'Job-level source not synced'
+                                }
+                                loading={runnerCostsLoading || workflowHealthLoading}
+                            />
                         </div>
-                    </LemonCard>
-                </Section>
-            </ScopePanel>
+                        <Section id="health" title="Health" busy={healthBusy}>
+                            {runActivityFailed ? (
+                                <CIAnalyticsLoadError
+                                    title="Couldn't load run activity"
+                                    onRetry={loadRunActivity}
+                                    loading={runActivityLoading}
+                                />
+                            ) : hasEnoughRunActivity(activityRuns) ? (
+                                <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
+                            ) : runActivityLoading ? (
+                                <LemonSkeleton className="h-80 w-full" />
+                            ) : (
+                                <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                                    Not enough completed runs in the window to chart yet. Widen the date range or the
+                                    run scope.
+                                </LemonCard>
+                            )}
+                        </Section>
+                        <Section id="jobs" title="Jobs">
+                            {jobAggregatesFailed ? (
+                                <CIAnalyticsLoadError
+                                    title="Couldn't load jobs"
+                                    onRetry={loadJobAggregates}
+                                    loading={jobAggregatesLoading}
+                                />
+                            ) : (
+                                <JobAggregatesTable
+                                    aggregates={jobAggregates}
+                                    loading={jobAggregatesLoading}
+                                    totalCostUsd={costSummary?.estimatedCostUsd ?? null}
+                                />
+                            )}
+                        </Section>
+                        <Section id="cost" title="Cost" busy={costBusy}>
+                            {runnerCostsFailed ? (
+                                <CIAnalyticsLoadError
+                                    title="Couldn't load cost"
+                                    onRetry={loadRunnerCosts}
+                                    loading={runnerCostsLoading}
+                                />
+                            ) : runnerCosts.length > 0 ? (
+                                <RunnerTierCard costs={runnerCosts} />
+                            ) : runnerCostsLoading ? (
+                                <LemonSkeleton className="h-40 w-full" />
+                            ) : (
+                                <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                                    No cost data. The job-level source isn't synced, or nothing ran in the window. Widen
+                                    the date range, or check the source's sync status.
+                                </LemonCard>
+                            )}
+                        </Section>
+                        <Section id="runs" title="Runs">
+                            {/* Container queries drop the secondary columns when the scene is narrow, so Duration and
+                        Started stay in view. */}
+                            <LemonCard hoverEffect={false} className="overflow-hidden p-0 @container/runs">
+                                <LemonTable<WorkflowRunRow>
+                                    dataSource={runRows}
+                                    columns={runColumns}
+                                    size="small"
+                                    embedded
+                                    loading={runsLoading}
+                                    rowKey={runRowKey}
+                                    useURLForSorting={false}
+                                    defaultSorting={{ columnKey: 'started', order: -1 }}
+                                    pagination={{ pageSize: 25 }}
+                                    onRow={(run) => ({
+                                        className: 'cursor-pointer',
+                                        onClick: () =>
+                                            setRunExpanded(
+                                                runRowKey(run),
+                                                !expandedRunKeys.includes(runRowKey(run)),
+                                                run.runId,
+                                                run.runAttempt,
+                                                run.ciEngine
+                                            ),
+                                    })}
+                                    expandable={{
+                                        noIndent: true,
+                                        isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
+                                        expandedRowRender: (run) => (
+                                            <GroupedJobsTable
+                                                jobs={runJobs[jobCacheKey(run.id, run.runAttempt, run.ciEngine)]}
+                                                loading={runJobsLoading}
+                                                embedded
+                                            />
+                                        ),
+                                    }}
+                                    emptyState="No runs for this workflow in the connected source."
+                                    nouns={['run', 'runs']}
+                                    data-attr="engineering-analytics-workflow-runs-table"
+                                />
+                                <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                                    {runsTruncated
+                                        ? `Showing the most recent ${runRows.length} runs in the window.`
+                                        : `${runRows.length} runs in the window.`}
+                                </div>
+                            </LemonCard>
+                        </Section>
+                    </ScopePanel>
+                </div>
+            </ProductNav>
         </SceneContent>
     )
 }

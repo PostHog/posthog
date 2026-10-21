@@ -12,36 +12,12 @@ This module is pure. `ReviewUserSettings` and `ReviewProjectSettings` store the 
 from collections.abc import Mapping
 from typing import cast
 
-from django.db import models
-
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import InvalidPreference
+from products.review_hog.backend.facade.enums import DefaultReviewMode, PreferenceSource, UrgencyThreshold
+
 PreferenceValue = str | bool
-
-
-class DefaultReviewMode(models.TextChoices):
-    FOLLOW = "follow", "Let each repository decide"
-    FLASH = "flash", "On everywhere"
-    OFF = "off", "Off everywhere"
-
-
-class UrgencyThreshold(models.TextChoices):
-    # Values mirror `IssuePriority`, so the threshold compares directly against finding priorities.
-    CONSIDER = "consider", "Consider (all)"
-    SHOULD_FIX = "should_fix", "Should fix"
-    MUST_FIX = "must_fix", "Must fix"
-
-
-class PreferenceSource(models.TextChoices):
-    USER = "user", "Set by the user"
-    PROJECT = "project", "Project default"
-    DEFAULT = "default", "Built-in default"
-
-
-class InvalidPreference(ValueError):
-    def __init__(self, key: str, message: str) -> None:
-        super().__init__(message)
-        self.key = key
 
 
 @frozen

@@ -212,5 +212,86 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         assert found.json()["url"] == "https://github.com/acme/billing/blob/abc123/src/billing.py"
         read.assert_called_once_with(BILLING, "src/billing.py", ref="abc123")
 
+    def test_library_search_and_file_read_use_the_allowlist_intersection(self, _capture, _flag) -> None:
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py", readme="Billing prorates.")
+        self._cache(self.team, self.integration, OTHER, tree_paths="src/other.py", readme="Other notes.")
+        library = self._library("Billing")
+        assert (
+            self.client.patch(f"{self._libraries_url()}{library}/", {"repos": [BILLING]}, format="json").status_code
+            == 200
+        )
+
+        search = self.client.get(f"{self.base}/search/", {"query": "billing", "library_id": library})
+        outside = self.client.get(f"{self.base}/search/", {"query": "other", "repo": OTHER, "library_id": library})
+        read = self.client.get(f"{self.base}/file/", {"repo": OTHER, "path": "src/other.py", "library_id": library})
+        empty = self._library("Empty")
+
+        assert search.status_code == 200, search.json()
+        assert {hit["repo"] for hit in search.json()["results"]} == {BILLING}
+        assert outside.status_code == 400
+        assert read.status_code == 400
+        no_hits = self.client.get(f"{self.base}/search/", {"query": "billing", "library_id": empty})
+        assert no_hits.status_code == 200, no_hits.json()
+        assert no_hits.json()["results"] == []
+
+    def test_a_repo_removed_from_every_environment_loses_its_library_link(self, _capture, _flag) -> None:
+        from products.business_knowledge.backend.models import KnowledgeLibraryRepository
+
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        library = self._library("Repos")
+        assert (
+            self.client.patch(
+                f"{self._libraries_url()}{library}/", {"repos": [BILLING, OTHER]}, format="json"
+            ).status_code
+            == 200
+        )
+
+        assert self._select([OTHER]).status_code == 200
+
+        assert set(
+            KnowledgeLibraryRepository.objects.unscoped().filter(library_id=library).values_list("repo", flat=True)
+        ) == {OTHER}
+
+    def test_a_repo_another_environment_still_allows_keeps_its_link(self, _capture, _flag) -> None:
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.business_knowledge.backend.models import KnowledgeLibraryRepository, TeamBusinessKnowledgeConfig
+
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        child_config = get_or_create_team_extension(child, TeamBusinessKnowledgeConfig)
+        child_config.github_repos = [BILLING]
+        child_config.save(update_fields=["github_repos"])
+        library = self._library("Repos")
+        assert (
+            self.client.patch(
+                f"{self._libraries_url()}{library}/", {"repos": [BILLING, OTHER]}, format="json"
+            ).status_code
+            == 200
+        )
+
+        assert self._select([OTHER]).status_code == 200
+
+        assert set(
+            KnowledgeLibraryRepository.objects.unscoped().filter(library_id=library).values_list("repo", flat=True)
+        ) == {BILLING, OTHER}
+
+    def _libraries_url(self) -> str:
+        return f"/api/projects/{self.team.id}/business_knowledge/libraries/"
+
+    def _library(self, name: str) -> str:
+        response = self.client.post(self._libraries_url(), {"name": name}, format="json")
+        assert response.status_code == 201, response.content
+        return response.json()["id"]
+
     def _other_team(self) -> Team:
         return Team.objects.create(organization=self.organization, name="Other environment")

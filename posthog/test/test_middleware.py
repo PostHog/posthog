@@ -431,9 +431,22 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # indexed lookup on posthog_taggeditem per page load, and the organization it
         # serializes comes off the user's current_organization foreign key, which carries
         # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
-        cls.base_app_num_queries = 56
+        # +5: the app context also serializes the team's five extension configs, and each
+        # request reads them on its own Team instance, one primary-key lookup each.
+        cls.base_app_num_queries = 61
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+        # A page load creates any missing config row, which adds an insert per config to its first
+        # count. Create the rows here so that each count covers only the lookups.
+        for team in (cls.team, cls.second_team):
+            for config in (
+                "revenue_analytics_config",
+                "marketing_analytics_config",
+                "customer_analytics_config",
+                "workflows_config",
+                "feature_flag_policy_config",
+            ):
+                getattr(team, config)
 
         # some teams have non-standard API tokens
         cls.third_team = create_team(organization=cls.organization, name="Third Life")
@@ -580,16 +593,18 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_cohorts_api.status_code, 200)
 
+    @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(
         self,
-    ):
+        path: str,
+    ) -> None:
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
             FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
         ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
-            response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
+            response_app = self.client.get(f"/{path}/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
@@ -600,10 +615,11 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_feature_flags_api.status_code, 200)
 
+    @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_project_unchanged_when_creating_feature_flag(self):
+    def test_project_unchanged_when_creating_feature_flag(self, path: str) -> None:
         with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)):
-            response_app = self.client.get(f"/feature_flags/new")
+            response_app = self.client.get(f"/{path}/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
@@ -2134,7 +2150,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
             ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
             ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
             ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("deactivated_keeps_partner_consent", "is_active", "/agentic/authorize", status.HTTP_200_OK),
             ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_keeps_partner_consent", "is_pending_deletion", "/agentic/authorize", status.HTTP_200_OK),
             ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
             (
                 "pending_deletion_drops_stripe_return",

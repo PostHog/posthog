@@ -157,7 +157,7 @@ jobs:
                       "cohort-core": 22,
                       "cohort-event-shuffler": 25,
                       "cohort-seeder": 77,
-                      "cohort-stream-processor": 146,
+                      "cohort-stream-processor": 285,
                       "common-alloc": 5,
                       "common-cache": 6,
                       "common-compression": 5,
@@ -403,7 +403,9 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
                   ../bin/ci-wait-for-docker launch --down
-                  ../bin/ci-wait-for-docker wait seaweedfs
+                  # objectstorage reports healthy only once its `posthog` bucket and
+                  # `object_storage_root_user` identity exist; the cohort processor's S3 tests use both.
+                  ../bin/ci-wait-for-docker wait seaweedfs objectstorage
 
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
@@ -560,6 +562,19 @@ jobs:
                           USAGE_INGESTION_E2E_TOPIC=clickhouse_billing_usage_records_test \
                           USAGE_INGESTION_E2E_LOAD_REQUESTS=2000 \
                               run_nextest usage-ingestion-ignored -p usage-ingestion --run-ignored only --test-threads=1 || overall_rc=1
+                      fi
+                      # cohort-stream-processor's broker and S3 tests are #[ignore]'d. This job runs Kafka
+                      # and SeaweedFS (objectstorage, :19000). `kind(test)` selects the tests/ binaries,
+                      # whose ignored tests all need this stack. One at a time: each joins its own
+                      # consumer group and most create several 64-partition topics.
+                      if [ "$pkg" = "cohort-stream-processor" ]; then
+                          KAFKA_HOSTS=localhost:9092 \
+                          CHECKPOINT_S3_ENDPOINT=http://localhost:19000 \
+                          CHECKPOINT_S3_REGION=us-east-1 \
+                          CHECKPOINT_S3_BUCKET=posthog \
+                          CHECKPOINT_S3_ACCESS_KEY_ID=object_storage_root_user \
+                          CHECKPOINT_S3_SECRET_ACCESS_KEY=object_storage_root_password \
+                              run_nextest cohort-stream-processor-ignored -p cohort-stream-processor -E 'kind(test)' --run-ignored only --test-threads=1 || overall_rc=1
                       fi
                       echo "::endgroup::"
                   done
@@ -745,6 +760,24 @@ jobs:
                     --merge-wide-persons 3 --merge-wide-distinct-ids 1000 --merge-wide-role source \
                     --kill-after 5s --scale-up-after 8s
 
+            # The publish plane: the identity service writes an outbox row for
+            # every create, attach, merge and delete, two publisher replicas
+            # drain it to per-run topics, and the gate reads the topics back
+            # once the outbox is empty. The latest row per distinct id must
+            # equal the Postgres mapping, the merge event pairs must equal the
+            # merged sources, and every mapping must carry a tombstone after
+            # the delete leg, through a leader kill, an identity crash and a
+            # publisher crash. Small wide merges keep the pointer cursor busy.
+            - name: Run the e2e gate publishing to Kafka under chaos (kill + identity crash + publisher crash)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --publish --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 2 --merge-wide-distinct-ids 500 --merge-wide-role source \
+                    --kill-after 5s --identity-crash-after 7s --publisher-crash-after 9s
+
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while
             # the paused writer guarantees their PG rows are stale. Before
@@ -812,6 +845,28 @@ jobs:
                   ./target/debug/personhog-test-harness gate \
                     --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
                     --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
+
+            # A changelog migration grows 4 to 8 partitions while the
+            # writer is paused, so a restarted partition must warm the old
+            # topic's tail itself. Write-once persons are what expose a
+            # warm that skips that tail: with a small person set every key
+            # is rewritten after the flip and the loss is masked.
+            - name: Run the e2e gate growing the changelog with the writer paused
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 5000 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 8 \
+                    --migrate-pause-writer --writer-pause-duration 8s
+
+            # A shrink dissolves the partitions past the new count, and a
+            # holder killed at Sealing leaves its partitions for its peers to
+            # seal. The slow coordinator keeps Sealing long enough to hit.
+            - name: Run the e2e gate shrinking the changelog with a leader killed at Sealing
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 4 \
+                    --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
 
             - name: Dump service logs on failure
               if: failure()

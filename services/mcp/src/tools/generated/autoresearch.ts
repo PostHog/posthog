@@ -50,6 +50,12 @@ const autoresearchCreate = (): ToolBase<
         if (params.iteration_budget !== undefined) {
             body['iteration_budget'] = params.iteration_budget
         }
+        if (params.iterations_per_run !== undefined) {
+            body['iterations_per_run'] = params.iterations_per_run
+        }
+        if (params.research_interval_days !== undefined) {
+            body['research_interval_days'] = params.research_interval_days
+        }
         if (params.success_auc !== undefined) {
             body['success_auc'] = params.success_auc
         }
@@ -58,6 +64,9 @@ const autoresearchCreate = (): ToolBase<
         }
         if (params.output_person_property !== undefined) {
             body['output_person_property'] = params.output_person_property
+        }
+        if (params.write_person_property !== undefined) {
+            body['write_person_property'] = params.write_person_property
         }
         const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'POST',
@@ -99,8 +108,10 @@ const autoresearchList = (): ToolBase<
                     'target_event',
                     'horizon_days',
                     'status',
-                    'iteration_budget',
-                    'iteration_budget_remaining',
+                    'iterations_per_run',
+                    'research_interval_days',
+                    'training_phase',
+                    'next_research_at',
                     'last_scored_at',
                     'created_at',
                     'updated_at',
@@ -236,6 +247,78 @@ const autoresearchOnlinePerformanceRetrieve = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const AutoresearchPartialUpdateSchema = () => {
+    const AutoresearchPartialUpdateBody = orvalSchemas.AutoresearchPartialUpdateBody()
+    const AutoresearchPartialUpdateParams = orvalSchemas.AutoresearchPartialUpdateParams()
+    return AutoresearchPartialUpdateParams.omit({ project_id: true }).extend(AutoresearchPartialUpdateBody.shape)
+}
+
+const autoresearchPartialUpdate = (): ToolBase<
+    ReturnType<typeof AutoresearchPartialUpdateSchema>,
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
+> => ({
+    name: 'autoresearch-partial-update',
+    schema: AutoresearchPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.target_event !== undefined) {
+            body['target_event'] = params.target_event
+        }
+        if (params.target_definition !== undefined) {
+            body['target_definition'] = params.target_definition
+        }
+        if (params.horizon_days !== undefined) {
+            body['horizon_days'] = params.horizon_days
+        }
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
+        }
+        if (params.training_population !== undefined) {
+            body['training_population'] = params.training_population
+        }
+        if (params.inference_population !== undefined) {
+            body['inference_population'] = params.inference_population
+        }
+        if (params.cadence_days !== undefined) {
+            body['cadence_days'] = params.cadence_days
+        }
+        if (params.iteration_budget !== undefined) {
+            body['iteration_budget'] = params.iteration_budget
+        }
+        if (params.iterations_per_run !== undefined) {
+            body['iterations_per_run'] = params.iterations_per_run
+        }
+        if (params.research_interval_days !== undefined) {
+            body['research_interval_days'] = params.research_interval_days
+        }
+        if (params.success_auc !== undefined) {
+            body['success_auc'] = params.success_auc
+        }
+        if (params.plateau_iterations !== undefined) {
+            body['plateau_iterations'] = params.plateau_iterations
+        }
+        if (params.output_person_property !== undefined) {
+            body['output_person_property'] = params.output_person_property
+        }
+        if (params.write_person_property !== undefined) {
+            body['write_person_property'] = params.write_person_property
+        }
+        const result = await context.api.request<Schemas.AutoresearchPipeline>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/autoresearch/${result.id}`)
     },
 })
 
@@ -629,6 +712,9 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.reader_summary !== undefined) {
             body['reader_summary'] = params.reader_summary
         }
+        if (params.headline !== undefined) {
+            body['headline'] = params.headline
+        }
         if (params.next_steps !== undefined) {
             body['next_steps'] = params.next_steps
         }
@@ -755,6 +841,9 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
         if (params.summary !== undefined) {
             body['summary'] = params.summary
         }
+        if (params.headline !== undefined) {
+            body['headline'] = params.headline
+        }
         if (params.agent_confidence !== undefined) {
             body['agent_confidence'] = params.agent_confidence
         }
@@ -811,6 +900,7 @@ const autoresearchTrainingRunsList = (): ToolBase<
                     'id',
                     'pipeline',
                     'status',
+                    'kickoff_reason',
                     'iteration_budget',
                     'iteration_count',
                     'best_holdout_score',
@@ -873,6 +963,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-models-list': autoresearchModelsList,
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-online-performance-retrieve': autoresearchOnlinePerformanceRetrieve,
+    'autoresearch-partial-update': autoresearchPartialUpdate,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
     'autoresearch-runs-list': autoresearchRunsList,

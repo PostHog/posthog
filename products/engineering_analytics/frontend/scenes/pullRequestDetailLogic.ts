@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -30,7 +29,7 @@ import type {
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import { WorkflowRun, isDecisiveFailure, isPassingConclusion } from '../lib/lifecycle'
-import { withScope } from '../lib/scope'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -392,7 +391,6 @@ export interface pullRequestDetailLogicMeta {
         breadcrumbs: (
             repoOwner: string,
             repoName: string,
-            number: number,
             sourceId: string | null,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
@@ -743,32 +741,13 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 timelines?.items.find((item) => item.segments.length > 0) ?? null,
         ],
         breadcrumbs: [
-            (s, p) => [p.repoOwner, p.repoName, p.number, s.sourceId, router.selectors.searchParams],
+            (s, p) => [p.repoOwner, p.repoName, s.sourceId, router.selectors.searchParams],
             (
                 repoOwner: string,
                 repoName: string,
-                number: number,
                 sourceId: string | null,
                 searchParams: Record<string, string | undefined>
-            ): Breadcrumb[] => [
-                {
-                    key: 'EngineeringAnalytics',
-                    name: 'Engineering analytics',
-                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: 'EngineeringAnalyticsPullRequests',
-                    name: 'Pull requests',
-                    path: withScope(urls.engineeringAnalyticsPullRequestList(), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: ['EngineeringAnalyticsPullRequest', `${repoOwner}/${repoName}#${number}`],
-                    name: `${repoOwner}/${repoName} #${number}`,
-                    iconType: 'health',
-                },
-            ],
+            ): Breadcrumb[] => repoBreadcrumbs(`${repoOwner}/${repoName}`, searchParams, sourceId),
         ],
     }),
 

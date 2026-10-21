@@ -126,7 +126,7 @@ significant difference, work through:
    _Sanity check:_ re-aggregate the warehouse table by
    org/group once (deduped) and compare to the per-user sum; a large gap confirms repeated-row
    inflation.
-5. **Is it a legacy experiment?** An experiment with legacy metrics runs on the older engine (E13 in `mid-run-changes.md`).
+5. **Is it a legacy experiment?** A legacy experiment shows no results (E13 in `mid-run-changes.md`).
    Migrate it before reading an A/A result.
 
 **Recommend:** if chance and exposure do not explain the result, investigate instrumentation rather than
@@ -181,9 +181,8 @@ PostHog defaults to Bayesian, unless the project's default method says otherwise
 - **Flat priors.** PostHog uses a non-informative prior. Early swings
   aren't the prior pushing things around — they're the data being sparse.
 - **The displayed effect is relative** to the baseline: 10% against 12% conversion reads as +20%.
-- **Legacy experiments.** An experiment with legacy metrics (`is_legacy` in `experiment-get`) uses an older engine with
-  different multivariate semantics and different significance gates. See E13 in `mid-run-changes.md`, and PostHog's
-  [legacy-methodology docs page](https://posthog.com/docs/experiments/legacy-methodology).
+- **Legacy experiments.** Legacy experiments (`is_legacy` in `experiment-get`) no longer show results.
+  Migrate them with `experiment-migrate`. See E13 in `mid-run-changes.md`.
 
 <!-- Source for maintainers (may rot): is_decisive in products/experiments/stats/bayesian/tests.py;
 credible_interval in products/experiments/stats/bayesian/utils.py. -->

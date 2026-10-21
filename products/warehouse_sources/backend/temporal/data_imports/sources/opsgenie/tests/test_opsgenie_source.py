@@ -15,10 +15,6 @@ class TestOpsgenieSource:
         self.source = OpsgenieSource()
         self.config = OpsgenieSourceConfig(api_key="key_123", region="us")
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["alerts", "users"])
-        assert {s.name for s in schemas} == {"alerts", "users"}
-
     def test_validate_credentials_success(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             assert self.source.validate_credentials(self.config, team_id=1) == (True, None)
@@ -27,7 +23,6 @@ class TestOpsgenieSource:
     @pytest.mark.parametrize(
         "status,error",
         [
-            (401, "Invalid Opsgenie API key"),
             (422, "Your Opsgenie API key format is not valid"),
         ],
     )

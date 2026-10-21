@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
+    codebase_detection = detect(
+        env=("^VAPI_",),
+        npm=("@vapi-ai/server-sdk", "@vapi-ai/web"),
+        pypi=("vapi-server-sdk", "vapi-python"),
+        go=("github.com/VapiAI/server-sdk-go",),
+    )
+
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
     api_docs_url = "https://docs.vapi.ai/api-reference"
@@ -49,7 +57,7 @@ class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
             name=ExternalDataSourceType.VAPI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Vapi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Vapi private API key to automatically pull your Vapi voice agent data into the PostHog Data warehouse.
 
 You can find your private API key in the [Vapi dashboard](https://dashboard.vapi.ai) under **Organization settings** → **API keys**.

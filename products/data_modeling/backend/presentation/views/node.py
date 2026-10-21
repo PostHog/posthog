@@ -12,7 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
@@ -24,8 +24,8 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
-from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import (
+    delete_node,
     endpoint_link,
     get_declared_target,
     suspension_state,
@@ -42,7 +42,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -234,11 +234,11 @@ class NodeSerializer(serializers.ModelSerializer):
             return None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # Managed viewsets (e.g. Revenue Analytics) own their views' nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
-        # editing managed nodes or moving any node into a managed DAG via the API.
-        if self.instance is not None and self.instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
+        # editing those nodes via the API.
+        if self.instance is not None and self.instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be modified.")
         if self.instance is not None and self.instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         node_type = attrs.get("type")
@@ -284,6 +284,19 @@ def _get_upstream_nodes(
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
+
+
+def _managed_view_node_ids(team_id: int, node_ids: set[str]) -> set[str]:
+    return {
+        str(node_id)
+        for node_id in Node.objects.filter(
+            team_id=team_id, id__in=node_ids, saved_query__managed_viewset__isnull=False
+        ).values_list("id", flat=True)
+    }
+
+
+def _feeds_a_managed_view(node: Node) -> bool:
+    return node.outgoing_edges.filter(target__saved_query__managed_viewset__isnull=False).exists()
 
 
 def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
@@ -356,17 +369,14 @@ class NodeViewSet(
         return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
 
     def perform_destroy(self, instance: Node) -> None:
-        if instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
+        self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        if instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
+        if _feeds_a_managed_view(instance):
+            raise serializers.ValidationError("A view PostHog manages reads from this node, so it can't be deleted.")
         if instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
-        instance.delete()
-
-    def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
-        """`scope_object = "INTERNAL"` makes AccessControlPermission skip this viewset entirely, so
-        warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
-        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
-            raise PermissionDenied(message)
+        delete_node(instance.team_id, instance.pk)
 
     def safely_get_object(self, queryset: models.QuerySet) -> Node:
         lookup = self.request.query_params.get("lookup")
@@ -466,6 +476,8 @@ class NodeViewSet(
             node_ids = _get_upstream_nodes(node)
         else:
             node_ids = _get_downstream_nodes(node)
+        managed_view_node_ids = _managed_view_node_ids(self.team_id, node_ids)
+        node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
 
         node_ids.add(str(node.id))
 

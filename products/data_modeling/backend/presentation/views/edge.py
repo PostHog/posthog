@@ -5,8 +5,9 @@ from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
 from products.data_modeling.backend.facade.models import Edge, NodeType
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 
@@ -36,11 +37,11 @@ class EdgeSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # System-managed DAGs (e.g. Revenue Analytics) own their edges; the internal sync path
-        # maintains them directly via the ORM and bypasses this serializer. Block users from
-        # editing managed edges or moving any edge into a managed DAG via the API.
-        if self.instance is not None and self.instance.dag.is_managed:
-            raise serializers.ValidationError("Edges belonging to a system-managed DAG cannot be modified.")
+        # Managed viewsets (e.g. Revenue Analytics) own the edges into their views; the internal
+        # sync path maintains them directly via the ORM and bypasses this serializer. Block users
+        # from editing those edges via the API.
+        if self.instance is not None and self.instance.target.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Edges into views PostHog manages cannot be modified.")
         if self.instance is not None and _connects_a_metric(self.instance):
             raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
         return attrs
@@ -60,7 +61,7 @@ class EdgeViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    queryset = Edge.objects.select_related("dag").all()
+    queryset = Edge.objects.select_related("dag", "target__saved_query").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
     ordering = "-created_at"
@@ -69,11 +70,13 @@ class EdgeViewSet(
         return super().get_serializer_context()
 
     def perform_destroy(self, instance: Edge) -> None:
-        if instance.dag.is_managed:
-            raise serializers.ValidationError("Edges belonging to a system-managed DAG cannot be deleted.")
+        self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        if instance.target.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Edges into views PostHog manages cannot be deleted.")
         if _connects_a_metric(instance):
             raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
         instance.delete()
+        delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
     def safely_get_queryset(self, queryset):
         return self._exclude_hidden_edges(queryset.filter(team_id=self.team_id)).order_by(self.ordering)

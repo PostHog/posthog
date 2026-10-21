@@ -15,7 +15,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { performQuery } from '~/queries/query'
-import { isInsightQueryNode, isTrendsQuery } from '~/queries/utils'
+import type { DataNode } from '~/queries/schema/schema-general'
+import { isInsightQueryNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -94,34 +95,30 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
     })
 
-    it('loads totals and full charts before standalone trends', async () => {
+    it('loads totals and the primary chart, then the sparklines, then the charts below them', async () => {
         const response = { results: [{ ...trendsNumber.result[0], aggregated_value: 10 }] }
         const pendingTrend = promiseResolveReject<typeof response>()
-        mockedQuery.mockImplementation(async (query) => {
-            if (isTrendsQuery(query) && query.compareFilter?.compare === false && !query.trendsFilter) {
-                return pendingTrend.promise
-            }
-            return response
-        })
+        const isSparkline = (query: DataNode): boolean =>
+            isTrendsQuery(query) && query.compareFilter?.compare === false && !query.trendsFilter
+        const isLowerChart = (query: DataNode): boolean =>
+            isRetentionQuery(query) || (isTrendsQuery(query) && !!query.breakdownFilter)
+        mockedQuery.mockImplementation(async (query) => (isSparkline(query) ? pendingTrend.promise : response))
         const { container } = render(<HomeTabDefault />)
         const collection = dataNodeCollectionLogic({ key: homeTabDataCollectionId(teamLogic.values.currentTeamId) })
         try {
-            await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(12))
+            await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(7))
             for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
                 expect(tile).toHaveAttribute('aria-busy', 'false')
             }
-            expect(
-                mockedQuery.mock.calls
-                    .slice(0, 11)
-                    .some(
-                        ([query]) =>
-                            isTrendsQuery(query) && query.compareFilter?.compare === false && !query.trendsFilter
-                    )
-            ).toBe(false)
+            const calls = mockedQuery.mock.calls.map(([query]) => query)
+            expect(calls.slice(0, 6).some(isSparkline)).toBe(false)
+            expect(isSparkline(calls[6])).toBe(true)
+            expect(calls.some(isLowerChart)).toBe(false)
         } finally {
             pendingTrend.resolve(response)
             await waitFor(() => expect(collection.values.areAnyLoading).toBe(false))
         }
+        expect(mockedQuery.mock.calls.slice(-5).every(([query]) => isLowerChart(query))).toBe(true)
     })
 
     it('hides old trend values when the new total loads before the new trend', async () => {
@@ -166,18 +163,34 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
     })
 
-    it('replaces sample charts with live queries when the project starts receiving events', async () => {
+    it('replaces sample metrics and charts with live queries when the project starts receiving events', async () => {
+        ensureJsdom()
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
         const { container } = render(<HomeTabDefault />)
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(9))
-        expect(container.querySelectorAll('[data-attr="insight-sample-data-state"]')).toHaveLength(5)
+        await waitFor(() =>
+            expect(container.querySelectorAll('[data-attr="insight-sample-data-tag"]')).toHaveLength(11)
+        )
+        for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
+            expect(tile).toHaveAttribute('aria-busy', 'false')
+            expect(tile.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull()
+        }
+        expect(mockedQuery).not.toHaveBeenCalled()
+        expect(screen.queryByText('No previous period data')).not.toBeInTheDocument()
+
+        await act(async () => homeTabDefaultLogic.actions.setSelectedMetric('sessions'))
+        expect(mockedQuery).not.toHaveBeenCalled()
 
         await act(async () => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: true, is_demo: false })
         })
 
         await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
-        expect(container.querySelector('[data-attr="insight-sample-data-state"]')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()
+        await waitFor(() =>
+            expect(
+                within(screen.getByLabelText('Sessions', { selector: 'button' })).getByText('10')
+            ).toBeInTheDocument()
+        )
     })
 })

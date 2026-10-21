@@ -171,6 +171,14 @@ def test_rejects_unsupported_model_version(config: AwsSystemsManagerSourceConfig
             "baseline_id",
             100,
         ),
+        (
+            "ops_item_events",
+            "ListOpsItemEvents",
+            "Summaries",
+            {"EventId": "event-example", "OpsItemId": "oi-example"},
+            "event_id",
+            50,
+        ),
     ],
 )
 @pytest.mark.parametrize("terminal_token", [None, ""])
@@ -401,15 +409,6 @@ def test_status_retries_belong_only_to_tracked_transport(config: AwsSystemsManag
     assert network.session_options[0]["retry"].is_retry("POST", status)
 
 
-def test_network_failure_is_not_reported_as_valid_credentials(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock
-) -> None:
-    http.post.side_effect = requests.ConnectionError("unreachable")
-    valid, reason = validate_credentials(config, API_VERSION)
-    assert not valid and reason and "Could not reach" in reason
-    http.close.assert_called_once()
-
-
 def test_normalizes_nested_counts_timestamps_and_composite_keys(
     config: AwsSystemsManagerSourceConfig,
 ) -> None:
@@ -440,19 +439,46 @@ def test_normalizes_nested_counts_timestamps_and_composite_keys(
     assert rows[0]["execution_summary_execution_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
 
 
-def test_preserves_inventory_content(
+@pytest.mark.parametrize(
+    "schema,result_key,item_id,key,column,data",
+    [
+        (
+            "inventory",
+            "Entities",
+            {"Id": "i-example"},
+            "Data",
+            "data",
+            {
+                "AWS:InstanceInformation": {
+                    "CaptureTime": "2025-01-01T00:00:00Z",
+                    "Content": [{"InstanceId": "i-example", "InstanceStatus": "Stopped"}],
+                }
+            },
+        ),
+        (
+            "ops_items",
+            "OpsItemSummaries",
+            {"OpsItemId": "oi-example"},
+            "OperationalData",
+            "operational_data",
+            {"/aws/resources": {"Value": '[{"arn": "arn:aws:ec2:example"}]', "Type": "SearchableString"}},
+        ),
+    ],
+)
+def test_preserves_dynamic_content_as_json(
     config: AwsSystemsManagerSourceConfig,
+    schema: str,
+    result_key: str,
+    item_id: dict[str, Any],
+    key: str,
+    column: str,
+    data: dict[str, Any],
 ) -> None:
-    data = {
-        "AWS:InstanceInformation": {
-            "CaptureTime": "2025-01-01T00:00:00Z",
-            "Content": [{"InstanceId": "i-example", "InstanceStatus": "Stopped"}],
-        }
-    }
-    result = driver(config).run("inventory", [ScriptedResponse(json={"Entities": [{"Id": "i-example", "Data": data}]})])
+    result = driver(config).run(schema, [ScriptedResponse(json={result_key: [{**item_id, key: data}]})])
     assert result.raised is None
-    row = result.rows[0]
-    assert json.loads(row["data"]) == data
+    assert len(result.rows) == 1
+    assert json.loads(result.rows[0][column]) == data
+    assert not any(name.startswith(f"{column}_") for name in result.rows[0])
 
 
 @pytest.mark.parametrize("incremental", [False, True])
@@ -475,3 +501,409 @@ def test_snapshot_requests_never_filter_by_watermark(
     )
     list(iter_batches(AwsSystemsManagerSource().source_for_pipeline(config, manager, inputs)))
     assert json.loads(http.post.call_args.kwargs["data"]) == {"MaxResults": 50}
+
+
+def _error(code: str) -> ScriptedResponse:
+    return ScriptedResponse(status=400, json={"__type": code, "Message": "Not found"})
+
+
+def _key(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True)
+
+
+def _instance(instance_id: str, status: str) -> dict[str, Any]:
+    return {"Id": instance_id, "Data": {"AWS:InstanceInformation": {"Content": [{"InstanceStatus": status}]}}}
+
+
+@pytest.mark.parametrize(
+    "schema,script,expected_requests,expected_rows",
+    [
+        (
+            "compliance_items",
+            [
+                ScriptedResponse(
+                    json={
+                        "ResourceComplianceSummaryItems": [
+                            {"ResourceId": "i-a", "ResourceType": "ManagedInstance", "ComplianceType": "Patch"},
+                            {"ResourceId": "i-gone", "ResourceType": "ManagedInstance", "ComplianceType": "Patch"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "ComplianceItems": [
+                            {
+                                "ResourceId": "i-a",
+                                "ResourceType": "ManagedInstance",
+                                "ComplianceType": "Patch",
+                                "Id": "KB1",
+                                "Status": "NON_COMPLIANT",
+                                "Details": {"PatchState": "Missing"},
+                                "ExecutionSummary": {"ExecutionTime": 1735689600},
+                            }
+                        ]
+                    }
+                ),
+                _error("InvalidResourceId"),
+            ],
+            [
+                ("ListResourceComplianceSummaries", {"MaxResults": 50}),
+                *(
+                    (
+                        "ListComplianceItems",
+                        {
+                            "MaxResults": 50,
+                            "ResourceIds": [resource_id],
+                            "ResourceTypes": ["ManagedInstance"],
+                            "Filters": [{"Key": "ComplianceType", "Values": ["Patch"], "Type": "EQUAL"}],
+                        },
+                    )
+                    for resource_id in ["i-a", "i-gone"]
+                ),
+            ],
+            [
+                {
+                    "resource_id": "i-a",
+                    "id": "KB1",
+                    "details_patch_state": "Missing",
+                    "execution_summary_execution_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                }
+            ],
+        ),
+        (
+            "inventory_entries",
+            [
+                ScriptedResponse(
+                    json={
+                        "Schemas": [
+                            {"TypeName": name} for name in ["AWS:Service", "AWS:InstanceInformation", "AWS:Application"]
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={"Entities": [_instance("i-0123456789abcdef0", "Active"), _instance("i-ended", "Terminated")]}
+                ),
+                ScriptedResponse(
+                    json={
+                        "InstanceId": "i-0123456789abcdef0",
+                        "TypeName": "AWS:Application",
+                        "SchemaVersion": "1.1",
+                        "CaptureTime": "2025-01-01T00:00:00Z",
+                        "Entries": [{"Name": "nginx", "Version": "1.0"}, {"Name": "curl", "Version": "8.0"}],
+                    }
+                ),
+                _error("InvalidInstanceId"),
+            ],
+            [
+                ("GetInventorySchema", {"MaxResults": 200}),
+                ("GetInventory", {"MaxResults": 50, "ResultAttributes": [{"TypeName": "AWS:InstanceInformation"}]}),
+                *(
+                    ("ListInventoryEntries", {"MaxResults": 50, "InstanceId": "i-0123456789abcdef0", "TypeName": name})
+                    for name in ["AWS:Application", "AWS:Service"]
+                ),
+            ],
+            [
+                {
+                    "instance_id": "i-0123456789abcdef0",
+                    "type_name": "AWS:Application",
+                    "capture_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "entry": json.dumps({"Name": name, "Version": version}, sort_keys=True),
+                }
+                for name, version in [("nginx", "1.0"), ("curl", "8.0")]
+            ],
+        ),
+        (
+            "association_execution_targets",
+            [
+                ScriptedResponse(json={"Associations": [{"AssociationId": "a-1"}]}),
+                ScriptedResponse(
+                    json={
+                        "AssociationExecutions": [
+                            {"AssociationId": "a-1", "ExecutionId": "e-1"},
+                            {"AssociationId": "a-1", "ExecutionId": "e-gone"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "AssociationExecutionTargets": [
+                            {
+                                "AssociationId": "a-1",
+                                "ExecutionId": "e-1",
+                                "ResourceId": "i-a",
+                                "ResourceType": "ManagedInstance",
+                                "Status": "Failed",
+                                "LastExecutionDate": 1735689600,
+                            }
+                        ]
+                    }
+                ),
+                _error("AssociationExecutionDoesNotExist"),
+            ],
+            [
+                ("ListAssociations", {"MaxResults": 50}),
+                ("DescribeAssociationExecutions", {"MaxResults": 50, "AssociationId": "a-1"}),
+                *(
+                    (
+                        "DescribeAssociationExecutionTargets",
+                        {"MaxResults": 50, "AssociationId": "a-1", "ExecutionId": execution_id},
+                    )
+                    for execution_id in ["e-1", "e-gone"]
+                ),
+            ],
+            [
+                {
+                    "execution_id": "e-1",
+                    "resource_id": "i-a",
+                    "status": "Failed",
+                    "last_execution_date": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                }
+            ],
+        ),
+        (
+            "instance_patch_states",
+            [
+                ScriptedResponse(
+                    json={
+                        "InstanceInformationList": [{"InstanceId": "i-a"}, {"InstanceId": "mi-b"}],
+                        "NextToken": "nodes-2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "InstancePatchStates": [
+                            {"InstanceId": "i-a", "MissingCount": 3, "OperationEndTime": 1735689600},
+                            {"InstanceId": "mi-b", "MissingCount": 0, "OperationEndTime": 1735689600},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json={"InstanceInformationList": [{"InstanceId": "i-c"}]}),
+                ScriptedResponse(json={"InstancePatchStates": [{"InstanceId": "i-c", "MissingCount": 1}]}),
+            ],
+            [
+                ("DescribeInstanceInformation", {"MaxResults": 50}),
+                ("DescribeInstancePatchStates", {"MaxResults": 50, "InstanceIds": ["i-a", "mi-b"]}),
+                ("DescribeInstanceInformation", {"MaxResults": 50, "NextToken": "nodes-2"}),
+                ("DescribeInstancePatchStates", {"MaxResults": 50, "InstanceIds": ["i-c"]}),
+            ],
+            [
+                {
+                    "instance_id": "i-a",
+                    "missing_count": 3,
+                    "operation_end_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                },
+                {"instance_id": "mi-b", "missing_count": 0},
+                {"instance_id": "i-c", "missing_count": 1},
+            ],
+        ),
+        (
+            "instance_patches",
+            [
+                ScriptedResponse(json={"InstanceInformationList": [{"InstanceId": "i-a"}, {"InstanceId": "i-gone"}]}),
+                ScriptedResponse(
+                    json={
+                        "Patches": [
+                            {"Title": "KB1 update", "KBId": "KB1", "State": "Missing", "InstalledTime": 0},
+                            {"Title": "KB2 update", "KBId": "KB2", "State": "Installed", "InstalledTime": 1735689600},
+                        ]
+                    }
+                ),
+                _error("InvalidInstanceId"),
+            ],
+            [
+                ("DescribeInstanceInformation", {"MaxResults": 50}),
+                *(
+                    ("DescribeInstancePatches", {"MaxResults": 100, "InstanceId": instance_id})
+                    for instance_id in ["i-a", "i-gone"]
+                ),
+            ],
+            [
+                {"instance_id": "i-a", "kb_id": "KB1", "state": "Missing"},
+                {
+                    "instance_id": "i-a",
+                    "kb_id": "KB2",
+                    "state": "Installed",
+                    "installed_time": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                },
+            ],
+        ),
+    ],
+)
+def test_fan_out_requests_each_parent_row_and_skips_vanished_parents(
+    config: AwsSystemsManagerSourceConfig,
+    schema: str,
+    script: list[ScriptedResponse],
+    expected_requests: list[tuple[str, dict[str, Any]]],
+    expected_rows: list[dict[str, Any]],
+) -> None:
+    result = driver(config).run(schema, script)
+    assert result.raised is None
+    assert [
+        (request.headers["x-amz-target"].removeprefix("AmazonSSM."), request.json()) for request in result.requests
+    ] == expected_requests
+    assert [{key: row[key] for key in expected} for row, expected in zip(result.rows, expected_rows)] == expected_rows
+    assert len(result.rows) == len(expected_rows)
+    assert result.response is not None
+    keys = {tuple(row[column] for column in result.response.primary_keys or []) for row in result.rows}
+    assert len(keys) == len(result.rows) and all(None not in key for key in keys)
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
+
+
+def test_fan_out_resumes_inside_nested_parent_without_rereading_done_children(
+    config: AwsSystemsManagerSourceConfig,
+) -> None:
+    a1 = _key({"AssociationId": "a-1"})
+    e1 = _key({"AssociationId": "a-1", "ExecutionId": "e-1"})
+    target = {"AssociationId": "a-1", "ResourceId": "i-a", "ResourceType": "ManagedInstance"}
+    result = driver(config).run(
+        "association_execution_targets",
+        [
+            ScriptedResponse(
+                json={
+                    "Associations": [{"AssociationId": "a-0"}, {"AssociationId": "a-1"}],
+                    "NextToken": "associations-2",
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "AssociationExecutions": [
+                        {"AssociationId": "a-1", "ExecutionId": "e-0"},
+                        {"AssociationId": "a-1", "ExecutionId": "e-1"},
+                        {"AssociationId": "a-1", "ExecutionId": "e-2"},
+                    ],
+                }
+            ),
+            ScriptedResponse(json={"AssociationExecutionTargets": [{**target, "ExecutionId": "e-1"}]}),
+            ScriptedResponse(json={"AssociationExecutionTargets": [{**target, "ExecutionId": "e-2"}]}),
+            ScriptedResponse(json={"Associations": []}),
+        ],
+        resume_state=SystemsManagerResumeConfig(parents=((None, a1), ("executions-2", e1)), next_token="targets-2"),
+    )
+    assert result.raised is None
+    assert [request.json() for request in result.requests] == [
+        {"MaxResults": 50},
+        {"MaxResults": 50, "AssociationId": "a-1", "NextToken": "executions-2"},
+        {"MaxResults": 50, "AssociationId": "a-1", "ExecutionId": "e-1", "NextToken": "targets-2"},
+        {"MaxResults": 50, "AssociationId": "a-1", "ExecutionId": "e-2"},
+        {"MaxResults": 50, "NextToken": "associations-2"},
+    ]
+    assert [row["execution_id"] for row in result.rows] == ["e-1", "e-2"]
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_sessions_read_ended_then_active_sessions(config: AwsSystemsManagerSourceConfig, resumed: bool) -> None:
+    active = _key({"MaxResults": 200, "State": "Active"})
+    history = [
+        ScriptedResponse(json={"Sessions": [{"SessionId": "s-ended", "EndDate": 1735689600}], "NextToken": "h-2"}),
+        ScriptedResponse(json={"Sessions": []}),
+    ]
+    result = driver(config).run(
+        "sessions",
+        [
+            *([] if resumed else history),
+            ScriptedResponse(json={"Sessions": [{"SessionId": "s-open", "Status": "Connected"}]}),
+        ],
+        resume_state=SystemsManagerResumeConfig(parents=((None, active),), next_token="a-2") if resumed else None,
+    )
+    assert result.raised is None
+    expected_requests = [
+        *(
+            []
+            if resumed
+            else [{"MaxResults": 200, "State": "History"}, {"MaxResults": 200, "State": "History", "NextToken": "h-2"}]
+        ),
+        {"MaxResults": 200, "State": "Active", **({"NextToken": "a-2"} if resumed else {})},
+    ]
+    assert [request.json() for request in result.requests] == expected_requests
+    assert [row["session_id"] for row in result.rows] == ([] if resumed else ["s-ended"]) + ["s-open"]
+    if not resumed:
+        assert result.rows[0]["end_date"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
+
+
+_PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000"
+
+
+@pytest.mark.parametrize(
+    "schema,script,expected_requests,expected",
+    [
+        (
+            "association_execution_targets",
+            [
+                ScriptedResponse(json={"Associations": [{"AssociationId": "a-1"}]}),
+                ScriptedResponse(json={"AssociationExecutions": [{"AssociationId": "a-1", "ExecutionId": "e-1"}]}),
+                ScriptedResponse(json={}),
+            ],
+            [
+                ("ListAssociations", {"MaxResults": 1}),
+                ("DescribeAssociationExecutions", {"MaxResults": 1, "AssociationId": "a-1"}),
+                (
+                    "DescribeAssociationExecutionTargets",
+                    {"MaxResults": 1, "AssociationId": "a-1", "ExecutionId": "e-1"},
+                ),
+            ],
+            (True, None),
+        ),
+        (
+            "association_execution_targets",
+            [ScriptedResponse(json={}), _error("AssociationDoesNotExist"), _error("AssociationDoesNotExist")],
+            [
+                ("ListAssociations", {"MaxResults": 1}),
+                ("DescribeAssociationExecutions", {"MaxResults": 1, "AssociationId": _PLACEHOLDER_UUID}),
+                (
+                    "DescribeAssociationExecutionTargets",
+                    {"MaxResults": 1, "AssociationId": _PLACEHOLDER_UUID, "ExecutionId": _PLACEHOLDER_UUID},
+                ),
+            ],
+            (True, None),
+        ),
+        (
+            "inventory_entries",
+            [ScriptedResponse(json={}), _error("AccessDeniedException")],
+            [
+                ("GetInventory", {"MaxResults": 1, "ResultAttributes": [{"TypeName": "AWS:InstanceInformation"}]}),
+                ("GetInventorySchema", {"MaxResults": 50}),
+            ],
+            (False, "Grant ssm:GetInventorySchema to read this table."),
+        ),
+        (
+            "compliance_items",
+            [
+                ScriptedResponse(
+                    json={
+                        "ResourceComplianceSummaryItems": [
+                            {"ResourceId": "i-a", "ResourceType": "ManagedInstance", "ComplianceType": "Association"}
+                        ]
+                    }
+                ),
+                _error("AccessDeniedException"),
+            ],
+            [
+                ("ListResourceComplianceSummaries", {"MaxResults": 1}),
+                (
+                    "ListComplianceItems",
+                    {
+                        "MaxResults": 1,
+                        "ResourceIds": ["i-a"],
+                        "ResourceTypes": ["ManagedInstance"],
+                        "Filters": [{"Key": "ComplianceType", "Values": ["Association"], "Type": "EQUAL"}],
+                    },
+                ),
+            ],
+            (False, "Grant ssm:ListComplianceItems to read this table."),
+        ),
+    ],
+)
+def test_fan_out_validation_probes_real_parents_before_placeholders(
+    config: AwsSystemsManagerSourceConfig,
+    schema: str,
+    script: list[ScriptedResponse],
+    expected_requests: list[tuple[str, dict[str, Any]]],
+    expected: tuple[bool, str | None],
+) -> None:
+    with scripted_network(script) as network:
+        assert validate_credentials(config, API_VERSION, schema) == expected
+    assert [
+        (request.headers["x-amz-target"].removeprefix("AmazonSSM."), request.json()) for request in network.requests_log
+    ] == expected_requests

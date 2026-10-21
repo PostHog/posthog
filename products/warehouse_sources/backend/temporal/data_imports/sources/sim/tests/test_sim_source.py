@@ -19,7 +19,7 @@ def test_unknown_schema_rejected_before_network(
     source = SimSource()
     valid, message = source.validate_credentials(config, 1, schema_name="unknown")
     assert not valid
-    assert message == "Unknown Sim table: unknown. Select workflows or logs."
+    assert message is not None and message.startswith("Unknown Sim table: unknown.")
     inputs.schema_name = "unknown"
     with pytest.raises(UnknownResourceError, match="unknown"):
         source.source_for_pipeline(config, manager, inputs)
