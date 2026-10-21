@@ -253,7 +253,7 @@ class TestDataSuggestions(SimpleTestCase):
         assert email["html"] == "<p>saved</p>"
         assert "text" not in email
 
-    def test_build_workflow_puts_a_wait_between_back_to_back_emails(self) -> None:
+    def test_build_workflow_spaces_out_emails_for_a_person(self) -> None:
         built = build_workflow(
             IDEA, plan(step("first", next="second"), step("second", email_subject="Second")), context()
         )
@@ -264,6 +264,7 @@ class TestDataSuggestions(SimpleTestCase):
             "function_email",
         ]
         assert built.workflow["actions"][2]["config"] == {"delay_duration": "1d"}
+        assert built.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": 7 * 24 * 60 * 60, "threshold": None}
         assert edges(built)[1:3] == [
             ("action_0_email", "action_1_delay", "continue", None),
             ("action_1_delay", "action_2_email", "continue", None),
