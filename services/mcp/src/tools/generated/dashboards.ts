@@ -553,7 +553,12 @@ const DashboardUpdateSchema = () => {
     return DashboardsPartialUpdateParams.omit({ project_id: true })
         .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
         .extend(DashboardsPartialUpdateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
+        .extend({
+            id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
+            tiles: DashboardsPartialUpdateBody.shape['tiles'].describe(
+                "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. To change a widget tile's config, name, or description, use dashboard-widgets-batch-update."
+            ),
+        })
 }
 
 const dashboardUpdate = (): ToolBase<

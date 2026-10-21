@@ -184,6 +184,13 @@ const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
+const ADD_TO_STATIC_COHORT_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Add to static cohort',
+    description: 'Add the person to a static cohort.',
+    config: { template_id: 'template-posthog-add-to-static-cohort', inputs: {} },
+}
+
 export interface StepCatalogContext {
     featureFlags: FeatureFlagsSet
     currentTeam: Pick<TeamPublicType | TeamType, 'id' | 'project_id'> | null
@@ -220,6 +227,13 @@ function aiSteps({ featureFlags, currentTeam }: StepCatalogContext): CreateActio
     ]
 }
 
+function posthogSteps({ featureFlags }: StepCatalogContext): CreateActionType[] {
+    return [
+        ...POSTHOG_NODES_TO_SHOW,
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_ADD_TO_STATIC_COHORT_ACTION] ? [ADD_TO_STATIC_COHORT_ACTION_NODE] : []),
+    ]
+}
+
 const BETA_TEMPLATE_IDS = new Set(['template-posthog-create-task'])
 
 export function isBetaStep(step: CreateActionType): boolean {
@@ -238,7 +252,7 @@ export function workflowStepSections(context: StepCatalogContext): StepCatalogSe
         { key: 'ai', title: 'AI', steps: aiSteps(context) },
         { key: 'delays', title: 'Delays', steps: forTrigger(DELAY_NODES_TO_SHOW, context.isRowScopedTrigger) },
         { key: 'split', title: 'Audience split', steps: forTrigger(LOGIC_NODES_TO_SHOW, context.isRowScopedTrigger) },
-        { key: 'posthog', title: 'PostHog actions', steps: POSTHOG_NODES_TO_SHOW },
+        { key: 'posthog', title: 'PostHog actions', steps: posthogSteps(context) },
         ...getRegisteredActionNodeCategories(context.featureFlags).map((category) => ({
             key: category.label,
             title: category.label,
