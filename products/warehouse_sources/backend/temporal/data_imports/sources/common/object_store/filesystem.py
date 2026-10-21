@@ -84,6 +84,24 @@ class ObjectStore:
                 break
         return objects
 
+    def list_key_prefix(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
+        """List files whose relative paths start with the key prefix, in path order."""
+        folder = key_prefix.rpartition("/")[0]
+        found = cast(dict[str, dict[str, Any]], self.fs.find(self.path(folder), detail=True))
+        root_prefix = f"{self.root}/"
+        objects: list[StoredObject] = []
+        for name in sorted(found):
+            info = found[name]
+            if info.get("type") != "file" or not name.startswith(root_prefix):
+                continue
+            relative = name[len(root_prefix) :]
+            if not relative.startswith(key_prefix):
+                continue
+            objects.append(StoredObject(path=relative, size=int(info.get("size") or 0), modified_at=_modified_at(info)))
+            if len(objects) >= max_objects:
+                break
+        return objects
+
     def open(self, relative: str) -> IO[bytes]:
         return cast(IO[bytes], self.fs.open(self.path(relative), "rb"))
 
@@ -156,6 +174,12 @@ class S3ObjectStore(ObjectStore):
             # The prefix may name one file rather than a folder.
             objects = [stored for stored in self._list(key, 1) if stored.path == relative_prefix]
         return objects
+
+    def list_key_prefix(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
+        key = "/".join(part for part in (self.prefix, key_prefix) if part)
+        if self.prefix and not key_prefix:
+            key = f"{self.prefix}/"
+        return self._list(key, max_objects)
 
     def _list(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
         root_key = f"{self.prefix}/" if self.prefix else ""
@@ -235,6 +259,12 @@ class AzureObjectStore(ObjectStore):
             # The prefix may name one file rather than a folder.
             objects = [stored for stored in self._list(name, 1) if stored.path == relative_prefix]
         return objects
+
+    def list_key_prefix(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
+        key = "/".join(part for part in (self.prefix, key_prefix) if part)
+        if self.prefix and not key_prefix:
+            key = f"{self.prefix}/"
+        return self._list(key, max_objects)
 
     def _list(self, name_prefix: str, max_objects: int) -> list[StoredObject]:
         root_name = f"{self.prefix}/" if self.prefix else ""

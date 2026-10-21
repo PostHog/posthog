@@ -56,7 +56,12 @@ from .github import (
     invalidate_github_repository_caches_for_installation,
 )
 from .gitlab import GitLabIntegration, GitLabIntegrationError
-from .google_ads import GoogleAdsIntegration, GoogleAdsScopeInsufficientError, google_ads_hierarchy_level
+from .google_ads import (
+    GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
+    google_ads_hierarchy_level,
+)
 from .google_cloud import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -207,6 +212,7 @@ __all__ = [
     "validate_slack_request",
     "google_ads_hierarchy_level",
     "GoogleAdsIntegration",
+    "GoogleAdsQuotaExhaustedError",
     "GoogleAdsScopeInsufficientError",
     "is_unique_service_account_by_organization_id",
     "GoogleCloudServiceAccountIntegration",

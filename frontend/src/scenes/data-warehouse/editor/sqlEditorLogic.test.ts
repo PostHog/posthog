@@ -284,6 +284,14 @@ describe('sqlEditorLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/query/': queryEndpointMock,
+                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': {
+                    eligible: false,
+                    key_candidates: [],
+                    unique_key_candidates: [],
+                    key_candidate_types: {},
+                    blockers: [],
+                    warnings: [],
+                },
                 '/api/environments/:team_id/warehouse_saved_queries/': () => [
                     200,
                     {

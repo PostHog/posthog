@@ -76,6 +76,8 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
     DatabaseSerializedFieldType.FLOAT: "Float64",
@@ -552,6 +554,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     @property
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
+
+    def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
+        """Make a self-managed table one that `source` syncs. Returns the fields this changed.
+
+        The caller saves these fields together with the new `url_pattern` and `format`: the
+        customer's key can't read PostHog's bucket, and PostHog's key can't read the customer's, so
+        a row that has only some of these changes can't be read at all. The row id and the name stay,
+        so joins, views and saved queries that refer to the table keep working.
+        """
+        self.external_data_source = source
+        self.credential = None
+        # A CSV setting for the customer's files. The table now reads Parquet files PostHog wrote.
+        self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
+        return ["external_data_source", "credential", "options"]
 
     def soft_delete(self):
         from products.data_tools.backend.models.join import DataWarehouseJoin

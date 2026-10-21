@@ -82,6 +82,11 @@ const DEFAULT_COMPACT_ON_DELETION_WINDOW: usize = 1000;
 const DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER: usize = 500;
 const DEFAULT_COMPACT_ON_DELETION_RATIO: f64 = 0.5;
 
+/// RocksDB keeps the active info `LOG` and the newest rolled ones, `DEFAULT_KEEP_LOG_FILE_NUM` files
+/// in total, so the info logs use at most about 10 × 256 MiB of the store volume.
+const DEFAULT_MAX_LOG_FILE_SIZE_BYTES: NonZeroUsize = NonZeroUsize::new(256 * 1024 * 1024).unwrap();
+const DEFAULT_KEEP_LOG_FILE_NUM: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+
 /// Resolved RocksDB settings.
 #[derive(Debug, Clone)]
 pub struct StoreConfig {
@@ -125,6 +130,11 @@ pub struct StoreConfig {
     /// record does not cover. A store that predates coverage records adopts all of its partitions
     /// as complete.
     pub ownership: PartitionOwnership,
+    /// Size at which RocksDB rolls the info `LOG` file. RocksDB reads `0` as "never roll", which
+    /// lets one info log grow without bound.
+    pub max_log_file_size_bytes: NonZeroUsize,
+    /// Number of info `LOG` files RocksDB keeps. RocksDB refuses to open with `0`.
+    pub keep_log_file_num: NonZeroUsize,
 }
 
 impl Default for StoreConfig {
@@ -148,6 +158,8 @@ impl Default for StoreConfig {
             max_background_jobs: 0,
             person_record_ttl_days: 0,
             ownership: PartitionOwnership::single(COHORT_PARTITION_COUNT as u16),
+            max_log_file_size_bytes: DEFAULT_MAX_LOG_FILE_SIZE_BYTES,
+            keep_log_file_num: DEFAULT_KEEP_LOG_FILE_NUM,
         }
     }
 }
@@ -1652,6 +1664,8 @@ fn db_options(config: &StoreConfig) -> Options {
     if config.max_background_jobs > 0 {
         opts.set_max_background_jobs(config.max_background_jobs);
     }
+    opts.set_max_log_file_size(config.max_log_file_size_bytes.get());
+    opts.set_keep_log_file_num(config.keep_log_file_num.get());
     opts
 }
 
@@ -3301,6 +3315,37 @@ mod tests {
             stats.block_cache_hits,
             stats.block_cache_misses,
         );
+    }
+
+    #[test]
+    fn info_log_caps_reach_the_persisted_rocksdb_options() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("db");
+        let _store = CohortStore::open(&StoreConfig {
+            path: path.clone(),
+            max_log_file_size_bytes: NonZeroUsize::new(1_048_576).unwrap(),
+            keep_log_file_num: NonZeroUsize::new(3).unwrap(),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let options_file = std::fs::read_dir(&path)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("OPTIONS-")
+            })
+            .expect("RocksDB writes an OPTIONS file at open");
+        let options = std::fs::read_to_string(options_file).unwrap();
+        for line in ["max_log_file_size=1048576", "keep_log_file_num=3"] {
+            assert!(
+                options.lines().any(|l| l.trim() == line),
+                "missing `{line}`"
+            );
+        }
     }
 
     #[test]
