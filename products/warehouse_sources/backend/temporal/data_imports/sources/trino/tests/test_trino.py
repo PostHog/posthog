@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
     TRINO_AUTHENTICATION_ERROR,
+    TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
     TRINO_DISCOVERY_TIMEOUT_ERROR,
@@ -323,6 +324,16 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
         (
             'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="Access Denied: '
             'Cannot select from table hive.analytics.events", query_id=20260902_123401_00000_abcde)',
+            TRINO_ACCESS_DENIED_ERROR,
+        ),
+        (
+            'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="User reader@example.com with role '
+            'reader does not have the privilege to use cluster example-cluster", query_id=20260101_000000_00000_abcde)',
+            TRINO_CLUSTER_ACCESS_DENIED_ERROR,
+        ),
+        (
+            'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="Role reader cannot do this", '
+            "query_id=20260101_000000_00000_abcde)",
             TRINO_ACCESS_DENIED_ERROR,
         ),
     ],

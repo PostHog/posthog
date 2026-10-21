@@ -180,6 +180,27 @@ const BI_EVENTS_FIELDS = Object.fromEntries(
         ] as const
     ).map(([name, type]) => [name, { name, hogql_value: name, type, schema_valid: true }])
 )
+const BI_WORKSHEET_RESULTS = {
+    columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
+    types: [
+        ['bi_row_timestamp', 'DateTime'],
+        ['bi_column_event', 'String'],
+        ['sum_revenue', 'Float64'],
+    ],
+    results: [
+        ['2026-06-01', 'purchase', 120],
+        ['2026-06-02', 'purchase', 180],
+        ['2026-06-03', 'purchase', 150],
+    ],
+    hasMore: false,
+}
+const pinQueryTimer = (): (() => void) => {
+    const originalNow = performance.now
+    performance.now = () => 0
+    return () => {
+        performance.now = originalNow
+    }
+}
 
 const meta: Meta = {
     component: App,
@@ -594,6 +615,7 @@ export const SidebarMaterializationStatus: Story = {
 }
 
 export const BIModeWorksheet: Story = {
+    beforeEach: pinQueryTimer,
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         // The editor restores BI state only alongside the query it generated
@@ -619,6 +641,7 @@ export const BIModeWorksheet: Story = {
                             events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
                         },
                     },
+                    '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
                 },
             },
         },
@@ -672,23 +695,6 @@ export const BISavedInsight: Story = {
                     '/api/:scope/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
                     '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
                     '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
-                },
-                post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLQuery/': {
-                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
-                        types: [
-                            ['bi_row_timestamp', 'DateTime'],
-                            ['bi_column_event', 'String'],
-                            ['sum_revenue', 'Float64'],
-                        ],
-                        results: [
-                            ['2026-06-01', 'purchase', 120],
-                            ['2026-06-02', 'purchase', 180],
-                            ['2026-06-03', 'purchase', 150],
-                        ],
-                        hasMore: false,
-                    },
                 },
             },
         },

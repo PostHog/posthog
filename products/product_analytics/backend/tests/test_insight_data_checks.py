@@ -755,9 +755,9 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_reports_why_nothing_was_checked(
-        self, _name: str, series: list[dict[str, Any]], max_bytes_read_per_shard: int, expected: str
+        self, _name: str, series: list[dict[str, Any]], max_bytes_read: int, expected: str
     ) -> None:
-        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ_PER_SHARD", max_bytes_read_per_shard):
+        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ", max_bytes_read):
             result = self._check(self._query(series))
 
         assert result.status == expected

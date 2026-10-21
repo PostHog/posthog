@@ -403,7 +403,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cody/cody.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cody/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/cohere/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coin_api/coin_api.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coin_api/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/coingecko/coingecko.py
@@ -1114,7 +1113,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/telnyx/telnyx.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tempo/tempo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnerability_management/tenable_vulnerability_management.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/terraform_cloud.py
@@ -1194,8 +1192,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/wrike.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/writesonic.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wufoo/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wufoo/wufoo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/xendit/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/xendit/xendit.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/yousign/settings.py
