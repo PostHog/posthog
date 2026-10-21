@@ -1,7 +1,6 @@
 import json
 import uuid
 from datetime import datetime
-from functools import partial
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -911,7 +910,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         if instance.enabled:
             transaction.on_commit(
-                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
 
@@ -1039,7 +1038,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         if enable_now:
             transaction.on_commit(
-                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
 

@@ -1,4 +1,3 @@
-from functools import partial
 from textwrap import dedent
 from typing import Any, Literal, Union, cast
 
@@ -464,6 +463,8 @@ class UpsertAlertTool(MaxTool):
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
             alert.save(update_fields=update_fields)
+            if enabled_changed and action.enabled:
+                transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
         return None
 
     @staticmethod
@@ -656,6 +657,6 @@ class UpsertAlertTool(MaxTool):
             created_by=user,
         )
         if alert.enabled:
-            transaction.on_commit(partial(follow_insight_alert, alert), robust=True)
+            transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
 
         return alert

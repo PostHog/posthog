@@ -15,7 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.schema_enums import AlertState
+from posthog.schema_enums import AlertCalculationInterval, AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
 from products.alerts.backend.insight_alert_state_machine import apply_platform_state
@@ -102,10 +102,16 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
     )
 
 
+def _is_threshold_alert(alert: AlertConfiguration) -> bool:
+    """The platform evaluates detector and real-time alerts in parallel, but cannot own them yet."""
+    return not alert.detector_config and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
+
+
 def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
+        # `of` keeps the lock off the nullable threshold join, which PostgreSQL refuses to lock.
         alert = (
-            AlertConfiguration.objects.select_for_update(no_key=True)
+            AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
             .select_related("threshold")
             .get(team_id=team_id, id=alert_id)
         )
@@ -114,7 +120,7 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
         if alert.platform_owned:
             return CutoverSkip.ALREADY_MOVED
         upsert = platform_upsert_of(alert)
-        if upsert is None:
+        if upsert is None or not _is_threshold_alert(alert):
             return CutoverSkip.NOT_ON_PLATFORM
         if alert.investigation_agent_enabled:
             return CutoverSkip.INVESTIGATION
@@ -142,7 +148,9 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
             transaction.savepoint_rollback(savepoint)
             return CutoverSkip.PLATFORM_FIRING
         transaction.savepoint_commit(savepoint)
-        AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
+        AlertConfiguration.objects.filter(team_id=alert.team_id, id=alert.id).update(
+            owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
+        )
     return None
 
 
@@ -189,7 +197,9 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         if _insight_check_owed(team_id, alert.id, at):
             return RollbackSkip.INSIGHT_CHECK_DUE
 
-        handback = give_back_ownership(team_id=alert.team_id, legacy_configuration_id=alert.id, at=at)
+        handback = give_back_ownership(
+            team_id=alert.team_id, legacy_configuration_id=alert.id, at=at, source_runs_calendar_schedules=True
+        )
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
 

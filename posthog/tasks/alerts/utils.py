@@ -498,7 +498,14 @@ def dispatch_alert_notification(
         ValueError: state is FIRING but breaches is None/empty.
         AssertionError: unknown state — surfaces a missing AlertState branch loudly.
     """
-    if alert.platform_owned:
+    # An investigation dispatches minutes after it loaded `alert`, and the platform can take the
+    # alert over in that time, so the stored owner decides.
+    if (
+        alert.platform_owned
+        or AlertConfiguration.objects.filter(
+            team_id=alert.team_id, id=alert.id, owner=PlatformAlertOwner.PLATFORM
+        ).exists()
+    ):
         logger.info("Alert is owned by the platform, nothing to send", alert_id=alert.id)
         return None
     key = idempotency_key or str(alert_check.id)
