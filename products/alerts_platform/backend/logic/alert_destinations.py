@@ -6,7 +6,7 @@ through the facade, so a destination is valid or refused the same way wherever i
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from typing import Final, cast
 from uuid import UUID
 
@@ -34,6 +34,29 @@ _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
     DestinationType.EMAIL: ("email_addresses",),
     DestinationType.IN_APP: ("in_app_user_ids",),
+}
+
+
+def _is_text(value: object) -> bool:
+    return isinstance(value, str)
+
+
+def _is_id(value: object) -> bool:
+    # A bool is an int in Python, but never a valid id.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_list_of(check: Callable[[object], bool]) -> Callable[[object], bool]:
+    return lambda value: isinstance(value, list) and all(check(item) for item in value)
+
+
+_FIELD_CHECKS: Final[dict[str, Callable[[object], bool]]] = {
+    "slack_workspace_id": _is_id,
+    "slack_channel_id": _is_text,
+    "webhook_url": _is_text,
+    "pagerduty_routing_key": _is_text,
+    "email_addresses": _is_list_of(_is_text),
+    "in_app_user_ids": _is_list_of(_is_id),
 }
 
 # A label a person sees. Two destinations that differ only here send to the same place.
@@ -112,9 +135,15 @@ def _validate(team_id: int, destination: NewAlertDestination) -> None:
     destination_type = destination.data.get("type")
     if destination_type not in DestinationType.values:
         raise AlertDestinationValidationError("This destination type is not supported.", field="type")
-    missing = [key for key in _REQUIRED_FIELDS[DestinationType(destination_type)] if not destination.data.get(key)]
+    required = _REQUIRED_FIELDS[DestinationType(destination_type)]
+    missing = [key for key in required if not destination.data.get(key)]
     if missing:
         raise AlertDestinationValidationError(f"This destination needs {', '.join(missing)}.", field="config")
+    malformed = [key for key in required if not _FIELD_CHECKS[key](destination.data.get(key))]
+    if malformed:
+        raise AlertDestinationValidationError(
+            f"This destination has an invalid {', '.join(malformed)}.", field="config"
+        )
     if not destination.event_kinds:
         raise AlertDestinationValidationError("Choose at least one event to send.", field="event_kinds")
     if not set(destination.event_kinds) <= DESTINATION_EVENT_KINDS:

@@ -91,6 +91,17 @@ class TestAlertDestinations(BaseTest):
             ("unknown_type", {"data": {"type": "opsgenie"}}, "type"),
             ("webhook_without_its_url", {"data": {"type": DestinationType.WEBHOOK}}, "config"),
             ("webhook_url_not_text", {"data": {"type": DestinationType.WEBHOOK, "webhook_url": 123}}, "config"),
+            (
+                "routing_key_not_text",
+                {"data": {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": 123}},
+                "config",
+            ),
+            (
+                "email_not_a_list",
+                {"data": {"type": DestinationType.EMAIL, "email_addresses": "a@example.com"}},
+                "config",
+            ),
+            ("user_id_not_a_number", {"data": {"type": DestinationType.IN_APP, "in_app_user_ids": ["1"]}}, "config"),
         ]
     )
     def test_a_refused_destination_writes_nothing_of_its_batch(
