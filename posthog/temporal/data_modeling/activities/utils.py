@@ -94,6 +94,9 @@ def starts_a_failure_streak(saved_query_id: UUID, current_job: DataModelingJob) 
 # NOT "was this our fault" - a query that exhausts memory is one we do want suspended.
 EXTERNALLY_ABORTED_MARKERS = (
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # ATTEMPT_TO_READ_AFTER_EOF: a remote shard dropped the connection mid-query. The trailing
+    # period keeps codes 320-329 out of the match.
+    "Code: 32. ",
     "Cannot connect to host",
     "Connection refused",
     # our own egress proxy was unreachable, so nothing left the cluster - the trailing colon keeps a

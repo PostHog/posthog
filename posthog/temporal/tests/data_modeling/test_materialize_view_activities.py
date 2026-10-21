@@ -805,6 +805,8 @@ class TestNodeSuspension:
         "aborted_error",
         [
             "Code: 202. DB::Exception: Too many simultaneous queries",
+            "ClickHouseError: Code: 32. DB::Exception: Attempt to read after eof: while receiving packet from "
+            "ch-offline.example.com:9440: While executing Remote. (ATTEMPT_TO_READ_AFTER_EOF)",
             "Cannot connect to host ch-offline.example.com:8443",
             'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
             "Abandoned: the materialization workflow is no longer running",
