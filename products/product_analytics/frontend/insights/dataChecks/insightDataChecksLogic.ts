@@ -64,7 +64,6 @@ export type DataChecksRun = { ok: true; result: InsightDataChecksApi } | { ok: f
 /** `unavailable`: the checks do not apply here. `checking`: the chart or the checks are still loading. */
 export type InsightDataChecksStatus = 'unavailable' | 'checking' | 'failed' | InsightDataChecksStatusEnumApi
 
-// pinned: analytics property values, renaming breaks dashboards
 export type DataChecksButton =
     | 'filter_internal_users_on'
     | 'filter_internal_users_off'
@@ -530,12 +529,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         },
         loadDataChecks: () => {
             cache.dataChecksStartedAt = performance.now()
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('insight data checks loading')
         },
         // The query can change during a run. The chart for the new query can finish before that run does.
         loadDataChecksSuccess: async ({ dataChecksRun }, breakpoint) => {
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('insight data checks loaded', {
                 // A run with no result gave its slot to the chart, which checks again after it loads.
                 status: dataChecksRun ? statusOfRun(dataChecksRun) : 'cancelled',
@@ -629,7 +626,6 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             })
         },
         reportCheckExpanded: ({ check }) => {
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('insight data check expanded', {
                 check: check.key,
                 level: check.level,
@@ -637,7 +633,6 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             })
         },
         reportButtonClicked: ({ button, check }) => {
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('insight data check button clicked', { button, check, status: values.status })
         },
     })),
