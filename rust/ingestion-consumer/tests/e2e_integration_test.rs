@@ -825,28 +825,53 @@ impl Harness {
         .await
     }
 
-    /// Like `start`, but bounds batch collection by payload bytes as well as
-    /// count (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
-    /// sub-batch is one whole Kafka batch.
-    async fn start_byte_capped(topic: &str, batch_size_bytes: usize) -> Self {
+    /// Like `start`, under the given polling strategy. The continuous
+    /// strategy gets its requirements with limits that do not bind.
+    async fn start_polling(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        batch_size_bytes: usize,
+        polling: Polling,
+    ) -> Self {
+        let (granularity, partition_budget, in_flight_limit) = match polling {
+            Polling::Capped => (
+                CompletionGranularity::Poll,
+                BudgetLimits::unset(),
+                ChargeLimit::unset(),
+            ),
+            Polling::Continuous => (
+                CompletionGranularity::Group,
+                BudgetLimits::new(NonZeroU64::new(10_000), None, 0.8).expect("a valid budget"),
+                ChargeLimit::new(NonZeroU64::new(100_000), None),
+            ),
+        };
         Self::start_inner(
             topic,
-            1,
-            1,
-            1,
+            partitions,
+            worker_count,
+            max_in_flight,
             Duration::from_secs(60),
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
             None,
-            CompletionGranularity::Poll,
+            granularity,
             COMMIT_INTERVAL,
-            BudgetLimits::unset(),
-            Polling::Capped,
-            ChargeLimit::unset(),
+            partition_budget,
+            polling,
+            in_flight_limit,
         )
         .await
+    }
+
+    /// Bounds batch collection by payload bytes as well as count
+    /// (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
+    /// sub-batch is one whole Kafka batch.
+    async fn start_byte_capped(topic: &str, batch_size_bytes: usize, polling: Polling) -> Self {
+        Self::start_polling(topic, 1, 1, 1, batch_size_bytes, polling).await
     }
 
     async fn start_group_granularity(
@@ -1657,10 +1682,13 @@ async fn a_message_that_never_fits_the_budget_lands_without_one() {
 /// (the second crosses it). The count cap alone cannot express that, which is
 /// the regression: a lane whose events are large gets the memory of a full
 /// count batch no matter how the count is tuned.
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn byte_bound_caps_batches_below_the_count_bound() {
+async fn byte_bound_caps_batches_below_the_count_bound(#[case] polling: Polling) {
     let topic = format!("e2e-bytecap-{}", Uuid::new_v4());
-    let harness = Harness::start_byte_capped(&topic, 4096).await;
+    let harness = Harness::start_byte_capped(&topic, 4096, polling).await;
 
     let producer = make_producer();
     let payload = vec![b'x'; 2048];
@@ -1700,10 +1728,13 @@ async fn byte_bound_caps_batches_below_the_count_bound() {
 /// always admitted. Checking after would let one oversized payload produce an
 /// empty batch and wedge its partition — the message can never be skipped, and
 /// no smaller batch can ever contain it.
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn message_larger_than_byte_bound_is_still_delivered() {
+async fn message_larger_than_byte_bound_is_still_delivered(#[case] polling: Polling) {
     let topic = format!("e2e-bytecap-oversize-{}", Uuid::new_v4());
-    let harness = Harness::start_byte_capped(&topic, 4096).await;
+    let harness = Harness::start_byte_capped(&topic, 4096, polling).await;
 
     let producer = make_producer();
     produce_raw(
@@ -3077,7 +3108,7 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
     wait_until(
         Duration::from_secs(10),
         "reading to resume and drain",
-        || harness.committed_offset(0) == Some(20),
+        || harness.workers[0].count() == 20,
     )
     .await;
 
@@ -3638,18 +3669,13 @@ async fn fleet_redeploy_migrates_work_to_new_workers_without_loss() {
 /// the first while it holds an uncommitted in-flight batch. Redelivery of that
 /// batch on the new owner may duplicate (at-least-once) — but nothing may be
 /// lost across the handover.
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn second_consumer_joining_the_group_preserves_all_messages() {
+async fn second_consumer_joining_the_group_preserves_all_messages(#[case] polling: Polling) {
     let topic = format!("e2e-two-consumers-{}", Uuid::new_v4());
-    let harness = Harness::start(
-        &topic,
-        2,
-        2,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+    let harness = Harness::start_polling(&topic, 2, 2, 1, 0, polling).await;
     let producer = make_producer();
 
     // The first consumer owns both partitions and has an uncommitted batch
@@ -3706,20 +3732,15 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
 /// partition then starts another generation. A ledger bug here would
 /// surface as ledger errors or a wedged loop, so continued delivery after
 /// both handovers is the health signal.
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn partition_lost_and_regained_keeps_the_consumer_alive() {
+async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] polling: Polling) {
     let topic = format!("e2e-regain-{}", Uuid::new_v4());
     // Room for many in-flight batches, so the first consumer keeps polling
     // while its batches are held and the rebalance can land underneath them.
-    let harness = Harness::start(
-        &topic,
-        2,
-        2,
-        128,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+    let harness = Harness::start_polling(&topic, 2, 2, 128, 0, polling).await;
     let producer = make_producer();
     let partitions = [
         TopicPartition::new(topic.clone(), 0),
