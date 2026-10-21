@@ -28,18 +28,41 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
     ) {}
 
     async getMemberCohortIds(teamId: number, personUuid: string): Promise<number[]> {
-        const queryPromise = this.postgres.query<{ cohort_id: string }>(
-            PostgresUse.BEHAVIORAL_COHORTS_RW,
-            `SELECT cohort_id
-             FROM cohort_membership
-             WHERE team_id = $1
-               AND person_id = $2
-               AND in_cohort = true`,
-            [teamId, personUuid],
-            'fetchCohortMemberships'
+        const result = await this.withTimeout(
+            this.postgres.query<{ cohort_id: string }>(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                `SELECT cohort_id
+                 FROM cohort_membership
+                 WHERE team_id = $1
+                   AND person_id = $2
+                   AND in_cohort = true`,
+                [teamId, personUuid],
+                'fetchCohortMemberships'
+            )
         )
 
-        const result = await new Promise<Awaited<typeof queryPromise>>((resolve, reject) => {
+        // BIGINT columns come back from pg as strings
+        return result.rows.map((row) => Number(row.cohort_id))
+    }
+
+    async getCohortMembership(teamId: number, personUuid: string, cohortId: number): Promise<boolean | null> {
+        const result = await this.withTimeout(
+            this.postgres.query<{ in_cohort: boolean }>(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                `SELECT in_cohort
+                 FROM cohort_membership
+                 WHERE team_id = $1
+                   AND cohort_id = $2
+                   AND person_id = $3`,
+                [teamId, cohortId, personUuid],
+                'fetchCohortMembership'
+            )
+        )
+        return result.rows[0]?.in_cohort ?? null
+    }
+
+    private withTimeout<T>(queryPromise: Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
             // The timer and the query race. The query's handlers stay registered after the timer
             // wins and fire when it settles late, so this flag stops the loser from recording a
             // second outcome and double-counting the lookup in the metric.
@@ -73,8 +96,5 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
                 }
             )
         })
-
-        // BIGINT columns come back from pg as strings
-        return result.rows.map((row) => Number(row.cohort_id))
     }
 }

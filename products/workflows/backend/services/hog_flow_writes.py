@@ -147,7 +147,9 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
         _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
 
 
-def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
+def _derive_from_locked_graph(
+    locked: HogFlow, validated_data: dict, requested_exit_condition: Optional[str] = None
+) -> dict:
     # HogFlowSerializer.validate derives trigger, billable_action_types and exit_condition from the
     # actions it read before the row lock. A write without actions keeps the locked row's actions, and a
     # concurrent graph write can change those actions before the lock. Derive these fields again from the
@@ -166,6 +168,10 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
         read_type = (validated_data.get("trigger") or {}).get("type")
         if locked_type in ROW_SCOPED_TRIGGER_TYPES:
             derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
+        elif requested_exit_condition is not None:
+            # validate may have rewritten the value the request set for the read trigger. Apply the rule to
+            # the requested value against the locked trigger instead, so the request is not lost.
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, requested_exit_condition)
         elif read_type in ROW_SCOPED_TRIGGER_TYPES or (
             locked_type in RECHECKED_TRIGGER_TYPES and read_type not in RECHECKED_TRIGGER_TYPES
         ):
@@ -329,6 +335,7 @@ def update_workflow(
     includes_staged_draft: bool,
     validated_status: str,
     keeps_live_sensitivity: bool = True,
+    requested_exit_condition: Optional[str] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -389,7 +396,7 @@ def update_workflow(
                     raise WorkflowStale()
                 _save_live(instance, remaining)
         else:
-            validated_data = _derive_from_locked_graph(before_update, validated_data)
+            validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))

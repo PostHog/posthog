@@ -59,6 +59,23 @@ describe('PostgresCohortMembershipRepository', () => {
         expect(result).toEqual([])
     })
 
+    it.each([
+        ['in the cohort', 101, true],
+        ['out of the cohort', 102, false],
+        ['without a row in the cohort', 105, null],
+        ['in the cohort only for another team', 103, null],
+    ])('reads one cohort membership for a person %s', async (_name, cohortId, expected) => {
+        const teamId = 2
+        const personUuid = new UUIDT().toString()
+        await insertCohortMemberships(postgres, [
+            { team_id: teamId, cohort_id: 101, person_id: personUuid, in_cohort: true },
+            { team_id: teamId, cohort_id: 102, person_id: personUuid, in_cohort: false },
+            { team_id: teamId + 1, cohort_id: 103, person_id: personUuid, in_cohort: true },
+        ])
+
+        expect(await repository.getCohortMembership(teamId, personUuid, cohortId)).toBe(expected)
+    })
+
     it('rejects with a retriable timeout error when the lookup hangs', async () => {
         jest.useFakeTimers()
         try {

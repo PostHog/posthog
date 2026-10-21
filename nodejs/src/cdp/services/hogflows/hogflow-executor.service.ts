@@ -487,11 +487,12 @@ export class HogFlowExecutorService {
     }
 
     /**
-     * Determines if the invocation should exit early based on the hogflow's exit condition
-     */
-    /**
-     * Whether the person still matches a cohort trigger: still in the cohort for an "entered" trigger,
-     * still out of it for a "left" one. Undefined when there is no answer, which leaves the run alone.
+     * Whether the person still matches a cohort trigger: in the cohort for an "entered" trigger, out of it
+     * for a "left" one. Undefined when there is no trustworthy answer, which leaves the run alone.
+     *
+     * The membership writer and the trigger consumer read each change independently, so the table can still
+     * hold the state from before the change that started this run. A mismatch counts only after the table
+     * has once shown the person matching.
      */
     private async matchesCohortTrigger(
         invocation: CyclotronJobInvocationHogFlow,
@@ -501,13 +502,13 @@ export class HogFlowExecutorService {
         if (!personUuid) {
             return undefined
         }
+        let inCohort: boolean | null
         try {
-            const memberCohortIds = await this.cohortMembershipRepository.getMemberCohortIds(
+            inCohort = await this.cohortMembershipRepository.getCohortMembership(
                 invocation.hogFlow.team_id,
-                personUuid
+                personUuid,
+                trigger.cohort_id
             )
-            const inCohort = memberCohortIds.includes(trigger.cohort_id)
-            return trigger.transition === 'entered' ? inCohort : !inCohort
         } catch (error) {
             // No answer is not "no longer in the cohort", so the run carries on and the next wake checks again.
             counterHogflowCohortLookupFailure.labels({ outcome: 'exit_check_skipped' }).inc()
@@ -517,8 +518,22 @@ export class HogFlowExecutorService {
             })
             return undefined
         }
+
+        const confirmed = invocation.state.cohortTriggerConfirmed === true
+        // A missing row means out of the cohort, except on a "left" trigger before confirmation: there it can
+        // also mean the writer has not recorded the person joining yet.
+        const outOfCohort = inCohort === false || (inCohort === null && confirmed)
+        const matches = trigger.transition === 'entered' ? inCohort === true : outOfCohort
+        if (matches) {
+            invocation.state.cohortTriggerConfirmed = true
+            return true
+        }
+        return confirmed ? false : undefined
     }
 
+    /**
+     * Determines if the invocation should exit early based on the hogflow's exit condition
+     */
     private async shouldExitEarly(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
@@ -540,13 +555,7 @@ export class HogFlowExecutorService {
             })
             triggerMatch = filterResult.match
         }
-        if (
-            hogFlow.trigger.type === 'cohort' &&
-            TRIGGER_MISMATCH_EXITS.has(hogFlow.exit_condition) &&
-            // The run starts from the same membership change that updates cohort_membership, so on the
-            // run's first execution the table can still hold the old membership. Check from the next wake.
-            invocation.state.currentAction
-        ) {
+        if (hogFlow.trigger.type === 'cohort' && TRIGGER_MISMATCH_EXITS.has(hogFlow.exit_condition)) {
             triggerMatch = await this.matchesCohortTrigger(invocation, hogFlow.trigger)
         }
         if (hogFlow.conversion?.filters?.length && person) {

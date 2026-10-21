@@ -5001,6 +5001,22 @@ class TestHogFlowAPI(APIBaseTest):
                 "exit_only_at_end",
             ),
             (
+                "explicit_exit_condition_survives_the_locked_trigger_becoming_an_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_trigger_not_matched",
+                {"exit_condition": "exit_only_at_end"},
+                "exit_only_at_end",
+            ),
+            (
+                "explicit_trigger_exit_the_read_trigger_rewrote_runs_on_the_locked_event_trigger",
+                "schedule",
+                "event",
+                "exit_on_conversion",
+                {"exit_condition": "exit_on_trigger_not_matched"},
+                "exit_on_trigger_not_matched",
+            ),
+            (
                 "locked_trigger_becomes_an_event_trigger",
                 "schedule",
                 "event",

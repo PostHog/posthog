@@ -197,6 +197,10 @@ describe('action.conditional_branch', () => {
                 }
                 return Promise.resolve(this.memberCohortIds)
             }
+
+            getCohortMembership(): Promise<boolean | null> {
+                return Promise.reject(new Error('not used by branches'))
+            }
         }
 
         // Same shape the Python serializer emits: the authored properties plus compiled bytecode.
@@ -372,6 +376,7 @@ describe('action.conditional_branch', () => {
             }
             const stubCohortMembershipRepository: CohortMembershipRepository = {
                 getMemberCohortIds: () => Promise.resolve([]),
+                getCohortMembership: () => Promise.resolve(null),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitAdvancedAtMaxWait.reset()

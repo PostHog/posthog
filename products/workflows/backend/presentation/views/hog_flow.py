@@ -5297,6 +5297,7 @@ class HogFlowViewSet(
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
+                requested_exit_condition=serializer.initial_data.get("exit_condition"),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
