@@ -177,7 +177,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import get_message_actor, turn_person_message
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
@@ -188,7 +188,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             turn_trace_id=input.trace_id,
             turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
         )
-        if input.run_id and handler.proactive_notifications_muted():
+        if (
+            input.run_id
+            and handler.proactive_notifications_muted()
+            and not (input.message_id and get_message_actor(input.run_id, input.message_id))
+        ):
             if input.ts is not None:
                 handler.stop_status_stream(ts=input.ts, final_markdown=None, mention_sent=True)
             return

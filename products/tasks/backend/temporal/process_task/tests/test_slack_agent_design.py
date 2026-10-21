@@ -223,18 +223,24 @@ class TestSlackAgentDesignStream(TestCase):
 
     @parameterized.expand(
         [
-            ("shared_channel", "C1", False),
-            ("direct_request", "D1", False),
-            ("answer_at_start", "C1", True),
+            ("shared_channel", "C1", False, False),
+            ("direct_request", "D1", False, True),
+            ("answer_at_start", "C1", True, False),
+            ("private_proactive", "D1", False, False),
         ]
     )
     @patch("products.tasks.backend.logic.services.living_artifacts.deliver_pending_slack_file_artifacts")
     @patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_mobile_pickup_keeps_the_answer_without_a_targeted_stream(
-        self, _name, channel, answer_at_start, mock_get_client, mock_muted, mock_deliver
+        self, _name, channel, answer_at_start, explicit_request, mock_get_client, mock_muted, mock_deliver
     ) -> None:
-        mock_muted.side_effect = lambda **kwargs: not kwargs.get("private_only", False)
+        mock_muted.side_effect = lambda **kwargs: channel == "D1" or not kwargs.get("private_only", False)
+        message_id = "slack-request" if explicit_request else None
+        if message_id:
+            record_delivered_message(
+                str(self.task_run.id), message_id, actor_slack_user_id="U456", person_message="How are signups?"
+            )
         client = mock_get_client.return_value
         client.chat_postMessage.return_value = {"ts": "2.0"}
         context = {
@@ -249,6 +255,7 @@ class TestSlackAgentDesignStream(TestCase):
                 slack_thread_context=context,
                 run_id=str(self.task_run.id),
                 first_markdown_text=answer if answer_at_start else None,
+                message_id=message_id,
             )
         )
         assert stream is not None
@@ -264,11 +271,16 @@ class TestSlackAgentDesignStream(TestCase):
                 final_markdown=None if answer_at_start else answer,
                 answer_markdown=answer,
                 mention_sent=answer_at_start,
+                message_id=message_id,
             )
         )
 
         client.chat_startStream.assert_not_called()
         client.chat_appendStream.assert_not_called()
         client.chat_stopStream.assert_not_called()
-        assert client.chat_postMessage.call_args.kwargs["text"] == "Signups grew."
-        mock_deliver.assert_called_once_with(self.task_run)
+        if channel == "D1" and not explicit_request:
+            client.chat_postMessage.assert_not_called()
+            mock_deliver.assert_not_called()
+        else:
+            assert client.chat_postMessage.call_args.kwargs["text"] == "Signups grew."
+            mock_deliver.assert_called_once_with(self.task_run)
