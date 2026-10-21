@@ -29,11 +29,11 @@ class FindBlockingCalls(TraversingVisitor):
 
 
 class FindVariableReferences(TraversingVisitor):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.names: list[str] = []
 
-    def visit_field(self, node: ast.Field):
+    def visit_field(self, node: ast.Field) -> None:
         if len(node.chain) > 1 and node.chain[0] == "variables":
             self.names.append(str(node.chain[1]))
         super().visit_field(node)
