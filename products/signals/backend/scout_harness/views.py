@@ -42,6 +42,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -58,14 +59,18 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    get_authenticator_scopes,
+    scopes_missing_after_legacy_fallback,
+)
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-from posthog.scopes import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
@@ -364,7 +369,7 @@ def _sandbox_bound_task_id(request: Request) -> uuid.UUID | None:
     return authenticator.access_token.sandbox_task_id
 
 
-def _may_read_reports(request: Request, canonical_team: Team) -> bool:
+def _may_read_reports(request: Request, view: APIView, canonical_team: Team) -> bool:
     """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
 
     Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
@@ -383,8 +388,7 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     """
     scopes = get_authenticator_scopes(request.successful_authenticator)
     if scopes is not None and "*" not in scopes:
-        missing = scopes_not_covered(scopes, ["inbox:read"])
-        if missing and not scopes_covered_by_legacy_fallback(scopes, missing):
+        if scopes_missing_after_legacy_fallback(request, view, scopes, ["inbox:read"]):
             return False
 
     user = request.user
@@ -2249,7 +2253,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=validated.get("text") or None,
             exclude_origins=(
                 ()
-                if _may_read_reports(request, self.team.parent_team or self.team)
+                if _may_read_reports(request, self, self.team.parent_team or self.team)
                 # Every derived origin quotes report content (id, title, and the reviewer's / user's
                 # text), so a caller without report read access must not see any of them.
                 else SignalScoutNote.derived_origins()

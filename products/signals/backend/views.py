@@ -3142,7 +3142,8 @@ class SignalReportViewSet(
         detail=True,
         methods=["post"],
         url_path="actions/run",
-        required_scopes=["inbox:write"],
+        # The action starts a task, so an inbox-only credential must not reach it.
+        required_scopes=["inbox:write", "task:write"],
         throttle_classes=[ReportTaskActionRunBurstThrottle, ReportTaskActionRunSustainedThrottle],
     )
     def run_task_action(self, request: ValidatedRequest, *args, **kwargs) -> Response:
@@ -5978,7 +5979,7 @@ class SignalReportArtefactViewSet(
         # The diff is deliberately bounded to repos the team's GitHub installation can access
         # (`first_for_team_repository` returns None otherwise) rather than to a single per-report
         # repository: a report's work legitimately spans multiple repos (cross-repo fixes, stacked
-        # PRs). That connection boundary is the intended scope — any `inbox:write` holder can already
+        # PRs). That connection boundary is the intended scope — any `task:write` holder can already
         # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
         try:
             github = GitHubIntegration.first_for_team_repository(

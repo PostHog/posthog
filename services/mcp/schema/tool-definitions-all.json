@@ -7179,7 +7179,7 @@
         "feature": "signals",
         "summary": "Run a report action as an agent task",
         "title": "Run a report action as an agent task",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,

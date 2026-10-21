@@ -36,6 +36,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: true
