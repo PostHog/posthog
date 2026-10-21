@@ -920,6 +920,9 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             patch(
                 "products.experiments.backend.hogql_queries.experiment_query_runner.capture_exception"
             ) as mock_capture,
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_query_runner.ph_scoped_capture"
+            ) as mock_scoped_capture,
         ):
             result = self._run_experiment(experiment, metric)
 
@@ -932,3 +935,13 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         # be surfaced to error tracking rather than silently masked.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == expected_path
+
+        capture = mock_scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "experiment results cache miss"
+        properties = capture.call_args.kwargs["properties"]
+        failed_key = "exposures_precompute" if expected_path == "exposure" else "metric_events_precompute"
+        not_ready_key = "metric_events_precompute" if expected_path == "exposure" else "exposures_precompute"
+        assert properties[failed_key] == "failed"
+        assert properties[not_ready_key] == "not_ready"
+        assert properties["succeeded"] is True
