@@ -8162,6 +8162,14 @@ snapshots:
         hash: v1.k794b7964.d553cecf3e544087316e1687404c8e2b3a6c19f618a05e09880e60e656054f23.hNkLLb04XLyd-PQJa59WwPhgRAxMbW5fSDzCnowJKBs
     products-workflows-customerioimportmodal--step-4-track-not-configured--light:
         hash: v1.k794b7964.0954891b73cdc0b1bce1275fa11a5fa4af2055b83b518bce82f3fde886097659.mgEq2W8sZg7x-vt8z2EpwEHPBGRzPI1GWtn-9tu-46o
+    products-workflows-destinationworkflowsuggestionmodal--build-from-picked-events--dark:
+        hash: v1.k794b7964.d253458eea8ff603dfa90b05d8b73841c6fafd0087e6f586bed6e9e2a56172ce.L6_u1lMWFG8RZkk1tzJM0kYo8GhMyFvL8UHMTI42oZQ
+    products-workflows-destinationworkflowsuggestionmodal--build-from-picked-events--light:
+        hash: v1.k794b7964.1de98618892662ae32017c2834607c059d97da38f7d590ba9978146c9edb1753.H0xp6H0izBckNDAjOfcy7pPiBNmRPqjP1yvZdjlvW8I
+    products-workflows-destinationworkflowsuggestionmodal--only-default-events--dark:
+        hash: v1.k794b7964.e46da4279ca3f2adacef659dfce59e88caa091c6b31b2e8dd3f2bc042c2b4b43.2lNEXCT_wlN57t6EWyjmOlZBzmNuLQPo5Z3sN1kzxDw
+    products-workflows-destinationworkflowsuggestionmodal--only-default-events--light:
+        hash: v1.k794b7964.21895ceb9ab912423f10d159496b58f0b96cbc893cf1144aa19ad43f52bc3607.fo4F07GH5X5Qkg3Ql-A1ZPXkkPp2WWyMSDVgLF9Eaow
     products-workflows-editor-configuration-panel--build--dark:
         hash: v1.k794b7964.ba77097ed29985565b93fbc6783a05e1d057fe5a12779705eaa6d744aa77cfb7.dXBhkcHPwydmzF6HM-fUZqF060li4rZDdMxjFRtqwjQ
     products-workflows-editor-configuration-panel--build--light:
@@ -11639,9 +11647,9 @@ snapshots:
     scenes-app-inbox-focused-setup--treatment-reminder--light:
         hash: v1.k794b7964.41b6bcc6d2de7d68b9bf72f1a3a248c326c44dea7905d7bcc1161ad09526d7e9.4E0B-L1wRoXtjDuhdRe2-x8CwfacDBMUa4hrUNBQbig
     scenes-app-inbox-hotkeyradio--with-selection--dark:
-        hash: v1.k794b7964.ee23fd931ed2324fdc42cbb44bb06176f40e1e47d5c03f9118ccc0f5f013201b.BmJiKZm5EO6qY8tSt5oSll_wmMMWh7IJ0dqN_bSQwa8
+        hash: v1.k794b7964.096221ba2a8740bc3f146596ab7d2e9576a9634b42608a196af46696de44024b.Aa_uyyUpzKzR72cUKsxLQJvhEiP0VxyLDoYjQgAa-mo
     scenes-app-inbox-hotkeyradio--with-selection--light:
-        hash: v1.k794b7964.3e50641442cc87cebfb5e0380042c05c0e5f15e238011e5aab24f8e69da5ea8e.IarzlyKga2lc-4CZ8UpBjuU1D_75I4SRnyKDESA9drk
+        hash: v1.k794b7964.b33f3d0a7456ea8e8dc412a08edd39d375f5cbfe508986fcc3add5190ccf2841.34SlHTQlR87Vqw5S3O9_k7v8sXrshNONFUqpF1Z97X0
     scenes-app-inbox-implementbutton--choices--dark:
         hash: v1.k794b7964.04e3f5a9e20f0032cff25e7878e16328871b41813d2a4e3064e731f91d3b876c.hVFY_MWjWZDX4fr9y2vacAy3wHZuNHwp5cYjveu_KfE
     scenes-app-inbox-implementbutton--choices--light:
@@ -14902,6 +14910,10 @@ snapshots:
         hash: v1.k794b7964.f723b2160bdf85cd5a827fa3dac4c281d75950f47555cdef7fc01f2ef689dfc6.wAOg7AG2Pf4mYO8EjKdD8lFlC1Ulv4MhkXIEMkzfCrg
     scenes-app-signals-artefactloglist--replacement-lifecycle--light:
         hash: v1.k794b7964.bb6f3f49907d13832cfad4b4c2c5ca3793bb4b29ab9bfcdda58a3abb848996a6.IjmVg1UPLdiV6r2dZcxKXAqYdiY6qBiuRiVeIqhd_hY
+    scenes-app-signals-artefactloglist--report-verdicts--dark:
+        hash: v1.k794b7964.e83b5beef6e337264ba02e44e08dec0b89ae0b055f58462e75f628682efb45cb.27b8MBKf1ZGxDx_4njLGUb6cqLKeIjuutlNiHJpVHig
+    scenes-app-signals-artefactloglist--report-verdicts--light:
+        hash: v1.k794b7964.2700c0aee71780b7938fdf212bb2d9f6010a0781da41c3d7bb9b5ad647d14f97.op16fkIw6utBe_-1aQLa3cCPSI395xX649Lc0OtOMUA
     scenes-app-signals-artefactloglist--revision-limit--dark:
         hash: v1.k794b7964.d9e475caa06b8c102d144f5a714e26addf9fdfe71d0b5008a4d09448142d60d7.KrLa7tfvjyW7kx7jRx7f8a2uctJrVoOP47m2TBccgrc
     scenes-app-signals-artefactloglist--revision-limit--light:

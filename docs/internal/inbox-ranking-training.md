@@ -13,6 +13,7 @@ The label comes from the snapshot `horizon_days` later, including outcomes alrea
 
 The families train only the heads the inbox reads: `open`, `action` and `fixed`.
 The dataset still snapshots the label columns of other outcomes, so a head can come back without a labels backfill.
+Manual resolutions with reason `no_action_needed` count as reasoned resolutions for the `action` head but do not count toward the `fixed` head. They record that the report was accepted without claiming an implementation or a PR merge.
 
 The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.
