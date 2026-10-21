@@ -21,6 +21,7 @@ export const manifest: ProductManifest = {
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
             listHref: () => urls.surveys(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
         },
