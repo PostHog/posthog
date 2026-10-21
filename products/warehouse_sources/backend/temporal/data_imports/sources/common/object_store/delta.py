@@ -36,7 +36,7 @@ def _raise_if_access_denied(error: Exception, table_name: str) -> None:
         ) from error
 
 
-# The table version a row was imported at. An append-only sync needs a column for the pipeline's
+# The table version a row was imported at. An append or incremental sync needs a column for the pipeline's
 # incremental field, and the version is the one value that grows with every sync.
 DELTA_VERSION_COLUMN = "_delta_version"
 
@@ -136,20 +136,44 @@ def _files_at_version(uri: str, storage_options: dict[str, str], version: int) -
     return {fragment.path for fragment in dataset.get_fragments()}
 
 
+def delta_columns(
+    uri: str, storage_options: dict[str, str], logger: FilteringBoundLogger | None = None
+) -> list[tuple[str, str, bool]] | None:
+    """The table's columns as (name, type, nullable), or None when its log can't be read.
+
+    Reads only the log metadata, not the file list, so discovery stays cheap on a large table.
+    A failure doesn't fail discovery: the table is still offered, without the columns.
+    """
+    try:
+        schema = pa.schema(DeltaTable(uri, storage_options=storage_options, without_files=True).schema().to_arrow())
+    except (DeltaError, OSError) as e:
+        if logger is not None:
+            logger.warning("Could not read the Delta table columns", error=str(e))
+        return None
+    return [(field.name, str(field.type), field.nullable) for field in schema]
+
+
 def plan_delta_read(
     uri: str,
     storage_options: dict[str, str],
     table_name: str,
     stored: ObjectStorageDeltaCursor | None = None,
     logger: FilteringBoundLogger | None = None,
+    merges: bool = False,
 ) -> DeltaRead:
     """Pin the table's current version and decide what to read to bring the destination up to it.
 
-    Without a stored cursor the whole snapshot is read. With one, only the data files added since
-    the cursor's version are read, and only when every file of that version is still in the table.
-    A file that is gone was removed by a delete, an update, a merge, an overwrite or a compaction,
-    all of which change or move rows the destination already holds. No append can repair that, so
-    the plan then asks for a rebuild from the whole snapshot.
+    Without a stored cursor the whole snapshot is read. With one, only the data files that the
+    cursor's version did not have are read.
+
+    An append (`merges=False`) reads them only when every file of the stored version is still in
+    the table. A file that is gone was removed by a delete, an update, a merge, an overwrite or a
+    compaction, all of which change or move rows the destination already holds. No append can
+    repair that, so the plan then asks for a rebuild from the whole snapshot.
+
+    A merge (`merges=True`) reads them in all cases. A rewritten file comes back as a new file
+    that holds the new copies of its rows, and the pipeline merges those on the table's key.
+    Deleted rows are not in any new file, so the destination keeps them until a full refresh.
     """
     with _delta_errors(table_name):
         table = DeltaTable(uri, storage_options=storage_options)
@@ -175,7 +199,7 @@ def plan_delta_read(
         fragments: list[ds.FileFragment] = list(dataset.get_fragments())
         if earlier_files is None:
             reset_reason = "the version of the last sync can no longer be read"
-        elif not earlier_files <= {fragment.path for fragment in fragments}:
+        elif not merges and not earlier_files <= {fragment.path for fragment in fragments}:
             reset_reason = "a commit since the last sync removed or rewrote data files"
         else:
             added_files = [fragment for fragment in fragments if fragment.path not in earlier_files]

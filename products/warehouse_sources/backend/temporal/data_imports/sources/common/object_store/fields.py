@@ -53,7 +53,9 @@ def source_caption(store: str) -> str:
         f"Import CSV, JSON Lines and Parquet files, and Delta Lake tables, from {store}. PostHog creates one "
         "table per folder, one per file at the top of the folder you choose, and one per Delta table. A full "
         "refresh reads every file again, so the table matches the files. An incremental or append-only sync "
-        "reads only new and changed files, and keeps the rows of files you delete."
+        "reads only new and changed files, and keeps the rows of files you delete. An incremental sync of a Delta "
+        "table updates rows by the primary key you choose. Rows you delete from a Delta table stay in PostHog "
+        "until the next full refresh."
     )
 
 

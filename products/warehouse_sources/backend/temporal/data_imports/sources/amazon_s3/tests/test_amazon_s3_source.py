@@ -3,7 +3,7 @@ import json
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -199,20 +199,26 @@ def test_sync_type_decides_which_files_are_read_and_whether_rows_merge(
 
 
 @pytest.mark.parametrize(
-    "sync_type, has_stored_cursor, expected_ids, expected_columns",
+    "sync_type, has_stored_cursor, write_mode, expected_ids, expected_columns, expected_reset",
     [
-        (ExternalDataSchemaSyncType.APPEND, True, [2], {"id", "_delta_version"}),
-        (ExternalDataSchemaSyncType.APPEND, False, [1, 2], {"id", "_delta_version"}),
+        (ExternalDataSchemaSyncType.APPEND, True, "append", [2], {"id", "_delta_version"}, False),
+        (ExternalDataSchemaSyncType.APPEND, False, "append", [1, 2], {"id", "_delta_version"}, False),
+        (ExternalDataSchemaSyncType.APPEND, True, "overwrite", [2], {"id", "_delta_version"}, True),
+        (ExternalDataSchemaSyncType.INCREMENTAL, True, "append", [2], {"id", "_delta_version"}, False),
+        # The rewritten rows merge on the user's key, so a removed file doesn't rebuild the table.
+        (ExternalDataSchemaSyncType.INCREMENTAL, True, "overwrite", [2], {"id", "_delta_version"}, False),
         # A full refresh ignores the stored cursor, and still records the version it wrote.
-        (ExternalDataSchemaSyncType.FULL_REFRESH, True, [1, 2], {"id"}),
+        (ExternalDataSchemaSyncType.FULL_REFRESH, True, "append", [1, 2], {"id"}, False),
     ],
 )
 def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
     tmp_path: Path,
     sync_type: ExternalDataSchemaSyncType,
     has_stored_cursor: bool,
+    write_mode: Literal["append", "overwrite"],
     expected_ids: list[int],
     expected_columns: set[str],
+    expected_reset: bool,
 ) -> None:
     table_path = str(tmp_path / "customer-data" / "exports" / "sales")
     write_deltalake(table_path, pa.table({"id": [1]}))
@@ -225,13 +231,13 @@ def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
     first.source_cursor = first_cursor
     list(cast(Iterable[pa.Table], source.source_for_pipeline(config, first).items()))
     stored = {"source_cursor": first_cursor.staged_payload()} if has_stored_cursor else {}
-    write_deltalake(table_path, pa.table({"id": [2]}), mode="append")
+    write_deltalake(table_path, pa.table({"id": [2]}), mode=write_mode)
 
-    appends = sync_type == ExternalDataSchemaSyncType.APPEND
+    reads_from_cursor = sync_type != ExternalDataSchemaSyncType.FULL_REFRESH
     inputs = source_inputs(
         schema.name,
-        incremental_field=schema.incremental_fields[0]["field"] if appends else None,
-        incremental_field_type=IncrementalFieldType.Integer if appends else None,
+        incremental_field=schema.incremental_fields[0]["field"] if reads_from_cursor else None,
+        incremental_field_type=IncrementalFieldType.Integer if reads_from_cursor else None,
     )
     inputs.schema_metadata = schema.schema_metadata
     inputs.sync_type = sync_type
@@ -242,6 +248,43 @@ def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
 
     assert sorted(row["id"] for row in rows) == expected_ids
     assert all(set(row) == expected_columns for row in rows)
-    assert response.destination_reset_required is False
+    assert response.destination_reset_required is expected_reset
+    assert response.primary_keys is None
     staged = cursor.staged_payload()
     assert staged is not None and staged["data"]["version"] == 1
+
+
+@pytest.mark.parametrize(
+    "layout, expected_incremental, expected_columns, expected_key_required",
+    [
+        ("delta", True, [("id", "int64", True), ("region", "string", True)], True),
+        # The file path and row number are the key, so the user is never asked for one.
+        ("files", True, [], False),
+        # Without the columns there is no key to pick, so the table can only append.
+        ("unreadable_delta", False, [], True),
+    ],
+)
+def test_discovery_offers_incremental_on_a_picked_key_for_delta_tables(
+    tmp_path: Path,
+    layout: str,
+    expected_incremental: bool,
+    expected_columns: list[tuple[str, str, bool]],
+    expected_key_required: bool,
+) -> None:
+    folder = tmp_path / "customer-data" / "exports" / "accounts"
+    if layout == "delta":
+        write_deltalake(str(folder), pa.table({"id": [1], "region": ["eu"]}), partition_by=["region"])
+    elif layout == "files":
+        write(tmp_path, "exports/accounts/a.csv", b"id\n1\n")
+    else:
+        write(tmp_path, "exports/accounts/_delta_log/00000000000000000000.json", b"not json")
+    source = _LocalAmazonS3Source(tmp_path)
+
+    [schema] = source.get_schemas(make_config(), team_id=1)
+
+    assert schema.supports_incremental is expected_incremental
+    assert schema.columns == expected_columns
+    # The sync type checks read the key requirement and the columns from the persisted metadata.
+    metadata = json.loads(json.dumps(schema.schema_metadata))
+    assert source.detects_primary_keys_for_schema(metadata) is expected_key_required
+    assert [column["name"] for column in metadata.get("columns", [])] == [name for name, _, _ in expected_columns]

@@ -1145,7 +1145,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # columns there is nothing to say the table has none; the sync-time guard covers both.
             source_detects_keys = SourceRegistry.get_source(
                 ExternalDataSourceType(instance.source.source_type)
-            ).detects_primary_keys
+            ).detects_primary_keys_for_schema(metadata if isinstance(metadata, dict) else None)
             if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
@@ -2478,7 +2478,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,
-            "primary_key_detection_supported": source_impl.detects_primary_keys,
+            "primary_key_detection_supported": source_impl.detects_primary_keys_for_schema(schema.schema_metadata),
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

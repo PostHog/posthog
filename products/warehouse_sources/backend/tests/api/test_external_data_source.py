@@ -146,7 +146,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     column, and the serializer renders `get_version_deprecation` into the response. The create path
     also reads `max_instances_per_team` to enforce the per-team source limit — leave it unset so the
     limit check is skipped rather than comparing against a MagicMock. `database_schema` renders
-    `detects_primary_keys` straight into the response, where a MagicMock does not serialize.
+    `detects_primary_keys_for_schema` straight into the response, where a MagicMock does not serialize.
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
@@ -164,6 +164,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.requires_team_feature_flag = None
     mock_get_source.return_value.connection_host_fields = []
     mock_get_source.return_value.detects_primary_keys = False
+    mock_get_source.return_value.detects_primary_keys_for_schema.return_value = False
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
@@ -5973,6 +5974,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
         mock_source.get_endpoint_permissions.return_value = {}
         mock_source.detects_primary_keys = False
+        mock_source.detects_primary_keys_for_schema.return_value = False
         mock_source.requires_team_feature_flag = None
 
         response = self.client.post(

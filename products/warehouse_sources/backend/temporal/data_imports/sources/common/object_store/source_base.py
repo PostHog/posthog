@@ -1,7 +1,7 @@
 from abc import abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
-from typing import Generic, NoReturn, Optional
+from typing import Any, Generic, NoReturn, Optional
 
 import pyarrow as pa
 from botocore.exceptions import ClientError
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
     DELTA_VERSION_COLUMN,
     ObjectStorageDeltaCursor,
+    delta_columns,
     iter_delta_tables,
     plan_delta_read,
 )
@@ -98,8 +99,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
 
     A full refresh reads each table in full, so the table matches the bucket at the time of the sync.
     The incremental and append sync types read only the files modified since the last sync. They
-    never remove rows, so the rows of a file deleted from the bucket stay in the table. An append sync
-    of a Delta table reads only the data files committed since the version of the last sync.
+    never remove rows, so the rows of a file deleted from the bucket stay in the table. An append or
+    incremental sync of a Delta table reads only the data files committed since the version of the
+    last sync. An incremental sync merges them on the key the user picks, so updated rows replace
+    their old copies, and rows deleted from the Delta table stay until a full refresh.
     """
 
     @abstractmethod
@@ -110,6 +113,11 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
 
     def cursor_class(self) -> type[ObjectStorageDeltaCursor]:
         return ObjectStorageDeltaCursor
+
+    def detects_primary_keys_for_schema(self, schema_metadata: Mapping[str, Any] | None) -> bool:
+        # A file table merges on the file path and row number, which the sync sets itself. A Delta
+        # table has no key of its own, so an incremental sync of it needs a key the user picks.
+        return schema_metadata is not None and schema_metadata.get("kind") == "delta"
 
     def open_store(self, store_config: StoreConfig) -> ObjectStore:
         """Re-check the location every time the stored credentials are about to be sent to it."""
@@ -188,7 +196,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         store = self.open_store(self.object_store_config(config))
         requested = set(names) if names is not None else None
         return [
-            _source_schema(table)
+            _source_schema(table, store)
             for table in self._discover(store, config)
             if requested is None or table.name in requested
         ]
@@ -198,9 +206,9 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         table = TableDefinition.from_schema_metadata(inputs.schema_name, inputs.schema_metadata) or self._find_table(
             store, config, inputs.schema_name, inputs.logger
         )
-        if table.kind == "delta":
-            return self._delta_response(store, table, inputs)
         selection = FileSelection.from_inputs(inputs)
+        if table.kind == "delta":
+            return self._delta_response(store, table, inputs, merges=selection.merges)
 
         def items() -> Iterator[pa.Table]:
             yield from iter_table(store, table, inputs.logger, selection)
@@ -213,28 +221,32 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             chunk_size_bytes=CHUNK_SIZE_BYTES,
         )
 
-    def _delta_response(self, store: ObjectStore, table: TableDefinition, inputs: SourceInputs) -> SourceResponse:
+    def _delta_response(
+        self, store: ObjectStore, table: TableDefinition, inputs: SourceInputs, merges: bool
+    ) -> SourceResponse:
         cursor_manager = self.get_cursor_manager(inputs)
-        appends = inputs.should_use_incremental_field
+        reads_from_cursor = inputs.should_use_incremental_field
         # The plan is made here and not in `items`, because the response has to say up front
         # whether the destination must be rebuilt.
         read = plan_delta_read(
             store.delta_uri(table.path),
             store.delta_storage_options,
             table.name,
-            stored=cursor_manager.load() if appends else None,
+            stored=cursor_manager.load() if reads_from_cursor else None,
             logger=inputs.logger,
+            merges=merges,
         )
 
         def items() -> Iterator[pa.Table]:
             # A full refresh stages the cursor too. A later switch to append then continues from
             # the version the table holds, and not from the cursor of an earlier append.
             cursor_manager.stage(read.cursor)
-            yield from read.iter_tables(with_version=appends)
+            yield from read.iter_tables(with_version=reads_from_cursor)
 
         return SourceResponse(
             name=inputs.schema_name,
             items=items,
+            # A merge uses the key the user picked, which the pipeline reads from the schema.
             primary_keys=None,
             chunk_size_bytes=CHUNK_SIZE_BYTES,
             destination_reset_required=read.reset_required,
@@ -253,20 +265,32 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         )
 
 
-def _source_schema(table: TableDefinition) -> SourceSchema:
-    is_files = table.kind == "files"
+def _source_schema(table: TableDefinition, store: ObjectStore) -> SourceSchema:
+    if table.kind == "files":
+        return SourceSchema(
+            name=table.name,
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[incremental_field(FILE_MODIFIED_AT_COLUMN)],
+            prefers_full_refresh=True,
+            schema_metadata=table.schema_metadata(),
+        )
+    metadata = table.schema_metadata()
+    columns = delta_columns(store.delta_uri(table.path), store.delta_storage_options)
+    if columns is not None:
+        # The sync type checks read the columns from here to ask for a key.
+        metadata["columns"] = [
+            {"name": name, "data_type": data_type, "is_nullable": nullable} for name, data_type, nullable in columns
+        ]
     return SourceSchema(
         name=table.name,
-        # Delta rows have no key to merge on, so a Delta table can only append.
-        supports_incremental=is_files,
+        # A Delta table merges on a key the user picks from its columns, so without the columns it can only append.
+        supports_incremental=columns is not None,
         supports_append=True,
-        incremental_fields=[
-            incremental_field(FILE_MODIFIED_AT_COLUMN)
-            if is_files
-            else incremental_field(DELTA_VERSION_COLUMN, IncrementalFieldType.Integer)
-        ],
+        incremental_fields=[incremental_field(DELTA_VERSION_COLUMN, IncrementalFieldType.Integer)],
+        columns=columns or [],
         prefers_full_refresh=True,
-        schema_metadata=table.schema_metadata(),
+        schema_metadata=metadata,
     )
 
 

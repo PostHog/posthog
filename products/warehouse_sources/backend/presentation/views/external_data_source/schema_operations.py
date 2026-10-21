@@ -468,7 +468,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
-                "primary_key_detection_supported": source.detects_primary_keys,
+                "primary_key_detection_supported": source.detects_primary_keys_for_schema(schema.schema_metadata),
                 "permission_error": endpoint_permissions.get(schema.name),
                 "rls_warning": schema.rls_warning,
             }

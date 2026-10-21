@@ -543,23 +543,45 @@ def _append_then_compact(path: str) -> None:
     DeltaTable(path).optimize.compact()
 
 
+def _merge(path: str) -> None:
+    # Updates id 2 and inserts id 4, both in the `b` partition, so only that partition's file is rewritten.
+    DeltaTable(path).merge(
+        pa.table({"id": [2, 4], "day": ["b", "b"]}), predicate="t.id = s.id", source_alias="s", target_alias="t"
+    ).when_matched_update_all().when_not_matched_insert_all().execute()
+
+
 class TestDeltaCursor:
     @parameterized.expand(
         [
-            ("no_cursor_reads_the_snapshot", None, [_append], False, [1, 2, 3], 1),
-            ("appends_read_only_the_new_files", "same", [_append], False, [3], 1),
-            ("an_unchanged_table_reads_nothing", "same", [], False, [], 0),
-            ("an_overwrite_rebuilds", "same", [_overwrite], True, [9], 1),
-            ("a_delete_rebuilds", "same", [_delete], True, [2], 1),
+            ("no_cursor_reads_the_snapshot", False, None, [_append], False, [1, 2, 3], 1),
+            ("appends_read_only_the_new_files", False, "same", [_append], False, [3], 1),
+            ("an_unchanged_table_reads_nothing", False, "same", [], False, [], 0),
+            ("an_overwrite_rebuilds", False, "same", [_overwrite], True, [9], 1),
+            ("a_delete_rebuilds", False, "same", [_delete], True, [2], 1),
+            ("a_merge_rebuilds", False, "same", [_merge], True, [1, 2, 4], 1),
             # Compaction keeps the rows but moves them to a new file, which an append would read twice.
-            ("a_compaction_rebuilds", "same", [_append_then_compact], True, [1, 2, 3], 2),
-            ("a_recreated_table_rebuilds", "other", [_append], True, [1, 2, 3], 1),
-            ("a_cursor_ahead_of_the_table_rebuilds", "ahead", [], True, [1, 2], 0),
+            ("a_compaction_rebuilds", False, "same", [_append_then_compact], True, [1, 2, 3], 2),
+            ("a_recreated_table_rebuilds", False, "other", [_append], True, [1, 2, 3], 1),
+            ("a_cursor_ahead_of_the_table_rebuilds", False, "ahead", [], True, [1, 2], 0),
+            # An incremental sync merges what it reads on the user's key, so a removed file never forces a rebuild.
+            ("incremental_no_cursor_reads_the_snapshot", True, None, [_append], False, [1, 2, 3], 1),
+            ("incremental_reads_only_the_new_files", True, "same", [_append], False, [3], 1),
+            ("incremental_unchanged_table_reads_nothing", True, "same", [], False, [], 0),
+            # The overwritten rows stay in the destination, as deleted rows do.
+            ("incremental_overwrite_reads_the_new_files", True, "same", [_overwrite], False, [9], 1),
+            # Removing the only file of a partition adds no file, so the deleted row is not seen.
+            ("incremental_delete_reads_nothing", True, "same", [_delete], False, [], 1),
+            ("incremental_merge_reads_the_rewritten_file", True, "same", [_merge], False, [2, 4], 1),
+            # The compacted file holds rows the destination already has, and the merge replaces them.
+            ("incremental_compaction_reads_the_compacted_file", True, "same", [_append_then_compact], False, [2, 3], 2),
+            ("incremental_recreated_table_rebuilds", True, "other", [_append], True, [1, 2, 3], 1),
+            ("incremental_cursor_ahead_of_the_table_rebuilds", True, "ahead", [], True, [1, 2], 0),
         ]
     )
     def test_plan(
         self,
         _name: str,
+        merges: bool,
         stored_cursor: str | None,
         commits: list[Any],
         expected_reset: bool,
@@ -579,7 +601,7 @@ class TestDeltaCursor:
             for commit in commits:
                 commit(path)
 
-            read = plan_delta_read(path, {}, "sales", stored=stored)
+            read = plan_delta_read(path, {}, "sales", stored=stored, merges=merges)
             rows = [row for table in read.iter_tables(with_version=True) for row in table.to_pylist()]
 
         assert read.reset_required is expected_reset
@@ -589,18 +611,36 @@ class TestDeltaCursor:
         assert all(set(row) == {"id", "day", "_delta_version"} for row in rows)
         assert {row["_delta_version"] for row in rows} <= {expected_version}
 
-    def test_a_cleaned_up_version_rebuilds(self, tmp_path: Path) -> None:
-        path = str(tmp_path / "sales")
-        write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}))
-        table_id = str(DeltaTable(path).metadata().id)
-        _append(path)
-        DeltaTable(path).create_checkpoint()
-        # Log cleanup removes the entries before the checkpoint, so version 0 can no longer be loaded.
-        (Path(path) / "_delta_log" / f"{0:020d}.json").unlink()
+    @parameterized.expand([("append", False), ("incremental", True)])
+    def test_a_cleaned_up_version_rebuilds(self, _name: str, merges: bool) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}))
+            table_id = str(DeltaTable(path).metadata().id)
+            _append(path)
+            DeltaTable(path).create_checkpoint()
+            # Log cleanup removes the entries before the checkpoint, so version 0 can no longer be loaded.
+            (Path(path) / "_delta_log" / f"{0:020d}.json").unlink()
 
-        read = plan_delta_read(path, {}, "sales", stored=ObjectStorageDeltaCursor(version=0, table_id=table_id))
+            read = plan_delta_read(
+                path, {}, "sales", stored=ObjectStorageDeltaCursor(version=0, table_id=table_id), merges=merges
+            )
 
         assert read.reset_required is True
+
+    def test_an_incremental_read_after_an_update_returns_the_whole_rewritten_file(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "customers")
+        write_deltalake(path, pa.table({"id": [1, 2, 3], "tier": ["free", "free", "free"]}))
+        table_id = str(DeltaTable(path).metadata().id)
+        DeltaTable(path).update(predicate="id = 2", updates={"tier": "'paid'"})
+
+        read = plan_delta_read(
+            path, {}, "customers", stored=ObjectStorageDeltaCursor(version=0, table_id=table_id), merges=True
+        )
+        rows = [row for table in read.iter_tables() for row in table.to_pylist()]
+
+        assert read.reset_required is False
+        assert sorted((row["id"], row["tier"]) for row in rows) == [(1, "free"), (2, "paid"), (3, "free")]
 
     def test_a_storage_failure_loading_the_stored_version_propagates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

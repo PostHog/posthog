@@ -263,6 +263,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         return None
 
+    def detects_primary_keys_for_schema(self, schema_metadata: Mapping[str, Any] | None) -> bool:
+        """`detects_primary_keys` for one table, judged from its persisted `schema_metadata`.
+
+        Override in a source whose tables differ: some declare their key in code, and others have
+        no key of their own, so an incremental sync of those needs a key the user picks.
+        """
+        return self.detects_primary_keys
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:

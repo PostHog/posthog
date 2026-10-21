@@ -825,6 +825,39 @@ class TestExternalDataSchema(APIBaseTest):
                 "no primary key",
                 "incremental",
             ),
+            (
+                "object_storage_delta_table_without_a_key_is_refused",
+                [{"name": "amount"}],
+                None,
+                None,
+                False,
+                "no primary key",
+                "full_refresh",
+                ExternalDataSourceType.AMAZONS3,
+                {"kind": "delta"},
+            ),
+            (
+                "object_storage_delta_table_with_a_key_passes",
+                [{"name": "amount"}, {"name": "account_id"}],
+                None,
+                ["account_id"],
+                True,
+                "",
+                "full_refresh",
+                ExternalDataSourceType.AMAZONS3,
+                {"kind": "delta"},
+            ),
+            (
+                "object_storage_file_table_sets_its_own_key",
+                [{"name": "amount"}],
+                None,
+                None,
+                True,
+                "",
+                "full_refresh",
+                ExternalDataSourceType.AMAZONS3,
+                {"kind": "files"},
+            ),
         ]
     )
     def test_switching_to_incremental_requires_a_key_the_merge_can_use(
@@ -837,6 +870,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_error: str,
         initial_sync_type: str = "full_refresh",
         source_type: str = ExternalDataSourceType.POSTGRES,
+        table_metadata: dict[str, str] | None = None,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -856,7 +890,7 @@ class TestExternalDataSchema(APIBaseTest):
                     if initial_sync_type == "incremental"
                     else {}
                 ),
-                "schema_metadata": {"columns": columns},
+                "schema_metadata": {**(table_metadata or {}), "columns": columns},
             },
         )
         payload: dict[str, Any] = {"should_sync": True}
