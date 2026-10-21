@@ -19,6 +19,7 @@ const meta: Meta<typeof TraceSplitView> = {
         tree: FIXTURE_TREE,
         selectedNodeId: generation.id,
         onSelectNode: () => {},
+        onPrefetchNode: () => {},
         detail: {
             node: generation,
             tab: 'messages',

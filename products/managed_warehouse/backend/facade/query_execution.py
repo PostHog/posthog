@@ -13,6 +13,14 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
+def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
+    from products.managed_warehouse.backend.query_execution import (
+        validate_managed_trino_raw_access as validate,  # noqa: PLC0415 -- query execution is optional during Django startup
+    )
+
+    validate(team, user)
+
+
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:
     from products.managed_warehouse.backend.query_execution import (
         validate_managed_trino_query as validate,  # noqa: PLC0415 -- query compilation is optional during Django startup
