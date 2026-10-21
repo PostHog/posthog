@@ -3,6 +3,7 @@ from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.db.models import Q
 from django.utils import timezone
 
 import pytz
@@ -36,6 +37,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
     REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
@@ -48,6 +50,10 @@ from products.exports.backend.facade import api as exports
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+# How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
+# stacks' checks can be compared. It sends nothing for the alert in that time.
+PLATFORM_SHADOW = timedelta(days=7)
 
 # TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
 # but the URL must stay resolvable while people scroll back to the message; 30 days matches
@@ -87,6 +93,26 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
 }
+
+
+def evaluated_by_insight_stack_q(now: datetime) -> Q:
+    """The alerts the insight stack still checks: every alert it owns, and a platform-owned alert inside its shadow."""
+    # A platform-owned row with no cutover time has no shadow to finish, so it is not evaluated.
+    return ~(
+        Q(owner=PlatformAlertOwner.PLATFORM.value)
+        & (Q(owner_changed_at__isnull=True) | Q(owner_changed_at__lt=now - PLATFORM_SHADOW))
+    )
+
+
+def due_insight_alerts_q(now: datetime) -> Q:
+    """The alerts the insight scheduler owes a check at `now`."""
+    return (
+        Q(enabled=True)
+        & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
+        & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+        & Q(insight__deleted=False)
+        & evaluated_by_insight_stack_q(now)
+    )
 
 
 def is_non_time_series_trend(query: TrendsQuery) -> bool:
@@ -453,7 +479,7 @@ def dispatch_alert_notification(
     """Route an AlertCheck to the correct notification sender.
 
     Returns the delivery receipts the notification produced, or None if nothing was sent
-    (NOT_FIRING, or ERRORED with a non-dict error payload). Callers pass the returned
+    (NOT_FIRING, a platform-owned alert, or ERRORED with a non-dict error payload). Callers pass the returned
     receipts to record_alert_delivery so the `targets_notified` sentinel reflects reality,
     never claiming delivery for a state that didn't actually send.
 
@@ -472,6 +498,16 @@ def dispatch_alert_notification(
         ValueError: state is FIRING but breaches is None/empty.
         AssertionError: unknown state — surfaces a missing AlertState branch loudly.
     """
+    # An investigation dispatches minutes after it loaded `alert`, and the platform can take the
+    # alert over in that time, so the stored owner decides.
+    if (
+        alert.platform_owned
+        or AlertConfiguration.objects.filter(
+            team_id=alert.team_id, id=alert.id, owner=PlatformAlertOwner.PLATFORM
+        ).exists()
+    ):
+        logger.info("Alert is owned by the platform, nothing to send", alert_id=alert.id)
+        return None
     key = idempotency_key or str(alert_check.id)
     with ExitStack() as stack:
         if alert_check.state == AlertState.FIRING:
@@ -588,11 +624,18 @@ def record_alert_delivery(
         "users": [delivery.target for delivery in deliveries if delivery.channel == "email"],
         "destinations": serialize_deliveries([d for d in deliveries if d.channel != "email"]),
     }
-    alert_check.notification_sent_at = recorded_at
-    alert_check.save(update_fields=["targets_notified", "notification_sent_at"])
-    alert.last_notified_at = recorded_at
-    alert.save(update_fields=["last_notified_at"])
+    stamp_alert_notified(alert, alert_check, recorded_at, extra_check_fields=["targets_notified"])
     return True
+
+
+def stamp_alert_notified(
+    alert: AlertConfiguration, alert_check: AlertCheck, at: datetime, *, extra_check_fields: Collection[str] = ()
+) -> None:
+    """Marks the check as notified and moves the alert's last notification time to `at`."""
+    alert_check.notification_sent_at = at
+    alert_check.save(update_fields=[*extra_check_fields, "notification_sent_at"])
+    alert.last_notified_at = at
+    alert.save(update_fields=["last_notified_at"])
 
 
 def add_alert_check(
@@ -693,7 +736,7 @@ def disable_invalid_alert(
         state=AlertState.ERRORED,
         error=error,
     )
-    if targets_to_notify and notify_subscribers:
+    if targets_to_notify and notify_subscribers and not alert.platform_owned:
         deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
         record_alert_delivery(alert, alert_check, deliveries)
     return alert_check

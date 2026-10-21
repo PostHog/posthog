@@ -32,6 +32,8 @@ classify_case superseded superseded \
     'This pull request was removed from the merge queue because it was pushed to.'
 classify_case kicked-failed kicked_failed \
     'This pull request was removed from the merge queue because it failed tests.'
+classify_case stack-pushed-to submitted \
+    'Stack returned to waiting because it was pushed to. It will be added to the merge queue once all branch protection rules pass.'
 classify_case removed-bare removed \
     'This pull request was removed from the merge queue.'
 classify_case conflict conflict \

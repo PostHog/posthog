@@ -239,6 +239,67 @@ export const InboxOnboardingStepEnumApi = {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
+ * * `pagerduty` - PagerDuty
+ * * `opsgenie` - Opsgenie
+ * * `incident_io` - incident.io
+ * * `firehydrant` - FireHydrant
+ * * `squadcast` - Squadcast
+ * * `servicenow` - ServiceNow
+ * * `solarwinds_service_desk` - SolarWinds Service Desk
+ * * `grafana_irm` - Grafana IRM
+ * * `xmatters` - xMatters
+ * * `betterstack` - Better Stack
+ * * `newrelic` - New Relic
+ * * `trigger_dev` - Trigger.dev
+ * * `checkly` - Checkly
+ * * `roark` - Roark
+ * * `monte_carlo` - Monte Carlo
+ * * `bigeye` - Bigeye
+ * * `aws_security_hub` - AWS Security Hub
+ * * `aws_guardduty` - AWS GuardDuty
+ * * `aws_inspector` - AWS Inspector
+ * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+ * * `clickup` - ClickUp
+ * * `wrike` - Wrike
+ * * `trello` - Trello
+ * * `bugherd` - BugHerd
+ * * `dynamics365` - Dynamics 365
+ * * `zoho_crm` - Zoho CRM
+ * * `planhat` - Planhat
+ * * `trustpilot` - Trustpilot
+ * * `okendo` - Okendo
+ * * `sleekplan` - Sleekplan
+ * * `bettermode` - Bettermode
+ * * `discourse` - Discourse
+ * * `mintlify` - Mintlify
+ * * `langsmith` - LangSmith
+ * * `sprig` - Sprig
+ * * `gainsight_px` - Gainsight PX
+ * * `dynatrace` - Dynatrace
+ * * `statuspage` - Statuspage
+ * * `cronitor` - Cronitor
+ * * `instatus` - Instatus
+ * * `asana` - Asana
+ * * `monday` - monday.com
+ * * `plane` - Plane
+ * * `azure_devops` - Azure DevOps
+ * * `helpscout` - Help Scout
+ * * `decagon` - Decagon
+ * * `vitally` - Vitally
+ * * `usersnap` - Usersnap
+ * * `typeform` - Typeform
+ * * `qualtrics` - Qualtrics
+ * * `surveymonkey` - SurveyMonkey
+ * * `formbricks` - Formbricks
+ * * `survicate` - Survicate
+ * * `surveysparrow` - SurveySparrow
+ * * `lacework` - Lacework
+ * * `orca_security` - Orca Security
+ * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+ * * `google_play_console` - Google Play Console
+ * * `azure_application_insights` - Azure Application Insights
+ * * `appsignal` - AppSignal
+ * * `cursor` - Cursor
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -294,6 +355,67 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    Pagerduty: 'pagerduty',
+    Opsgenie: 'opsgenie',
+    IncidentIo: 'incident_io',
+    Firehydrant: 'firehydrant',
+    Squadcast: 'squadcast',
+    Servicenow: 'servicenow',
+    SolarwindsServiceDesk: 'solarwinds_service_desk',
+    GrafanaIrm: 'grafana_irm',
+    Xmatters: 'xmatters',
+    Betterstack: 'betterstack',
+    Newrelic: 'newrelic',
+    TriggerDev: 'trigger_dev',
+    Checkly: 'checkly',
+    Roark: 'roark',
+    MonteCarlo: 'monte_carlo',
+    Bigeye: 'bigeye',
+    AwsSecurityHub: 'aws_security_hub',
+    AwsGuardduty: 'aws_guardduty',
+    AwsInspector: 'aws_inspector',
+    MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+    Clickup: 'clickup',
+    Wrike: 'wrike',
+    Trello: 'trello',
+    Bugherd: 'bugherd',
+    Dynamics365: 'dynamics365',
+    ZohoCrm: 'zoho_crm',
+    Planhat: 'planhat',
+    Trustpilot: 'trustpilot',
+    Okendo: 'okendo',
+    Sleekplan: 'sleekplan',
+    Bettermode: 'bettermode',
+    Discourse: 'discourse',
+    Mintlify: 'mintlify',
+    Langsmith: 'langsmith',
+    Sprig: 'sprig',
+    GainsightPx: 'gainsight_px',
+    Dynatrace: 'dynatrace',
+    Statuspage: 'statuspage',
+    Cronitor: 'cronitor',
+    Instatus: 'instatus',
+    Asana: 'asana',
+    Monday: 'monday',
+    Plane: 'plane',
+    AzureDevops: 'azure_devops',
+    Helpscout: 'helpscout',
+    Decagon: 'decagon',
+    Vitally: 'vitally',
+    Usersnap: 'usersnap',
+    Typeform: 'typeform',
+    Qualtrics: 'qualtrics',
+    Surveymonkey: 'surveymonkey',
+    Formbricks: 'formbricks',
+    Survicate: 'survicate',
+    Surveysparrow: 'surveysparrow',
+    Lacework: 'lacework',
+    OrcaSecurity: 'orca_security',
+    TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+    GooglePlayConsole: 'google_play_console',
+    AzureApplicationInsights: 'azure_application_insights',
+    Appsignal: 'appsignal',
+    Cursor: 'cursor',
 } as const
 
 /**
@@ -317,6 +439,7 @@ export const SignalSourceProductEnumApi = {
  * * `ci_broken_default_branch` - CI broken default branch
  * * `ci_duration_regression` - CI duration regression
  * * `search_opportunity` - Search opportunity
+ * * `incident` - Incident
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -342,6 +465,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
+    Incident: 'incident',
 } as const
 
 export interface InboxOnboardingSourceApi {
@@ -397,7 +521,68 @@ export interface InboxOnboardingSourceApi {
      * * `intercom` - Intercom
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
-     * * `google_search_console` - Google Search Console */
+     * * `google_search_console` - Google Search Console
+     * * `pagerduty` - PagerDuty
+     * * `opsgenie` - Opsgenie
+     * * `incident_io` - incident.io
+     * * `firehydrant` - FireHydrant
+     * * `squadcast` - Squadcast
+     * * `servicenow` - ServiceNow
+     * * `solarwinds_service_desk` - SolarWinds Service Desk
+     * * `grafana_irm` - Grafana IRM
+     * * `xmatters` - xMatters
+     * * `betterstack` - Better Stack
+     * * `newrelic` - New Relic
+     * * `trigger_dev` - Trigger.dev
+     * * `checkly` - Checkly
+     * * `roark` - Roark
+     * * `monte_carlo` - Monte Carlo
+     * * `bigeye` - Bigeye
+     * * `aws_security_hub` - AWS Security Hub
+     * * `aws_guardduty` - AWS GuardDuty
+     * * `aws_inspector` - AWS Inspector
+     * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+     * * `clickup` - ClickUp
+     * * `wrike` - Wrike
+     * * `trello` - Trello
+     * * `bugherd` - BugHerd
+     * * `dynamics365` - Dynamics 365
+     * * `zoho_crm` - Zoho CRM
+     * * `planhat` - Planhat
+     * * `trustpilot` - Trustpilot
+     * * `okendo` - Okendo
+     * * `sleekplan` - Sleekplan
+     * * `bettermode` - Bettermode
+     * * `discourse` - Discourse
+     * * `mintlify` - Mintlify
+     * * `langsmith` - LangSmith
+     * * `sprig` - Sprig
+     * * `gainsight_px` - Gainsight PX
+     * * `dynatrace` - Dynatrace
+     * * `statuspage` - Statuspage
+     * * `cronitor` - Cronitor
+     * * `instatus` - Instatus
+     * * `asana` - Asana
+     * * `monday` - monday.com
+     * * `plane` - Plane
+     * * `azure_devops` - Azure DevOps
+     * * `helpscout` - Help Scout
+     * * `decagon` - Decagon
+     * * `vitally` - Vitally
+     * * `usersnap` - Usersnap
+     * * `typeform` - Typeform
+     * * `qualtrics` - Qualtrics
+     * * `surveymonkey` - SurveyMonkey
+     * * `formbricks` - Formbricks
+     * * `survicate` - Survicate
+     * * `surveysparrow` - SurveySparrow
+     * * `lacework` - Lacework
+     * * `orca_security` - Orca Security
+     * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+     * * `google_play_console` - Google Play Console
+     * * `azure_application_insights` - Azure Application Insights
+     * * `appsignal` - AppSignal
+     * * `cursor` - Cursor */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -420,7 +605,8 @@ export interface InboxOnboardingSourceApi {
      * * `ci_flaky_check` - CI flaky check
      * * `ci_broken_default_branch` - CI broken default branch
      * * `ci_duration_regression` - CI duration regression
-     * * `search_opportunity` - Search opportunity */
+     * * `search_opportunity` - Search opportunity
+     * * `incident` - Incident */
     source_type: SignalSourceConfigSourceTypeEnumApi
     /** Whether this source should be enabled at activation. */
     enabled: boolean
@@ -2264,6 +2450,67 @@ export interface SignalReportSuggestedReviewersArtefactApi {
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  * * `google_search_console` - google_search_console
+ * * `pagerduty` - pagerduty
+ * * `opsgenie` - opsgenie
+ * * `incident_io` - incident_io
+ * * `firehydrant` - firehydrant
+ * * `squadcast` - squadcast
+ * * `servicenow` - servicenow
+ * * `solarwinds_service_desk` - solarwinds_service_desk
+ * * `grafana_irm` - grafana_irm
+ * * `xmatters` - xmatters
+ * * `betterstack` - betterstack
+ * * `newrelic` - newrelic
+ * * `trigger_dev` - trigger_dev
+ * * `checkly` - checkly
+ * * `roark` - roark
+ * * `monte_carlo` - monte_carlo
+ * * `bigeye` - bigeye
+ * * `aws_security_hub` - aws_security_hub
+ * * `aws_guardduty` - aws_guardduty
+ * * `aws_inspector` - aws_inspector
+ * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+ * * `clickup` - clickup
+ * * `wrike` - wrike
+ * * `trello` - trello
+ * * `bugherd` - bugherd
+ * * `dynamics365` - dynamics365
+ * * `zoho_crm` - zoho_crm
+ * * `planhat` - planhat
+ * * `trustpilot` - trustpilot
+ * * `okendo` - okendo
+ * * `sleekplan` - sleekplan
+ * * `bettermode` - bettermode
+ * * `discourse` - discourse
+ * * `mintlify` - mintlify
+ * * `langsmith` - langsmith
+ * * `sprig` - sprig
+ * * `gainsight_px` - gainsight_px
+ * * `dynatrace` - dynatrace
+ * * `statuspage` - statuspage
+ * * `cronitor` - cronitor
+ * * `instatus` - instatus
+ * * `asana` - asana
+ * * `monday` - monday
+ * * `plane` - plane
+ * * `azure_devops` - azure_devops
+ * * `helpscout` - helpscout
+ * * `decagon` - decagon
+ * * `vitally` - vitally
+ * * `usersnap` - usersnap
+ * * `typeform` - typeform
+ * * `qualtrics` - qualtrics
+ * * `surveymonkey` - surveymonkey
+ * * `formbricks` - formbricks
+ * * `survicate` - survicate
+ * * `surveysparrow` - surveysparrow
+ * * `lacework` - lacework
+ * * `orca_security` - orca_security
+ * * `tenable_vulnerability_management` - tenable_vulnerability_management
+ * * `google_play_console` - google_play_console
+ * * `azure_application_insights` - azure_application_insights
+ * * `appsignal` - appsignal
+ * * `cursor` - cursor
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -2319,6 +2566,67 @@ export const SignalSourceProductApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    Pagerduty: 'pagerduty',
+    Opsgenie: 'opsgenie',
+    IncidentIo: 'incident_io',
+    Firehydrant: 'firehydrant',
+    Squadcast: 'squadcast',
+    Servicenow: 'servicenow',
+    SolarwindsServiceDesk: 'solarwinds_service_desk',
+    GrafanaIrm: 'grafana_irm',
+    Xmatters: 'xmatters',
+    Betterstack: 'betterstack',
+    Newrelic: 'newrelic',
+    TriggerDev: 'trigger_dev',
+    Checkly: 'checkly',
+    Roark: 'roark',
+    MonteCarlo: 'monte_carlo',
+    Bigeye: 'bigeye',
+    AwsSecurityHub: 'aws_security_hub',
+    AwsGuardduty: 'aws_guardduty',
+    AwsInspector: 'aws_inspector',
+    MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+    Clickup: 'clickup',
+    Wrike: 'wrike',
+    Trello: 'trello',
+    Bugherd: 'bugherd',
+    Dynamics365: 'dynamics365',
+    ZohoCrm: 'zoho_crm',
+    Planhat: 'planhat',
+    Trustpilot: 'trustpilot',
+    Okendo: 'okendo',
+    Sleekplan: 'sleekplan',
+    Bettermode: 'bettermode',
+    Discourse: 'discourse',
+    Mintlify: 'mintlify',
+    Langsmith: 'langsmith',
+    Sprig: 'sprig',
+    GainsightPx: 'gainsight_px',
+    Dynatrace: 'dynatrace',
+    Statuspage: 'statuspage',
+    Cronitor: 'cronitor',
+    Instatus: 'instatus',
+    Asana: 'asana',
+    Monday: 'monday',
+    Plane: 'plane',
+    AzureDevops: 'azure_devops',
+    Helpscout: 'helpscout',
+    Decagon: 'decagon',
+    Vitally: 'vitally',
+    Usersnap: 'usersnap',
+    Typeform: 'typeform',
+    Qualtrics: 'qualtrics',
+    Surveymonkey: 'surveymonkey',
+    Formbricks: 'formbricks',
+    Survicate: 'survicate',
+    Surveysparrow: 'surveysparrow',
+    Lacework: 'lacework',
+    OrcaSecurity: 'orca_security',
+    TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+    GooglePlayConsole: 'google_play_console',
+    AzureApplicationInsights: 'azure_application_insights',
+    Appsignal: 'appsignal',
+    Cursor: 'cursor',
 } as const
 
 /**
@@ -2345,6 +2653,7 @@ export const SignalSourceProductApi = {
  * * `ci_duration_regression` - ci_duration_regression
  * * `search_opportunity` - search_opportunity
  * * `check_failed` - check_failed
+ * * `incident` - incident
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -2372,6 +2681,7 @@ export const SignalSourceTypeApi = {
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
     CheckFailed: 'check_failed',
+    Incident: 'incident',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -2997,6 +3307,80 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     position: number
 }
 
+export interface PagerdutyIncidentSignalExtraApi {
+    status: string | null
+    urgency: string | null
+    html_url: string | null
+    created_at: string | null
+}
+
+export interface OpsgenieAlertSignalExtraApi {
+    status: string | null
+    priority: string | null
+    tags: unknown[]
+    source: string | null
+    created_at: string | null
+}
+
+export interface IncidentIoIncidentSignalExtraApi {
+    severity_name: string | null
+    status_name: string | null
+    mode: string | null
+    permalink: string | null
+    created_at: string | null
+}
+
+export interface FirehydrantIncidentSignalExtraApi {
+    severity: string | null
+    priority: string | null
+    current_milestone: string | null
+    incident_url: string | null
+    created_at: string | null
+}
+
+export interface SquadcastIncidentSignalExtraApi {
+    status: string | null
+    priority: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface ServicenowIncidentSignalExtraApi {
+    number: string | null
+    state: string | null
+    priority: string | null
+    urgency: string | null
+    impact: string | null
+    category: string | null
+    sys_created_on: string | null
+}
+
+export interface SolarwindsServiceDeskIncidentSignalExtraApi {
+    number: string | null
+    state: string | null
+    priority: string | null
+    category_name: string | null
+    created_at: string | null
+}
+
+export interface GrafanaIrmIncidentSignalExtraApi {
+    status: string | null
+    severity_label: string | null
+    created_time: string | null
+}
+
+export interface XmattersIncidentSignalExtraApi {
+    incident_identifier: string | null
+    severity: string | null
+    status: string | null
+    created_at: string | null
+}
+
+export interface BetterstackIncidentSignalExtraApi {
+    url: string | null
+    started_at: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -3053,6 +3437,16 @@ export type SignalExtraApi =
     | IntercomTicketSignalExtraApi
     | HubspotTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
+    | PagerdutyIncidentSignalExtraApi
+    | OpsgenieAlertSignalExtraApi
+    | IncidentIoIncidentSignalExtraApi
+    | FirehydrantIncidentSignalExtraApi
+    | SquadcastIncidentSignalExtraApi
+    | ServicenowIncidentSignalExtraApi
+    | SolarwindsServiceDeskIncidentSignalExtraApi
+    | GrafanaIrmIncidentSignalExtraApi
+    | XmattersIncidentSignalExtraApi
+    | BetterstackIncidentSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -3149,7 +3543,68 @@ export interface SignalNodeApi {
      * * `intercom` - intercom
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
-     * * `google_search_console` - google_search_console */
+     * * `google_search_console` - google_search_console
+     * * `pagerduty` - pagerduty
+     * * `opsgenie` - opsgenie
+     * * `incident_io` - incident_io
+     * * `firehydrant` - firehydrant
+     * * `squadcast` - squadcast
+     * * `servicenow` - servicenow
+     * * `solarwinds_service_desk` - solarwinds_service_desk
+     * * `grafana_irm` - grafana_irm
+     * * `xmatters` - xmatters
+     * * `betterstack` - betterstack
+     * * `newrelic` - newrelic
+     * * `trigger_dev` - trigger_dev
+     * * `checkly` - checkly
+     * * `roark` - roark
+     * * `monte_carlo` - monte_carlo
+     * * `bigeye` - bigeye
+     * * `aws_security_hub` - aws_security_hub
+     * * `aws_guardduty` - aws_guardduty
+     * * `aws_inspector` - aws_inspector
+     * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+     * * `clickup` - clickup
+     * * `wrike` - wrike
+     * * `trello` - trello
+     * * `bugherd` - bugherd
+     * * `dynamics365` - dynamics365
+     * * `zoho_crm` - zoho_crm
+     * * `planhat` - planhat
+     * * `trustpilot` - trustpilot
+     * * `okendo` - okendo
+     * * `sleekplan` - sleekplan
+     * * `bettermode` - bettermode
+     * * `discourse` - discourse
+     * * `mintlify` - mintlify
+     * * `langsmith` - langsmith
+     * * `sprig` - sprig
+     * * `gainsight_px` - gainsight_px
+     * * `dynatrace` - dynatrace
+     * * `statuspage` - statuspage
+     * * `cronitor` - cronitor
+     * * `instatus` - instatus
+     * * `asana` - asana
+     * * `monday` - monday
+     * * `plane` - plane
+     * * `azure_devops` - azure_devops
+     * * `helpscout` - helpscout
+     * * `decagon` - decagon
+     * * `vitally` - vitally
+     * * `usersnap` - usersnap
+     * * `typeform` - typeform
+     * * `qualtrics` - qualtrics
+     * * `surveymonkey` - surveymonkey
+     * * `formbricks` - formbricks
+     * * `survicate` - survicate
+     * * `surveysparrow` - surveysparrow
+     * * `lacework` - lacework
+     * * `orca_security` - orca_security
+     * * `tenable_vulnerability_management` - tenable_vulnerability_management
+     * * `google_play_console` - google_play_console
+     * * `azure_application_insights` - azure_application_insights
+     * * `appsignal` - appsignal
+     * * `cursor` - cursor */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -3175,7 +3630,8 @@ export interface SignalNodeApi {
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
-     * * `check_failed` - check_failed */
+     * * `check_failed` - check_failed
+     * * `incident` - incident */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -3657,6 +4113,62 @@ export interface AgentCheckConfigApi {
 export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckConfigApi
 
 /**
+ * * `scheduled` - Scheduled
+ * * `due` - Due
+ * * `window_ended` - Window ended
+ * * `no_interim_measurements` - No interim measurements
+ * * `waiting` - Waiting for scheduling
+ * * `paused` - Paused during Monitoring
+ * * `archived` - Archived
+ * * `unavailable` - Timing unavailable
+ * * `expiry_reached` - Expiry reached
+ */
+export type MonitoringCheckTimingStateEnumApi =
+    (typeof MonitoringCheckTimingStateEnumApi)[keyof typeof MonitoringCheckTimingStateEnumApi]
+
+export const MonitoringCheckTimingStateEnumApi = {
+    Scheduled: 'scheduled',
+    Due: 'due',
+    WindowEnded: 'window_ended',
+    NoInterimMeasurements: 'no_interim_measurements',
+    Waiting: 'waiting',
+    Paused: 'paused',
+    Archived: 'archived',
+    Unavailable: 'unavailable',
+    ExpiryReached: 'expiry_reached',
+} as const
+
+export interface MonitoringCheckTimingApi {
+    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+     *
+     * * `scheduled` - Scheduled
+     * * `due` - Due
+     * * `window_ended` - Window ended
+     * * `no_interim_measurements` - No interim measurements
+     * * `waiting` - Waiting for scheduling
+     * * `paused` - Paused during Monitoring
+     * * `archived` - Archived
+     * * `unavailable` - Timing unavailable
+     * * `expiry_reached` - Expiry reached */
+    state: MonitoringCheckTimingStateEnumApi
+    /**
+     * Original Monitoring start for this check's report.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * End of this check's soak window, independent of its target reference period and safety expiry.
+     * @nullable
+     */
+    ends_at: string | null
+    /**
+     * Stored next interim attempt, only when it falls before the soak deadline and expiry. Null when no interim measurement is scheduled.
+     * @nullable
+     */
+    next_measurement_at: string | null
+}
+
+/**
  * * `passed` - Passed
  * * `failed` - Failed
  * * `errored` - Errored
@@ -3712,21 +4224,23 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** Server-derived timing for open checks on Monitoring reports, including archived Monitoring periods. Omitted when Monitoring is disabled or the check is outside that lane. */
+    readonly monitoring_timing?: MonitoringCheckTimingApi | null
     /** @nullable */
     readonly approved_at: string | null
-    /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
+    /** Stored coordinator schedule, provisional while pending. During Monitoring this can be the observation-window end rather than another measurement; use `monitoring_timing` for interim timing. */
     readonly next_run_at: string
     /**
-     * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
+     * This check's observation window during Monitoring, in minutes. Otherwise the minimum wait after resolution; metric checks also wait for a full post-resolution query window. Null on legacy checks.
      * @nullable
      */
     readonly soak_minutes: number | null
     /**
-     * Gap between runs for a recurring check; null for a one-shot.
+     * Gap between interim Monitoring measurements or recurring verdicts. Null uses the Monitoring executor's default cadence, otherwise denotes a one-shot check.
      * @nullable
      */
     readonly run_interval_minutes: number | null
-    /** Evaluations still owed before the check retires as passed. */
+    /** Terminal evaluations still owed before the check retires as passed. Interim Monitoring observations do not consume this count. */
     readonly runs_remaining: number
     /** Horizon after which the check retires without running again. */
     readonly expires_at: string
@@ -4089,8 +4603,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 12
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 13
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -4439,8 +4953,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 12
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 13
      */
     readonly write_scopes: readonly string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -4603,8 +5117,8 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 12
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 13
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -4764,8 +5278,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 12
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 13
      */
     write_scopes?: string[]
     /**

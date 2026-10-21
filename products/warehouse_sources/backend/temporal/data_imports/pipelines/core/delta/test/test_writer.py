@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -1924,3 +1925,68 @@ class TestCommitCoversBatch:
 
         assert await DeltaWriter(helper).has_batch_been_committed("r", 5) is True
         assert await DeltaWriter(helper).has_batch_been_committed("r", 6) is False
+
+
+class TestDeleteWhere:
+    _SEED = pa.table(
+        {
+            "_file_name": ["a.csv", "a.csv", "b.csv", "it's.csv", "c.csv", None],
+            "id": [1, 2, 3, 4, 5, 6],
+        }
+    )
+
+    @parameterized.expand(
+        [
+            ("in_one_commit", 1000, 1),
+            ("in_a_commit_per_two_values", 2, 2),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_deletes_the_rows_of_the_named_values_only(
+        self, _name: str, chunk_size: int, expected_commits: int
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            deleted = await writer.delete_where(
+                "_file_name",
+                ["b.csv", "it's.csv", "a.csv", "not_in_the_table.csv"],
+                chunk_size=chunk_size,
+                commit_metadata={"replace_scope_run": "run-1"},
+                before_commit=before_commit,
+            )
+
+            rows = deltalake.DeltaTable(tmp).to_pyarrow_table().sort_by("id").to_pydict()
+            assert deleted == 4
+            assert rows == {"_file_name": ["c.csv", None], "id": [5, 6]}
+            assert await writer.distinct_values("_file_name") == {"c.csv"}
+            deletes = [c for c in deltalake.DeltaTable(tmp).history() if c["operation"] == "DELETE"]
+            assert len(deletes) == expected_commits == before_commit.call_count
+            # A delete that carried a batch tag would make a redelivered batch skip its own write.
+            assert not any(commit_covers_batch(commit, "run-1", 0) for commit in deletes)
+
+    @pytest.mark.asyncio
+    async def test_a_delete_retried_after_a_conflict_checks_ownership_again(self) -> None:
+        async def retry_once(table: Any, operation_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            operation_fn()
+            return operation_fn()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            before_commit = MagicMock()
+
+            with patch(f"{_WRITER_MODULE}.execute_with_conflict_retry", side_effect=retry_once):
+                await writer.delete_where("_file_name", ["a.csv"], before_commit=before_commit)
+
+            assert before_commit.call_count == 2
+
+    @parameterized.expand([("no_table", False), ("no_such_column", True)])
+    @pytest.mark.asyncio
+    async def test_distinct_values_are_unknown_without_the_column(self, _name: str, table_exists: bool) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            if table_exists:
+                deltalake.write_deltalake(tmp, pa.table({"id": [1]}))
+            assert await DeltaWriter(make_local_table_ref(tmp)).distinct_values("_file_name") is None

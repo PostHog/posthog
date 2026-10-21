@@ -8,7 +8,7 @@
 # The legacy `Dockerfile.proxy` in this directory is for the `mcp-remote` CLI
 # proxy distribution, not the server — different artifact, don't confuse them.
 
-# Pin the same Node version as the rest of the monorepo (.nvmrc).
+# Held below .nvmrc: Node 24.22.1's bundled undici crashes the server on assert(!this.paused).
 ARG NODE_VERSION=24.13.0
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
