@@ -124,14 +124,17 @@ log.
 ### `UpsertStats`
 
 Returned by `upsert`. Counts: `version`, `partitions_touched`, `files_added`,
-`files_removed`, `files_carried_over`, `files_probed`, `rows_updated`,
-`rows_inserted`, `rows_copied`, `source_rows`, `null_pk_rows`. Per-phase
+`files_removed`, `files_carried_over`, `files_probed` (candidate files the probe
+read), `files_probe_cached` (candidate files the probe decided from the probe
+cache), `rows_updated`, `rows_inserted`, `rows_copied`, `source_rows`,
+`null_pk_rows`. Per-phase
 wall-clock timings (milliseconds): `ingest_ms` (importing the pyarrow source),
 `initial_open_ms` (the full snapshot load in `DeltaLiteTable.open`, reported on
 the first upsert through a handle and `0` afterwards, so a sum over a handle's
 upserts counts it once), `open_ms` (snapshot refreshes around the upsert),
 `relax_ms` (nullability-relax check), `plan_ms` (listing + pruning files),
-`rewrite_ms` (reading + rewriting the touched partitions), `commit_ms`
+`rewrite_ms` (reading + rewriting the touched partitions), `probe_ms` (probing,
+summed over partitions, part of `rewrite_ms`), `commit_ms`
 (committing to the Delta log), `maintenance_ms` (checkpoint/log cleanup,
 non-zero only on checkpoint-boundary commits). `columns_relaxed` counts
 non-nullable columns flipped to nullable before the write.
@@ -203,6 +206,7 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `multipart_threshold` / `multipart_part_size` | `64 MiB` / `16 MiB` | Multipart upload thresholds (`0` threshold disables). |
 | `commit_max_retries` | `15` | Conditional-put commit retry budget. |
 | `commit_metadata` | `None` | Extra key/values recorded in the Delta commit. |
+| `use_probe_cache` | `True` | Use the process-wide probe cache (see below). `False` reads every candidate file from storage. |
 
 **Process-global** — environment variables, enforced *on top of* the per-call
 knobs so that many concurrent upsert threads in one process cannot multiply the
@@ -214,6 +218,23 @@ budgets:
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB),
 `DELTALITE_MAX_SOURCE_BYTES`, `DELTALITE_MULTIPART_THRESHOLD_BYTES`,
 `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
+
+**Probe cache.** The probe reads a footer and the PK column of every candidate
+file, so on object storage its cost grows with the number of files in the
+touched partitions. A Delta data file never changes, so deltalite keeps the
+64-bit hashes of each file's PK tuples in one process-wide LRU cache, keyed by
+table URL and file path. A probe that reads a file and finds no match caches it,
+and an upsert caches the files it writes once its commit lands. A later probe
+decides a cached file with no read. Equal keys always give equal hashes, so a
+cached file that holds a key is never skipped. A hash collision only adds a file
+to the rewrite, which copies its rows unchanged. A file the commit removes leaves
+the cache. `DELTALITE_PROBE_CACHE_BYTES` (128 MiB, `0` turns the cache off) caps
+the entries, and one entry can use at most an eighth of the cap, so a file with
+more keys is probed every time. Hashes collected for files still being read or
+written use at most a quarter of the cap more, so the cache uses at most
+1.25 times the cap. `deltalite.set_probe_cache_max_bytes(n)` changes the cap at
+run time, `deltalite.clear_probe_cache()` empties the cache, and
+`deltalite.probe_cache_stats()` returns its size and hit counters.
 
 **Checkpoint prefetch.** Opening or reloading a table reads its latest
 checkpoint Parquet file whole in one GET and serves the Parquet reader's many
@@ -273,7 +294,7 @@ exists.
 deltalite emits via the Rust [`metrics`](https://docs.rs/metrics) facade (static
 labels only): `deltalite_upserts_total` (`outcome`, `prune_strategy`,
 `error_kind`), `deltalite_upsert_duration_seconds`,
-`deltalite_files_{added,removed,carried_over,probed}_total`,
+`deltalite_files_{added,removed,carried_over,probed,probe_cached}_total`,
 `deltalite_rows_{updated,inserted,copied}_total`,
 `deltalite_checkpoint_prefetch_total` (`outcome`),
 `deltalite_refresh_probe_total` (`outcome`: `current`, `new_commits`,
