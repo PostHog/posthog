@@ -7,12 +7,13 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
 
+use metrics::counter;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::changelog::{watch_changelog_config_loop, CHANGELOG_RECONCILE_INTERVAL};
 use crate::store::PersonhogStore;
-use crate::types::ChangelogConfig;
+use crate::types::{ChangelogConfig, DrainReport};
 
 /// How often a consumer on a sealed generation re-checks its group's drain.
 /// Each check reads every partition of the generation under a probe group.
@@ -32,6 +33,8 @@ pub trait ChangelogSubscription {
 #[derive(Default)]
 pub struct Follower {
     drained: HashSet<String>,
+    /// Proven drained, with no drain report written yet.
+    unreported: Vec<String>,
 }
 
 impl Follower {
@@ -54,6 +57,7 @@ impl Follower {
             if !drained(generation.topic.clone()).await? {
                 return Ok(generation.topic);
             }
+            self.unreported.push(generation.topic.clone());
             self.drained.insert(generation.topic);
         }
         Ok(changelog.topic.clone())
@@ -97,17 +101,62 @@ impl Follower {
         info!(from = %subscribed, to = %wanted, "moved the subscription");
         Ok(Some(subscribed))
     }
+
+    /// Writes a drain report for every generation proven drained since the
+    /// last call; a failed write is kept and retried on the next call.
+    pub async fn report(&mut self, store: &PersonhogStore, reporter: &Reporter) {
+        for topic in std::mem::take(&mut self.unreported) {
+            let report = DrainReport {
+                topic: topic.clone(),
+                group: reporter.group.clone(),
+                reported_by: reporter.pod.clone(),
+                reported_at_ms: crate::util::now_millis(),
+            };
+            match store.put_drain_report(&report).await {
+                Ok(()) => {
+                    counter!("personhog_changelog_drain_reports_total", "outcome" => "written")
+                        .increment(1);
+                    info!(topic = %topic, group = %reporter.group, "reported the generation drained");
+                }
+                Err(e) => {
+                    counter!("personhog_changelog_drain_reports_total", "outcome" => "failed")
+                        .increment(1);
+                    tracing::warn!(topic = %topic, error = %e, "could not report the generation drained; retrying");
+                    self.unreported.push(topic);
+                }
+            }
+        }
+    }
+}
+
+/// Who writes a follower's drain reports: the consumer group they speak for, and the pod.
+#[derive(Debug, Clone)]
+pub struct Reporter {
+    pub group: String,
+    pub pod: String,
+}
+
+impl Reporter {
+    /// The pod is named by `HOSTNAME`, which Kubernetes sets to the pod name.
+    pub fn for_group(group: &str) -> Self {
+        Self {
+            group: group.to_string(),
+            pod: std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string()),
+        }
+    }
 }
 
 /// Follows the config until `cancel`: re-checks on every config change, and on a
 /// timer that is short while the subscription drains a sealed generation.
-/// `on_move` sees each move as (from, to).
+/// Reports each generation it proves drained. `on_move` sees each move as (from, to).
+#[allow(clippy::too_many_arguments)]
 pub async fn follow_changelog<S, F, Fut, M>(
     store: Arc<PersonhogStore>,
     loaded: ChangelogConfig,
     mut follower: Follower,
     subscription: Arc<S>,
     drained: F,
+    reporter: Reporter,
     on_move: M,
     cancel: CancellationToken,
 ) where
@@ -116,9 +165,11 @@ pub async fn follow_changelog<S, F, Fut, M>(
     Fut: Future<Output = Result<bool, String>>,
     M: Fn(&str, &str),
 {
+    counter!("personhog_changelog_drain_reports_total", "outcome" => "written").increment(0);
+    counter!("personhog_changelog_drain_reports_total", "outcome" => "failed").increment(0);
     let (config_tx, mut config_rx) = tokio::sync::watch::channel(loaded.clone());
     let watch = watch_changelog_config_loop(
-        store,
+        Arc::clone(&store),
         loaded,
         CHANGELOG_RECONCILE_INTERVAL,
         cancel.clone(),
@@ -141,6 +192,7 @@ pub async fn follow_changelog<S, F, Fut, M>(
                     "could not follow the changelog config; keeping the subscription"
                 ),
             }
+            follower.report(&store, &reporter).await;
             let poll = if subscription.is_draining() {
                 DRAIN_POLL_INTERVAL
             } else {

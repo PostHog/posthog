@@ -100,6 +100,8 @@ pub struct GroupDrain {
     pub drained_partitions: usize,
     pub partitions: usize,
     pub error: Option<String>,
+    /// The group's own drain report, which the coordinator retires on.
+    pub reported: bool,
 }
 
 /// A draining generation and how far each gating group has read it.
@@ -126,18 +128,21 @@ async fn group_drain(config: &Config, group: &str, topic: &str) -> GroupDrain {
             drained_partitions: drained.values().filter(|ok| **ok).count(),
             partitions: drained.len(),
             error: None,
+            reported: false,
         },
         Ok(Err(e)) => GroupDrain {
             group: group.to_string(),
             drained_partitions: 0,
             partitions: 0,
             error: Some(e.to_string()),
+            reported: false,
         },
         Err(e) => GroupDrain {
             group: group.to_string(),
             drained_partitions: 0,
             partitions: 0,
             error: Some(format!("probe task panicked: {e}")),
+            reported: false,
         },
     }
 }
@@ -180,6 +185,13 @@ pub async fn retire(
     if !live.draining.iter().any(|g| g.topic == topic) {
         bail!("{topic} is not a draining generation");
     }
+    if let Some(migration) = store.get_migration().await? {
+        bail!(
+            "migration {} is {:?}; retire once it completes",
+            migration.id,
+            migration.phase
+        );
+    }
     for group in live.gated_groups() {
         let drain = group_drain(config, group, topic).await;
         if let Some(error) = drain.error {
@@ -197,8 +209,13 @@ pub async fn retire(
         .retire_changelog_topic(&live, mod_revision, topic)
         .await?
     {
-        bail!("the config moved; refresh and retry");
+        bail!("the config moved or a migration started; refresh and retry");
     }
+    common_metrics::inc(
+        "personhog_changelog_retires_total",
+        &[("trigger".to_string(), "manual".to_string())],
+        1,
+    );
     Ok(())
 }
 
@@ -316,16 +333,27 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
     history.sort_by_key(|m| std::cmp::Reverse(m.created_at_ms));
     let mut draining = Vec::new();
     if let Some(changelog) = &changelog {
+        let reports = store.list_drain_reports().await?;
+        let drain = |group: &str, topic: &str| {
+            let reported = reports.iter().any(|r| r.group == group && r.topic == topic);
+            let (group, topic) = (group.to_string(), topic.to_string());
+            async move {
+                GroupDrain {
+                    reported,
+                    ..group_drain(config, &group, &topic).await
+                }
+            }
+        };
         for generation in &changelog.draining {
             draining.push(DrainingView {
                 topic: generation.topic.clone(),
                 partitions: generation.partitions,
                 epoch: generation.epoch,
-                writer: group_drain(config, &changelog.writer_group, &generation.topic).await,
+                writer: drain(&changelog.writer_group, &generation.topic).await,
                 retire_groups: {
                     let mut drains = Vec::new();
                     for group in &changelog.retire_groups {
-                        drains.push(group_drain(config, group, &generation.topic).await);
+                        drains.push(drain(group, &generation.topic).await);
                     }
                     drains
                 },

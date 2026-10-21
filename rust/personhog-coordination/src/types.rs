@@ -471,6 +471,16 @@ pub struct MigrationState {
     pub cancel_reason: Option<String>,
 }
 
+/// A changelog consumer group's proof that it has read a draining generation
+/// to its sealed end; retire waits for one from every group the config names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrainReport {
+    pub topic: String,
+    pub group: String,
+    pub reported_by: String,
+    pub reported_at_ms: i64,
+}
+
 /// One leader's report of the old partitions it sealed; the flip takes the union.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SealAck {

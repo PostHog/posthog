@@ -9,7 +9,7 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics::counter;
 use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
-use personhog_coordination::follow::{follow_changelog, Follower};
+use personhog_coordination::follow::{follow_changelog, Follower, Reporter};
 use personhog_coordination::store::PersonhogStore;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -249,6 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 follower,
                 consumer,
                 |topic: String| drained(&config, topic),
+                Reporter::for_group(&config.kafka_consumer_group),
                 |_, _| counter!("personhog_writer_resubscriptions_total").increment(1),
                 cancel.clone(),
             );
