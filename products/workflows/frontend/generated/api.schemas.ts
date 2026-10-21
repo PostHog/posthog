@@ -677,7 +677,7 @@ export interface HogFlowApi {
      * * `active` - Active
      * * `archived` - Archived */
     status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. `alerts` is refused here, because only the alerts product creates those workflows. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts

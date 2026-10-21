@@ -195,7 +195,7 @@ depends_on = [
     "products.cdp",
     "products.product_analytics", "products.access_control",
     # Facade-only: the port of a customized destination creates its draft workflow through
-    # products.workflows.backend.facade.alert_destinations.
+    # products.workflows.backend.facade.writes.
     "products.workflows",
 ]
 layer = "modules"

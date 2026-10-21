@@ -11,6 +11,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     billable_action_types,
 )
+from products.workflows.backend.services.draft_workflows import workflows_for_origin
 from products.workflows.backend.services.hog_flow_reads import (
     BROADCAST_STATUSES,
     WORKFLOW_FIELD_FILTER_PARAMS,
@@ -43,4 +44,5 @@ __all__ = [
     "list_workflows",
     "workflow_from_fields",
     "workflow_publish_impact",
+    "workflows_for_origin",
 ]

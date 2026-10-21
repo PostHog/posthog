@@ -3063,8 +3063,19 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow. Filter the list with `?origin_product=`.",
+        "creating a workflow. `alerts` is refused here, because only the alerts product creates those workflows. "
+        "Filter the list with `?origin_product=`.",
     )
+
+    def validate_origin_product(self, value: Optional[str]) -> Optional[str]:
+        # The alerts product treats an `alerts` workflow as its own port of a destination, so a hand-made one
+        # would block that port for the alert its trigger names.
+        if value == HogFlowOriginProduct.ALERTS:
+            raise serializers.ValidationError(
+                "Workflows with the alerts origin are created by the alerts product only."
+            )
+        return value
+
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )

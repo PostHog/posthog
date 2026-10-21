@@ -50,14 +50,13 @@ from products.alerts.backend.logic.destinations import (
     owned_alert_destinations_qs,
     stored_inputs,
 )
-from products.alerts_platform.backend.facade.api import configuration_ids_by_legacy_id
+from products.alerts_platform.backend.facade.api import configuration_ids_by_legacy_id, workflow_trigger_refusal
 from products.alerts_platform.backend.facade.contracts import ALERT_TRANSITION_EVENT, AlertEventKind
 from products.cdp.backend.models.hog_functions.hog_function import DERIVED_FILTER_KEYS, HogFunction
-from products.workflows.backend.facade.alert_destinations import (
-    AlertWorkflowRefused,
-    alert_workflow_ids,
-    create_alert_destination_workflow,
-)
+from products.workflows.backend.facade.contracts import DraftWorkflowRefused
+from products.workflows.backend.facade.enums import HogFlowOriginProduct
+from products.workflows.backend.facade.workflows import workflows_for_origin
+from products.workflows.backend.facade.writes import create_draft_workflow
 
 # Native delivery sends these, so they need no workflow.
 _NATIVE_BUCKETS: Final = frozenset(
@@ -553,14 +552,33 @@ def flow_ports(
             )
 
 
+def _names_configuration(trigger: Mapping[str, Any], configuration_ids: set[str]) -> bool:
+    properties = (trigger.get("filters") or {}).get("properties") or []
+    return any(
+        isinstance(prop, dict)
+        and prop.get("key") == "alert_configuration_id"
+        and not configuration_ids.isdisjoint(prop.get("value") or ())
+        for prop in properties
+    )
+
+
 def _drafts_refusal(team_id: int, ports: tuple[FlowPort, ...]) -> str | None:
     if any(port.flow is None for port in ports):
         return "A destination cannot become a workflow."
     configuration_ids = {port.configuration_id for port in ports if port.configuration_id is not None}
+    if not configuration_ids:
+        return None
+    # The HogFlow API runs this check on every save, and the draft is saved without it.
+    refusal = workflow_trigger_refusal(
+        team_id=team_id, configuration_ids=configuration_ids, user_access_control=None, token_scopes=None
+    )
+    if refusal is not None:
+        return refusal
+    named = {str(configuration_id) for configuration_id in configuration_ids}
     existing = [
-        workflow_id
-        for configuration_id in configuration_ids
-        for workflow_id in alert_workflow_ids(team_id=team_id, configuration_id=configuration_id)
+        workflow.id
+        for workflow in workflows_for_origin(team_id=team_id, origin_product=HogFlowOriginProduct.ALERTS)
+        if _names_configuration(workflow.trigger, named)
     ]
     if existing:
         return f"The alert already has workflows ({', '.join(map(str, existing))}). Delete them first."
@@ -593,13 +611,17 @@ def create_flow_drafts(
     try:
         with transaction.atomic():
             created = tuple(
-                create_alert_destination_workflow(
-                    team_id=team_id, user_id=None, content=port.flow, secret_input_keys=port.secret_input_keys
+                create_draft_workflow(
+                    team_id=team_id,
+                    user_id=None,
+                    content=port.flow,
+                    origin_product=HogFlowOriginProduct.ALERTS,
+                    secret_input_keys=port.secret_input_keys,
                 )
                 for port in ports
                 if port.flow is not None
             )
-    except AlertWorkflowRefused as error:
+    except DraftWorkflowRefused as error:
         return FlowDrafts(ports=ports, refusal=str(error))
     return FlowDrafts(ports=ports, workflow_ids=created)
 

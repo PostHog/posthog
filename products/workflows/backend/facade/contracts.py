@@ -597,8 +597,16 @@ class WorkflowNotFound(Exception):
     pass
 
 
-class AlertWorkflowRefused(Exception):
-    """Why a draft workflow for an alert destination was not created."""
+class DraftWorkflowRefused(Exception):
+    """Why `create_draft_workflow` created nothing."""
+
+
+@frozen
+class OriginWorkflow:
+    """A workflow another product made, with the trigger it saved."""
+
+    id: UUID
+    trigger: dict[str, Any]
 
 
 class WorkflowArchived(Exception):
