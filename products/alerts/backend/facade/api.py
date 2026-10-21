@@ -18,6 +18,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -46,10 +47,11 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 
 logger = structlog.get_logger(__name__)
 
-SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until"]
+SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until", "not_snoozable"]
 
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
@@ -177,7 +179,13 @@ def snooze_alert_from_slack(
                     on_updated,
                 )
 
-                on_updated(locked_alert, snooze_changed=True)
+                try:
+                    on_updated(locked_alert, snooze_changed=True)
+                except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+                    # Neither row takes the snooze, so the alert does not mute on one stack only.
+                    capture_exception(error, {"alert_id": str(alert_id)})
+                    transaction.set_rollback(True)
+                    return "not_snoozable"
             AlertCheck.objects.create(
                 alert_configuration=locked_alert,
                 calculated_value=None,
