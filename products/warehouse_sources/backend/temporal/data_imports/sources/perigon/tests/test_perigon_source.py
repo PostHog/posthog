@@ -31,6 +31,7 @@ class TestPerigonSource:
             ((False, None), None, False),
             ((True, 200), "source_groups", True),
             ((False, 403), "wikipedia", False),
+            ((True, 200), "story_stats", True),
         ],
     )
     def test_validate_credentials_status_mapping(
@@ -48,6 +49,8 @@ class TestPerigonSource:
         # The source group list rejects a request without its required sort params.
         assert network.requests_log[0].param("sortBy") == endpoint.full_refresh_sort_by
         assert network.requests_log[0].param("sortOrder") == endpoint.extra_params.get("sortOrder")
+        assert network.requests_log[0].param("splitBy") == endpoint.extra_params.get("splitBy")
+        assert network.requests_log[0].param("size") == ("1" if endpoint.paginated else None)
         assert network.requests_log[0].headers["authorization"] == "Bearer key"
         if not expected_valid:
             assert error is not None

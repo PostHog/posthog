@@ -214,7 +214,9 @@ def validate_credentials(api_key: str, endpoint: Optional[str] = None) -> tuple[
     name to confirm the key's plan covers that dataset.
     """
     config = PERIGON_ENDPOINTS[endpoint or "articles"]
-    params: dict[str, Any] = {**config.extra_params, "size": 1}
+    params: dict[str, Any] = {**config.extra_params}
+    if config.paginated:
+        params["size"] = 1
     if config.full_refresh_sort_by:
         params["sortBy"] = config.full_refresh_sort_by
     return validate_via_probe(

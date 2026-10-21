@@ -4,7 +4,7 @@ from typing import Any, Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class PerigonEndpointConfig:
     name: str
     path: str
@@ -153,7 +153,7 @@ PERIGON_ENDPOINTS: dict[str, PerigonEndpointConfig] = {
         path="/v1/stories/stats",
         data_selector="results",
         primary_keys=["date"],
-        extra_params={"splitBy": "DAY"},
+        extra_params={"splitBy": "day"},
         paginated=False,
     ),
     # The API rejects a source group list request without sortBy and sortOrder.
