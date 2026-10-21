@@ -113,17 +113,17 @@ snapshots:
     ai-observability-offline-experiments-score-trends--numeric-passing-rule--light:
         hash: v1.k794b7964.e5367e5503e0e7a14586290abedd1f8f25d9a938013d330a9b3783a9377e32cf.2SZhg6Ri2BlDEHtHrLx7RAbuPEUQFdP-D1FP3_tOPNI
     ai-observability-offline-experiments-scorer-history--default--dark:
-        hash: v1.k794b7964.14c39caa03b5f3200fc4a373483c9d6aec17633da886479913ee3e645f8b0faf.bPbuMAy_65PZ_O4LdmGd2UGMiGwxeMdSrTKmiUYbNxo
+        hash: v1.k794b7964.de382c36f53d24e416c8a816a1cf194c9ac751b5eebfc7a373932035fecc1acb._coWDzE6lvhhThqoT_ASaYs0iiqQvERpqiwT5KhGunM
     ai-observability-offline-experiments-scorer-history--default--light:
-        hash: v1.k794b7964.35b64cad1671eff7ac28a2b3b882662a5419f228124694de71b6851b6010200e.LVKYx94Kh5oZ3iSPLEt4rWdNXqZ66_013u3uO7wskbk
+        hash: v1.k794b7964.15cbf9e2bdbbe89d7661c94ccd15d7732d828f564add36cdc067757e03a4a061.A0kjkj1ghKYsLEpla_XwYBMETI7KMu6YOB5BCiLbaxA
     ai-observability-offline-experiments-scorer-history--empty-history--dark:
-        hash: v1.k794b7964.631e591fcd1fc7328ea05d5a593b56a2fbbe62f1867bc411f68bf41065b4a93b.WDNsJdmbscjNrENw9efsmZyEaxzTI57uMxtS7npbkZA
+        hash: v1.k794b7964.7fc63300ab3d7bf38a3058a285f6ecc6e36ffaae97b532deef09d13ed6cbafca.EaYco8jti78XKAqv4PEAm_z3n3MvWyTgBGVRhkVD5do
     ai-observability-offline-experiments-scorer-history--empty-history--light:
-        hash: v1.k794b7964.c48d7913e25042e743bfed5f6600e90ecee8f3bea019bc3598d59d0c064976cd.Lr6rJSUjois9B9eB8NV6uXAW-YexL2k1akLNs-NNFeQ
+        hash: v1.k794b7964.95f6a34d52a423471450e0a21f00dd8af7cfaf36281b07c02323b79d05e9fb3f.1cb98HkzcmAOIVK-QmbF1Yykej6T_sSVSuWGwRoUj-c
     ai-observability-offline-experiments-scorer-history--narrow--dark:
-        hash: v1.k794b7964.3070c141e9ae22be387cf373c5009f759190aebb0351373a087a802dbf4dc55d.p9b0tC3ZgtzpMP0PA9wK3VUrKeWwYbbqiiho2JhKG3g
+        hash: v1.k794b7964.2d60979cab1b756742b3fef740e8c13a9b688f3eca76ddf7ae73dc08f2f58e64.48EDAeGamPjXu5HwCBjlgx4Z6130i2a_6kqwJ25p9jw
     ai-observability-offline-experiments-scorer-history--narrow--light:
-        hash: v1.k794b7964.9d4a48ec4eff9ac47c121596e3a06b49e0034137db5a9605d8f0ca4fefcbdb6b.--7F2o6VAfVCzDcKJZX49I9X3KQtFmtVVq5j4XhSJmg
+        hash: v1.k794b7964.4842515b727957419dffc97a061cd561a640c5b3d12357415b2c6b0c0a5b2729.7EOWporG0PIqDbpe8ArXsT-fl8w_hNdckYUgKv4uHDY
     ai-observability-scorer-editor--boolean-detector--dark:
         hash: v1.k794b7964.841ab07e56ee68448ba1df160d2365beed4eec6db48856b984488836ad4ce85f.91iF4r5RJZ81eQDCcoFWZ5N1JTo-dznWBBKCzTSJ-mM
     ai-observability-scorer-editor--boolean-detector--light:
