@@ -60,7 +60,8 @@ export function TodaySessionRow({
     )
     const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
 
-    const prefetchRunId = item.kind === 'session' ? item.latestRunId : null
+    const active = location.pathname.endsWith('/ai') && searchParams.task === item.id
+    const prefetchRunId = item.kind === 'session' && !active ? item.latestRunId : null
     const pinBadge = pinned && showPinBadge
     const badges = useMemo(() => sessionBadges(item, userId, { pinned: pinBadge }), [item, userId, pinBadge])
     const [pullRequest] = item.pullRequests
@@ -75,7 +76,7 @@ export function TodaySessionRow({
             // Unread shows only as a solid status dot; the title keeps its resting weight, like desktop.
             icon={<TodaySessionIcon item={item} unread={unread} />}
             to={urls.aiTask(item.id)}
-            active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
+            active={active}
             dataAttr={dataAttr}
             badge={
                 badgeCount > 0 ? (

@@ -12,7 +12,7 @@ export function prefetchRunStream(taskId: string, runId: string, taskRuntime: st
     }
     const logic = runStreamLogic({ streamKey: runId })
     retainMountedLogic(PREFETCHED_RUN_STREAMS, runId, logic, MAX_PREFETCHED_RUN_STREAMS)
-    if (logic.values.bootstrappedRunId !== runId) {
+    if (logic.values.bootstrappedRunId === null) {
         logic.actions.bootstrapRun({ taskId, runId, taskRuntime })
     }
 }

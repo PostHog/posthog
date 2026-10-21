@@ -43,4 +43,19 @@ describe('prefetchRunStream', () => {
         expect(logic?.values.bootstrappedRunId).toBe('run-1')
         expect(tasksRunsRetrieve).toHaveBeenCalledTimes(1)
     })
+
+    it('leaves a stream that already serves a follow-up run alone', async () => {
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
+        const continued = runStreamLogic({ streamKey: 'run-a' })
+        continued.mount()
+        continued.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-b' })
+        await expectLogic(continued).toFinishAllListeners()
+
+        prefetchRunStream('task-1', 'run-a', null)
+        await expectLogic(continued).toFinishAllListeners()
+
+        expect(continued.values.bootstrappedRunId).toBe('run-b')
+        expect(tasksRunsRetrieve).toHaveBeenCalledTimes(1)
+    })
 })
