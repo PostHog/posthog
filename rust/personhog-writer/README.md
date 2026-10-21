@@ -136,9 +136,9 @@ Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_c
 | `KAFKA_TLS` | `false` | Enable TLS for Kafka |
 | `KAFKA_CLIENT_ID` | (empty) | Pod name for static group membership |
 | `KAFKA_CLIENT_RACK` | (empty) | Rack ID for rack-aware consumption |
-| `KAFKA_TOPIC` | `personhog_updates` | Topic to consume |
 | `KAFKA_CONSUMER_GROUP` | `personhog-writer` | Consumer group ID |
-| `KAFKA_CONSUMER_OFFSET_RESET` | `earliest` | Offset reset policy |
+| `ETCD_ENDPOINTS` | `http://localhost:2379` | etcd endpoints; the topic comes from `config/changelog` |
+| `ETCD_PREFIX` | `/personhog/` | etcd key prefix |
 | `DATABASE_URL` | (required) | Postgres connection string |
 | `PG_MAX_CONNECTIONS` | `20` | Connection pool size |
 | `PG_TARGET_TABLE` | `personhog_person_tmp` | Target table (`posthog_person` for production cutover) |
