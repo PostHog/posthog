@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -93,11 +92,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 className="flex-1 min-h-0"
                 innerClassName="flex flex-col"
                 // The settings scroll with the step config, so an open section never runs past the
-                // panel. An email step's preview takes the height left over, so the content grows too.
+                // panel. The config takes the height left over, which keeps short steps' settings at
+                // the bottom and lets an email step's preview grow.
                 contentClassName="flex flex-1 shrink-0 flex-col"
                 styledScrollbars
             >
-                <div className={clsx('flex flex-col gap-2 p-3', isEmailAction(action) && 'flex-1')}>
+                <div className="flex flex-1 flex-col gap-2 p-3">
                     <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
                         {Step?.renderConfiguration(selectedNode)}
                     </ErrorBoundary>
