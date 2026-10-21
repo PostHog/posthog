@@ -22,7 +22,6 @@ QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 # ============================================================================
 
 SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE = "sharded_query_log_archive_v3"
-QUERY_LOG_ARCHIVE_V3_TABLE = "query_log_archive_v3"
 QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE = "query_log_archive_v3_buffer"
 WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE = "writable_query_log_archive_v3"
 QUERY_LOG_ARCHIVE_V3_MV = "ops_query_log_archive_v3_mv"
@@ -230,18 +229,13 @@ def _v3_plain_table_sql(table_name: str, engine: object, include_aliases: bool) 
     )
 
 
-def DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_V3_TABLE, cluster=None):
-    """Distributed read table over the v3 data table, created on every cluster."""
+def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
+    """Distributed read table (query_log_archive) over the v3 data table, created on every cluster."""
     return _v3_plain_table_sql(
-        table_name,
+        QUERY_LOG_ARCHIVE_DATA_TABLE,
         Distributed(data_table=SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE, cluster=cluster or settings.CLICKHOUSE_OPS_CLUSTER),
         include_aliases=True,
     )
-
-
-def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
-    """Distributed read table (query_log_archive) over the v3 data table, created on every cluster."""
-    return DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, cluster=cluster)
 
 
 def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL():
