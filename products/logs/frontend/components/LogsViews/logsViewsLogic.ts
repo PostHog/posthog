@@ -39,6 +39,9 @@ export interface logsViewsLogicActions {
     setActiveTab: (activeTab: LogsSceneActiveTab) => {
         activeTab: LogsSceneActiveTab
     } // logsSceneLogic
+    setColumns: (columns: LogsColumnConfig[]) => {
+        columns: LogsColumnConfig[]
+    } // logsViewerConfigLogic
     setFilters: (
         filters: Partial<LogsViewerFilters>,
         pushToHistory?: boolean | undefined
@@ -46,9 +49,6 @@ export interface logsViewsLogicActions {
         filters: Partial<LogsViewerFilters>
         pushToHistory: boolean
     } // logsViewerFiltersLogic
-    setColumns: (columns: LogsColumnConfig[]) => {
-        columns: LogsColumnConfig[]
-    } // logsViewerConfigLogic
     createView: ({
         name,
         filters,
