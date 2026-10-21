@@ -443,15 +443,16 @@ pub(crate) async fn diff_single_leaf_registers(
     })
 }
 
-/// The `(person, leaf)` pairs among `folded` whose leaf feeds a composed cohort that holds no
-/// readable stage-2 row for the person.
+/// The composed cohorts among those keyed on `folded`'s leaves that hold no readable stage-2 row
+/// for the person, each with the run of the first leaf that reached it.
 ///
 /// A composed cohort recomposes only when a seed touches one of its leaves, and a person seed that
 /// asserts what the record already holds touches nothing. A cohort added over leaves an earlier run
 /// already seeded would then never get a row, and reconcile, which walks only existing rows, would
-/// certify it with no members. So a missing row is its own reason to recompose, as a lagging register
-/// is for the single-leaf half. A non-member's row stays absent after the recompose, so a later run
-/// reads it again but writes and emits nothing.
+/// certify it with no members. So a missing row is its own reason to recompose that cohort, as a
+/// lagging register is for the single-leaf half. Only the cohort itself recomposes, not every cohort
+/// on its leaves: a non-member's row stays absent after the recompose, so each later run finds it
+/// again, and recomposing its leaf would re-evaluate every cohort sharing it on every run.
 ///
 /// One batched `cf_stage2` read on `lane`. Leaves with no composed cohort keyed on them cost nothing.
 pub(crate) async fn composed_rows_missing<'a>(
@@ -460,8 +461,8 @@ pub(crate) async fn composed_rows_missing<'a>(
     filters: &TeamFilters,
     folded: impl IntoIterator<Item = &'a FoldedLeaf>,
     lane: ReadLane,
-) -> Result<BTreeSet<(Uuid, LeafStateKey)>, StoreError> {
-    let mut wanted: BTreeMap<Stage2Key, Vec<(Uuid, LeafStateKey)>> = BTreeMap::new();
+) -> Result<BTreeMap<(Uuid, CohortId), RunId>, StoreError> {
+    let mut wanted: BTreeMap<Stage2Key, (Uuid, CohortId, RunId)> = BTreeMap::new();
     for leaf in folded {
         let Some(cohort_ids) = filters
             .by_lsk_to_composable_cohorts
@@ -481,26 +482,25 @@ pub(crate) async fn composed_rows_missing<'a>(
             };
             wanted
                 .entry(key)
-                .or_default()
-                .push((leaf.person_id, leaf.leaf_state_key));
+                .or_insert((leaf.person_id, *cohort_id, leaf.run_id));
         }
     }
     if wanted.is_empty() {
-        return Ok(BTreeSet::new());
+        return Ok(BTreeMap::new());
     }
 
     let keys: Vec<Stage2Key> = wanted.keys().copied().collect();
     let stored = handle.multi_get_stage2(keys, lane).await?;
 
-    let mut missing = BTreeSet::new();
+    let mut missing = BTreeMap::new();
     let (mut absent, mut corrupt) = (0u64, 0u64);
-    for (pairs, bytes) in wanted.into_values().zip(stored) {
+    for ((person_id, cohort_id, run_id), bytes) in wanted.into_values().zip(stored) {
         match read_register(bytes) {
             StoredRegister::Present(_) => continue,
             StoredRegister::Absent => absent += 1,
             StoredRegister::Corrupt => corrupt += 1,
         }
-        missing.extend(pairs);
+        missing.insert((person_id, cohort_id), run_id);
     }
     for (count, found) in [(absent, "absent"), (corrupt, "corrupt")] {
         if count > 0 {
@@ -2150,6 +2150,7 @@ mod tests {
             TeamId(team_id),
             filters,
             affected,
+            &[],
             EVENT_MS,
             TS,
         )
@@ -2733,6 +2734,7 @@ mod tests {
                     TeamId(TEAM as i32),
                     &filters,
                     &affected,
+                    &[],
                     EVENT_MS,
                     TS,
                 )

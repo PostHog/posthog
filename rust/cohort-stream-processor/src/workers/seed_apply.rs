@@ -26,7 +26,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::{FilterCatalog, TeamId};
+use crate::filters::{CohortId, FilterCatalog, TeamId};
 use crate::merge::tombstone_redirect::{self, Resolution};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_TRANSITIONS_UNMAPPED,
@@ -448,6 +448,16 @@ pub(crate) struct TouchedPersons {
 struct PersonTouch {
     run: RunId,
     leaves: BTreeSet<LeafStateKey>,
+    /// Composed cohorts to recompose on their own, without the other cohorts on their leaves.
+    cohorts: BTreeSet<CohortId>,
+}
+
+/// One recompute call's input: the leaves whose every composed cohort recomposes, and single
+/// composed cohorts admitted without their leaves.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct RecomposeGroup {
+    pub leaves: Vec<(LeafStateKey, Uuid)>,
+    pub cohorts: Vec<(CohortId, Uuid)>,
 }
 
 impl TouchedPersons {
@@ -457,6 +467,7 @@ impl TouchedPersons {
             .or_insert_with(|| PersonTouch {
                 run,
                 leaves: BTreeSet::new(),
+                cohorts: BTreeSet::new(),
             })
     }
 
@@ -480,6 +491,18 @@ impl TouchedPersons {
         self.entry(team_id, person, run).leaves.insert(leaf);
     }
 
+    /// Admit one composed cohort whose row is missing. Like a lagging leaf, its run counts only for
+    /// a person the fold never admitted.
+    pub(crate) fn touch_missing(
+        &mut self,
+        team_id: TeamId,
+        person: Uuid,
+        run: RunId,
+        cohort: CohortId,
+    ) {
+        self.entry(team_id, person, run).cohorts.insert(cohort);
+    }
+
     fn admits(&self, team_id: TeamId, person: Uuid, leaf: LeafStateKey) -> bool {
         self.per_person
             .get(&(team_id, person))
@@ -492,11 +515,16 @@ impl TouchedPersons {
 
     /// One recompute call per `(team, run)`: the team owns the catalog that composes the leaves,
     /// the run owns their provenance tag.
-    fn groups(self) -> BTreeMap<(TeamId, RunId), Vec<(LeafStateKey, Uuid)>> {
-        let mut groups: BTreeMap<(TeamId, RunId), Vec<(LeafStateKey, Uuid)>> = BTreeMap::new();
+    fn groups(self) -> BTreeMap<(TeamId, RunId), RecomposeGroup> {
+        let mut groups: BTreeMap<(TeamId, RunId), RecomposeGroup> = BTreeMap::new();
         for ((team_id, person), touch) in self.per_person {
             let group = groups.entry((team_id, touch.run)).or_default();
-            group.extend(touch.leaves.into_iter().map(|leaf| (leaf, person)));
+            group
+                .leaves
+                .extend(touch.leaves.into_iter().map(|leaf| (leaf, person)));
+            group
+                .cohorts
+                .extend(touch.cohorts.into_iter().map(|cohort| (cohort, person)));
         }
         groups
     }
@@ -775,15 +803,8 @@ impl Folded {
                 )
                 .await
                 .map_err(SeedHold::store(ApplyStage::RegisterDiff))?;
-                for leaf in leaves {
-                    if missing.contains(&(leaf.person_id, leaf.leaf_state_key)) {
-                        self.recompose.touch_lagging(
-                            team_id,
-                            leaf.person_id,
-                            leaf.run_id,
-                            leaf.leaf_state_key,
-                        );
-                    }
+                for ((person, cohort), run) in missing {
+                    self.recompose.touch_missing(team_id, person, run, cohort);
                 }
             }
             diff.extend(team_diff);
@@ -887,7 +908,7 @@ impl Scheduled {
         stamp: &RunStamp,
     ) -> Result<Recomputed, SeedHold> {
         if !self.recompose.is_empty() {
-            for ((team_id, run), leaves) in self.recompose.groups() {
+            for ((team_id, run), group) in self.recompose.groups() {
                 let Some(filters) = deps.team(team_id) else {
                     continue;
                 };
@@ -896,7 +917,8 @@ impl Scheduled {
                     deps.handle,
                     team_id,
                     filters,
-                    &leaves,
+                    &group.leaves,
+                    &group.cohorts,
                     stamp.now_ms,
                     &stamp.last_updated,
                 )
@@ -1399,17 +1421,23 @@ mod tests {
         touched.touch(team, alice, first, LeafStateKey([1; 16]));
         touched.touch(team, alice, last, LeafStateKey([2; 16]));
         touched.touch_lagging(team, alice, first, LeafStateKey([3; 16]));
+        touched.touch_missing(team, alice, first, CohortId(9));
 
         let groups = touched.groups();
         assert_eq!(groups.len(), 1, "one call, not one per seed");
         assert_eq!(
-            groups[&(team, last)],
+            groups[&(team, last)].leaves,
             vec![
                 (LeafStateKey([1; 16]), alice),
                 (LeafStateKey([2; 16]), alice),
                 (LeafStateKey([3; 16]), alice),
             ],
             "every leaf rides the last seed's run; a lagging leaf joins without moving it",
+        );
+        assert_eq!(
+            groups[&(team, last)].cohorts,
+            vec![(CohortId(9), alice)],
+            "a cohort with a missing row joins the same call, without its leaves",
         );
     }
 }

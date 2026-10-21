@@ -52,12 +52,14 @@ const SECTION_OP: &str = "stage2_person_inputs";
 /// Changes and writes come back in `(cohort, person)` order, matching the cohort-ordered path.
 ///
 /// A read failure returns before any output exists, so the held run publishes nothing partial.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn recompute_stage2_by_person(
     partition_id: u16,
     handle: &StoreHandle,
     team_id: TeamId,
     filters: &TeamFilters,
     affected_leaves: &[(LeafStateKey, Uuid)],
+    affected_cohorts: &[(CohortId, Uuid)],
     event_ms: i64,
     last_updated: &str,
 ) -> Result<Stage2Recompute, StoreError> {
@@ -69,6 +71,10 @@ pub(crate) async fn recompute_stage2_by_person(
                 .or_default()
                 .extend(cohorts.iter().copied());
         }
+    }
+    // A set per person, so a cohort reached both ways is still evaluated once.
+    for &(cohort_id, person_id) in affected_cohorts {
+        affected.entry(person_id).or_default().insert(cohort_id);
     }
 
     // A map rather than pushes. No consumer needs cohort order (changes are keyed by person and

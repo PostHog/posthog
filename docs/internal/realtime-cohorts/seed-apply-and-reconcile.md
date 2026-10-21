@@ -131,9 +131,10 @@ Both kinds finish the same way, in an order the code enforces with types.
    One write batch holds the new leaf rows or person records and, for each single-leaf cohort about to be emitted, a Stage 2 row set to the value being **replaced**.
 3. **Schedule** eviction deadlines for the changed leaf rows.
 4. **Recompose** composed cohorts, reading each person's state once for all their cohorts, and decide their emissions.
-   A person is recomposed when the fold changed their state, when a single-leaf row for them lagged in step 1, or, for a person seed, when a composed cohort over one of their evaluated leaves has no Stage 2 row for them.
-   The last case covers a cohort added over leaves an earlier run already seeded: the seed changes nothing, so without it the cohort never gets a row, and its reconcile certifies it with no members.
-   A non-member's row stays absent, so the next run reads it again and writes nothing.
+   A person is recomposed when the fold changed their state, or when a single-leaf row for them lagged in step 1.
+   For a person seed, a composed cohort over one of their evaluated leaves that has no Stage 2 row for them also recomposes, on its own, without the other cohorts on its leaves.
+   That case covers a cohort added over leaves an earlier run already seeded: the seed changes nothing, so without it the cohort never gets a row, and its reconcile certifies it with no members.
+   A non-member's row stays absent, so the next run reads it again and writes nothing, which is why only the cohort recomposes and not its leaves.
    `COHORT_SEED_COMPOSED_ROW_REPAIR_ENABLED`, on by default, is the kill switch for this case.
 5. **Produce**, in parallel: the membership changes tagged `origin: seed` with the run id, first-hop cascades if enabled, and re-keyed seeds for merged persons.
 6. **Stage 2 commit.**
