@@ -288,13 +288,13 @@ def trino_error_to_message(error: Exception) -> str:
     # text carries a query ID whose time part can hold "401" and would derail this classification.
     if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:
         return TRINO_AUTHENTICATION_ERROR
+    # Starburst Galaxy checks a role's privilege to use the cluster before any catalog access check.
+    if "privilege to use cluster" in lowered:
+        return TRINO_CLUSTER_ACCESS_DENIED_ERROR
     # Trino gives permission checks to an access control plugin. That plugin can fail on its own, for
     # example when it cannot reach its policy service, which nobody can fix from PostHog.
     if "opa backend" in lowered or "access control" in lowered:
         return TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
-    # Starburst Galaxy checks a role's privilege to use the cluster before any catalog access check.
-    if "privilege to use cluster" in lowered:
-        return TRINO_CLUSTER_ACCESS_DENIED_ERROR
     if (
         "access denied" in lowered
         or "permission denied" in lowered
