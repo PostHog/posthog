@@ -1,8 +1,14 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 
-import structlog
+from django.db import transaction
 
-from posthog.models import Team
+import structlog
+from rest_framework.exceptions import PermissionDenied
+
+from posthog.models import OrganizationMembership, Team, User
+from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalScoutConfig
@@ -43,6 +49,25 @@ class TrialService:
         if not billing.ready:
             raise TrialRefused("billing_not_ready")
         self.policy.claim(user_id=user_id, limits=billing.limits)
+
+    @contextmanager
+    def enroll_on_activation(self, *, user: User, enabled: bool) -> Iterator[None]:
+        if not enabled or not self.policy.enabled() or self.policy.grant() is not None:
+            yield
+            return
+        self.policy.check_enabled()
+        level = UserPermissions(
+            user=user, team=self.team.parent_team or self.team
+        ).current_team.effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Project management permission is required to start a trial.")
+        billing = self.billing_status()
+        if not billing.ready:
+            raise TrialRefused("billing_not_ready")
+        # Read billing before taking locks; roll back the grant if the activation write fails.
+        with transaction.atomic():
+            self.policy.claim(user_id=user.pk, limits=billing.limits)
+            yield
 
     def status(self) -> dict[str, object]:
         decision = self.policy.flag_decision()

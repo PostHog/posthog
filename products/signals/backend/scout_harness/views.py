@@ -37,7 +37,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import exceptions, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -268,6 +268,7 @@ from products.signals.backend.scout_harness.trial_access import (
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
 from products.signals.backend.tasks import enqueue_project_profile_build
+from products.signals.backend.trial.service import TrialService
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     create_skill,
@@ -2787,12 +2788,18 @@ def create_scout_for_source(
     if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
         raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
 
-    # Resolved before the transaction: it reads the `signals-scout` flag, and the block below
-    # holds row locks on the skill and its config.
-    max_enabled_scouts = max_enabled_scouts_for_team(team.id)
     _assert_scout_tool_selection_access(request=request, team=team, data=config_options)
 
-    with transaction.atomic():
+    with (
+        TrialService(team).enroll_on_activation(
+            user=user,
+            enabled=config_options.get(
+                "enabled", not SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).exists()
+            ),
+        ),
+        transaction.atomic(),
+    ):
+        max_enabled_scouts = max_enabled_scouts_for_team(team.id)
         try:
             skill = create_skill(
                 team,
@@ -3569,12 +3576,20 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
         _assert_scout_tool_selection_access(request=request, team=team, data=serializer.validated_data)
-        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one. The row stays locked
         # from the comparison to the save, so a grant revoked in between cannot be written back by
         # a request that compared against the old value.
-        with transaction.atomic():
+        with (
+            TrialService(team).enroll_on_activation(
+                user=cast(User, request.user),
+                enabled=serializer.validated_data.get(
+                    "enabled", not SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).exists()
+                ),
+            ),
+            transaction.atomic(),
+        ):
+            max_enabled_scouts = max_enabled_scouts_for_team(team_id)
             existing = (
                 SignalScoutConfig.objects.unscoped()
                 .select_for_update()
@@ -3640,11 +3655,17 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
-        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that
         # compared against the grant before a concurrent revoke would otherwise write it back,
         # because a model save writes every column off the instance it loaded.
-        with transaction.atomic():
+        with (
+            TrialService(team).enroll_on_activation(
+                user=cast(User, request.user),
+                enabled=serializers.BooleanField().run_validation(request.data.get("enabled", False)),
+            ),
+            transaction.atomic(),
+        ):
+            max_enabled_scouts = max_enabled_scouts_for_team(team_id)
             config = (
                 SignalScoutConfig.objects.unscoped().select_for_update().filter(team_id=team_id, id=config_id).first()
             )
@@ -3953,7 +3974,11 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # seed and register against that team so child-environment requests don't fork
         # a second fleet.
         team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
-        withheld = materialize_scout_fleet(team, surface=request.validated_query_data.get("surface"))
+        surface = request.validated_query_data.get("surface")
+        with TrialService(team).enroll_on_activation(
+            user=cast(User, request.user), enabled=surface in (None, "wizard")
+        ):
+            withheld = materialize_scout_fleet(team, surface=surface)
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
         # previously seeded and later withheld still has a row, and surfacing it here would
         # advertise an unreleased scout despite the holdback. Storage is left untouched (no

@@ -5,8 +5,11 @@ from parameterized import parameterized
 
 from posthog.models import OrganizationMembership, Team
 
+from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialGrant
+from products.signals.backend.trial.policy import TrialPolicy
+from products.skills.backend.models.skills import LLMSkill
 
 
 class TestTrialAPI(APIBaseTest):
@@ -19,6 +22,148 @@ class TestTrialAPI(APIBaseTest):
         self.flag = patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True)
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_source_activation_enrolls_once_before_backfill(self, existing: bool) -> None:
+        url = f"/api/projects/{self.team.pk}/signals/source_configs/"
+        data = {"source_product": "error_tracking", "source_type": "issue_created", "enabled": True}
+        source = SignalSourceConfig.objects.create(team=self.team, **{**data, "enabled": False}) if existing else None
+        if source:
+            url += f"{source.pk}/"
+
+        def assert_enrolled() -> None:
+            assert SignalTrialGrant.objects.for_team(self.team.pk).exists()
+
+        with (
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+            patch(
+                "products.signals.backend.views.SignalSourceConfigViewSet._trigger_error_tracking_backfill",
+                side_effect=assert_enrolled,
+            ),
+        ):
+            response = (self.client.patch if existing else self.client.post)(url, data, format="json")
+        assert response.status_code == (200 if existing else 201), response.content
+        grant = SignalTrialGrant.objects.for_team(self.team.pk).get()
+        assert grant.claimed_by_id == self.user.pk
+        SignalTrialGrant.objects.for_team(self.team.pk).update(settled_microusd=123)
+        with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=TimeoutError()):
+            retry = self.client.patch(
+                f"/api/projects/{self.team.pk}/signals/source_configs/{response.json()['id']}/",
+                {"enabled": True},
+                format="json",
+            )
+        assert retry.status_code == 200, retry.content
+        grant.refresh_from_db()
+        assert grant.settled_microusd == 123
+        assert SignalTrialGrant.objects.for_team(self.team.pk).count() == 1
+
+    @parameterized.expand([("member", 403), ("billing", 402), ("flag_unavailable", 402)])
+    def test_failed_enrollment_leaves_source_disabled(self, failure: str, expected_status: int) -> None:
+        source = SignalSourceConfig.objects.create(
+            team=self.team, source_product="github", source_type="issue", enabled=False
+        )
+        if failure == "member":
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.MEMBER
+            )
+        if failure == "flag_unavailable":
+            assert TrialPolicy(self.team).enabled()
+            self.flag_mock.return_value = None
+        with patch(
+            "products.signals.backend.trial.billing.TrialBilling.status",
+            return_value=TrialBillingStatus(ready=failure != "billing", continuation=TrialContinuation.PAYMENT),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/signals/source_configs/{source.pk}/", {"enabled": True}, format="json"
+            )
+        assert response.status_code == expected_status, response.content
+        source.refresh_from_db()
+        assert not source.enabled
+        assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
+
+    @parameterized.expand([(False, True), (True, False)])
+    def test_flag_off_and_disabled_sources_do_not_enroll(self, flag: bool, enabled: bool) -> None:
+        self.flag_mock.return_value = flag
+        with patch("products.signals.backend.trial.billing.TrialBilling.status") as billing:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/signals/source_configs/",
+                {"source_product": "github", "source_type": "issue", "enabled": enabled},
+                format="json",
+            )
+        assert response.status_code == 201, response.content
+        assert response.json()["enabled"] is enabled
+        assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
+        billing.assert_not_called()
+
+    @parameterized.expand([("config_create",), ("config_update",), ("custom",)])
+    def test_scout_activation_enrolls(self, path: str) -> None:
+        name = "signals-scout-enrollment"
+        url = f"/api/projects/{self.team.pk}/signals/scout/"
+        data: dict[str, object] = {"name": name, "description": "Find errors", "body": "Investigate errors."}
+        if path != "custom":
+            LLMSkill.objects.create(team=self.team, name=name, body="Investigate errors.", created_by=self.user)
+            url += "configs/"
+            data = {"skill_name": name, "enabled": True}
+        if path == "config_update":
+            config = SignalScoutConfig.objects.create(team=self.team, skill_name=name, enabled=False)
+            url += f"{config.pk}/"
+            data = {"enabled": True}
+        with patch(
+            "products.signals.backend.trial.billing.TrialBilling.status",
+            return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+        ):
+            response = (self.client.patch if path == "config_update" else self.client.post)(url, data, format="json")
+        assert response.status_code in (200, 201), response.content
+        assert SignalTrialGrant.objects.for_team(self.team.pk).exists()
+        assert SignalScoutConfig.objects.for_team(self.team.pk).get(skill_name=name).enabled
+
+    def test_rejected_scout_activation_rolls_back_grant_and_paused_scouts(self) -> None:
+        configs = [
+            SignalScoutConfig.objects.create(team=self.team, skill_name=f"signals-scout-existing-{i}") for i in range(4)
+        ]
+        with patch(
+            "products.signals.backend.trial.billing.TrialBilling.status",
+            return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/signals/scout/configs/",
+                {"skill_name": "signals-scout-missing", "enabled": True},
+                format="json",
+            )
+        assert response.status_code == 400, response.content
+        assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
+        assert (
+            SignalScoutConfig.objects.for_team(self.team.pk)
+            .filter(id__in=[c.id for c in configs], enabled=True)
+            .count()
+            == 4
+        )
+
+    @parameterized.expand(
+        [(None, True), ("wizard", True), ("onboarding", False), ("roster", False), ("desktop", False)]
+    )
+    def test_sync_enrolls_only_activation_surfaces(self, surface: str | None, enrolled: bool) -> None:
+        url = f"/api/projects/{self.team.pk}/signals/scout/configs/sync/"
+        if surface:
+            url += f"?surface={surface}"
+
+        def materialize(*args: object, **kwargs: object) -> set[str]:
+            assert SignalTrialGrant.objects.for_team(self.team.pk).exists() is enrolled
+            return set()
+
+        with (
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+            patch("products.signals.backend.scout_harness.views.materialize_scout_fleet", side_effect=materialize),
+        ):
+            response = self.client.post(url, {}, format="json")
+        assert response.status_code == 200, response.content
+        assert SignalTrialGrant.objects.for_team(self.team.pk).exists() is enrolled
 
     @parameterized.expand(
         [(10_000_000, 5, 20_000_000, 10), (20_000_000, 10, 10_000_000, 5), (20_000_000, 10, None, None)]

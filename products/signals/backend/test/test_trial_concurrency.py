@@ -7,14 +7,16 @@ from unittest.mock import patch
 
 from django.db import close_old_connections
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.stack_plan import create_layer_reports
+from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.service import TrialService
 
 
 class TestTrialConcurrency(NonAtomicBaseTest):
@@ -59,7 +61,16 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             assert not SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="reserved").exists()
 
     def test_final_organization_slot_and_report_slot_are_atomic(self) -> None:
-        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        with (
+            patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+        ):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
             second = Team.objects.create(organization=self.organization, name="Second")
             TrialPolicy(second).claim(user_id=self.user.pk)
@@ -70,7 +81,8 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                 close_old_connections()
                 try:
                     barrier.wait(timeout=10)
-                    TrialPolicy(team).claim(user_id=self.user.pk)
+                    with TrialService(team).enroll_on_activation(user=self.user, enabled=True):
+                        pass
                     return True
                 except TrialRefused:
                     return False
