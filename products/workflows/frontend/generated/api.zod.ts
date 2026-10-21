@@ -559,7 +559,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .regex(hogFlowsCreateBodySourceRecordRegExp)
             .nullish()
             .describe(
-                "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([
@@ -1982,7 +1982,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .regex(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp)
                 .nullish()
                 .describe(
-                    "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
+                    "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2879,7 +2879,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .regex(hogFlowsBulkDeleteCreateBodySourceRecordRegExp)
             .nullish()
             .describe(
-                "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([
@@ -3339,29 +3339,6 @@ export const WorkflowPeopleImportsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'One object per person. Each needs \"email\". An optional \"distinct_id\" picks the person to update or create, and an \"id\" column counts as the distinct_id when there is no \"distinct_id\" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.'
         ),
-})
-
-/**
- * Find everyone that earlier workflows started from the same record already emailed, and save them as a static cohort, so a new broadcast about that record can leave them out. Reads the sent-email log, which keeps 30 days. Returns a null cohort when nobody was emailed yet.
- * @summary Save the people already emailed about a record as a cohort
- */
-export const workflowPreviousRecipientsCreateBodySourceRecordMax = 255
-
-export const workflowPreviousRecipientsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
-export const workflowPreviousRecipientsCreateBodyCohortNameMax = 400
-
-export const WorkflowPreviousRecipientsCreateBody = /* @__PURE__ */ zod.object({
-    source_record: zod
-        .string()
-        .max(workflowPreviousRecipientsCreateBodySourceRecordMax)
-        .regex(workflowPreviousRecipientsCreateBodySourceRecordRegExp)
-        .describe(
-            "The record the new email is about, as '<kind>:<id>', for example 'early_access:<uuid>' or 'cohort:42'."
-        ),
-    cohort_name: zod
-        .string()
-        .max(workflowPreviousRecipientsCreateBodyCohortNameMax)
-        .describe("Name for the cohort of people already emailed, shown in the broadcast's recipients."),
 })
 
 /**

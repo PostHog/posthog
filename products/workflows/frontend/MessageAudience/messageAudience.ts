@@ -25,10 +25,8 @@ export interface MessageAudience {
     workflowTrigger?: WorkflowTriggerConfig
     broadcastEmail?: MessageDraft
     workflowEmail?: MessageDraft
-    /** The record the email is about, as "<kind>:<id>". A broadcast skips the people already emailed about it. */
+    /** The record the email is about, as "<kind>:<id>". A later broadcast about it warns that it was already sent. */
     sourceRecord?: string
-    /** What the record is called, for naming the cohort of people already emailed about it. */
-    sourceRecordName?: string
     draftSource?: EmailDraftRequestApi
 }
 

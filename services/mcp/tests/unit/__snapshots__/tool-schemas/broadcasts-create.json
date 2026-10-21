@@ -565,7 +565,7 @@
                     "type": "null"
                 }
             ],
-            "description": "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
+            "description": "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
         },
         "status": {
             "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",

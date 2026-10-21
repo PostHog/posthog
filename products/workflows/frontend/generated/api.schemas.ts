@@ -682,7 +682,7 @@ export interface HogFlowApi {
      * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
     /**
-     * The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow.
+     * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
      * @maxLength 255
      * @nullable
      * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
@@ -2558,30 +2558,6 @@ export interface PeopleImportApi {
     dropped_too_large: number
 }
 
-export interface PreviousRecipientsRequestApi {
-    /**
-     * The record the new email is about, as '<kind>:<id>', for example 'early_access:<uuid>' or 'cohort:42'.
-     * @maxLength 255
-     * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
-     */
-    source_record: string
-    /**
-     * Name for the cohort of people already emailed, shown in the broadcast's recipients.
-     * @maxLength 400
-     */
-    cohort_name: string
-}
-
-export interface PreviousRecipientsApi {
-    /**
-     * Static cohort of the people already emailed from this record. Null when nobody was emailed yet.
-     * @nullable
-     */
-    cohort_id: number | null
-    /** How many people the cohort holds. */
-    people: number
-}
-
 /**
  * * `off` - Off
  * * `opt_out` - Opt Out
@@ -2795,6 +2771,10 @@ export type HogFlowsListParams = {
      * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string
+    /**
+     * Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.
+     */
+    source_record?: string
     /**
      * * `draft` - Draft
      * * `active` - Active

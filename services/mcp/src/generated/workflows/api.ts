@@ -51,6 +51,10 @@ export const HogFlowsListQueryParams = () => zod.object({
         .describe(
             'Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.'
         ),
+    source_record: zod
+        .string()
+        .optional()
+        .describe("Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`."),
     status: zod
         .enum(['active', 'archived', 'draft'])
         .optional()
@@ -132,7 +136,7 @@ export const HogFlowsCreateBody = () => zod
             .regex(hogFlowsCreateBodySourceRecordRegExp)
             .nullish()
             .describe(
-                "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([

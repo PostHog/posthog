@@ -3009,7 +3009,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         allow_null=True,
         write_only=True,
         help_text="The record another product's entry point started this workflow from, as '<kind>:<id>'. "
-        "A later send from the same record can skip the people this one emailed. Set only when creating a workflow.",
+        "Set only when creating a workflow. Filter the list with `?source_record=`.",
     )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -4612,6 +4612,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 OpenApiTypes.STR,
                 enum=HogFlowOriginProduct.values,
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            ),
+            OpenApiParameter(
+                "source_record",
+                OpenApiTypes.STR,
+                description="Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.",
             ),
             OpenApiParameter(
                 "trigger",
