@@ -10,6 +10,7 @@ import { ApiConfig } from 'lib/api'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -183,23 +184,27 @@ describe('inboxReportDetailLogic', () => {
                 const pendingSave = new Promise<void>((resolve) => {
                     completeSave = resolve
                 })
-                const save = jest.fn(async (request) => {
+                const save = jest.fn(async (request: MockResolverInfo): Promise<[number, SignalReport]> => {
                     expect(request.params.team_id).toBe(String(ApiConfig.getCurrentProjectId()))
                     await pendingSave
                     return [responseStatus, { ...REPORT, status: 'potential' }]
                 })
                 const originalProjectId = ApiConfig.getCurrentProjectId()
                 ApiConfig.setCurrentProjectId(456)
-                useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': save } })
-                logic.actions.changeReportState('potential')
-                await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
-                expect(logic.values.reportStateSaving).toBe(true)
-                logic.actions.changeReportState('potential')
-                completeSave()
-                await expectLogic(logic).toFinishAllListeners()
-                expect(save).toHaveBeenCalledTimes(1)
-                expect(logic.values.reportStateSaving).toBe(false)
-                ApiConfig.setCurrentProjectId(originalProjectId)
+                try {
+                    useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': save } })
+                    logic.actions.changeReportState('potential')
+                    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+                    expect(logic.values.reportStateSaving).toBe(true)
+                    logic.actions.changeReportState('potential')
+                    completeSave()
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(save).toHaveBeenCalledTimes(1)
+                    expect(logic.values.reportStateSaving).toBe(false)
+                } finally {
+                    completeSave()
+                    ApiConfig.setCurrentProjectId(originalProjectId)
+                }
             }
         )
 
