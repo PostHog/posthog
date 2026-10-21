@@ -18,7 +18,7 @@ import binascii
 from collections import Counter
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import field
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from django.db import transaction
@@ -86,7 +86,7 @@ _MIN_SIGNING_SECRET_BYTES: Final = 24
 _REFERENCE: Final = re.compile(
     r"(?<![\w.$])(event|person|groups|source|project|inputs)(?![\w$])((?:\.[A-Za-z_$][\w$]*|\[[^\[\]]*\])*)"
 )
-_LIQUID_REGION: Final = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+_LIQUID_CLOSERS: Final = {"{{": "}}", "{%": "%}"}
 _BRACKET: Final = re.compile(r"\[([^\[\]]*)\]")
 _QUOTED: Final = re.compile(r"'[^']*'|\"[^\"]*\"")
 # The event's own fields keep their meaning: the transition's id and time.
@@ -99,6 +99,15 @@ _ACTION_IDS: Final = {"trigger": "trigger_node", "branch": "branch_transition", 
 class _Span:
     start: int
     stop: int
+
+
+@frozen
+class _Segment:
+    """A run of a template expression: code, a string literal, or an f-string, whose `{...}` parts are code."""
+
+    start: int
+    stop: int
+    kind: Literal["code", "string", "fstring"]
 
 
 @frozen(frozen=False)
@@ -123,10 +132,10 @@ def _valid_signing_secret(secret: Any) -> bool:
     return len(key) >= _MIN_SIGNING_SECRET_BYTES
 
 
-def _code_spans(text: str, start: int, stop: int) -> list[_Span]:
-    """The parts of `text[start:stop]` outside string literals. A string literal can hold a brace or a
+def _segments(text: str, start: int, stop: int) -> list[_Segment]:
+    """`text[start:stop]` split into code and string literals. A string literal can hold a brace or a
     reference that is only text."""
-    spans: list[_Span] = []
+    segments: list[_Segment] = []
     index = start
     while index < stop:
         char = text[index]
@@ -134,14 +143,37 @@ def _code_spans(text: str, start: int, stop: int) -> list[_Span]:
             index += 2
             continue
         if char in "'\"":
-            spans.append(_Span(start=start, stop=index))
+            fstring = index > start and text[index - 1] in "fF"
+            segments.append(_Segment(start=start, stop=index, kind="code"))
+            opened = index
             index += 1
             while index < stop and text[index] != char:
                 index += 2 if text[index] == "\\" else 1
+            segments.append(_Segment(start=opened, stop=index + 1, kind="fstring" if fstring else "string"))
             start = index + 1
         index += 1
-    spans.append(_Span(start=start, stop=stop))
-    return [span for span in spans if span.stop > span.start]
+    segments.append(_Segment(start=start, stop=stop, kind="code"))
+    return [segment for segment in segments if segment.stop > segment.start]
+
+
+def _liquid_tags(text: str) -> list[_Span]:
+    # Linear on purpose: a lazy regex rescans the rest of the text for every unclosed `{{`.
+    tags: list[_Span] = []
+    next_open = {opener: text.find(opener) for opener in _LIQUID_CLOSERS}
+    index = 0
+    while True:
+        for opener, position in next_open.items():
+            if position != -1 and position < index:
+                next_open[opener] = text.find(opener, index)
+        found = [(position, opener) for opener, position in next_open.items() if position != -1]
+        if not found:
+            return tags
+        start, opener = min(found)
+        stop = text.find(_LIQUID_CLOSERS[opener], start + 2)
+        if stop == -1:
+            return tags
+        tags.append(_Span(start=start, stop=stop + 2))
+        index = stop + 2
 
 
 def _hog_expressions(text: str) -> list[_Span]:
@@ -193,28 +225,35 @@ def _rewrite_reference(match: re.Match[str], log: PlaceholderLog) -> str:
     return reference
 
 
+def _log_text_references(text: str, log: PlaceholderLog, *, bare: bool) -> None:
+    # Text is not rewritten, but it may still be read at runtime, so a person checks it. A bare global such
+    # as `event` is ordinary prose in literal text, and code inside an f-string.
+    log.unknown.extend(
+        match.group(0)
+        for match in _REFERENCE.finditer(text)
+        if (bare or match.group(2)) and not _kept(match.group(1), match.group(2))
+    )
+
+
 def rewrite_template(text: str, templating: Any, log: PlaceholderLog) -> str:
     """The template with its legacy event properties read from `source`. Only the template's code
     changes. A reference in literal text or in a string literal, such as one inside an f-string, may
     still be read at runtime, so it is logged as unknown for a person to check."""
-    expressions = (
-        [_Span(start=match.start(), stop=match.end()) for match in _LIQUID_REGION.finditer(text)]
-        if templating == "liquid"
-        else _hog_expressions(text)
-    )
-    spans = [span for expression in expressions for span in _code_spans(text, expression.start, expression.stop)]
+    expressions = _liquid_tags(text) if templating == "liquid" else _hog_expressions(text)
     parts: list[str] = []
     end = 0
-    for span in [*spans, _Span(start=len(text), stop=len(text))]:
-        gap = text[end : span.start]
-        log.unknown.extend(
-            match.group(0)
-            for match in _REFERENCE.finditer(gap)
-            if match.group(2) and not _kept(match.group(1), match.group(2))
-        )
-        parts.append(gap)
-        parts.append(_REFERENCE.sub(lambda match: _rewrite_reference(match, log), text[span.start : span.stop]))
-        end = span.stop
+    for expression in [*expressions, _Span(start=len(text), stop=len(text))]:
+        literal = text[end : expression.start]
+        _log_text_references(literal, log, bare=False)
+        parts.append(literal)
+        for segment in _segments(text, expression.start, expression.stop):
+            piece = text[segment.start : segment.stop]
+            if segment.kind == "code":
+                piece = _REFERENCE.sub(lambda match: _rewrite_reference(match, log), piece)
+            else:
+                _log_text_references(piece, log, bare=segment.kind == "fstring")
+            parts.append(piece)
+        end = expression.stop
     return "".join(parts)
 
 
@@ -563,6 +602,11 @@ def create_flow_drafts(
     return FlowDrafts(ports=ports, workflow_ids=created)
 
 
+def _printable(text: str) -> str:
+    # Details come from a team's own templates and filters, so a newline in one could forge a report line.
+    return "".join(char if char.isprintable() else repr(char)[1:-1] for char in text)
+
+
 def flow_port_report_lines(ports: Iterable[FlowPort]) -> Iterator[str]:
     """One line per destination, a line per rewrite and per issue, then the counts. Never an input value."""
     counts: Counter[str] = Counter()
@@ -582,8 +626,8 @@ def flow_port_report_lines(ports: Iterable[FlowPort]) -> Iterator[str]:
             parts.append(f"left_out={','.join(str(function_id) for function_id in port.left_out)}")
         yield " ".join(parts)
         for rewrite in port.rewrites:
-            yield f"  rewrite {rewrite}"
+            yield f"  rewrite {_printable(rewrite)}"
         for issue in port.issues:
-            detail = f" detail={issue.detail}" if issue.detail else ""
+            detail = f" detail={_printable(issue.detail)}" if issue.detail else ""
             yield f"  issue {issue.problem} function={issue.hog_function_id or '-'}{detail}"
     yield f"Destinations: ported={counts['ported']} stopped={counts['stopped']}"

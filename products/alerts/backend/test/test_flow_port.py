@@ -10,8 +10,15 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import FlowDrafts, FlowPort, FlowPortProblem, NamedAlert
-from products.alerts.backend.facade.destinations import create_flow_drafts, flow_ports
+from products.alerts.backend.facade.contracts import (
+    DestinationBucket,
+    FlowDrafts,
+    FlowPort,
+    FlowPortIssue,
+    FlowPortProblem,
+    NamedAlert,
+)
+from products.alerts.backend.facade.destinations import create_flow_drafts, flow_port_report_lines, flow_ports
 from products.alerts.backend.logic.flow_port import PlaceholderLog, rewrite_template
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 from products.alerts_platform.backend.facade.testing import create_configuration
@@ -402,6 +409,14 @@ class TestRewriteTemplate(SimpleTestCase):
                 "{inputs[event.properties.k]}",
                 ["inputs[event.properties.k]"],
             ),
+            ("a_bare_global_in_an_f_string", "{f'{event}'}", None, "{f'{event}'}", ["event"]),
+            (
+                "an_unclosed_liquid_tag_is_text",
+                "{{ event.properties.a",
+                "liquid",
+                "{{ event.properties.a",
+                ["event.properties.a"],
+            ),
             (
                 "a_string_in_a_liquid_tag_is_text",
                 "{{ 'event.properties.a' }} {{ event.properties.b }}",
@@ -426,3 +441,28 @@ class TestRewriteTemplate(SimpleTestCase):
 
         assert rewrite_template(text, templating, log) == expected
         assert log.unknown == unknown
+
+
+class TestFlowPortReportLines(SimpleTestCase):
+    def test_a_newline_in_a_detail_cannot_forge_a_report_line(self) -> None:
+        port = FlowPort(
+            alert_id=ALERT_ID,
+            configuration_id=None,
+            hog_function_ids=(),
+            template_id="template-webhook",
+            bucket=DestinationBucket.PORTABLE,
+            rewrites=(),
+            issues=(
+                FlowPortIssue(
+                    problem=FlowPortProblem.UNKNOWN_PLACEHOLDER,
+                    hog_function_id=None,
+                    detail="person['a\nalert=forged result=ported']",
+                ),
+            ),
+            left_out=(),
+        )
+
+        lines = list(flow_port_report_lines([port]))
+
+        assert [line for line in lines if line.startswith("alert=")] == [lines[0]]
+        assert "\\n" in lines[1]
