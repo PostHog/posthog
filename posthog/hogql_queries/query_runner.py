@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -16,6 +16,7 @@ from typing import (
     NamedTuple,
     Optional,
     Protocol,
+    TypeAliasType,
     TypeGuard,
     TypeVar,
     Union,
@@ -1813,6 +1814,7 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+SourceT = TypeVar("SourceT", bound=BaseModel)
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1829,7 +1831,27 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    return getattr(query, "modifiers", None)
+    # A wrapper query (actors, correlation, actor options) runs its source insight, so it reads the same
+    # events table and person data as that insight. Modifiers set on the wrapper itself take precedence.
+    source = getattr(query, "source", None)
+    inherited = query_node_modifiers(source) if isinstance(source, BaseModel) else None
+    modifiers = getattr(query, "modifiers", None)
+    if inherited is not None and modifiers is not None:
+        modifiers = inherited.model_copy(update={key: value for key, value in modifiers if value is not None})
+    elif modifiers is None:
+        modifiers = inherited
+    return modifiers
+
+
+def unwrapped_source(wrapper: BaseModel, source: SourceT) -> SourceT:
+    """The source of a wrapper query, for code that runs the source in place of the wrapper.
+
+    It carries the modifiers the wrapper resolves to, so the source runs with the same settings a
+    runner for the wrapper would use.
+    """
+    if getattr(wrapper, "modifiers", None) is None:
+        return source
+    return source.model_copy(update={"modifiers": query_node_modifiers(wrapper)})
 
 
 def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
@@ -1922,13 +1944,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
         pass
 
+    def set_user(self, user: Optional[User]) -> None:
+        """Run as another user from now on, together with every runner this one built."""
+        if user is self.user:
+            return
+        self.user = user
+        self._on_user_changed()
+
+    def _child_runners(self) -> Iterable["QueryRunner"]:
+        """Runners this one built and runs, so a user change reaches them.
+
+        A lazy child that is not built yet reads the user when it is built, so it is not listed."""
+        return ()
+
     def _on_user_changed(self) -> None:
-        """Hook called by run() when self.user is updated after construction.
+        """Hook called by set_user() when self.user changes after construction.
 
         Drops the lazily built shared database so the next access rebuilds it for the new
-        user. Subclasses that override this to rebuild their own user-dependent state (e.g.
-        a cached HogQLContext / Database) must call super()._on_user_changed()."""
+        user, and passes the user to the child runners. Subclasses that override this to
+        rebuild their own user-dependent state (e.g. a cached HogQLContext / Database) must
+        call super()._on_user_changed()."""
         self._shared_database = None
+        for child in self._child_runners():
+            child.set_user(self.user)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -1992,7 +2030,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @property
     def query_type(self) -> Any:
-        return self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
+        query_type = self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
+        while isinstance(query_type, TypeAliasType):
+            query_type = query_type.__value__
+        return query_type
 
     @property
     def cached_response_type(self) -> type[CR]:
@@ -2363,9 +2404,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # __init__; let them refresh it now that we know the real user. Only on an
         # actual change - re-running for the same user would needlessly rebuild that
         # state and drop a preloaded access-control snapshot.
-        if user is not None and user is not self.user:
-            self.user = user
-            self._on_user_changed()
+        if user is not None:
+            self.set_user(user)
         start_time = perf_counter()
         cache_key = self.get_cache_key()
         self._phase = RunPhase(name="prepare")
