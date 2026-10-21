@@ -27,8 +27,11 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
+import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { SessionRecordingPreviewCompact } from 'scenes/session-recordings/playlist/SessionRecordingPreviewCompact'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
@@ -82,7 +85,7 @@ export function Playlist({
     selectInitialItem,
     listEmptyState,
 }: PlaylistProps): JSX.Element {
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
         <LemonButton
@@ -106,6 +109,8 @@ export function Playlist({
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
+    // The watch layout folds the filter button, the sort menu and the selection controls into one header row.
+    const watchFilterBar = replayLayout === 'watch' && !notebookNode && type !== 'collection'
 
     // bound outside here
     const {
@@ -147,6 +152,18 @@ export function Playlist({
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
+    const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
+        replayLayout === 'watch' ? (
+            <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable />
+        ) : (
+            <SessionRecordingPreview recording={item} isActive={isActive} selectable />
+        )
+
+    // Still-ingesting recordings fold above the results in the watch layout, so the list opens on finished ones.
+    const ongoingRecordings = replayLayout === 'watch' ? otherRecordings.filter((r) => r.ongoing) : []
+    const finishedRecordings =
+        ongoingRecordings.length > 0 ? otherRecordings.filter((r) => !r.ongoing) : otherRecordings
+
     const sections: PlaylistSection[] = []
 
     if (type === 'collection' || pinnedRecordings.length > 0) {
@@ -159,7 +176,7 @@ export function Playlist({
                 </div>
             ),
             items: pinnedRecordings,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
+            render: renderRow,
             initiallyOpen: true,
         })
     } else {
@@ -168,12 +185,12 @@ export function Playlist({
             title: (
                 <div className="flex flex-row deprecated-space-x-1 items-center">
                     <span>Results</span>
-                    <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
+                    <LemonBadge.Number count={finishedRecordings.length} status="muted" size="small" />
                 </div>
             ),
-            items: otherRecordings,
+            items: finishedRecordings,
             initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
+            render: renderRow,
             footer: (
                 <div className="p-4">
                     <div className="h-10 flex items-center justify-center gap-2 text-secondary">
@@ -280,7 +297,20 @@ export function Playlist({
 
     return (
         <div className="flex flex-col min-w-60 h-full">
-            {!notebookNode && type !== 'collection' && (
+            {watchFilterBar && (
+                <div className="mb-2">
+                    <ReplayFilterBar
+                        filters={filters}
+                        setFilters={setFilters}
+                        totalFiltersCount={totalFiltersCount}
+                        currentSessionRecordingId={activeSessionRecordingId}
+                        onReload={() => maybeLoadSessionRecordings()}
+                        collapseButton={collapseButton}
+                        type="filters"
+                    />
+                </div>
+            )}
+            {!watchFilterBar && !notebookNode && type !== 'collection' && (
                 <div className="mb-2 flex gap-2">
                     <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
                         <RecordingsUniversalFiltersEmbedButton
@@ -327,21 +357,23 @@ export function Playlist({
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
                         <div className="relative">
-                            <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
-                                <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
-                                    {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    <div className="flex items-center gap-0.5 flex-1 min-w-0">
-                                        <SessionRecordingsPlaylistTopSettings
-                                            filters={filters}
-                                            setFilters={setFilters}
-                                            type={type}
-                                            shortId={type === 'collection' ? logicKey : undefined}
-                                        />
-                                        <LemonDivider vertical className="my-1 mx-0.5" />
-                                        {collapseButton}
+                            {!watchFilterBar && (
+                                <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
+                                    <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                                        {title && <TitleWithCount title={title} count={itemsCount} />}
+                                        <div className="flex items-center gap-0.5 flex-1 min-w-0">
+                                            <SessionRecordingsPlaylistTopSettings
+                                                filters={filters}
+                                                setFilters={setFilters}
+                                                type={type}
+                                                shortId={type === 'collection' ? logicKey : undefined}
+                                            />
+                                            <LemonDivider vertical className="my-1 mx-0.5" />
+                                            {collapseButton}
+                                        </div>
                                     </div>
-                                </div>
-                            </DraggableToNotebook>
+                                </DraggableToNotebook>
+                            )}
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
                         {selectedRecordingOutsideFilters && (
@@ -351,6 +383,19 @@ export function Playlist({
                             </LemonBanner>
                         )}
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
+                            <OngoingRecordingsGroup
+                                count={ongoingRecordings.length}
+                                holdsActive={ongoingRecordings.some((r) => r.id === activeItemId)}
+                            >
+                                <ListSection
+                                    key="ongoing"
+                                    items={ongoingRecordings}
+                                    render={renderRow}
+                                    onClick={onChangeActiveItem}
+                                    activeItemId={activeItemId}
+                                    scrollEl={scrollEl}
+                                />
+                            </OngoingRecordingsGroup>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
                                     defaultActiveKeys={openSections}

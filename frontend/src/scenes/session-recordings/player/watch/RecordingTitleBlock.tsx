@@ -1,0 +1,64 @@
+import { useValues } from 'kea'
+
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { PinToPlaylistButton } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
+import { gatherIconProperties } from 'scenes/session-recordings/playlist/gatherIconProperties'
+import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
+
+import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
+
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+
+/** Who the recording is of, when it happened and on what, with the collection action beside it. */
+export function RecordingTitleBlock(): JSX.Element {
+    const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPerson, loading, startTime } = useValues(playerMetaLogic(logicProps))
+    const { recordingPropertiesById } = useValues(sessionRecordingsListPropertiesLogic)
+
+    if (loading) {
+        return (
+            <div className="flex items-center gap-3">
+                <LemonSkeleton.Circle className="w-10 h-10" />
+                <div className="flex flex-col gap-1 flex-1">
+                    <LemonSkeleton className="w-1/3 h-5" />
+                    <LemonSkeleton className="w-1/2 h-4" />
+                </div>
+            </div>
+        )
+    }
+
+    const recordingProperties = sessionPlayerMetaData?.id
+        ? recordingPropertiesById[sessionPlayerMetaData.id]
+        : undefined
+    const iconProperties = gatherIconProperties(recordingProperties, sessionPlayerMetaData ?? undefined)
+    const durationSeconds = sessionPlayerMetaData?.recording_duration
+
+    return (
+        <div className="flex items-start gap-3 min-w-0" data-attr="watch-panel-title">
+            {sessionPerson && <PersonIcon person={sessionPerson} size="lg" className="mr-0 shrink-0" />}
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <h2 className="text-base font-semibold truncate m-0 ph-no-capture">
+                    {sessionPerson ? asDisplay(sessionPerson) : 'Unknown user'}
+                </h2>
+                <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-xs text-secondary ph-no-capture">
+                    {durationSeconds !== undefined && <span>{humanFriendlyDuration(durationSeconds)}</span>}
+                    {startTime && <TZLabel time={startTime} showPopover={false} />}
+                    {iconProperties.map(({ property, value, label }) => (
+                        <span key={property} className="flex items-center gap-x-1">
+                            <PropertyIcon property={property} value={value} />
+                            <span>{label}</span>
+                        </span>
+                    ))}
+                </div>
+            </div>
+            <div className="shrink-0">
+                <PinToPlaylistButton />
+            </div>
+        </div>
+    )
+}

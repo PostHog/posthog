@@ -22,6 +22,8 @@ import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalF
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
+import { ReplayListColumn } from './ReplayListColumn'
+import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -85,8 +87,19 @@ export function SessionRecordingsPlaylist({
 type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'picksInList'> & { picksInList: boolean }
 
 function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
-    if (picksInList && !isPlaylistCollapsed) {
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
+    if (isPlaylistCollapsed) {
+        return <Playlist {...props} />
+    }
+    if (replayLayout === 'watch') {
+        const logicKey = props.logicKey ?? 'playlist'
+        return picksInList ? (
+            <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />
+        ) : (
+            <ReplayListColumn logicKey={logicKey} recordingsList={<Playlist {...props} />} picksMode={null} />
+        )
+    }
+    if (picksInList) {
         return <WatchPicksListColumn recordingsList={<Playlist {...props} />} />
     }
     return <Playlist {...props} />
@@ -263,6 +276,7 @@ function PlayerWrapper({
                                 : undefined
                         }
                         playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                        watchLayout
                     />
                 </div>
             ) : sessionRecordingsResponseLoading ? (
