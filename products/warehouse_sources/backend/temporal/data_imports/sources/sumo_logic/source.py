@@ -57,7 +57,7 @@ class SumoLogicSource(ResumableSource[SumoLogicSourceConfig, SumoLogicResumeConf
             name=ExternalDataSourceType.SUMOLOGIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sumo Logic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Connect your Sumo Logic account to sync log search results, collectors, monitors, dashboards, users, and more into the PostHog Data warehouse.
 
 Create an access ID and access key in your [Sumo Logic preferences](https://help.sumologic.com/docs/manage/security/access-keys/) (or use a service account's access key). Pick the deployment region your account lives on — it's the subdomain of your Sumo Logic URL (e.g. `service.eu.sumologic.com` is the EU deployment).
