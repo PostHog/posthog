@@ -26,10 +26,12 @@ DurationUnit = Literal["d", "h", "m", "s"]
 SECONDS_PER_DURATION_UNIT: dict[str, float] = {"d": 86400, "h": 3600, "m": 60, "s": 1}
 MINUTES_PER_DURATION_UNIT: dict[str, float] = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
 
-# What a single fixed delay is allowed to wait for, per unit. Mirrors the executor's clamp in
-# nodejs/src/cdp/services/hogflows/actions/delay.ts. It bounds a delay step only: a conversion window
-# takes its value whole, and 'd': 30 there would turn a 365-day window into 30 days without saying so.
-MAX_VALUE_FOR_DURATION_UNIT: dict[str, float] = {"d": 30, "h": 24, "m": 60, "s": 60}
+# How long one step may wait, per unit. Mirrors the executor's clamp in
+# nodejs/src/cdp/services/hogflows/actions/delay.ts. A delay parks once and wakes once, so it can run to a
+# year. A wait stays registered with the subscription matcher while it parks, so it keeps the shorter cap.
+# These bound steps only: a conversion window takes its value whole.
+MAX_DELAY_VALUE_FOR_DURATION_UNIT: dict[str, float] = {"d": 365, "h": 24, "m": 60, "s": 60}
+MAX_WAIT_VALUE_FOR_DURATION_UNIT: dict[str, float] = {"d": 30, "h": 24, "m": 60, "s": 60}
 
 DURATION_EXAMPLES = "'30s', '30m', '2h', '1.5d'"
 
@@ -74,6 +76,10 @@ def duration_minutes(value: str) -> Optional[float]:
     if parsed is None or parsed.negative:
         return None
     return parsed.amount * MINUTES_PER_DURATION_UNIT[parsed.unit]
+
+
+def ceilings_for_field(field: str) -> dict[str, float]:
+    return MAX_WAIT_VALUE_FOR_DURATION_UNIT if field == "max_wait_duration" else MAX_DELAY_VALUE_FOR_DURATION_UNIT
 
 
 def duration_error(field: str) -> str:
