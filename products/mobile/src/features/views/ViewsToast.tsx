@@ -1,10 +1,11 @@
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { AccessibilityInfo, StyleSheet, Text } from 'react-native'
+import { AccessibilityInfo, Text } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 
 import { OverlayPortal } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, shadows } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { radii } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const SHOW_MS = 2600
@@ -55,6 +56,8 @@ interface ViewsToastProps {
  * a view's header still sits at the bottom of the screen, above the tab bar and any open sheet.
  */
 export function ViewsToast({ toast, onHide, bottom = 114 }: ViewsToastProps): ReactElement | null {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const insets = useScreenInsets()
     if (!toast) {
         return null
@@ -97,7 +100,7 @@ export function ViewsToast({ toast, onHide, bottom = 114 }: ViewsToastProps): Re
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     toast: {
         position: 'absolute',
         alignSelf: 'center',
@@ -120,7 +123,7 @@ const styles = StyleSheet.create({
         flexShrink: 1,
         fontSize: 15,
         fontWeight: '600',
-        color: colors.white,
+        color: colors.onInk,
     },
     undo: {
         height: 30,
@@ -133,6 +136,6 @@ const styles = StyleSheet.create({
     undoText: {
         fontSize: 14,
         fontWeight: '600',
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

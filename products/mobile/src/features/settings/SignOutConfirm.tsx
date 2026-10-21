@@ -1,10 +1,11 @@
 import { type ReactElement, useEffect } from 'react'
-import { ActivityIndicator, type StyleProp, StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { ActivityIndicator, type StyleProp, Text, View, type ViewStyle } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { track } from '@/lib/analytics'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 interface SignOutConfirmProps {
     from: 'settings' | 'nav_menu'
@@ -27,6 +28,8 @@ export function SignOutConfirm({
     style,
     testIDPrefix,
 }: SignOutConfirmProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const host = useAuthStore((state) => state.host)
 
     // Both callers mount this only while they ask, so a mount is one confirmation shown.
@@ -64,7 +67,7 @@ export function SignOutConfirm({
                     testID={`${testIDPrefix}-sign-out-confirm-button`}
                 >
                     {pending ? (
-                        <ActivityIndicator color={colors.white} />
+                        <ActivityIndicator color={colors.onAccent} />
                     ) : (
                         <Text style={styles.destructiveText}>{error ? 'Try again' : 'Sign out'}</Text>
                     )}
@@ -74,7 +77,7 @@ export function SignOutConfirm({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     confirm: {
         gap: 6,
     },
@@ -105,7 +108,7 @@ const styles = StyleSheet.create({
     cancel: {
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     cancelText: {
         ...type.buttonSmall,
@@ -114,8 +117,9 @@ const styles = StyleSheet.create({
     destructive: {
         backgroundColor: colors.orange,
     },
+    // Sign out stays orange because it is destructive; `onAccent` keeps its label legible on the brighter dark-mode orange.
     destructiveText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onAccent,
     },
-})
+}))

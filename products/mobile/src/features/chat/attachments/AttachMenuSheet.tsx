@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BottomSheet } from '@/ui/BottomSheet'
 import { DocumentIcon } from '@/ui/icons/DocumentIcon'
 import { ImageIcon } from '@/ui/icons/ImageIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import type { AttachmentSource } from './types'
 
@@ -17,6 +18,8 @@ interface AttachMenuSheetProps {
 
 /** The Attach button's two sources. The chat route is a native modal, so the sheet draws inline over the chat. */
 export function AttachMenuSheet({ visible, onPick, onClose }: AttachMenuSheetProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <BottomSheet
             visible={visible}
@@ -49,7 +52,7 @@ export function AttachMenuSheet({ visible, onPick, onClose }: AttachMenuSheetPro
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     rows: {
         marginTop: 12,
     },
@@ -66,4 +69,4 @@ const styles = StyleSheet.create({
         color: colors.ink,
         flex: 1,
     },
-})
+}))

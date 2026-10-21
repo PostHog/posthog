@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import { ActivityIndicator, View } from 'react-native'
 import Animated, {
     Extrapolation,
     FadeIn,
@@ -15,7 +15,8 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { SegmentedPill } from '@/ui/SegmentedPill'
-import { colors, iconSizes, layout, motion, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, layout, motion, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const CHROME_TOP = 58
@@ -58,6 +59,8 @@ export function TopChrome({
     refreshing = false,
     withPager = true,
 }: TopChromeProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
@@ -107,6 +110,7 @@ export function TopChrome({
 }
 
 function ScrollTitle({ title }: { title: ChromeTitle }): ReactElement {
+    const styles = useStyles()
     const { scrollY, revealEnd } = title
     const animatedStyle = useAnimatedStyle(() => {
         if (revealEnd <= 0) {
@@ -133,7 +137,7 @@ function ScrollTitle({ title }: { title: ChromeTitle }): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     chrome: {
         position: 'absolute',
         top: 0,
@@ -166,4 +170,4 @@ const styles = StyleSheet.create({
         color: colors.ink,
         textAlign: 'center',
     },
-})
+}))

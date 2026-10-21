@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Linking, ScrollView, Text, View } from 'react-native'
 
 import { useDemoMode } from '@/demo/demoMode'
 import { currentDefaultPageHref, defaultPageHref, settleDefaultPage } from '@/features/settings/defaultPageStore'
@@ -12,7 +12,8 @@ import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { PostHogLogo } from '@/ui/icons/PostHogLogo'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { type AuthMethod, useAuthStore } from './authStore'
@@ -30,6 +31,8 @@ import { SignInField } from './SignInField'
 import { signInFailureReason } from './signInErrors'
 
 export function SignInScreen(): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
     const signIn = useAuthStore((state) => state.signIn)
@@ -215,12 +218,12 @@ export function SignInScreen(): ReactElement {
                             onPress={() => void submit.run()}
                             disabled={submit.pending}
                             accessibilityState={{ busy: submit.pending, disabled: submit.pending }}
-                            pressedBackground={colors.pressOverlay}
+                            pressedBackground={colors.accentHover}
                             style={styles.primaryPressable}
                             testID="sign-in"
                         >
                             {submit.pending ? (
-                                <ActivityIndicator color={colors.white} />
+                                <ActivityIndicator color={colors.onAccent} />
                             ) : (
                                 <Text style={styles.primaryText}>{usingKey ? 'Log in with key' : 'Log in'}</Text>
                             )}
@@ -311,7 +314,7 @@ export function SignInScreen(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -334,7 +337,7 @@ const styles = StyleSheet.create({
         marginBottom: 28,
     },
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderRadius: radii.softCard,
         borderWidth: 1,
         borderColor: colors.hairline,
@@ -404,7 +407,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -416,7 +419,7 @@ const styles = StyleSheet.create({
         marginTop: 20,
         height: 52,
         borderRadius: radii.card,
-        backgroundColor: colors.orange,
+        backgroundColor: colors.accent,
         overflow: 'hidden',
     },
     primaryPending: {
@@ -429,7 +432,7 @@ const styles = StyleSheet.create({
     },
     primaryText: {
         ...type.button,
-        color: colors.white,
+        color: colors.onAccent,
     },
     divider: {
         marginVertical: 20,
@@ -442,7 +445,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -499,4 +502,4 @@ const styles = StyleSheet.create({
         ...type.meta,
         color: colors.secondary,
     },
-})
+}))

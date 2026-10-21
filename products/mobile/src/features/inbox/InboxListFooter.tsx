@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 interface InboxListFooterProps {
     isLoadingMore: boolean
@@ -11,6 +12,8 @@ interface InboxListFooterProps {
 }
 
 export function InboxListFooter({ isLoadingMore, loadMoreFailed, onRetry }: InboxListFooterProps): ReactElement | null {
+    const styles = useStyles()
+    const colors = useColors()
     if (isLoadingMore) {
         return (
             <View style={styles.container} accessibilityLabel="Loading more reports" accessibilityRole="progressbar">
@@ -31,7 +34,7 @@ export function InboxListFooter({ isLoadingMore, loadMoreFailed, onRetry }: Inbo
     return null
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     container: {
         alignItems: 'center',
         gap: 8,
@@ -52,6 +55,6 @@ const styles = StyleSheet.create({
     },
     actionText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

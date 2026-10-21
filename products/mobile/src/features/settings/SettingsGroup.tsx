@@ -1,7 +1,8 @@
 import { Children, Fragment, isValidElement, type ReactElement, type ReactNode } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 interface SettingsGroupProps {
     title: string
@@ -11,6 +12,7 @@ interface SettingsGroupProps {
 }
 
 export function SettingsGroup({ title, children, footer, testID }: SettingsGroupProps): ReactElement {
+    const styles = useStyles()
     const rows = Children.toArray(children)
     return (
         <View style={styles.group} testID={testID}>
@@ -28,7 +30,7 @@ export function SettingsGroup({ title, children, footer, testID }: SettingsGroup
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     group: {
         marginTop: 24,
     },
@@ -38,7 +40,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 4,
     },
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.card,
@@ -55,4 +57,4 @@ const styles = StyleSheet.create({
         marginTop: 8,
         paddingHorizontal: 4,
     },
-})
+}))

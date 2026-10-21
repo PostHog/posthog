@@ -1,10 +1,11 @@
 import { type ReactElement, useCallback } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { groupThousands, plural } from '@/model/adapters/text'
 import type { RankingView } from '@/model/views'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, lineHeight, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { lineHeight, radii, type } from '@/ui/tokens'
 
 import { useItemChartAccessibility } from './accessibility/useChartAccessibility'
 import { seriesColor } from './palette'
@@ -49,6 +50,8 @@ export function BarList({
     accessibilityActions,
     testID,
 }: BarListProps): ReactElement {
+    const { colors, chartPalette } = useTheme()
+    const styles = useStyles()
     const { rows, total } = ranking
     const shown = maxRows === undefined ? rows : rows.slice(0, maxRows)
     const more = rows.length - shown.length
@@ -106,7 +109,7 @@ export function BarList({
         )
     }
     const max = Math.max(...rows.map((row) => row.value), 0)
-    const color = seriesColor(0)
+    const color = seriesColor(0, chartPalette)
     return (
         <View ref={selection.viewRef} onTouchStart={selection.onTouchStart} testID={testID} {...a11y}>
             {shown.map((row, index) => {
@@ -153,7 +156,7 @@ export function BarList({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         minHeight: 44,
         justifyContent: 'center',
@@ -214,4 +217,4 @@ const styles = StyleSheet.create({
         color: colors.muted,
         paddingVertical: 8,
     },
-})
+}))

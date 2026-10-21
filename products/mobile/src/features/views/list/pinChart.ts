@@ -8,8 +8,8 @@ import { snapshotChartSeries } from '../snapshotChart'
  * one, so the tooltip can show the previous value and the change. The pin has no legend, so it draws only the series
  * its big value describes.
  */
-export function pinChartSeries(snapshot: InsightSnapshot): ChartSeries[] {
-    const series = snapshotChartSeries(snapshot)
+export function pinChartSeries(snapshot: InsightSnapshot, palette: readonly string[]): ChartSeries[] {
+    const series = snapshotChartSeries(snapshot, palette)
     const first = series.find((candidate) => candidate.compareOf === undefined)
     return first ? series.filter((candidate) => candidate === first || candidate.compareOf === first.key) : []
 }

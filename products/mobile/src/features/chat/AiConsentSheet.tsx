@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BottomSheet } from '@/ui/BottomSheet'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface AiConsentSheetProps {
     visible: boolean
@@ -22,6 +23,8 @@ export function AiConsentSheet({
     onNotNow,
     onOpenPrivacyPolicy,
 }: AiConsentSheetProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <BottomSheet visible={visible} onClose={onNotNow} accessibilityLabel="PostHog AI" testID="chat-ai-consent">
             <View style={styles.content}>
@@ -73,7 +76,7 @@ export function AiConsentSheet({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingTop: 16,
         gap: 16,
@@ -120,15 +123,15 @@ const styles = StyleSheet.create({
     },
     primaryText: {
         ...type.button,
-        color: colors.white,
+        color: colors.onInk,
     },
     secondary: {
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     secondaryText: {
         ...type.button,
         color: colors.ink,
     },
-})
+}))

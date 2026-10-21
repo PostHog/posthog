@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { sourceInfo } from '@/model/sources'
 import type { ReportView } from '@/model/types'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 interface ReportBylineProps {
     report: Pick<ReportView, 'sourceProduct' | 'sourceLabel' | 'since'>
@@ -11,6 +12,8 @@ interface ReportBylineProps {
 
 /** The source and start time under the headline, as a quiet line of facts that never change. */
 export function ReportByline({ report }: ReportBylineProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const { Icon } = sourceInfo(report.sourceProduct)
     const since = report.since ? sinceText(report.since) : undefined
     return (
@@ -51,7 +54,7 @@ function lowerFirst(value: string): string {
     return value.charAt(0).toLowerCase() + value.slice(1)
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     byline: {
         marginTop: 10,
         flexDirection: 'row',
@@ -77,4 +80,4 @@ const styles = StyleSheet.create({
     glyph: {
         marginRight: 4,
     },
-})
+}))

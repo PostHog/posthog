@@ -5,6 +5,7 @@ import type { InsightSnapshot } from '@/model/views'
 import { ChartLegend, useChartLegend } from '@/ui/chart/ChartLegend'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import type { ChartAccessibilityAction, ChartCanvasSlot, ChartSeries } from '@/ui/chart/types'
+import { useTheme } from '@/ui/theme'
 import type { FullScreenEntry } from './analytics'
 import { useChartSheets } from './pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from './pointSheet/chartSheetSource'
@@ -20,16 +21,17 @@ interface InsightChartModel {
 
 /** What the inline and the full-screen chart of an insight both draw. */
 export function useInsightChartModel(snapshot: InsightSnapshot, rangeText: string | null): InsightChartModel {
+    const { chartPalette } = useTheme()
     return useMemo(() => {
         const dataUntil = snapshot.lastRefreshAt ? Date.parse(snapshot.lastRefreshAt) : Number.NaN
         const kind = snapshot.chartKind ?? 'line'
         return {
-            series: snapshotChartSeries(snapshot),
+            series: snapshotChartSeries(snapshot, chartPalette),
             formatValue: snapshotFormatter(snapshot),
             dataUntil: Number.isFinite(dataUntil) ? dataUntil : undefined,
             summary: `${snapshot.name}, ${kind} chart${rangeText ? `, ${rangeText}` : ''}`,
         }
-    }, [snapshot, rangeText])
+    }, [snapshot, rangeText, chartPalette])
 }
 
 interface InsightChartProps {

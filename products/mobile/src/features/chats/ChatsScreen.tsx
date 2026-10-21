@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshControl, SectionList, StyleSheet, View } from 'react-native'
+import { RefreshControl, SectionList, View } from 'react-native'
 
 import { useProjectScope } from '@/auth/useProjectScope'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
@@ -15,7 +15,8 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, iconSizes, layout } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { toChatError } from '../chat/chatErrors'
@@ -54,6 +55,8 @@ function useSearchEvent(search: string, resultCount: number): void {
 }
 
 export function ChatsScreen(): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
     const now = useNow()
@@ -156,7 +159,7 @@ export function ChatsScreen(): ReactElement {
                 <Eyebrow>{section.label}</Eyebrow>
             </View>
         ),
-        []
+        [styles]
     )
 
     const empty = query.isLoading ? (
@@ -218,6 +221,8 @@ export function ChatsScreen(): ReactElement {
                         refreshing={query.isRefetching}
                         onRefresh={() => refresh('pull')}
                         tintColor={colors.tertiary}
+                        progressBackgroundColor={colors.surface}
+                        colors={[colors.tertiary]}
                         progressViewOffset={contentTop}
                     />
                 }
@@ -228,7 +233,7 @@ export function ChatsScreen(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -246,4 +251,4 @@ const styles = StyleSheet.create({
         paddingBottom: 4,
         paddingHorizontal: 2,
     },
-})
+}))

@@ -1,12 +1,14 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
-import { colors, radii } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { radii } from '@/ui/tokens'
 
 import { PIN_CHART_HEIGHT, PIN_NUMBER_HEIGHT, PIN_ROW_HEIGHT } from './PinCard'
 
 /** The first load with nothing cached: blocks in the shape of the list, so the content lands where they were. */
 export function ViewsSkeleton(): ReactElement {
+    const styles = useStyles()
     return (
         <View
             style={styles.root}
@@ -26,6 +28,7 @@ export function ViewsSkeleton(): ReactElement {
 }
 
 function SkeletonCard({ height, body }: { height: number; body?: 'number' | 'chart' }): ReactElement {
+    const styles = useStyles()
     return (
         <View style={[styles.card, { height }]}>
             <View style={styles.head}>
@@ -46,7 +49,7 @@ function SkeletonCard({ height, body }: { height: number; body?: 'number' | 'cha
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     root: {
         gap: 8,
     },
@@ -72,7 +75,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.option,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         paddingHorizontal: 12,
     },
     head: {
@@ -116,4 +119,4 @@ const styles = StyleSheet.create({
         marginHorizontal: 2,
         marginBottom: 14,
     },
-})
+}))

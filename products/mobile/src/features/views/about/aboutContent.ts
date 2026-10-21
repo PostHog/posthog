@@ -230,7 +230,8 @@ function createdByText(snapshot: InsightSnapshot): string | null {
     return `${snapshot.createdBy} on ${date}`
 }
 
-export function aboutContent(snapshot: InsightSnapshot, now: number): AboutContent {
+/** `palette` is the theme's `chartPalette`, so each series row matches its line on the chart. */
+export function aboutContent(snapshot: InsightSnapshot, now: number, palette: readonly string[]): AboutContent {
     const source = sourceOf(snapshot.query)
     const kind = typeof source.kind === 'string' ? source.kind : null
     const nodes = Array.isArray(source.series) ? source.series.filter(isRecord) : []
@@ -247,7 +248,7 @@ export function aboutContent(snapshot: InsightSnapshot, now: number): AboutConte
         series: nodes.map((node, index) => ({
             key: `${index}`,
             label: seriesName(node, index),
-            color: seriesColor(index),
+            color: seriesColor(index, palette),
             rows: seriesRows(node),
         })),
         formula: formulaOf(source),

@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 interface SheetPageHeaderProps {
     title: string
@@ -12,6 +13,8 @@ interface SheetPageHeaderProps {
 }
 
 export function SheetPageHeader({ title, onBack, testID }: SheetPageHeaderProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.row}>
             <Pressable44
@@ -30,7 +33,7 @@ export function SheetPageHeader({ title, onBack, testID }: SheetPageHeaderProps)
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         marginTop: 10,
         flexDirection: 'row',
@@ -49,4 +52,4 @@ const styles = StyleSheet.create({
         color: colors.ink,
         flex: 1,
     },
-})
+}))

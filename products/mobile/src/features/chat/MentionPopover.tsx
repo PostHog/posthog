@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 
 import { formatRelativeAgo } from '@/lib/dates'
 import type { InboxItem } from '@/model/types'
 import { Dot } from '@/ui/Dot'
 import { Pressable44 } from '@/ui/Pressable44'
-import { accentColor, colors, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 interface MentionPopoverProps {
     items: InboxItem[]
@@ -14,6 +15,8 @@ interface MentionPopoverProps {
 }
 
 export function MentionPopover({ items, now, onPick }: MentionPopoverProps): ReactElement {
+    const { colors, shadows, accentColor } = useTheme()
+    const styles = useStyles()
     return (
         <View style={[styles.popover, shadows.popover]} testID="mention-popover">
             <ScrollView keyboardShouldPersistTaps="handled">
@@ -38,7 +41,7 @@ export function MentionPopover({ items, now, onPick }: MentionPopoverProps): Rea
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     popover: {
         position: 'absolute',
         left: 10,
@@ -51,7 +54,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.menuRow,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         padding: 6,
     },
     eyebrow: {
@@ -83,4 +86,4 @@ const styles = StyleSheet.create({
         lineHeight: 16.8,
         color: colors.tertiary,
     },
-})
+}))

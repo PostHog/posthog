@@ -1,8 +1,9 @@
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
+import { type LayoutChangeEvent, Text, View } from 'react-native'
 import type { PointsArray } from 'victory-native'
 
-import { accentColor, colors, fonts } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { fonts } from '@/ui/tokens'
 
 import { useChartAccessibility } from './accessibility/useChartAccessibility'
 import { ChartOverlay } from './ChartOverlay'
@@ -70,9 +71,11 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
         accessibilityActions,
         testID,
     } = props
+    const theme = useTheme()
+    const styles = useStyles()
     const height = chartHeight(variant, props.height)
-    const series = useStableSeries(chartSeriesOf(props))
-    const accent = props.accent ? accentColor[props.accent] : (series[0]?.color ?? colors.blue)
+    const series = useStableSeries(chartSeriesOf(props, theme))
+    const accent = props.accent ? theme.accentColor[props.accent] : (series[0]?.color ?? theme.colors.blue)
     const [width, setWidth] = useState(0)
     const viewRef = useRef<View>(null)
 
@@ -100,7 +103,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                     y: Number.isFinite(ys[index]) ? (ys[index] as number) : null,
                     yValue: Number.isFinite(point.value) ? point.value : null,
                 }))
-                const stroke = seriesStroke(s)
+                const stroke = seriesStroke(s, theme)
                 return {
                     key: s.key,
                     color: stroke.color,
@@ -111,7 +114,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                     incompleteFrom: s.incompleteFrom,
                 }
             }),
-        [visible, geometry]
+        [visible, geometry, theme]
     )
 
     const pointAt = useCallback(
@@ -224,7 +227,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     container: {
         width: '100%',
     },
@@ -238,4 +241,4 @@ const styles = StyleSheet.create({
     xTick: {
         textAlign: 'center',
     },
-})
+}))

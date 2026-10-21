@@ -7,7 +7,7 @@ import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
 import { OverlayHost } from '@/ui/OverlayPortal'
-import { colors } from '@/ui/tokens'
+import { useColors } from '@/ui/theme'
 
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import { BottomBar } from './BottomBar'
@@ -127,6 +127,7 @@ function TabsChrome(): ReactElement {
 // pad under both. The bar and the header draw after the scenes, so screen menus and sheets go through the host to draw
 // above them. The header has no zIndex for the same reason: drawing order alone puts it between the two.
 export function TabsLayout(): ReactElement {
+    const colors = useColors()
     return (
         <OverlayHost>
             <Tabs

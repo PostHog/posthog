@@ -1,5 +1,5 @@
 import { memo, type ReactElement, type ReactNode, useEffect } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import Animated, {
     cancelAnimation,
     Easing,
@@ -19,7 +19,8 @@ import { COMPACT_CHART_HEIGHT } from '@/ui/chart/variant'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 import { DeltaPill, deltaSpoken } from '../DeltaPill'
 import { statusLine } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
@@ -84,6 +85,8 @@ function rowSecondLine(pin: PinView, demo: boolean): string {
 }
 
 function RowPin({ pin, demo, onOpen, onMenu }: PinCardProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
     const unavailable = !pin.native && demo
     const second = rowSecondLine(pin, demo)
@@ -112,6 +115,8 @@ function RowPin({ pin, demo, onOpen, onMenu }: PinCardProps): ReactElement {
 }
 
 function PinHeadContent({ pin, second, dim = false }: { pin: PinView; second: string; dim?: boolean }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <>
             <View style={styles.iconTile}>
@@ -167,6 +172,8 @@ function dataSecondLine(pin: PinView, data: PinData): string {
 }
 
 function RemovedTilePin({ pin, onMenu, onChooseTile }: PinCardProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
     return (
         <View ref={menu.ref} style={styles.card} testID={pinTestId(pin)}>
@@ -200,6 +207,8 @@ interface DataPinProps extends PinCardProps {
 }
 
 function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
     const { snapshot } = data
     const second = dataSecondLine(pin, data)
@@ -250,6 +259,8 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
 }
 
 function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }: DataPinProps): ReactElement {
+    const { colors, chartPalette } = useTheme()
+    const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
     const { snapshot } = data
     const second = dataSecondLine(pin, data)
@@ -257,7 +268,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
     const delta = snapshot && format ? pinDelta(snapshot, format) : null
     const at = snapshot ? valueAtText(snapshot) : null
-    const series = snapshot ? pinChartSeries(snapshot) : []
+    const series = snapshot ? pinChartSeries(snapshot, chartPalette) : []
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
     return (
@@ -325,6 +336,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
 }
 
 function PinDataFooter({ data }: { data: PinData }): ReactElement {
+    const styles = useStyles()
     useNow()
     const freshness = statusLine([data.snapshot], data.updating).text
     return (
@@ -354,6 +366,7 @@ interface DataStateProps {
 
 /** The body of a Number or Chart pin: the data, a placeholder while it loads, or why it cannot show. */
 function DataState({ data, capable, onUnpin, chart = false, children }: DataStateProps): ReactElement {
+    const styles = useStyles()
     if (data.snapshot && capable) {
         return <>{children}</>
     }
@@ -405,6 +418,7 @@ function pinDelta(snapshot: InsightSnapshot, formatValue: (value: number) => str
 
 /** The thin bar at the bottom of a Number or Chart pin while its request runs. */
 function ProgressLine({ active }: { active: boolean }): ReactElement | null {
+    const styles = useStyles()
     const reduceMotion = useReducedMotion()
     const position = useSharedValue(0)
     useEffect(() => {
@@ -427,9 +441,9 @@ function ProgressLine({ active }: { active: boolean }): ReactElement | null {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.option,
@@ -591,4 +605,4 @@ const styles = StyleSheet.create({
     progressStill: {
         left: 0,
     },
-})
+}))

@@ -1,11 +1,12 @@
 import { type ReactElement, useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { Text, TextInput, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 import { SheetPageHeader } from './SheetPageHeader'
 
@@ -16,6 +17,8 @@ interface BranchPageProps {
 }
 
 export function BranchPage({ branch, onChange, onDone }: BranchPageProps): ReactElement {
+    const { colors, scheme } = useTheme()
+    const styles = useStyles()
     const [openedWith] = useState(branch)
     const [draft, setDraft] = useState(branch)
     const keyboard = useReanimatedKeyboardAnimation()
@@ -38,6 +41,7 @@ export function BranchPage({ branch, onChange, onDone }: BranchPageProps): React
                     onSubmitEditing={done}
                     placeholder="Branch name"
                     placeholderTextColor={colors.tertiary}
+                    keyboardAppearance={scheme}
                     autoFocus
                     autoCorrect={false}
                     autoCapitalize="none"
@@ -63,7 +67,7 @@ export function BranchPage({ branch, onChange, onDone }: BranchPageProps): React
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     field: {
         marginTop: 8,
         height: 48,
@@ -73,7 +77,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         paddingHorizontal: 14,
     },
     input: {
@@ -100,6 +104,6 @@ const styles = StyleSheet.create({
     },
     buttonText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 export interface HandoffOptionRow {
     key: string
@@ -20,6 +21,8 @@ interface HandoffOptionRowsProps {
 }
 
 export function HandoffOptionRows({ rows, disabled }: HandoffOptionRowsProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.group}>
             {rows.map((row, index) => (
@@ -51,13 +54,13 @@ export function HandoffOptionRows({ rows, disabled }: HandoffOptionRowsProps): R
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     group: {
         marginTop: 12,
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         overflow: 'hidden',
     },
     row: {
@@ -89,4 +92,4 @@ const styles = StyleSheet.create({
         ...type.meta,
         color: colors.tertiary,
     },
-})
+}))

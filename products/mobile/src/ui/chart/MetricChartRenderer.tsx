@@ -13,7 +13,7 @@ import type { ComposedGesture } from 'react-native-gesture-handler'
 import { type SharedValue, useDerivedValue } from 'react-native-reanimated'
 import { Area, CartesianChart, Line, type PointsArray } from 'victory-native'
 
-import { colors } from '@/ui/tokens'
+import { useColors } from '@/ui/theme'
 
 import { barSpan, type ChartGeometry, type PlotRect, yPosition } from './chartGeometry'
 import { BAR_BAND_PADDING } from './chartMath'
@@ -68,6 +68,7 @@ export function MetricChartRenderer({
     selection,
     gestures,
 }: MetricChartRendererProps): ReactElement {
+    const colors = useColors()
     const { width, height, plot, xs } = geometry
     const count = xs.length
     const baseline = kind === 'bar' ? yPosition(0, geometry.yDomain, plot) : plot.bottom
@@ -174,6 +175,7 @@ function RangeShade({
     xs: number[]
     plot: PlotRect
 }): ReactElement {
+    const colors = useColors()
     const { selA, selB } = selection
     const x = useDerivedValue(() => Math.min(xs[selA.value] ?? 0, xs[selB.value] ?? 0))
     const width = useDerivedValue(() => Math.abs((xs[selA.value] ?? 0) - (xs[selB.value] ?? 0)))
@@ -213,6 +215,7 @@ function Marker({
     xs: number[]
     plot: PlotRect
 }): ReactElement {
+    const colors = useColors()
     const x = useDerivedValue(() => xs[sel.value] ?? 0)
     const top = useDerivedValue(() => vec(x.value, plot.top))
     const bottom = useDerivedValue(() => vec(x.value, plot.bottom))
@@ -236,13 +239,15 @@ function Dot({
     x: SharedValue<number>
     series: PlottedSeries
 }): ReactElement {
+    const colors = useColors()
     const { ys } = series
     const y = useDerivedValue(() => ys[sel.value] ?? 0)
     const opacity = useDerivedValue(() => (sel.value >= 0 && Number.isFinite(ys[sel.value]) ? 1 : 0))
     const radius = series.compare ? PREVIOUS_DOT_RADIUS : DOT_RADIUS
     return (
         <>
-            <Circle cx={x} cy={y} r={radius + DOT_RING} color={colors.white} opacity={opacity} />
+            {/* A ring of the card color keeps the dot visible where it sits on a line. */}
+            <Circle cx={x} cy={y} r={radius + DOT_RING} color={colors.surface} opacity={opacity} />
             <Circle cx={x} cy={y} r={radius} color={series.color} opacity={opacity} />
         </>
     )
@@ -259,6 +264,7 @@ function Bars({
     accent: string
     selection: ChartSelectionValues
 }): ReactElement {
+    const colors = useColors()
     const { plot, bandWidth } = geometry
     const zeroY = yPosition(0, geometry.yDomain, plot)
     const single = series.length === 1
@@ -277,9 +283,9 @@ function Bars({
                     builder.addRRect(Skia.RRectXY(Skia.XYWHRect(left, top, barWidth, height), 1, 1))
                 }
                 // A single series draws gray and highlights the selected bar; several keep their colors.
-                return { key: s.key, path: builder.detach(), color: single ? colors.border : s.color }
+                return { key: s.key, path: builder.detach(), color: single ? colors.barNeutral : s.color }
             }),
-        [series, zeroY, groupWidth, barWidth, single]
+        [series, zeroY, groupWidth, barWidth, single, colors]
     )
     const first = series[0]
     return (

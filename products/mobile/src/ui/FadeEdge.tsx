@@ -2,7 +2,7 @@ import { type ReactElement, useId } from 'react'
 import { StyleSheet } from 'react-native'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 
-import { colors } from './tokens'
+import { useColors } from './theme'
 
 interface FadeEdgeProps {
     /** `down`: solid at the top, clear at the bottom. `up`: solid at the bottom, clear at the top. */
@@ -14,7 +14,9 @@ interface FadeEdgeProps {
 }
 
 // Drawn with SVG so no gradient dependency is needed.
-export function FadeEdge({ direction, solid, color = colors.background, opacity = 1 }: FadeEdgeProps): ReactElement {
+export function FadeEdge({ direction, solid, color: colorProp, opacity = 1 }: FadeEdgeProps): ReactElement {
+    const colors = useColors()
+    const color = colorProp ?? colors.background
     const id = `fade${useId().replace(/[^a-zA-Z0-9]/g, '')}`
     const down = direction === 'down'
     return (

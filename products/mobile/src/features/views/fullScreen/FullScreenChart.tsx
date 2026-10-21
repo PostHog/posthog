@@ -1,6 +1,6 @@
 import type { QueryKey } from '@tanstack/react-query'
 import { type ReactElement, type ReactNode, useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 
 import type { InsightSnapshot } from '@/model/views'
 import { BackChip } from '@/ui/BackChip'
@@ -17,7 +17,8 @@ import type { ChartAccessibilityAction } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { StateView } from '@/ui/StateView'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useInsightChartModel } from '../InsightChart'
@@ -83,6 +84,7 @@ export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): Re
 }
 
 function FullScreenChrome({ onBack }: { onBack: () => void }): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
@@ -96,6 +98,7 @@ function FullScreenChrome({ onBack }: { onBack: () => void }): ReactElement {
 }
 
 function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; queryKey: QueryKey }): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     const motion = useChartListMotion()
     const sheets = useChartSheets()
@@ -219,6 +222,7 @@ interface TimeSeriesProps {
  * any direction. With several series the legend lists every one of them and scrolls on its own.
  */
 function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElement | null {
+    const styles = useStyles()
     const sheets = useChartSheets()
     const legend = useChartLegend()
     const model = useInsightChartModel(snapshot, rangeText)
@@ -272,7 +276,7 @@ function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElem
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     chrome: {
         position: 'absolute',
         top: 0,
@@ -313,7 +317,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     number: {
         fontSize: 40,
@@ -329,4 +333,4 @@ const styles = StyleSheet.create({
     legendContent: {
         paddingBottom: 8,
     },
-})
+}))

@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { Linking, StyleSheet, Text, View } from 'react-native'
+import { Linking, Text, View } from 'react-native'
 
 import { safeHttpsUrl } from '@/lib/urls'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { trackViewOpenedInWeb } from './analytics'
 import { useViewsContext } from './useViewsContext'
@@ -12,6 +13,8 @@ import { viewWebUrl } from './webLinks'
 
 /** A kind the phone has no renderer for yet, such as a funnel or retention: the web shows it. */
 export function OpensOnWeb({ shortId }: { shortId: string | null }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { scope } = useViewsContext()
     const url = shortId ? viewWebUrl(scope, `/insights/${shortId}`) : undefined
     const safe = url ? safeHttpsUrl(url) : undefined
@@ -39,7 +42,7 @@ export function OpensOnWeb({ shortId }: { shortId: string | null }): ReactElemen
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     web: {
         gap: 10,
         alignItems: 'flex-start',
@@ -58,7 +61,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     webButtonText: {
         fontSize: 14,
@@ -68,4 +71,4 @@ const styles = StyleSheet.create({
     disabledText: {
         color: colors.disabled,
     },
-})
+}))

@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
-import { colors } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
 
 export function BootSplash(): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.screen} accessibilityLabel="Loading PostHog" testID="boot-splash">
             <PostHogLogomark height={65} />
@@ -12,11 +13,11 @@ export function BootSplash(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: colors.background,
     },
-})
+}))

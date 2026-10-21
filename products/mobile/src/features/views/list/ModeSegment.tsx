@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { PinDisplayMode } from '@/model/views'
 import { LineChartIcon } from '@/ui/icons/LineChartIcon'
 import { RowsIcon } from '@/ui/icons/RowsIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, shadows } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { radii } from '@/ui/tokens'
 
 const MODES: readonly PinDisplayMode[] = ['row', 'number', 'chart']
 
@@ -25,6 +26,8 @@ interface ModeSegmentProps {
 
 /** Row, Number or Chart for one pin. */
 export function ModeSegment({ value, available, onChange, variant, name, testIDFor }: ModeSegmentProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const icons = variant === 'icons'
     return (
         <View
@@ -75,7 +78,7 @@ export function ModeSegment({ value, available, onChange, variant, name, testIDF
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     full: {
         flexDirection: 'row',
         gap: 2,
@@ -109,11 +112,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     selected: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     numberGlyph: {
         fontSize: 10,
         lineHeight: 13,
         fontWeight: '700',
     },
-})
+}))

@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
-import { type StyleProp, StyleSheet, Text, type TextStyle } from 'react-native'
+import { type StyleProp, Text, type TextStyle } from 'react-native'
 
-import { colors } from './tokens'
+import { createStyles } from './theme'
 
 interface RefreshHintProps {
     text: string
@@ -14,6 +14,7 @@ interface RefreshHintProps {
  * absolutely positioned in the header's bottom padding.
  */
 export function RefreshHint({ text, style, testID = 'views-refresh-hint' }: RefreshHintProps): ReactElement {
+    const styles = useStyles()
     return (
         <Text
             style={[styles.hint, style]}
@@ -27,11 +28,11 @@ export function RefreshHint({ text, style, testID = 'views-refresh-hint' }: Refr
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     hint: {
         fontSize: 13,
         lineHeight: 16,
         fontWeight: '600',
         color: colors.muted,
     },
-})
+}))

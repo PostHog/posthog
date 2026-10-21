@@ -1,5 +1,5 @@
 import { type ReactElement, useMemo } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { useChartPoints } from '@/features/metrics/useChartPoints'
 import { track } from '@/lib/analytics'
@@ -7,7 +7,8 @@ import type { Accent, ReportChartView } from '@/model/types'
 import { CHART_DEFAULT_HEIGHT } from '@/ui/chart/chartMath'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import { Eyebrow } from '@/ui/Eyebrow'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { valueFormatter } from './metricFooter'
 import { OpenInsightLink } from './OpenInsightLink'
@@ -21,6 +22,7 @@ interface ReportChartsProps {
 }
 
 export function ReportCharts({ charts, reportId, accent }: ReportChartsProps): ReactElement | null {
+    const styles = useStyles()
     if (charts.length === 0) {
         return null
     }
@@ -41,6 +43,7 @@ interface ChartCardProps {
 }
 
 function ChartCard({ chart, reportId, accent }: ChartCardProps): ReactElement {
+    const styles = useStyles()
     const openUrl = insightUrl(chart.openUrl)
     return (
         <View style={styles.card} testID={`report-chart-${chart.chartId}`}>
@@ -57,6 +60,8 @@ function ChartCard({ chart, reportId, accent }: ChartCardProps): ReactElement {
 }
 
 function DrawnChart({ chart, reportId, accent }: ChartCardProps): ReactElement | null {
+    const styles = useStyles()
+    const colors = useColors()
     const state = useChartPoints(chart.data)
     const formatValue = useMemo(() => valueFormatter(chart.format), [chart.format])
     const onSelect = useScrubTracking(() =>
@@ -92,7 +97,7 @@ function DrawnChart({ chart, reportId, accent }: ChartCardProps): ReactElement |
     return <Text style={styles.note}>{message}</Text>
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     section: {
         marginTop: 24,
     },
@@ -102,7 +107,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     title: {
         ...type.bodySmallStrong,
@@ -131,4 +136,4 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'flex-end',
     },
-})
+}))

@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { WarningIcon } from '@/ui/icons/WarningIcon'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import type { StatusLine } from '../freshness'
 
@@ -11,6 +12,8 @@ import type { StatusLine } from '../freshness'
  * status line keeps the age of the values, and the values dim.
  */
 export function RefreshFailedBanner({ status }: { status: StatusLine }): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     if (status.kind !== 'age' || !status.failed) {
         return null
     }
@@ -25,7 +28,7 @@ export function RefreshFailedBanner({ status }: { status: StatusLine }): ReactEl
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     banner: {
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -35,7 +38,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     text: {
         ...type.metaSmall,
@@ -43,4 +46,4 @@ const styles = StyleSheet.create({
         color: colors.ink,
         flex: 1,
     },
-})
+}))

@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react-native'
+import { useColorScheme } from 'react-native'
 
 import { buildDemoFixtures } from '@/demo/fixtures'
 import type { InboxItem } from '@/model/types'
-import { colors } from '@/ui/tokens'
+import { themes } from '@/ui/theme'
 
 import { InboxRow } from './InboxRow'
 
@@ -20,19 +21,29 @@ if (!fixture) {
 }
 const { pullRequestUrl: _url, pullRequestState: _state, ...BASE_ITEM } = fixture.item
 const PR_URL = 'https://github.com/example/repo/pull/123'
+const light = themes.light.colors
+const dark = themes.dark.colors
 
-test.each([
-    ['a draft PR', { pullRequestUrl: PR_URL, pullRequestState: 'draft' }, colors.secondary],
-    ['an open PR', { pullRequestUrl: PR_URL, pullRequestState: 'open' }, colors.diffGreen],
-    ['a merged PR', { pullRequestUrl: PR_URL, pullRequestState: 'merged' }, colors.purple],
-    ['no PR URL', {}, undefined],
-] as const)('a row with %s shows the matching PR badge', (_case, pullRequest, badgeColor) => {
-    const item: InboxItem = { ...BASE_ITEM, state: 'open', ...pullRequest }
-    render(<InboxRow item={item} now={NOW} onOpen={jest.fn()} onLongPress={jest.fn()} onSetRead={jest.fn()} />)
+describe('InboxRow', () => {
+    afterEach(() => {
+        jest.mocked(useColorScheme).mockReturnValue('light')
+    })
 
-    if (badgeColor === undefined) {
-        expect(screen.queryByTestId(`inbox-pr-${item.reportId}`)).toBeNull()
-    } else {
-        expect(screen.getByText('#123')).toHaveStyle({ color: badgeColor })
-    }
+    test.each([
+        ['a draft PR', 'light', { pullRequestUrl: PR_URL, pullRequestState: 'draft' }, light.secondary],
+        ['an open PR', 'light', { pullRequestUrl: PR_URL, pullRequestState: 'open' }, light.diffGreen],
+        ['a merged PR', 'light', { pullRequestUrl: PR_URL, pullRequestState: 'merged' }, light.purple],
+        ['an open PR', 'dark', { pullRequestUrl: PR_URL, pullRequestState: 'open' }, dark.diffGreen],
+        ['no PR URL', 'light', {}, undefined],
+    ] as const)('a row with %s in %s mode shows the matching PR badge', (_case, scheme, pullRequest, badgeColor) => {
+        jest.mocked(useColorScheme).mockReturnValue(scheme)
+        const item: InboxItem = { ...BASE_ITEM, state: 'open', ...pullRequest }
+        render(<InboxRow item={item} now={NOW} onOpen={jest.fn()} onLongPress={jest.fn()} onSetRead={jest.fn()} />)
+
+        if (badgeColor === undefined) {
+            expect(screen.queryByTestId(`inbox-pr-${item.reportId}`)).toBeNull()
+        } else {
+            expect(screen.getByText('#123')).toHaveStyle({ color: badgeColor })
+        }
+    })
 })

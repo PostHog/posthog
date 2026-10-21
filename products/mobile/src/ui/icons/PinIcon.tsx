@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { Path } from 'react-native-svg'
 
-import { colors } from '../tokens'
+import { useColors } from '../theme'
 import { StrokeIcon } from './StrokeIcon'
 import type { IconProps } from './types'
 
@@ -12,10 +12,12 @@ interface PinIconProps extends IconProps {
 
 export function PinIcon({
     size = 22,
-    color = colors.ink,
+    color: colorProp,
     strokeWidth = 1.9,
     filled = false,
 }: PinIconProps): ReactElement {
+    const colors = useColors()
+    const color = colorProp ?? colors.ink
     return (
         <StrokeIcon size={size} color={color} strokeWidth={strokeWidth}>
             {filled ? (

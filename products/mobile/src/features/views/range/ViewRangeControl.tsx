@@ -1,5 +1,5 @@
 import { type ReactElement, useState } from 'react'
-import { type AccessibilityActionEvent, StyleSheet, Text, View } from 'react-native'
+import { type AccessibilityActionEvent, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 
@@ -9,7 +9,8 @@ import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 import type { RangeSheetEntry } from '../analytics'
 import { projectToday, type StepContext, type StepDirection } from '../rangeStep'
 import type { ViewRange } from '../rangeStore'
@@ -56,6 +57,8 @@ export function ViewRangeControl({
     compare,
     zoneHint = null,
 }: ViewRangeControlProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const [open, setOpen] = useState(false)
     const [pressed, setPressed] = useState(false)
     const offset = useSharedValue(0)
@@ -177,6 +180,8 @@ function StepButton({
     enabled: boolean
     onPress: () => void
 }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const Icon = direction < 0 ? ChevronLeftIcon : ChevronRightIcon
     return (
         <Pressable44
@@ -193,7 +198,7 @@ function StepButton({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -207,7 +212,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -226,7 +231,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     buttonPressed: {
         backgroundColor: colors.pressed,
@@ -248,4 +253,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.secondary,
     },
-})
+}))

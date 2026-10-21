@@ -3,11 +3,11 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { track } from '@/lib/analytics'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, lineHeight, radii, space } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { lineHeight, radii, space } from '@/ui/tokens'
 
 import { isCompareSeries } from './chartSeries'
 import { LEGEND_ALL_VISIBLE, type LegendChange, type LegendState, soloSeries, toggleSeries } from './legendState'
-import { PREVIOUS_PERIOD_COLOR } from './palette'
 import { useChartSelectionScope } from './selection/ChartSelectionProvider'
 import type { ChartSeries } from './types'
 
@@ -43,6 +43,8 @@ export function ChartLegend({
     selectionId,
     testID,
 }: ChartLegendProps): ReactElement {
+    const { colors } = useTheme()
+    const styles = useStyles()
     const scope = useChartSelectionScope()
     const apply = useCallback(
         (change: LegendChange | null): void => {
@@ -116,10 +118,12 @@ export function ChartLegend({
 const DASH_SEGMENTS = [0, 1, 2]
 
 function Swatch({ series, visible }: { series: ChartSeries; visible: boolean }): ReactElement {
+    const { colors, previousPeriodColor } = useTheme()
+    const styles = useStyles()
     if (isCompareSeries(series)) {
         // iOS draws a dashed border only when all four sides share one width, so a top-only dashed border is blank.
         // Three short segments draw the same dashed line on every platform.
-        const color = visible ? PREVIOUS_PERIOD_COLOR : colors.border
+        const color = visible ? previousPeriodColor : colors.border
         return (
             <View style={styles.dash}>
                 {DASH_SEGMENTS.map((segment) => (
@@ -133,7 +137,7 @@ function Swatch({ series, visible }: { series: ChartSeries; visible: boolean }):
 
 const PILL_HEIGHT = 34
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     pills: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -148,7 +152,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         maxWidth: '100%',
     },
     pillHidden: {
@@ -159,7 +163,7 @@ const styles = StyleSheet.create({
         borderColor: colors.hairline,
         borderRadius: radii.card,
         overflow: 'hidden',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     row: {
         minHeight: 44,
@@ -202,4 +206,4 @@ const styles = StyleSheet.create({
         height: 2,
         borderRadius: 1,
     },
-})
+}))

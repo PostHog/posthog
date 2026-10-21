@@ -1,6 +1,6 @@
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Keyboard, StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
+import { Keyboard, Text, type TextInput, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
@@ -20,7 +20,8 @@ import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { Scrim } from '@/ui/Scrim'
-import { colors, iconSizes, motion, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, motion, radii, type } from '@/ui/tokens'
 import { usePresence } from '@/ui/usePresence'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 import { useSheetDrag } from '@/ui/useSheetDrag'
@@ -94,6 +95,8 @@ export function ChatSheet({
     source,
     onClosed,
 }: ChatSheetProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const now = useNow()
@@ -699,14 +702,14 @@ export function ChatSheet({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
     },
     sheet: {
         height: '94%',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderTopLeftRadius: radii.floating,
         borderTopRightRadius: radii.floating,
     },
@@ -738,7 +741,7 @@ const styles = StyleSheet.create({
         borderRadius: 22,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -755,4 +758,4 @@ const styles = StyleSheet.create({
     composerArea: {
         position: 'relative',
     },
-})
+}))

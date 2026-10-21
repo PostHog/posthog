@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { NumberDelta } from '@/model/views'
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
-import { colors, radii } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii } from '@/ui/tokens'
 
 import { deltaText } from './snapshotChart'
 
@@ -26,6 +27,8 @@ export function deltaSpoken(delta: NumberDelta, formatValue: (value: number) => 
  * The change next to a big number. It stays neutral gray: the app does not know whether up is good for this metric.
  */
 export function DeltaPill({ delta, formatValue, basis, testID }: DeltaPillProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const text = deltaText(delta, formatValue)
     const direction = delta.change > 0 ? 'up' : delta.change < 0 ? 'down' : null
     return (
@@ -45,7 +48,7 @@ export function DeltaPill({ delta, formatValue, basis, testID }: DeltaPillProps)
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     pill: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -65,4 +68,4 @@ const styles = StyleSheet.create({
         color: colors.muted,
         fontVariant: ['tabular-nums'],
     },
-})
+}))

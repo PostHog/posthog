@@ -1,8 +1,9 @@
 import { memo, type ReactElement } from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Image, Text, View } from 'react-native'
 
 import { DocumentIcon } from '@/ui/icons/DocumentIcon'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import type { SessionAttachment } from './session/types'
 
@@ -18,6 +19,8 @@ const THUMBNAIL_SIZE = 120
  * endpoint redirects to S3, which the app's bearer token must not follow, so it shows by name only.
  */
 export const UserBubble = memo(function UserBubble({ text, attachments = [] }: UserBubbleProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const thumbnails = attachments.filter((attachment) => attachment.isImage && attachment.localUri)
     const named = attachments.filter((attachment) => !(attachment.isImage && attachment.localUri))
     return (
@@ -61,7 +64,7 @@ export const UserBubble = memo(function UserBubble({ text, attachments = [] }: U
     )
 })
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     column: {
         alignSelf: 'flex-end',
         alignItems: 'flex-end',
@@ -106,4 +109,4 @@ const styles = StyleSheet.create({
         ...type.body,
         color: colors.ink,
     },
-})
+}))

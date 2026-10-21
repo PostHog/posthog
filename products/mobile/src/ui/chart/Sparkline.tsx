@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react'
-import { type DimensionValue, StyleSheet, View } from 'react-native'
+import { type DimensionValue, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
-import { colors } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
 
 const VIEW_WIDTH = 100
 const VIEW_HEIGHT = 32
@@ -11,7 +11,7 @@ const PLOT_TOP = 2
 const PLOT_BOTTOM = 30
 const AREA_OPACITY = 0.1
 const DOT_RING = 2
-// A 9pt dot inside a white ring, so it stays visible where it sits on the line.
+// A 9pt dot inside a ring of the card color, so it stays visible where it sits on the line.
 const DOT_SIZE = 9 + DOT_RING * 2
 
 interface SparklineProps {
@@ -86,12 +86,15 @@ function areaPath(points: (Scaled | null)[]): string {
 export function Sparkline({
     values,
     highlightFrom = 0,
-    color = colors.blue,
+    color: colorProp,
     width = 132,
     height = 40,
     showDot = true,
     testID,
 }: SparklineProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
+    const color = colorProp ?? colors.blue
     const points = scale(values)
     const from = Math.max(0, Math.min(highlightFrom, points.length - 1))
     // The gray part ends on the first highlighted bucket, so the two parts join without a gap.
@@ -144,7 +147,7 @@ export function Sparkline({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     dot: {
         position: 'absolute',
         width: DOT_SIZE,
@@ -153,6 +156,6 @@ const styles = StyleSheet.create({
         marginTop: -DOT_SIZE / 2,
         borderRadius: DOT_SIZE / 2,
         borderWidth: DOT_RING,
-        borderColor: colors.white,
+        borderColor: colors.surface,
     },
-})
+}))

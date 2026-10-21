@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { KeyboardStickyView } from 'react-native-keyboard-controller'
 
 import type { ActionBarState, ReportActions, ReportView } from '@/model/types'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, layout, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionPill } from './ActionPill'
@@ -45,6 +46,8 @@ export function ActionBar({
     onChat,
     onTaskChat,
 }: ActionBarProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const unstartedTaskId =
         useHandoffEntry(report.id)?.unstartedTaskId ??
@@ -148,7 +151,7 @@ export function ActionBar({
                         haptic="selection"
                         testID="action-chat"
                     >
-                        <ComposeIcon size={iconSizes.navigation} color={colors.white} />
+                        <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
                     </Pressable44>
                 </View>
             </View>
@@ -156,7 +159,7 @@ export function ActionBar({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     bar: {
         backgroundColor: colors.background,
         paddingTop: 10,
@@ -170,7 +173,7 @@ const styles = StyleSheet.create({
         borderColor: colors.hairline,
         borderRadius: radii.card,
         overflow: 'hidden',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     notice: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 4 },
     pillRow: {
@@ -187,4 +190,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

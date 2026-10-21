@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { Linking, StyleSheet, Text, View } from 'react-native'
+import { Linking, Text, View } from 'react-native'
 
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
@@ -9,7 +9,8 @@ import type { PullRequestView } from '@/model/types'
 import { Dot } from '@/ui/Dot'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { useSheetFunnel } from '../report/reportAnalytics'
 import { PullRequestPickerSheet } from './PullRequestPickerSheet'
@@ -29,6 +30,8 @@ export function PullRequestCard({
     onTaskChat,
     reportId,
 }: PullRequestCardProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     const [selectedUrl, setSelectedUrl] = useState<string>()
     const [pickerOpen, setPickerOpen] = useState(false)
     const sheets = useSheetFunnel(reportId)
@@ -171,10 +174,10 @@ export function PullRequestCard({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.hairline,
         overflow: 'hidden',
@@ -210,6 +213,7 @@ const styles = StyleSheet.create({
     },
     viewPr: { backgroundColor: colors.blue },
     viewTask: { backgroundColor: colors.background },
-    viewPrText: { ...type.buttonSmall, color: colors.white },
+    // `onInk` reads on the blue fill in both schemes; white would be faint on the lighter dark-scheme blue.
+    viewPrText: { ...type.buttonSmall, color: colors.onInk },
     viewTaskText: { ...type.metaSmall, fontWeight: '600', color: colors.ink, textAlign: 'center' },
-})
+}))

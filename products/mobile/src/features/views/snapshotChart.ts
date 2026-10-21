@@ -111,9 +111,10 @@ function chartPoints(series: InsightSeriesView, length: number): ChartPoint[] {
 
 /**
  * The chart's series: every current series in the web's palette order, and each previous-period series paired with
- * its current one. Every series gets the length of the first current series, which the chart requires.
+ * its current one. Every series gets the length of the first current series, which the chart requires. `palette` is the
+ * theme's `chartPalette`.
  */
-export function snapshotChartSeries(snapshot: InsightSnapshot): ChartSeries[] {
+export function snapshotChartSeries(snapshot: InsightSnapshot, palette: readonly string[]): ChartSeries[] {
     const current = snapshot.allSeries.filter((series) => series.compare !== 'previous')
     const previous = snapshot.allSeries.filter((series) => series.compare === 'previous')
     const length = current[0]?.points.length ?? 0
@@ -125,7 +126,7 @@ export function snapshotChartSeries(snapshot: InsightSnapshot): ChartSeries[] {
     const result: ChartSeries[] = current.map((series, index) => ({
         key: series.key,
         label: seriesLabel(series),
-        color: seriesColor(index),
+        color: seriesColor(index, palette),
         points: chartPoints(series, length),
         ...(incompleteFrom !== undefined && incompleteFrom >= 0 ? { incompleteFrom } : {}),
     }))
@@ -141,7 +142,7 @@ export function snapshotChartSeries(snapshot: InsightSnapshot): ChartSeries[] {
         result.push({
             key: series.key,
             label: current.length === 1 ? 'Previous period' : `${seriesLabel(partner)}, previous period`,
-            color: seriesColor(current.indexOf(partner)),
+            color: seriesColor(current.indexOf(partner), palette),
             points: chartPoints(series, length),
             compareOf: partner.key,
         })

@@ -1,10 +1,11 @@
 import { memo, type ReactElement, type ReactNode, useMemo, useRef } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 import { ChatErrorBubble } from '../ChatErrorBubble'
 import { ChatMarkdown } from '../ChatMarkdown'
@@ -22,6 +23,7 @@ interface SessionThreadProps {
 }
 
 const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssistantItem }): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.assistant} testID="session-assistant">
             <ChatMarkdown text={item.text} streaming={!item.complete} />
@@ -34,6 +36,7 @@ const ErrorRow = memo(function ErrorRow({ item }: { item: SessionErrorItem }): R
 })
 
 const TurnEndRow = memo(function TurnEndRow(): ReactElement {
+    const styles = useStyles()
     return <View style={styles.turnEnd} />
 })
 
@@ -49,6 +52,8 @@ function statusLine(session: Session): string | null {
 }
 
 export function SessionThread({ session, onRetryHistory }: SessionThreadProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const scroll = useRef<ScrollView>(null)
     const positioned = useRef(false)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
@@ -125,7 +130,7 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     scroll: {
         flex: 1,
     },
@@ -147,4 +152,4 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         paddingVertical: 8,
     },
-})
+}))

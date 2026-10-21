@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { RichText } from './RichText'
-import { colors, fonts, lineHeight, type } from './tokens'
+import { createStyles } from './theme'
+import { fonts, lineHeight, type } from './tokens'
 
 interface TimelineItemProps {
     text: string
@@ -12,6 +13,7 @@ interface TimelineItemProps {
 }
 
 export function TimelineItem({ text, time, via, isLast }: TimelineItemProps): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.row}>
             <View style={styles.rail}>
@@ -35,7 +37,7 @@ export function TimelineItem({ text, time, via, isLast }: TimelineItemProps): Re
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
         columnGap: 14,
@@ -99,4 +101,4 @@ const styles = StyleSheet.create({
         ...type.meta,
         color: colors.tertiary,
     },
-})
+}))

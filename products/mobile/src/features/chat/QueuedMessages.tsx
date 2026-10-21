@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import type { QueuedMessage } from './messageQueue'
 
@@ -24,6 +25,8 @@ export function QueuedMessages({
     sendNowDisabledReason,
     sendNowPending,
 }: QueuedMessagesProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     if (rows.length === 0) {
         return null
     }
@@ -82,7 +85,7 @@ export function QueuedMessages({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     banner: {
         marginHorizontal: 10,
         marginBottom: 8,
@@ -110,7 +113,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     sendNowHeld: {
         borderColor: colors.border,
@@ -164,4 +167,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

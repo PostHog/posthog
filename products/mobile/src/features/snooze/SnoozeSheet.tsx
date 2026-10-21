@@ -1,12 +1,13 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { actionErrorMessage } from '@/lib/errors'
 import type { SnoozeChoice } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { ClockIcon } from '@/ui/icons/ClockIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { CustomSnoozePicker } from './CustomSnoozePicker'
 import { formatSnoozeWhen, SNOOZE_SIGNAL_COUNT, snoozeUntil, type TimePreset } from './snoozeTimes'
@@ -36,6 +37,8 @@ interface RowProps {
 }
 
 function SnoozeRow({ label, sub, when, onPress, disabled, testID }: RowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -55,6 +58,7 @@ function SnoozeRow({ label, sub, when, onPress, disabled, testID }: RowProps): R
 }
 
 export function SnoozeSheet({ visible, onClose, onSnooze, pending }: SnoozeSheetProps): ReactElement {
+    const styles = useStyles()
     const [custom, setCustom] = useState(false)
     const [now, setNow] = useState(() => new Date())
     const [error, setError] = useState<string | undefined>(undefined)
@@ -132,7 +136,7 @@ export function SnoozeSheet({ visible, onClose, onSnooze, pending }: SnoozeSheet
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     title: {
         ...type.sheetTitle,
         color: colors.ink,
@@ -173,4 +177,4 @@ const styles = StyleSheet.create({
         lineHeight: 21,
         color: colors.tertiary,
     },
-})
+}))

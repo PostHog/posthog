@@ -1,10 +1,11 @@
 import { type ReactElement, useState } from 'react'
-import { StyleSheet, TextInput, View } from 'react-native'
+import { TextInput, View } from 'react-native'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { inputReset, radii } from '@/ui/tokens'
 
 interface SearchFieldProps {
     value: string
@@ -14,6 +15,8 @@ interface SearchFieldProps {
 }
 
 export function SearchField({ value, onChangeText, placeholder, testID }: SearchFieldProps): ReactElement {
+    const { colors, scheme } = useTheme()
+    const styles = useStyles()
     const [focused, setFocused] = useState(false)
     return (
         <View style={[styles.ring, focused && styles.ringFocused]}>
@@ -26,6 +29,7 @@ export function SearchField({ value, onChangeText, placeholder, testID }: Search
                     onBlur={() => setFocused(false)}
                     placeholder={placeholder}
                     placeholderTextColor={colors.tertiary}
+                    keyboardAppearance={scheme}
                     style={styles.input}
                     returnKeyType="search"
                     autoCorrect={false}
@@ -52,7 +56,7 @@ export function SearchField({ value, onChangeText, placeholder, testID }: Search
 
 const RING = 3
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     // The focus ring draws outside the field, so focusing it moves nothing.
     ring: {
         margin: -RING,
@@ -75,7 +79,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     input: {
         ...inputReset,
@@ -96,4 +100,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

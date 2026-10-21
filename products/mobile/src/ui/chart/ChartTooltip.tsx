@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
+import { type LayoutChangeEvent, Pressable, Text, View } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
-import { colors, lineHeight, shadows, space } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { lineHeight, space } from '@/ui/tokens'
 
 import type { TooltipContent } from './chartSeries'
 
@@ -37,6 +38,8 @@ export function ChartTooltip({
     onLayout,
     testID,
 }: ChartTooltipProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const body = (
         <>
             <Text style={styles.header} numberOfLines={1}>
@@ -88,7 +91,8 @@ export function ChartTooltip({
     )
 }
 
-const styles = StyleSheet.create({
+// An ink card in both schemes, so it stands out from the chart.
+const useStyles = createStyles(({ colors, shadows }) => ({
     card: {
         position: 'absolute',
         minWidth: 112,
@@ -138,7 +142,7 @@ const styles = StyleSheet.create({
         lineHeight: lineHeight(14, 1.35),
         fontWeight: '700',
         fontVariant: ['tabular-nums'],
-        color: colors.white,
+        color: colors.onInk,
     },
     detail: {
         fontSize: 12,
@@ -159,4 +163,4 @@ const styles = StyleSheet.create({
         bottom: 0,
         justifyContent: 'center',
     },
-})
+}))

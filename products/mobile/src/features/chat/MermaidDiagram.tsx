@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Platform, ScrollView, View } from 'react-native'
 import WebView from 'react-native-webview'
 import { track } from '@/lib/analytics'
 import {
@@ -10,7 +10,7 @@ import {
     parseMermaidMessage,
     rememberSize,
 } from '@/lib/mermaid'
-import { colors } from '@/ui/tokens'
+import { createStyles, useColorSchemeName, useColors } from '@/ui/theme'
 
 const PADDING = 12
 const PENDING_HEIGHT = 120
@@ -46,7 +46,7 @@ interface MermaidDiagramProps {
 
 // Keyed by theme and code, so a new diagram starts without the old failure or size.
 export function MermaidDiagram(props: MermaidDiagramProps): ReactNode {
-    const dark = useColorScheme() === 'dark'
+    const dark = useColorSchemeName() === 'dark'
     const key = `${dark ? 'dark' : 'light'}\n${props.code}`
     if (Platform.OS === 'web' || hasRemoteImageNode(props.code)) return props.fallback
     return <DiagramView key={key} cacheKey={key} dark={dark} {...props} />
@@ -58,6 +58,8 @@ interface DiagramViewProps extends MermaidDiagramProps {
 }
 
 function DiagramView({ code, fallback, cacheKey, dark }: DiagramViewProps): ReactNode {
+    const colors = useColors()
+    const styles = useStyles()
     const html = useMemo(() => mermaidHtml(code, dark, mermaidBundle()), [code, dark])
     const [width, setWidth] = useState(0)
     const [size, setSize] = useState(() => sizes.get(cacheKey) ?? null)
@@ -128,7 +130,7 @@ function DiagramView({ code, fallback, cacheKey, dark }: DiagramViewProps): Reac
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     frame: {
         backgroundColor: colors.background,
         borderRadius: 12,
@@ -149,4 +151,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

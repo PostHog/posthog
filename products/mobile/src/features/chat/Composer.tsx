@@ -1,11 +1,12 @@
 import { forwardRef, type ReactElement, type ReactNode } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { Text, TextInput, View } from 'react-native'
 
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { PaperclipIcon } from '@/ui/icons/PaperclipIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, inputReset, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments/attachmentRules'
 
@@ -51,6 +52,8 @@ function OptionChip({
     shrinks,
     testID,
 }: OptionChipProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -100,6 +103,8 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
     },
     ref
 ): ReactElement {
+    const { colors, shadows, scheme } = useTheme()
+    const styles = useStyles()
     const typed = text.trim().length > 0
     return (
         <View style={[styles.card, shadows.popover]}>
@@ -110,6 +115,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 onChangeText={onChangeText}
                 placeholder="Ask anything…"
                 placeholderTextColor={colors.tertiary}
+                keyboardAppearance={scheme}
                 style={styles.input}
                 autoFocus
                 multiline={false}
@@ -190,7 +196,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                         style={[styles.send, canSend ? styles.sendReady : styles.sendIdle]}
                         testID="chat-send"
                     >
-                        <ArrowUpIcon size={iconSizes.control} color={colors.white} />
+                        <ArrowUpIcon size={iconSizes.control} color={canSend ? colors.onInk : colors.onDisabled} />
                     </Pressable44>
                 ) : null}
             </View>
@@ -198,14 +204,14 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
     )
 })
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         marginHorizontal: 10,
         marginBottom: 10,
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.softCard,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         paddingTop: 12,
         paddingHorizontal: 12,
         paddingBottom: 10,
@@ -293,7 +299,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.ink,
     },
     sendIdle: {
-        backgroundColor: colors.border,
+        backgroundColor: colors.disabledFill,
     },
     stopSecondary: {
         borderWidth: 1,
@@ -304,9 +310,9 @@ const styles = StyleSheet.create({
         width: 12,
         height: 12,
         borderRadius: 2,
-        backgroundColor: colors.white,
+        backgroundColor: colors.onInk,
     },
     stopSquareSecondary: {
         backgroundColor: colors.ink,
     },
-})
+}))

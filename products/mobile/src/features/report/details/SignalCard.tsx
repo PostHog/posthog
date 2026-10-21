@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { formatActivityTime } from '@/lib/dates'
 import { sourceInfo } from '@/model/sources'
 import type { ReportSignalView } from '@/model/types'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { TextLinkRow } from '../TextLinkRow'
 import { openDetailsLink } from './openDetailsLink'
@@ -17,6 +18,8 @@ interface SignalCardProps {
 }
 
 export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const { Icon } = sourceInfo(signal.sourceProduct)
     const meta = [
         signal.sourceLabel,
@@ -49,12 +52,12 @@ export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactEle
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         paddingTop: 12,
         paddingHorizontal: 14,
         // Every markdown block ends with a 10pt margin, so the card's bottom padding makes up the rest of 14pt.
@@ -75,4 +78,4 @@ const styles = StyleSheet.create({
         marginTop: -4,
         marginBottom: 4,
     },
-})
+}))

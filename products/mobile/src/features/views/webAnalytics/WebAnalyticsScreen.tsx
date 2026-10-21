@@ -1,10 +1,11 @@
 import { type ReactElement, useState } from 'react'
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import { formatMetricValue } from '@/model/adapters/metric'
 import type { NumberDelta, ViewEntry, WebOverviewMetric } from '@/model/views'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { DeltaPill } from '../DeltaPill'
@@ -44,6 +45,8 @@ export function WebAnalyticsScreen({ from }: { from: ViewEntry }): ReactElement 
 }
 
 function WebAnalyticsBody({ screen, onBack }: { screen: WebAnalyticsScreenState; onBack: () => void }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const motion = useChartListMotion()
     const { refresh } = screen
@@ -98,6 +101,8 @@ function WebAnalyticsBody({ screen, onBack }: { screen: WebAnalyticsScreenState;
                     refreshing={refresh.pulling}
                     onRefresh={refresh.onPull}
                     tintColor={colors.tertiary}
+                    progressBackgroundColor={colors.surface}
+                    colors={[colors.tertiary]}
                     progressViewOffset={contentTop}
                 />
             }
@@ -151,6 +156,7 @@ function changeDelta(metric: WebOverviewMetric): NumberDelta | null {
 }
 
 function MetricCard({ metric }: { metric: WebOverviewMetric }): ReactElement {
+    const styles = useStyles()
     const formatValue = (value: number): string =>
         formatMetricValue(value, metric.format.valueFormat, metric.format.unit)
     const delta = changeDelta(metric)
@@ -167,7 +173,7 @@ function MetricCard({ metric }: { metric: WebOverviewMetric }): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.inboxGutter,
     },
@@ -195,7 +201,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'flex-start',
     },
     cardTitle: {
@@ -222,4 +228,4 @@ const styles = StyleSheet.create({
         marginTop: 14,
         paddingHorizontal: 2,
     },
-})
+}))

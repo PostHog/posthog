@@ -13,7 +13,8 @@ import {
 import { groupThousands, plural } from '@/model/adapters/text'
 import type { SqlColumnView, SqlTableView } from '@/model/views'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, lineHeight, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { lineHeight, radii, type } from '@/ui/tokens'
 
 import { useItemChartAccessibility } from './accessibility/useChartAccessibility'
 import { useItemSelection } from './selection/useItemSelection'
@@ -62,7 +63,12 @@ interface ColumnStyle {
     head: StyleProp<TextStyle>
 }
 
-function columnStyles(part: readonly SqlColumnView[], fixed: boolean, growText: boolean): ColumnStyle[] {
+function columnStyles(
+    part: readonly SqlColumnView[],
+    fixed: boolean,
+    growText: boolean,
+    styles: SqlTableStyles
+): ColumnStyle[] {
     return part.map((column) => {
         const right = alignRight(column)
         const box: ViewStyle = fixed
@@ -97,6 +103,7 @@ const SqlRow = memo(function SqlRow({
     onToggle,
     testID,
 }: SqlRowProps): ReactElement {
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={() => onToggle(index)}
@@ -134,6 +141,8 @@ export function SqlTable({
     accessibilityActions,
     testID,
 }: SqlTableProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { columns, rows, hasMore } = table
     const limit = Math.min(rows.length, maxRows ?? SQL_TABLE_MAX_ROWS)
     const more = rows.length - limit
@@ -151,10 +160,10 @@ export function SqlTable({
     const layout = useMemo(() => {
         const growText = columns.some((column) => !alignRight(column))
         return {
-            pinned: columnStyles(columns.slice(0, 1), true, growText),
-            scrolling: columnStyles(pinned ? columns.slice(1) : columns, pinned, growText),
+            pinned: columnStyles(columns.slice(0, 1), true, growText, styles),
+            scrolling: columnStyles(pinned ? columns.slice(1) : columns, pinned, growText, styles),
         }
-    }, [columns, pinned])
+    }, [columns, pinned, styles])
     // Each row's cells split once per layout, so the memoized rows get the same arrays on every render.
     const parts = useMemo(
         () => shown.map((row) => (pinned ? { pinned: row.slice(0, 1), scrolling: row.slice(1) } : { scrolling: row })),
@@ -289,7 +298,9 @@ export function SqlTable({
     )
 }
 
-const styles = StyleSheet.create({
+type SqlTableStyles = ReturnType<typeof useStyles>
+
+const useStyles = createStyles(({ colors }) => ({
     grid: {
         flexDirection: 'row',
     },
@@ -367,4 +378,4 @@ const styles = StyleSheet.create({
         color: colors.muted,
         paddingVertical: 8,
     },
-})
+}))

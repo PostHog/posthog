@@ -1,67 +1,13 @@
-import { Platform, type TextStyle, type ViewStyle } from 'react-native'
+import { Platform, type TextStyle } from 'react-native'
 
-import type { Accent } from '@/model/types'
+import { lightColors } from './theme'
 
-export const colors = {
-    ink: '#1F1F1C',
-    inkHover: '#2B2B29',
-    muted: '#55554F',
-    secondary: '#6B6B65',
-    tertiary: '#8A8A84',
-    disabled: '#B0B0AA',
-    dotSeparator: '#A3A39D',
-    border: '#D6D6D1',
-    hairline: '#E4E4E0',
-    rowDivider: '#E6E6E1',
-    sunken: '#F0F0ED',
-    pressed: '#ECECE9',
-    segmentEmpty: '#DADAD5',
-    background: '#F6F6F3',
-    white: '#FFFFFF',
-    page: '#E4E4E0',
-    orange: '#F54E00',
-    orangeLight: '#F7A07A',
-    blue: '#1D4AFF',
-    blueLight: '#7C9BFF',
-    blueHover: '#1639C9',
-    blueHighlight: 'rgba(29,74,255,0.10)',
-    yellow: '#F9BD2B',
-    diffGreen: '#1A7F37',
-    diffRed: '#CF222E',
-    purple: '#8250DF',
-    diffGreenBorder: 'rgba(26,127,55,0.4)',
-    purpleBorder: 'rgba(130,80,223,0.4)',
-    darkDivider: '#3A3A3A',
-    scrimLight: 'rgba(246,246,243,0.72)',
-    scrimDark: 'rgba(31,31,28,0.38)',
-    scrimChat: 'rgba(31,31,28,0.45)',
-    onAccentTile: 'rgba(255,255,255,0.22)',
-    onAccentDivider: 'rgba(255,255,255,0.35)',
-    pressOverlay: 'rgba(0,0,0,0.12)',
-    footerHairline: 'rgba(31,31,28,0.06)',
-} as const
-
-export type ColorToken = keyof typeof colors
-
-export const swipeColors = {
-    read: colors.blue,
-    unread: colors.ink,
-    onAction: colors.white,
-} as const
-
-// The app icons for internal builds use the same band colors (scripts/make_variant_icons.py).
+// Brand bands, the same in both schemes. The app icons for internal builds use the same colors
+// (scripts/make_variant_icons.py).
 export const environmentRibbonColors = {
-    development: { background: colors.yellow, text: colors.ink },
-    preview: { background: '#7A4DD6', text: colors.white },
+    development: { background: lightColors.yellow, text: lightColors.ink },
+    preview: { background: '#7A4DD6', text: lightColors.white },
 } as const
-
-export const avatarPalette = ['#1D4AFF', '#F54E00', '#2F8F5B', '#7A4DD6', '#C2410C', '#0E7490', '#1F1F1C'] as const
-
-export const accentColor: Record<Accent, string> = {
-    alert: colors.orange,
-    opportunity: colors.blue,
-    resolved: colors.ink,
-}
 
 const BASE_LINE_HEIGHT = 1.4
 
@@ -170,37 +116,6 @@ export const layout = {
     minBottomPadding: 16,
     /** Opacity of the background tint over the blur behind floating chrome, so the blurred content shows through. */
     chromeTint: 0.72,
-} as const
-
-type Shadow = Pick<
-    ViewStyle,
-    'shadowColor' | 'shadowOffset' | 'shadowOpacity' | 'shadowRadius' | 'elevation' | 'boxShadow'
->
-
-// CSS blur is roughly twice an iOS shadow radius, so the radius is half the handoff's blur. The web build gets the
-// exact CSS value because react-native-web halves the look of shadowRadius.
-function shadow(y: number, blur: number, opacity: number, elevation: number): Shadow {
-    if (Platform.OS === 'web') {
-        return { boxShadow: `0px ${y}px ${blur}px rgba(31,31,28,${opacity})` }
-    }
-    return {
-        shadowColor: colors.ink,
-        shadowOffset: { width: 0, height: y },
-        shadowOpacity: opacity,
-        shadowRadius: blur / 2,
-        elevation,
-    }
-}
-
-export const shadows = {
-    floatingBar: shadow(8, 24, 0.1, 6),
-    fab: shadow(8, 24, 0.18, 8),
-    actionPill: shadow(6, 24, 0.1, 6),
-    card: shadow(10, 32, 0.14, 10),
-    floatingSheet: shadow(18, 60, 0.18, 16),
-    bottomSheet: shadow(-12, 40, 0.18, 16),
-    chip: shadow(2, 10, 0.08, 2),
-    popover: shadow(8, 28, 0.12, 8),
 } as const
 
 // Text fields draw their own container, so the web build removes the browser focus ring. Only `outline-style: none`

@@ -1,8 +1,9 @@
 import type { ReactElement, ReactNode } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { Pressable44 } from './Pressable44'
-import { colors, radii, type } from './tokens'
+import { createStyles, useColors } from './theme'
+import { radii, type } from './tokens'
 
 interface StateViewProps {
     title: string
@@ -14,6 +15,8 @@ interface StateViewProps {
 }
 
 export function StateView({ title, message, icon, actionLabel, onAction, testID }: StateViewProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.container} testID={testID}>
             {icon}
@@ -29,6 +32,8 @@ export function StateView({ title, message, icon, actionLabel, onAction, testID 
 }
 
 export function LoadingView({ label = 'Loading' }: { label?: string }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.container} accessibilityLabel={label} accessibilityRole="progressbar">
             <ActivityIndicator color={colors.ink} />
@@ -36,7 +41,7 @@ export function LoadingView({ label = 'Loading' }: { label?: string }): ReactEle
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     container: {
         flex: 1,
         alignItems: 'center',
@@ -67,6 +72,6 @@ const styles = StyleSheet.create({
     },
     actionText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

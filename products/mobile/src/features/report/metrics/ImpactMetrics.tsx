@@ -1,12 +1,13 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { MISSING_VALUE } from '@/features/metrics/metricValue'
 import { useMetricValue } from '@/features/metrics/useMetricValue'
 import type { MetricView } from '@/model/types'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, fonts, lineHeight, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { fonts, lineHeight, radii, type } from '@/ui/tokens'
 
 import { insightUrl, openInsight } from './openInsight'
 
@@ -24,6 +25,7 @@ function pairs<T>(items: readonly T[]): [T, T | undefined][] {
 }
 
 export function ImpactMetrics({ metrics, reportId }: ImpactMetricsProps): ReactElement | null {
+    const styles = useStyles()
     if (metrics.length === 0) {
         return null
     }
@@ -48,6 +50,8 @@ export function ImpactMetrics({ metrics, reportId }: ImpactMetricsProps): ReactE
 }
 
 function MetricTile({ metric, reportId }: { metric: MetricView; reportId: string }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const value = useMetricValue(metric)
     const openUrl = insightUrl(metric.openUrl)
     const footer = value.kind === 'saved' && value.measured ? value.measured : metric.windowLabel
@@ -103,7 +107,7 @@ function MetricTile({ metric, reportId }: { metric: MetricView; reportId: string
 
 const VALUE_SIZE = 20
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     section: {
         marginTop: 24,
     },
@@ -126,7 +130,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     pressed: {
         borderColor: colors.disabled,
@@ -157,4 +161,4 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
         marginTop: 6,
     },
-})
+}))

@@ -1,11 +1,12 @@
 import { type ReactElement, useEffect } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { InboxItem, ReportView } from '@/model/types'
 import { Dot } from '@/ui/Dot'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { accentColor, colors, iconSizes, radii } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, radii } from '@/ui/tokens'
 
 import { useReport } from '../report/hooks'
 
@@ -18,6 +19,8 @@ interface ContextChipProps {
 
 /** An attached report in the composer. Each chip loads its own report, so any number can be attached. */
 export function ContextChip({ reportId, item, onReport, onRemove }: ContextChipProps): ReactElement {
+    const { colors, accentColor } = useTheme()
+    const styles = useStyles()
     const report = useReport(reportId)
     const data = report.data
 
@@ -48,7 +51,7 @@ export function ContextChip({ reportId, item, onReport, onRemove }: ContextChipP
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     chip: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -74,4 +77,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

@@ -1,10 +1,11 @@
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import { type ReactElement, useState } from 'react'
-import { Platform, StyleSheet, Text, View } from 'react-native'
+import { Platform, Text, View } from 'react-native'
 
 import { formatClock, formatMonthDay } from '@/lib/dates'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 export interface CustomSnoozePickerProps {
     initial: Date
@@ -14,6 +15,8 @@ export interface CustomSnoozePickerProps {
 
 /** Native date and time picker for "Custom…". iOS shows wheels inline; Android opens its dialogs. */
 export function CustomSnoozePicker({ initial, onConfirm, onCancel }: CustomSnoozePickerProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const [value, setValue] = useState(initial)
     const now = new Date()
 
@@ -77,7 +80,7 @@ export function CustomSnoozePicker({ initial, onConfirm, onCancel }: CustomSnooz
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     container: {
         marginTop: 8,
         gap: 12,
@@ -116,6 +119,6 @@ const styles = StyleSheet.create({
     },
     primaryText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

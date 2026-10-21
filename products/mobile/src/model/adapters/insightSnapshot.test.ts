@@ -7,6 +7,7 @@ import {
     snapshotChartSeries,
     snapshotFormatter,
 } from '@/features/views/snapshotChart'
+import { themes } from '@/ui/theme'
 
 import { insightSnapshot, numberParts, usesOwnRange } from './insightSnapshot'
 
@@ -259,7 +260,7 @@ describe('insightSnapshot', () => {
             },
         ]
         const snapshot = insightSnapshot(insight({ result }), undefined, CONTEXT)
-        const chart = snapshotChartSeries(snapshot)
+        const chart = snapshotChartSeries(snapshot, themes.light.chartPalette)
 
         expect(snapshot.allSeries).toHaveLength(4)
         expect(new Set(snapshot.allSeries.map((series) => series.key)).size).toBe(4)

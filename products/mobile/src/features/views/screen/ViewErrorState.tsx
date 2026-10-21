@@ -1,11 +1,12 @@
 import { type ReactElement, useEffect, useState } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { toError } from '@/lib/errors'
 import { shortcutMatchKey } from '@/model/adapters/viewPins'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { StateView } from '@/ui/StateView'
-import { colors, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { type } from '@/ui/tokens'
 
 import { trackViewsErrorShown } from '../analytics'
 import type { PinMatch } from '../PinButton'
@@ -54,6 +55,8 @@ function copyFor(kind: ItemErrorKind, noun: string, pinned: boolean): ErrorCopy 
 
 /** A view with no data to show: deleted (404), no access (403), or a failed first read. */
 export function ViewErrorState({ kind, noun, match, onRetry, onBack }: ViewErrorStateProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { pins } = usePins()
     const actions = usePinActions()
     const [unpinError, setUnpinError] = useState<string | null>(null)
@@ -104,7 +107,7 @@ export function ViewErrorState({ kind, noun, match, onRetry, onBack }: ViewError
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     error: {
         ...type.metaSmall,
         color: colors.orange,
@@ -112,4 +115,4 @@ const styles = StyleSheet.create({
         paddingHorizontal: 28,
         paddingBottom: 24,
     },
-})
+}))

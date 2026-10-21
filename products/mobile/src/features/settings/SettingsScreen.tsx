@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useMemo } from 'react'
-import { Platform, StyleSheet, Switch, Text, View } from 'react-native'
+import { Platform, Switch, Text, View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useReducedMotion, useSharedValue } from 'react-native-reanimated'
 
 import { useAuthStore } from '@/auth/authStore'
@@ -9,7 +9,8 @@ import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
-import { colors, layout, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { readAppVersion } from './appInfo'
@@ -25,10 +26,12 @@ import { SettingsGroup } from './SettingsGroup'
 import { SettingsRow } from './SettingsRow'
 import { SignOutSection } from './SignOutSection'
 
-/** react-native-web colors the "on" thumb from its own prop and ignores `thumbColor`. */
-const WEB_SWITCH_PROPS = Platform.OS === 'web' ? { activeThumbColor: colors.white } : {}
-
 export function SettingsScreen(): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
+    // react-native-web colors the "on" thumb from its own prop and ignores `thumbColor`. The thumb stays white in both
+    // states and both schemes, like the native switch.
+    const webSwitchProps = Platform.OS === 'web' ? { activeThumbColor: colors.white } : {}
     const router = useRouter()
     const insets = useScreenInsets()
     const viewer = useViewer()
@@ -96,10 +99,10 @@ export function SettingsScreen(): ReactElement {
                             label="Demo mode"
                             accessory={
                                 <Switch
-                                    {...WEB_SWITCH_PROPS}
+                                    {...webSwitchProps}
                                     value={demo}
                                     onValueChange={toggleDemo}
-                                    trackColor={{ true: colors.ink, false: colors.border }}
+                                    trackColor={{ true: colors.switchOn, false: colors.switchOff }}
                                     thumbColor={colors.white}
                                     accessibilityLabel="Demo mode"
                                     testID="settings-demo-toggle"
@@ -125,7 +128,7 @@ export function SettingsScreen(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -150,4 +153,4 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
         marginTop: 12,
     },
-})
+}))

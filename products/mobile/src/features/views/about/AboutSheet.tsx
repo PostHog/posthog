@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Linking, ScrollView, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
@@ -7,7 +7,8 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { RefreshIcon } from '@/ui/icons/RefreshIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, fonts, radii, type } from '@/ui/tokens'
+import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { fonts, radii, type } from '@/ui/tokens'
 
 import { trackViewOpenedInWeb } from '../analytics'
 import { forceAllowedAt, HINT_MS, refreshHintText } from '../freshness'
@@ -26,6 +27,7 @@ interface AboutSheetProps {
 
 /** "About this chart": what it counts, for which range, and how fresh it is. */
 export function AboutSheet({ source, onClose }: AboutSheetProps): ReactElement {
+    const colors = useColors()
     // The last source stays rendered while the sheet slides out.
     const shown = useRef<ChartSheetSource | null>(source)
     if (source) {
@@ -56,6 +58,8 @@ function AboutBody({
     listGesture: ReturnType<typeof Gesture.Native>
     onClose: () => void
 }): ReactElement | null {
+    const { colors, chartPalette } = useTheme()
+    const styles = useStyles()
     const snapshot = useLiveSnapshot(source)
     const now = useNow(30_000)
     const { height } = useWindowDimensions()
@@ -73,7 +77,7 @@ function AboutBody({
     if (!snapshot) {
         return null
     }
-    const content = aboutContent(snapshot, now.getTime())
+    const content = aboutContent(snapshot, now.getTime(), chartPalette)
     const webUrl = viewWebUrl(scope, `/insights/${snapshot.shortId}`)
     const { itemKey, refreshItem } = source
 
@@ -186,6 +190,7 @@ function AboutBody({
 }
 
 function Measures({ content }: { content: AboutContent }): ReactElement {
+    const styles = useStyles()
     return (
         <Section title="What it measures">
             {content.series.map((series) => (
@@ -216,6 +221,7 @@ function Measures({ content }: { content: AboutContent }): ReactElement {
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.section}>
             <Text style={styles.sectionTitle} accessibilityRole="header">
@@ -227,6 +233,7 @@ function Section({ title, children }: { title: string; children: ReactNode }): R
 }
 
 function KeyValues({ rows }: { rows: AboutRow[] }): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.rows}>
             {rows.map((row) => (
@@ -264,6 +271,8 @@ function ChipButton({
     disabled?: boolean
     testID?: string
 }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -278,7 +287,7 @@ function ChipButton({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     body: {
         gap: 14,
         paddingBottom: 8,
@@ -289,7 +298,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     sectionTitle: {
         ...type.eyebrow,
@@ -386,7 +395,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     chipLabel: {
         fontSize: 14,
@@ -402,4 +411,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.muted,
     },
-})
+}))

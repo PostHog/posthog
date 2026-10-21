@@ -1,11 +1,12 @@
 import { type ReactElement, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import {
     addMonths,
@@ -30,6 +31,8 @@ interface RangeCalendarProps {
 }
 
 export function RangeCalendar({ initial, today, onApply }: RangeCalendarProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const [pick, setPick] = useState<CalendarPick>(initial)
     const [month, setMonth] = useState(() => monthOf(initial.end ?? today))
     const lastMonth = monthOf(today)
@@ -121,7 +124,7 @@ export function RangeCalendar({ initial, today, onApply }: RangeCalendarProps): 
                 pressedBackground={colors.inkHover}
                 testID="range-apply"
             >
-                <Text style={styles.applyText}>Apply</Text>
+                <Text style={[styles.applyText, !ready && styles.applyTextDisabled]}>Apply</Text>
             </Pressable44>
         </View>
     )
@@ -149,6 +152,7 @@ function DateField({
     active: boolean
     placeholder?: string
 }): ReactElement {
+    const styles = useStyles()
     return (
         <View
             style={[styles.field, active && styles.fieldActive]}
@@ -172,6 +176,8 @@ function MonthButton({
     enabled: boolean
     onPress: () => void
 }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const Icon = direction < 0 ? ChevronLeftIcon : ChevronRightIcon
     return (
         <Pressable44
@@ -196,6 +202,7 @@ interface DayCellProps {
 }
 
 function DayCell({ day, pick, today, onPress }: DayCellProps): ReactElement {
+    const styles = useStyles()
     const { start, end } = pick
     const isStart = day === start
     const isEnd = day === end
@@ -233,7 +240,7 @@ function DayCell({ day, pick, today, onPress }: DayCellProps): ReactElement {
 const CELL_HEIGHT = 42
 const CIRCLE = 38
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     body: {
         gap: 14,
     },
@@ -254,7 +261,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     fieldActive: {
         borderColor: colors.ink,
@@ -283,7 +290,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     nav: {
         flexDirection: 'row',
@@ -302,7 +309,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -370,7 +377,7 @@ const styles = StyleSheet.create({
         color: colors.disabled,
     },
     daySelected: {
-        color: colors.white,
+        color: colors.onInk,
         fontWeight: '700',
     },
     apply: {
@@ -381,10 +388,13 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     applyDisabled: {
-        backgroundColor: colors.border,
+        backgroundColor: colors.disabledFill,
+    },
+    applyTextDisabled: {
+        color: colors.onDisabled,
     },
     applyText: {
         ...type.button,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

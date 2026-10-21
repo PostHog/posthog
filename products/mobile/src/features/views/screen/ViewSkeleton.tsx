@@ -1,14 +1,17 @@
 import type { ReactElement } from 'react'
-import { type DimensionValue, StyleSheet, View } from 'react-native'
+import { type DimensionValue, View } from 'react-native'
 
-import { colors, radii } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { radii } from '@/ui/tokens'
 
 function Bar({ width, height, radius = 6 }: { width: DimensionValue; height: number; radius?: number }): ReactElement {
+    const styles = useStyles()
     return <View style={[styles.bar, { width, height, borderRadius: radius }]} />
 }
 
 /** One tile's placeholder at the height of a chart tile, so a tile does not jump when its data lands. */
 export function TileSkeleton({ height = 160 }: { height?: number }): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.tileBody}>
             <Bar width="100%" height={height} radius={8} />
@@ -21,6 +24,7 @@ export function TileSkeleton({ height = 160 }: { height?: number }): ReactElemen
  * not shimmer, so reduce motion needs no special case.
  */
 export function ViewSkeleton({ cards = 3 }: { cards?: number }): ReactElement {
+    const styles = useStyles()
     return (
         <View accessibilityLabel="Loading" accessibilityRole="progressbar" testID="view-loading">
             <Bar width="62%" height={28} radius={8} />
@@ -43,7 +47,7 @@ export function ViewSkeleton({ cards = 3 }: { cards?: number }): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     bar: {
         backgroundColor: colors.sunken,
     },
@@ -60,7 +64,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     cardBody: {
         marginTop: 14,
@@ -68,4 +72,4 @@ const styles = StyleSheet.create({
     tileBody: {
         paddingTop: 2,
     },
-})
+}))

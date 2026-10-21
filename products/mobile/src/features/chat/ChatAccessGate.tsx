@@ -2,7 +2,7 @@ import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native'
 
 import { track } from '@/lib/analytics'
-import { colors } from '@/ui/tokens'
+import { useColors } from '@/ui/theme'
 import { AiConsentSheet } from './AiConsentSheet'
 import { AiOrgNotice } from './AiOrgNotice'
 import { PRIVACY_POLICY_URL } from './aiAccess'
@@ -17,6 +17,7 @@ interface ChatAccessGateProps {
 
 /** Shows `children` only once the organization allows PostHog AI and the person agreed on this device. */
 export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): ReactElement {
+    const colors = useColors()
     const { access, rechecking, accept, checkAgain } = useChatAccess()
     const [declined, setDeclined] = useState(false)
     const kind = access.kind

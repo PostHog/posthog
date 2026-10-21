@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, FlatList, Text, View } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useNow } from '@/lib/useNow'
@@ -13,7 +13,8 @@ import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { trackViewsErrorShown } from '../analytics'
@@ -59,6 +60,7 @@ function keyOf(row: BrowseRow): string {
 
 /** Browse, Dashboards or Insights: every one in the project, 30 at a time, with search and a pin on each row. */
 export function BrowseListScreen({ kind }: { kind: BrowseKind }): ReactElement {
+    const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
     const access = useViewsAccess()
@@ -105,6 +107,8 @@ function InsightsList(): ReactElement {
 }
 
 function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
     const now = useNow()
@@ -261,6 +265,8 @@ interface LoadMoreFooterProps {
 }
 
 function LoadMoreFooter({ noun, loading, failed, onRetry }: LoadMoreFooterProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     if (loading) {
         return (
             <View style={styles.footer} accessibilityLabel={`Loading more ${noun}`} accessibilityRole="progressbar">
@@ -281,7 +287,7 @@ function LoadMoreFooter({ noun, loading, failed, onRetry }: LoadMoreFooterProps)
     return null
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -333,6 +339,6 @@ const styles = StyleSheet.create({
     },
     retryText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

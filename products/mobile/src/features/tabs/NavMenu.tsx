@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactElement, useEffect, useState } from 'react'
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Text, useWindowDimensions, View } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
@@ -11,7 +11,8 @@ import { SettingsIcon } from '@/ui/icons/SettingsIcon'
 import { SignOutIcon } from '@/ui/icons/SignOutIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { SignOutConfirm } from '../settings/SignOutConfirm'
@@ -42,6 +43,8 @@ interface MenuRowProps {
 }
 
 function MenuRow({ label, Icon, disabled = false, onPress, testID }: MenuRowProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -71,6 +74,8 @@ export function NavMenu({
     onCancelSignOut,
     onConfirmSignOut,
 }: NavMenuProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const { width: windowWidth } = useWindowDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
@@ -155,7 +160,7 @@ export function NavMenu({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         right: 14,
         borderWidth: 1,
@@ -208,4 +213,4 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         paddingTop: 8,
     },
-})
+}))

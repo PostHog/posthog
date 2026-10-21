@@ -1,7 +1,7 @@
 import { type ReactElement, useId } from 'react'
 import { Defs, LinearGradient, Path, Stop } from 'react-native-svg'
 
-export const LOGOMARK_FILL = '#111'
+import { useColors } from '../theme'
 
 interface Facet {
     x1: number
@@ -53,6 +53,8 @@ const HEAD_PATH =
 
 /** The gradient hedgehog from @posthog/brand, drawn in a 52 x 28 viewBox. */
 export function LogomarkShapes(): ReactElement {
+    // The head follows the text color, so it stays visible on a dark background.
+    const { ink } = useColors()
     // useId wraps its value in punctuation that is not safe inside a url(#...) reference.
     const prefix = useId().replace(/[^A-Za-z0-9]/g, '')
     return (
@@ -73,7 +75,7 @@ export function LogomarkShapes(): ReactElement {
                     </LinearGradient>
                 ))}
             </Defs>
-            <Path fill={LOGOMARK_FILL} d={HEAD_PATH} />
+            <Path fill={ink} d={HEAD_PATH} />
             {FACETS.map((facet, index) => (
                 <Path key={facet.d} fill={`url(#${prefix}${index})`} d={facet.d} />
             ))}

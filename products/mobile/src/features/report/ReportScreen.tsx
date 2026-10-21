@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -20,7 +20,8 @@ import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, iconSizes, layout } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionBar, type TaskChatEntry } from '../handoff/ActionBar'
@@ -77,6 +78,8 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
 }
 
 function ReportNotFound(): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const router = useRouter()
     const goBack = (): void => goBackOrInbox(router)
     // The id is not a report id and can be any text from a link, so it is not sent.
@@ -99,6 +102,8 @@ function ReportNotFound(): ReactElement {
 }
 
 function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const router = useRouter()
     const viewer = useViewer()
     const query = useReportWithLiveRun(reportId)
@@ -345,6 +350,7 @@ function ReportBody({
     onChangePriority,
     onReadFull,
 }: ReportBodyProps): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
     const scrollY = useSharedValue(0)
@@ -402,7 +408,7 @@ function ReportBody({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -425,4 +431,4 @@ const styles = StyleSheet.create({
     readFull: {
         marginTop: 8,
     },
-})
+}))

@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react-native'
+import { useColorScheme } from 'react-native'
 
 import { sqlPresentation } from '@/model/adapters/sqlVisualization'
 import type { SqlColumnView, SqlTableView } from '@/model/views'
-import { colors } from '@/ui/tokens'
+import { darkColors, lightColors, type ThemeColors } from '@/ui/theme'
 
 import { SqlTable } from './SqlTable'
 
@@ -35,7 +36,15 @@ function table(rowCount: number, hasMore = false): SqlTableView {
 }
 
 describe('SqlTable', () => {
-    test('shows the header, formatted cells and a muted dash for null', () => {
+    afterEach(() => {
+        jest.mocked(useColorScheme).mockReturnValue('light')
+    })
+
+    test.each<['light' | 'dark', ThemeColors]>([
+        ['light', lightColors],
+        ['dark', darkColors],
+    ])('shows the header, formatted cells and a muted dash for null in the %s scheme', (scheme, colors) => {
+        jest.mocked(useColorScheme).mockReturnValue(scheme)
         render(<SqlTable table={table(2)} label="Top pages" testID="chart-table" />)
 
         expect(screen.getByText('page')).toBeTruthy()
@@ -85,7 +94,7 @@ describe('SqlTable', () => {
 
         fireEvent.press(screen.getByTestId('chart-table-row-1'))
 
-        const highlighted = { backgroundColor: colors.blueHighlight }
+        const highlighted = { backgroundColor: lightColors.blueHighlight }
         expect(screen.getByTestId('chart-table-row-1-pinned')).toHaveStyle(highlighted)
         expect(screen.getByTestId('chart-table-row-1')).toHaveStyle(highlighted)
         expect(screen.getByTestId('chart-table-row-0-pinned')).not.toHaveStyle(highlighted)

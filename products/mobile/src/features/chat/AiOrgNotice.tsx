@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface AiOrgNoticeProps {
     /** `not_approved`: an admin has not allowed third-party AI. `unknown`: the app could not load the setting. */
@@ -36,6 +37,8 @@ export function AiOrgNotice({
     onCheckAgain,
     checking,
 }: AiOrgNoticeProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const copy = copyFor(reason, organizationName)
     return (
         <View style={styles.notice} testID="chat-ai-org-notice">
@@ -51,7 +54,7 @@ export function AiOrgNotice({
                         style={[styles.button, styles.primary]}
                         testID="chat-ai-org-settings"
                     >
-                        <ExternalLinkIcon size={iconSizes.inline} color={colors.white} />
+                        <ExternalLinkIcon size={iconSizes.inline} color={colors.onInk} />
                         <Text style={styles.primaryText}>Open settings</Text>
                     </Pressable44>
                 ) : null}
@@ -64,7 +67,7 @@ export function AiOrgNotice({
                     testID="chat-ai-org-check-again"
                 >
                     {checking ? (
-                        <ActivityIndicator color={onOpenSettings ? colors.ink : colors.white} />
+                        <ActivityIndicator color={onOpenSettings ? colors.ink : colors.onInk} />
                     ) : (
                         <Text style={onOpenSettings ? styles.secondaryText : styles.primaryText}>Check again</Text>
                     )}
@@ -74,7 +77,7 @@ export function AiOrgNotice({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     notice: {
         marginHorizontal: 16,
         marginTop: 8,
@@ -113,15 +116,15 @@ const styles = StyleSheet.create({
     },
     primaryText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
     secondary: {
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     secondaryText: {
         ...type.buttonSmall,
         color: colors.ink,
     },
-})
+}))

@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactElement, type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
-import { type LayoutChangeEvent, Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { type LayoutChangeEvent, Platform, Text, View, type ViewStyle } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
     Easing,
@@ -17,7 +17,8 @@ import { haptic } from '@/lib/haptics'
 import { MailOpenIcon } from '@/ui/icons/MailOpenIcon'
 import { MailUnreadIcon } from '@/ui/icons/MailUnreadIcon'
 import type { IconProps } from '@/ui/icons/types'
-import { colors, iconSizes, layout, motion, swipeColors, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, layout, motion, type } from '@/ui/tokens'
 
 import { commitDistance, rowOffset, type SwipeDirection } from './swipeToRead'
 
@@ -73,6 +74,9 @@ interface SwipeToReadRowProps {
  * children keep their own press and long press, because the pan activates only after 14pt of horizontal travel.
  */
 export function SwipeToReadRow({ onMarkRead, onMarkUnread, children }: SwipeToReadRowProps): ReactElement {
+    const styles = useStyles()
+    // Plain strings, so the underlay worklet can capture them.
+    const { read: readColor, unread: unreadColor } = useTheme().swipeColors
     const reduceMotion = useReducedMotion()
     const [width, setWidth] = useState(0)
     const offset = useSharedValue(0)
@@ -209,7 +213,7 @@ export function SwipeToReadRow({ onMarkRead, onMarkUnread, children }: SwipeToRe
 
     const foregroundStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }))
     const underlayStyle = useAnimatedStyle(() => ({
-        backgroundColor: shownDirection.value === 1 ? swipeColors.read : swipeColors.unread,
+        backgroundColor: shownDirection.value === 1 ? readColor : unreadColor,
         opacity: interpolate(
             offset.value * shownDirection.value,
             [0, UNDERLAY_FADE_DISTANCE],
@@ -245,6 +249,8 @@ export function SwipeToReadRow({ onMarkRead, onMarkUnread, children }: SwipeToRe
 }
 
 function SwipeAction({ label, Icon }: { label: string; Icon: ComponentType<IconProps> }): ReactElement {
+    const styles = useStyles()
+    const { swipeColors } = useTheme()
     return (
         <>
             <Icon size={iconSizes.navigation} color={swipeColors.onAction} />
@@ -255,7 +261,7 @@ function SwipeAction({ label, Icon }: { label: string; Icon: ComponentType<IconP
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors, swipeColors }) => ({
     // The list content is inset by the gutter, so the row reaches into it and the underlay runs edge to edge.
     container: {
         marginHorizontal: -layout.inboxGutter,
@@ -289,4 +295,4 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: swipeColors.onAction,
     },
-})
+}))

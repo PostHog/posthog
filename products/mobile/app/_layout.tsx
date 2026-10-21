@@ -3,7 +3,6 @@ import { Stack, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
-import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -23,7 +22,7 @@ import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
 import { useScreenTracking } from '@/lib/useScreenTracking'
 import { RouteErrorBoundary } from '@/ui/RouteErrorBoundary'
-import { colors } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
 
 export { RouteErrorBoundary as ErrorBoundary }
 
@@ -40,6 +39,8 @@ export default function RootLayout(): ReactElement {
     const ready = demoHydrated && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
+    const { colors, scheme } = useTheme()
+    const styles = useStyles()
     const [timedOut, setTimedOut] = useState(false)
     const splashHidden = useRef(false)
 
@@ -80,8 +81,7 @@ export default function RootLayout(): ReactElement {
             <SafeAreaProvider>
                 <KeyboardProvider>
                     <QueryClientProvider client={queryClient}>
-                        {/* Dark status bar content on the light background; the app has no dark theme yet. */}
-                        <StatusBar style="dark" />
+                        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
                         {/* Screens mount only after the session loads, so no query runs without a token. */}
                         {ready ? (
                             <Stack
@@ -109,9 +109,9 @@ export default function RootLayout(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     root: {
         flex: 1,
         backgroundColor: colors.background,
     },
-})
+}))

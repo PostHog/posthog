@@ -1,10 +1,11 @@
 import type { ReactElement, ReactNode } from 'react'
-import { type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
+import { type StyleProp, View, type ViewStyle } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
-import { colors, motion, radii, shadows } from './tokens'
+import { createStyles, useTheme } from './theme'
+import { motion, radii } from './tokens'
 import { usePresence } from './usePresence'
 
 interface FloatingCardProps {
@@ -28,6 +29,8 @@ export function FloatingCard({
     accessibilityLabel,
     testID,
 }: FloatingCardProps): ReactElement | null {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const { mounted, progress } = usePresence(visible, motion.menu, 'emphasized')
     const cardStyle = useAnimatedStyle(() => ({
         opacity: progress.value,
@@ -53,7 +56,7 @@ export function FloatingCard({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     overlay: {
         position: 'absolute',
         top: 0,
@@ -64,7 +67,7 @@ const styles = StyleSheet.create({
     },
     card: {
         position: 'absolute',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderRadius: radii.floating,
     },
-})
+}))

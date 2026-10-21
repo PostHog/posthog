@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react'
-import { type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
+import { type StyleProp, View, type ViewStyle } from 'react-native'
 
-import { colors, radii } from './tokens'
+import { createStyles } from './theme'
+import { radii } from './tokens'
 
 interface PillControlProps {
     children: ReactNode
@@ -10,18 +11,19 @@ interface PillControlProps {
 }
 
 export function PillControl({ children, height = 54, style }: PillControlProps): ReactElement {
+    const styles = useStyles()
     return <View style={[styles.pill, { height }, style]}>{children}</View>
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     pill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.pill,
         paddingVertical: 4,
         paddingHorizontal: 6,
     },
-})
+}))

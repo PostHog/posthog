@@ -1,5 +1,5 @@
 import { type ReactElement, useMemo } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { type MetricValueState, MISSING_VALUE } from '@/features/metrics/metricValue'
 import { useChartPoints } from '@/features/metrics/useChartPoints'
@@ -11,7 +11,8 @@ import { MetricChart } from '@/ui/chart/MetricChart'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, fonts, lineHeight, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { fonts, lineHeight, radii, type } from '@/ui/tokens'
 
 import { metricSourceLabel, valueFormatter } from './metricFooter'
 import { OpenInsightLink } from './OpenInsightLink'
@@ -25,6 +26,8 @@ interface ObservationCardProps {
 }
 
 export function ObservationCard({ metric, reportId, accent }: ObservationCardProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const value = useMetricValue(metric)
     const chart = useChartPoints(metric.data, { snapshot: metric.snapshot, interval: metric.interval })
     const onSelect = useScrubTracking(() =>
@@ -75,6 +78,8 @@ export function ObservationCard({ metric, reportId, accent }: ObservationCardPro
 }
 
 function ObservationValue({ state }: { state: MetricValueState }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     switch (state.kind) {
         case 'loading':
             return (
@@ -123,14 +128,14 @@ function ObservationValue({ state }: { state: MetricValueState }): ReactElement 
 
 const VALUE_SIZE = 28
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         marginTop: 24,
         padding: 14,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     title: {
         ...type.bodySmallStrong,
@@ -197,4 +202,4 @@ const styles = StyleSheet.create({
     source: {
         flexShrink: 1,
     },
-})
+}))

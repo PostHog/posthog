@@ -1,9 +1,10 @@
 import type { ReactElement, ReactNode } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { Eyebrow } from '@/ui/Eyebrow'
 import { RefreshHint } from '@/ui/RefreshHint'
-import { colors, lineHeight, prettyWrap, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { lineHeight, prettyWrap, type } from '@/ui/tokens'
 
 import type { ViewRefresh } from '../useViewRefresh'
 
@@ -22,6 +23,7 @@ interface ViewTitleProps {
 
 /** The top of a view's content: title with its buttons, the status line, the refresh hint and the range. */
 export function ViewTitle({ eyebrow, title, accessories, refresh, range, rangeDetail }: ViewTitleProps): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.block}>
             {eyebrow ? (
@@ -58,7 +60,7 @@ export function ViewTitle({ eyebrow, title, accessories, refresh, range, rangeDe
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     block: {
         paddingHorizontal: 2,
         marginBottom: 16,
@@ -97,4 +99,4 @@ const styles = StyleSheet.create({
         lineHeight: lineHeight(13),
         color: colors.tertiary,
     },
-})
+}))

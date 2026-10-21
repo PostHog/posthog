@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect } from 'react'
-import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Linking, Text, View } from 'react-native'
 
 import { refreshPushPermission, syncPushRegistration } from '@/features/notifications/pushRegistration'
 import { type PushState, usePushStore } from '@/features/notifications/pushStore'
@@ -7,7 +7,8 @@ import type { PushUnavailableReason } from '@/features/notifications/pushSupport
 import { track } from '@/lib/analytics'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { SettingsGroup } from './SettingsGroup'
 import { SettingsRow } from './SettingsRow'
@@ -46,6 +47,8 @@ function shortToken(token: string): string {
 }
 
 export function PushStatusGroup(): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const push = usePushStore()
     const openSystemSettings = push.permission === 'denied' && !push.canAskAgain
     const canEnable =
@@ -114,7 +117,7 @@ export function PushStatusGroup(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     actionRow: {
         paddingHorizontal: 16,
         paddingVertical: 12,
@@ -133,6 +136,6 @@ const styles = StyleSheet.create({
     },
     actionText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

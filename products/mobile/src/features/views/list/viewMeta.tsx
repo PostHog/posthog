@@ -8,7 +8,7 @@ import { DocumentIcon } from '@/ui/icons/DocumentIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { LineChartIcon } from '@/ui/icons/LineChartIcon'
-import { colors } from '@/ui/tokens'
+import { useColors } from '@/ui/theme'
 
 import type { PinTarget } from '../shortcutInput'
 
@@ -32,7 +32,9 @@ interface ViewIconProps {
     color?: string
 }
 
-export function ViewIcon({ kind, size = 18, color = colors.muted }: ViewIconProps): ReactElement {
+export function ViewIcon({ kind, size = 18, color: colorProp }: ViewIconProps): ReactElement {
+    const colors = useColors()
+    const color = colorProp ?? colors.muted
     switch (kind) {
         case 'dashboard':
             return <DashboardIcon size={size} color={color} />

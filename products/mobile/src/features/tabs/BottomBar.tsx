@@ -1,5 +1,5 @@
 import type { ComponentType, ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -9,7 +9,8 @@ import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { ViewsIcon } from '@/ui/icons/ViewsIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, layout, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 interface BottomBarProps {
@@ -29,6 +30,8 @@ interface NavSlotProps {
 }
 
 function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -53,6 +56,7 @@ interface SelectedSlotProps {
 }
 
 function SelectedSlot({ label, Icon, testID }: SelectedSlotProps): ReactElement {
+    const styles = useStyles()
     return (
         <View
             style={[styles.slot, styles.slotSelected]}
@@ -67,6 +71,8 @@ function SelectedSlot({ label, Icon, testID }: SelectedSlotProps): ReactElement 
 }
 
 export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: BottomBarProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const insets = useScreenInsets()
     return (
         <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 34) }]}>
@@ -98,14 +104,14 @@ export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: Bot
                 haptic="selection"
                 testID="inbox-chat"
             >
-                <ComposeIcon size={iconSizes.navigation} color={colors.white} />
+                <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
                 <Text style={styles.chatText}>Chat</Text>
             </Pressable44>
         </View>
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     bar: {
         position: 'absolute',
         left: 0,
@@ -126,7 +132,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.pill,
@@ -163,6 +169,6 @@ const styles = StyleSheet.create({
     },
     chatText: {
         ...type.button,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

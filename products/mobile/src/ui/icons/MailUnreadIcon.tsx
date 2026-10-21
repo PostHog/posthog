@@ -1,11 +1,13 @@
 import type { ReactElement } from 'react'
 import { Circle, Path } from 'react-native-svg'
 
-import { colors } from '../tokens'
+import { useColors } from '../theme'
 import { StrokeIcon } from './StrokeIcon'
 import type { IconProps } from './types'
 
-export function MailUnreadIcon({ size = 20, color = colors.ink, strokeWidth = 2 }: IconProps): ReactElement {
+export function MailUnreadIcon({ size = 20, color: colorProp, strokeWidth = 2 }: IconProps): ReactElement {
+    const colors = useColors()
+    const color = colorProp ?? colors.ink
     return (
         <StrokeIcon size={size} color={color} strokeWidth={strokeWidth}>
             {/* The outline stops short of the top right corner, so the unread dot sits clear of it. */}

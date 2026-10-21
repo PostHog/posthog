@@ -1,11 +1,12 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
+import { type LayoutChangeEvent, View } from 'react-native'
 import { GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
-import { colors, motion, radii, shadows } from './tokens'
+import { createStyles, useTheme } from './theme'
+import { motion, radii } from './tokens'
 import { usePresence } from './usePresence'
 import { bottomOffset, useScreenInsets } from './useScreenInsets'
 import { useSheetDrag } from './useSheetDrag'
@@ -16,7 +17,7 @@ interface BottomSheetProps {
     children: ReactNode
     paddingHorizontal?: number
     scrollGesture?: NativeGesture
-    /** Defaults to white. Sheets that hold white cards use the screen background. */
+    /** Defaults to `surface`. Sheets that hold surface cards use the screen background. */
     backgroundColor?: string
     accessibilityLabel?: string
     testID?: string
@@ -28,10 +29,12 @@ export function BottomSheet({
     children,
     paddingHorizontal = 16,
     scrollGesture,
-    backgroundColor = colors.white,
+    backgroundColor,
     accessibilityLabel,
     testID,
 }: BottomSheetProps): ReactElement | null {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const { mounted, progress } = usePresence(visible, motion.sheet)
     const [height, setHeight] = useState(480)
@@ -59,7 +62,11 @@ export function BottomSheet({
                         style={[
                             styles.sheet,
                             shadows.bottomSheet,
-                            { paddingHorizontal, paddingBottom: bottomOffset(insets, 40), backgroundColor },
+                            {
+                                paddingHorizontal,
+                                paddingBottom: bottomOffset(insets, 40),
+                                backgroundColor: backgroundColor ?? colors.surface,
+                            },
                             sheetStyle,
                         ]}
                     >
@@ -72,7 +79,7 @@ export function BottomSheet({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     overlay: {
         position: 'absolute',
         top: 0,
@@ -94,4 +101,4 @@ const styles = StyleSheet.create({
         backgroundColor: colors.border,
         alignSelf: 'center',
     },
-})
+}))

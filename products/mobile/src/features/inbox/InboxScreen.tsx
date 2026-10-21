@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
+import { FlatList, RefreshControl, View } from 'react-native'
 
 import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
@@ -10,7 +10,8 @@ import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, iconSizes, layout } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { apiErrorKind } from '../report/reportAnalytics'
@@ -31,6 +32,8 @@ function keyFor(item: InboxItem): string {
 }
 
 export function InboxScreen(): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const router = useRouter()
     const insets = useScreenInsets()
     const now = useNow()
@@ -215,6 +218,8 @@ export function InboxScreen(): ReactElement {
                         refreshing={query.isRefetching}
                         onRefresh={() => refresh('pull')}
                         tintColor={colors.tertiary}
+                        colors={[colors.tertiary]}
+                        progressBackgroundColor={colors.surface}
                         progressViewOffset={contentTop}
                     />
                 }
@@ -234,7 +239,7 @@ export function InboxScreen(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -243,4 +248,4 @@ const styles = StyleSheet.create({
         flexGrow: 1,
         paddingHorizontal: layout.inboxGutter,
     },
-})
+}))

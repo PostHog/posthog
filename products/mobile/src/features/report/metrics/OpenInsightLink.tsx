@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 import { type InsightSource, openInsight } from './openInsight'
 
@@ -17,6 +18,8 @@ interface OpenInsightLinkProps {
 }
 
 export function OpenInsightLink({ url, reportId, source, title, testID }: OpenInsightLinkProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={() => openInsight(url, reportId, source)}
@@ -32,7 +35,7 @@ export function OpenInsightLink({ url, reportId, source, title, testID }: OpenIn
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     link: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -47,4 +50,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.blue,
     },
-})
+}))

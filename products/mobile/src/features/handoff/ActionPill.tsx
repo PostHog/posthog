@@ -1,11 +1,12 @@
 import { Fragment, type ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { CheckCircleIcon } from '@/ui/icons/CheckCircleIcon'
 import { EyeOffIcon } from '@/ui/icons/EyeOffIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface ActionPillProps {
     onReassign: () => void
@@ -14,6 +15,8 @@ interface ActionPillProps {
 }
 
 export function ActionPill({ onReassign, onResolve, onDismiss }: ActionPillProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const buttons = [
         { key: 'reassign', label: 'Reassign', Icon: ReassignIcon, onPress: onReassign },
         { key: 'resolve', label: 'Resolve', Icon: CheckCircleIcon, onPress: onResolve },
@@ -43,13 +46,13 @@ export function ActionPill({ onReassign, onResolve, onDismiss }: ActionPillProps
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     // 52pt buttons inside a 1pt border.
     outer: {
         flex: 1,
         height: 54,
         borderRadius: radii.pill,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.hairline,
     },
@@ -77,4 +80,4 @@ const styles = StyleSheet.create({
         marginVertical: 14,
         backgroundColor: colors.hairline,
     },
-})
+}))

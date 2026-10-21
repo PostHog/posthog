@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import Svg from 'react-native-svg'
 
-import { colors } from '../tokens'
+import { useColors } from '../theme'
 
 interface StrokeIconProps {
     size: number
@@ -15,20 +15,21 @@ interface StrokeIconProps {
 
 export function StrokeIcon({
     size,
-    color = colors.ink,
+    color,
     strokeWidth,
     viewBox = '0 0 24 24',
     width,
     height,
     children,
 }: StrokeIconProps): ReactElement {
+    const colors = useColors()
     return (
         <Svg
             width={width ?? size}
             height={height ?? size}
             viewBox={viewBox}
             fill="none"
-            stroke={color}
+            stroke={color ?? colors.ink}
             strokeWidth={strokeWidth}
             strokeLinecap="round"
             strokeLinejoin="round"

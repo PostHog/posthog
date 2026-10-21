@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
-import { Pressable, StyleSheet, Text } from 'react-native'
+import { Pressable, Text } from 'react-native'
 import { getInsightSummary } from '@/api/insights'
 import { scopeKey } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 import { objectMeta, objectWebUrl } from './objectTags'
 import { openReplyUrl } from './webLinks'
 
 export function InsightCard({ shortId, title }: { shortId: string; title?: string }): ReactElement {
+    const styles = useStyles()
     const scope = useProjectScope()
     const insight = useQuery({
         queryKey: ['insight-summary', ...scopeKey(scope), shortId],
@@ -49,9 +51,9 @@ export function InsightCard({ shortId, title }: { shortId: string; title?: strin
         </Pressable>
     )
 }
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderColor: colors.hairline,
         borderWidth: 1,
         borderRadius: radii.card,
@@ -62,4 +64,4 @@ const styles = StyleSheet.create({
     meta: { ...type.meta, color: colors.secondary },
     title: { ...type.bodyStrong, color: colors.ink },
     description: { ...type.bodySmall, color: colors.muted },
-})
+}))

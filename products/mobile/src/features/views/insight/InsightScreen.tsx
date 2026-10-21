@@ -1,11 +1,12 @@
 import { type ReactElement, useMemo, useState } from 'react'
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import type { InsightSnapshot, PinDisplayMode, ViewEntry } from '@/model/views'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import { InfoIcon } from '@/ui/icons/InfoIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { DeltaPill } from '../DeltaPill'
@@ -89,6 +90,8 @@ interface InsightBodyProps {
 }
 
 function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const motion = useChartListMotion()
     const sheets = useChartSheets()
@@ -135,6 +138,8 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
                     refreshing={refresh.pulling}
                     onRefresh={refresh.onPull}
                     tintColor={colors.tertiary}
+                    progressBackgroundColor={colors.surface}
+                    colors={[colors.tertiary]}
                     progressViewOffset={contentTop}
                 />
             }
@@ -197,6 +202,7 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
 }
 
 function Hero({ snapshot, rangeLabel }: { snapshot: InsightSnapshot; rangeLabel: string | null }): ReactElement | null {
+    const styles = useStyles()
     if (snapshot.value === null) {
         return null
     }
@@ -226,7 +232,7 @@ function Hero({ snapshot, rangeLabel }: { snapshot: InsightSnapshot; rangeLabel:
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.inboxGutter,
     },
@@ -271,4 +277,4 @@ const styles = StyleSheet.create({
         color: colors.secondary,
         marginTop: 2,
     },
-})
+}))

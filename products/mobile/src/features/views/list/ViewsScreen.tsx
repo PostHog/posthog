@@ -1,6 +1,6 @@
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, Platform, RefreshControl, SectionList, StyleSheet, Text, View, type ViewToken } from 'react-native'
+import { Linking, Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useNow } from '@/lib/useNow'
@@ -13,7 +13,8 @@ import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SearchField } from '@/ui/SearchField'
 import { StateView } from '@/ui/StateView'
-import { colors, layout, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
@@ -89,6 +90,7 @@ type MenuState =
 
 /** The Views tab: pinned views first, then Recent and Browse, with search over all of them. */
 export function ViewsScreen(): ReactElement {
+    const styles = useStyles()
     const access = useViewsAccess()
     // The tab stays mounted under a pushed view and behind other tabs. Its charts then give their canvases back.
     const focused = useIsFocused()
@@ -109,6 +111,7 @@ export function ViewsScreen(): ReactElement {
 }
 
 function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     useTabHeader('views', {
         hint: null,
@@ -134,6 +137,8 @@ function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
 const noop = (): void => undefined
 
 function ViewsBody(): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
     const now = useNow()
@@ -490,6 +495,7 @@ function ViewsBody(): ReactElement {
             pinnedKeys,
             openBrowse,
             context.scope,
+            styles,
         ]
     )
 
@@ -510,7 +516,7 @@ function ViewsBody(): ReactElement {
                 ) : null}
             </View>
         ),
-        [startEditing]
+        [startEditing, styles, colors]
     )
 
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
@@ -621,6 +627,8 @@ function ViewsBody(): ReactElement {
                         refreshing={refresh.pulling}
                         onRefresh={refresh.onPull}
                         tintColor={colors.tertiary}
+                        progressBackgroundColor={colors.surface}
+                        colors={[colors.tertiary]}
                         progressViewOffset={contentTop}
                     />
                 }
@@ -740,7 +748,7 @@ function PinMenuFor({ pin, ...props }: PinMenuForProps): ReactElement {
     return <PinMenu visible pin={pin} modes={pinModes(pin)} tileName={tileName} {...props} />
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -788,4 +796,4 @@ const styles = StyleSheet.create({
         marginHorizontal: 4,
         marginTop: 2,
     },
-})
+}))

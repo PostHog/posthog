@@ -1,12 +1,13 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { formatActivityTime } from '@/lib/dates'
 import { useNow } from '@/lib/useNow'
 import type { ActivityEvent } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
 import { TimelineItem } from '@/ui/TimelineItem'
-import { colors, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { type } from '@/ui/tokens'
 
 interface ActivityProps {
     events: ActivityEvent[]
@@ -14,6 +15,8 @@ interface ActivityProps {
 }
 
 export function Activity({ events, viewerName }: ActivityProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const now = useNow()
     return (
         <View style={styles.section}>
@@ -21,7 +24,7 @@ export function Activity({ events, viewerName }: ActivityProps): ReactElement {
                 <Text style={styles.title} accessibilityRole="header">
                     Activity
                 </Text>
-                <Avatar name={viewerName} color={colors.ink} size={28} fontSize={11} />
+                <Avatar name={viewerName} color={colors.avatarNeutral} size={28} fontSize={11} />
             </View>
             <View style={styles.timeline}>
                 {events.map((event, index) => (
@@ -38,7 +41,7 @@ export function Activity({ events, viewerName }: ActivityProps): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     section: {
         marginTop: 24,
         paddingTop: 20,
@@ -57,4 +60,4 @@ const styles = StyleSheet.create({
     timeline: {
         marginTop: 16,
     },
-})
+}))

@@ -1,9 +1,10 @@
 import type { ComponentType, ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface SettingsRadioRowProps {
     label: string
@@ -23,6 +24,8 @@ export function SettingsRadioRow({
     accessibilityLabel,
     Icon,
 }: SettingsRadioRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -44,7 +47,7 @@ export function SettingsRadioRow({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         minHeight: 52,
         flexDirection: 'row',
@@ -62,7 +65,7 @@ const styles = StyleSheet.create({
         height: iconSizes.control,
         borderRadius: radii.pill,
         borderWidth: 1.5,
-        borderColor: colors.border,
+        borderColor: colors.control,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -74,6 +77,6 @@ const styles = StyleSheet.create({
         width: 8,
         height: 8,
         borderRadius: radii.pill,
-        backgroundColor: colors.white,
+        backgroundColor: colors.onInk,
     },
-})
+}))

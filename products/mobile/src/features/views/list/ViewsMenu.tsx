@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { type LayoutChangeEvent, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
 
 import { placeContextMenu, type RowAnchor } from '@/features/inbox/contextMenuPlacement'
@@ -10,7 +10,8 @@ import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, layout, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
@@ -39,6 +40,7 @@ export function MenuCard({
     testID,
     children,
 }: MenuCardProps): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     const { width: windowWidth } = useWindowDimensions()
     // The overlay covers the full screen, which on Android edge-to-edge includes the navigation bar.
@@ -104,6 +106,8 @@ export function MenuItem({
     disabled = false,
     testID,
 }: MenuItemProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const color = disabled ? colors.disabled : danger ? colors.diffRed : colors.ink
     return (
         <Pressable44
@@ -129,6 +133,7 @@ export function MenuItem({
 }
 
 export function MenuDivider(): ReactElement {
+    const styles = useStyles()
     return <View style={styles.divider} />
 }
 
@@ -162,6 +167,8 @@ export function PinMenu({
     onMove,
     onUnpin,
 }: PinMenuProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const iconColor = (disabled: boolean): string => (disabled ? colors.disabled : colors.ink)
     const first = position.index <= 0
     const last = position.index >= position.count - 1
@@ -228,6 +235,7 @@ interface RowMenuProps {
 
 /** The long-press menu of a Recent, Browse or search row. */
 export function RowMenu({ visible, anchor, view, pinned, onClose, onTogglePin, onOpen }: RowMenuProps): ReactElement {
+    const colors = useColors()
     return (
         <MenuCard
             visible={visible}
@@ -255,7 +263,7 @@ export function RowMenu({ visible, anchor, view, pinned, onClose, onTogglePin, o
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         width: MENU_WIDTH,
         borderRadius: 16,
@@ -301,4 +309,4 @@ const styles = StyleSheet.create({
         marginVertical: 4,
         backgroundColor: colors.rowDivider,
     },
-})
+}))

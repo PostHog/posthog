@@ -1,5 +1,5 @@
 import { memo, type ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMenuTrigger } from '@/features/views/list/useMenuTrigger'
@@ -11,7 +11,8 @@ import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { sessionStatusDisplay } from './sessionStatus'
 
@@ -29,9 +30,11 @@ const ORIGIN_LABEL: Record<ChatOrigin, string> = {
 }
 
 export const ChatRow = memo(function ChatRow({ item, now, onOpen, onLongPress }: ChatRowProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const menu = useMenuTrigger(item, onLongPress)
     const when = formatRelativeAgo(item.updatedAt, now)
-    const status = sessionStatusDisplay(item.status)
+    const status = sessionStatusDisplay(item.status, colors)
     const origin = ORIGIN_LABEL[item.origin]
     const metaText = `${origin}, ${status.label}, ${when}`
     return (
@@ -83,7 +86,7 @@ export const ChatRow = memo(function ChatRow({ item, now, onOpen, onLongPress }:
     )
 })
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -126,4 +129,4 @@ const styles = StyleSheet.create({
         borderRadius: radii.markSmall,
         backgroundColor: colors.sunken,
     },
-})
+}))

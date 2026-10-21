@@ -1,16 +1,19 @@
 import { type ReactElement, useMemo } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { groupByOrganization } from '@/features/projects/projectList'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { SettingsGroup } from './SettingsGroup'
 import { SettingsRadioRow } from './SettingsRadioRow'
 
 export function ProjectSwitcher(): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const projects = useAuthStore((state) => state.projects)
     const projectId = useAuthStore((state) => state.projectId)
     const accountLoading = useAuthStore((state) => state.accountLoading)
@@ -89,7 +92,7 @@ export function ProjectSwitcher(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     organization: {
         color: colors.tertiary,
         paddingHorizontal: 16,
@@ -120,7 +123,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -128,4 +131,4 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
-})
+}))

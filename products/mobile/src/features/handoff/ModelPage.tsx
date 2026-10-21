@@ -6,7 +6,8 @@ import type { ModelChoiceApi, ReasoningEffortApi, ResolvedAiRunDefaultsApi } fro
 import { Eyebrow } from '@/ui/Eyebrow'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import {
     COST_BASELINE_LABEL,
@@ -41,6 +42,8 @@ interface ModelRowProps {
 }
 
 function ModelRow({ option, selected, isDefault, onPress }: ModelRowProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -71,6 +74,8 @@ export function ModelPage({
     listGesture,
     onBack,
 }: ModelPageProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { height: windowHeight } = useWindowDimensions()
     const models = catalogue.catalogue
     const pinned = model === 'default' ? undefined : model
@@ -171,7 +176,7 @@ export function ModelPage({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     loading: {
         paddingVertical: 28,
     },
@@ -197,7 +202,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -210,7 +215,7 @@ const styles = StyleSheet.create({
         color: colors.ink,
     },
     effortTextSelected: {
-        color: colors.white,
+        color: colors.onInk,
         fontWeight: '600',
     },
     list: {
@@ -278,4 +283,4 @@ const styles = StyleSheet.create({
         ...type.bodySmallStrong,
         color: colors.ink,
     },
-})
+}))

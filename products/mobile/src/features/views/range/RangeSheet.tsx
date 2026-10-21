@@ -17,15 +17,14 @@ import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { CHIP_PRESETS, customRange, formatRangeSpanForSpeech, MORE_PRESETS, RANGE_PRESETS } from '../rangePresets'
 import type { ViewRange } from '../rangeStore'
 import { SheetTitle } from '../screen/SheetTitle'
 import type { CalendarPick } from './calendar'
 import { RangeCalendar } from './RangeCalendar'
-
-const WEB_SWITCH_PROPS = Platform.OS === 'web' ? { activeThumbColor: colors.white } : {}
 
 export interface RangeCompareRow {
     on: boolean
@@ -61,6 +60,8 @@ export function RangeSheet({
     today,
     compare,
 }: RangeSheetProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const [page, setPage] = useState<Page>('main')
     const { height } = useWindowDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
@@ -137,6 +138,8 @@ interface MainPageProps {
 }
 
 function MainPage({ range, emptyLabel, detail, compare, onChoose, onCustom }: MainPageProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const fixed = range.choice?.kind === 'fixed'
     return (
         <>
@@ -215,6 +218,8 @@ interface OptionRowProps {
 }
 
 function OptionRow({ label, selected, first, meta, chevron = false, onPress, testID }: OptionRowProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -240,6 +245,8 @@ function OptionRow({ label, selected, first, meta, chevron = false, onPress, tes
 }
 
 function CompareRow({ compare }: { compare: RangeCompareRow }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     // The sheet draws through a portal, so new props arrive one render after the switch's own change event. A
     // controlled switch that still sees the old value in that render turns itself back, so the row keeps the value.
     const [on, setOn] = useState(compare.on)
@@ -250,6 +257,7 @@ function CompareRow({ compare }: { compare: RangeCompareRow }): ReactElement {
         setOn(next)
         compare.onChange(next)
     }
+    const webSwitchProps = Platform.OS === 'web' ? { activeThumbColor: colors.white } : {}
     return (
         <View style={styles.toggleRow}>
             <View style={styles.grow}>
@@ -259,11 +267,11 @@ function CompareRow({ compare }: { compare: RangeCompareRow }): ReactElement {
                 <Text style={styles.meta}>{compare.note}</Text>
             </View>
             <Switch
-                {...WEB_SWITCH_PROPS}
+                {...webSwitchProps}
                 value={on}
                 onValueChange={change}
                 disabled={!compare.enabled}
-                trackColor={{ true: colors.blue, false: colors.border }}
+                trackColor={{ true: colors.blue, false: colors.switchOff }}
                 thumbColor={colors.white}
                 accessibilityLabel="Compare to previous period"
                 accessibilityHint={compare.enabled ? undefined : compare.note}
@@ -274,6 +282,8 @@ function CompareRow({ compare }: { compare: RangeCompareRow }): ReactElement {
 }
 
 function CustomHead({ onBack }: { onBack: () => void }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.customHead}>
             <Pressable44
@@ -294,7 +304,7 @@ function CustomHead({ onBack }: { onBack: () => void }): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     body: {
         gap: 14,
         paddingTop: 2,
@@ -328,7 +338,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -341,13 +351,13 @@ const styles = StyleSheet.create({
         color: colors.ink,
     },
     chipTextSelected: {
-        color: colors.white,
+        color: colors.onInk,
     },
     group: {
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         overflow: 'hidden',
     },
     option: {
@@ -356,7 +366,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 10,
         paddingHorizontal: 14,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     optionDivider: {
         borderTopWidth: StyleSheet.hairlineWidth,
@@ -380,7 +390,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     grow: {
         flex: 1,
@@ -403,7 +413,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     resetText: {
         ...type.bodyStrong,
@@ -437,4 +447,4 @@ const styles = StyleSheet.create({
     backSpacer: {
         width: 72,
     },
-})
+}))

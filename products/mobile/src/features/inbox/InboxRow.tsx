@@ -1,5 +1,5 @@
 import { memo, type ReactElement } from 'react'
-import { type AccessibilityActionEvent, type AccessibilityActionInfo, StyleSheet, Text, View } from 'react-native'
+import { type AccessibilityActionEvent, type AccessibilityActionInfo, Text, View } from 'react-native'
 
 import { track } from '@/lib/analytics'
 import { formatRelativeAgo } from '@/lib/dates'
@@ -9,7 +9,8 @@ import type { InboxItem, PullRequestView } from '@/model/types'
 import { IconTile } from '@/ui/IconTile'
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, type ThemeColors, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import type { RowAnchor } from './contextMenuPlacement'
 import { SwipeToReadRow } from './SwipeToReadRow'
@@ -26,17 +27,19 @@ interface BadgeColors {
 }
 
 // Matches the web inbox: green for open, purple for merged, gray for draft, closed and unknown.
-const PR_STATE_COLORS: Partial<Record<PullRequestView['state'], BadgeColors>> = {
-    open: { text: colors.diffGreen, border: colors.diffGreenBorder },
-    merged: { text: colors.purple, border: colors.purpleBorder },
+function prStateColors(colors: ThemeColors): Partial<Record<PullRequestView['state'], BadgeColors>> {
+    return {
+        open: { text: colors.diffGreen, border: colors.diffGreenBorder },
+        merged: { text: colors.purple, border: colors.purpleBorder },
+    }
 }
 const PR_STATE_LABELS: Partial<Record<PullRequestView['state'], string>> = {
     open: 'open',
     merged: 'merged',
 }
 
-function badgeColors(state: PullRequestView['state'] | undefined, muted: boolean): BadgeColors {
-    const stateColors = muted || !state ? undefined : PR_STATE_COLORS[state]
+function badgeColors(state: PullRequestView['state'] | undefined, muted: boolean, colors: ThemeColors): BadgeColors {
+    const stateColors = muted || !state ? undefined : prStateColors(colors)[state]
     if (stateColors) {
         return stateColors
     }
@@ -66,6 +69,8 @@ export const InboxRow = memo(function InboxRow({
     onLongPress,
     onSetRead,
 }: InboxRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const menuTrigger = useRowMenuTrigger(item, onLongPress)
     const readAction = item.read ? MARK_UNREAD_ACTION : MARK_READ_ACTION
     const swipe = (read: boolean): void => {
@@ -87,7 +92,7 @@ export const InboxRow = memo(function InboxRow({
     const when =
         item.state === 'snoozed' && item.snoozeLabel ? item.snoozeLabel : formatRelativeAgo(item.updatedAt, now)
     const prNumber = item.pullRequestUrl ? pullRequestNumber(item.pullRequestUrl) : undefined
-    const badge = badgeColors(item.pullRequestState, muted)
+    const badge = badgeColors(item.pullRequestState, muted, colors)
     return (
         <SwipeToReadRow onMarkRead={() => swipe(true)} onMarkUnread={() => swipe(false)}>
             {(pressBlocked) => (
@@ -151,7 +156,7 @@ export const InboxRow = memo(function InboxRow({
     )
 })
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.blue, marginRight: 6, flexShrink: 0 },
     row: {
         flexDirection: 'row',
@@ -215,4 +220,4 @@ const styles = StyleSheet.create({
         borderRadius: 1.5,
         backgroundColor: colors.dotSeparator,
     },
-})
+}))

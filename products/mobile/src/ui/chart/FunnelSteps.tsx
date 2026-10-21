@@ -1,10 +1,11 @@
 import { type ReactElement, useCallback } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { groupThousands, plural } from '@/model/adapters/text'
 import type { FunnelStepView, FunnelView } from '@/model/views'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, lineHeight, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { lineHeight, radii, type } from '@/ui/tokens'
 
 import { useItemChartAccessibility } from './accessibility/useChartAccessibility'
 import { seriesColor } from './palette'
@@ -88,6 +89,8 @@ export function FunnelSteps({
     accessibilityActions,
     testID,
 }: FunnelStepsProps): ReactElement {
+    const { colors, chartPalette } = useTheme()
+    const styles = useStyles()
     const { steps } = funnel
     const selection = useItemSelection({
         selectionId,
@@ -122,7 +125,7 @@ export function FunnelSteps({
             </Text>
         )
     }
-    const fill = seriesColor(0)
+    const fill = seriesColor(0, chartPalette)
     return (
         <View ref={selection.viewRef} onTouchStart={selection.onTouchStart} testID={testID} {...a11y}>
             {showSummary && summary ? <Text style={styles.summary}>{summary}</Text> : null}
@@ -180,7 +183,7 @@ export function FunnelSteps({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     summary: {
         ...type.bodySmallStrong,
         color: colors.ink,
@@ -252,4 +255,4 @@ const styles = StyleSheet.create({
         color: colors.muted,
         paddingVertical: 8,
     },
-})
+}))

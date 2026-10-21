@@ -1,17 +1,20 @@
 import { type ErrorBoundaryProps, useSegments } from 'expo-router'
 import { type ReactElement, useEffect } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
 import { captureError, track } from '@/lib/analytics'
 import { screenName } from '@/lib/useScreenTracking'
 
 import { WarningIcon } from './icons/WarningIcon'
 import { StateView } from './StateView'
-import { colors, iconSizes } from './tokens'
+import { createStyles, useColors } from './theme'
+import { iconSizes } from './tokens'
 
 /** Shown by Expo Router when a screen throws while rendering. */
 export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps): ReactElement {
     const screen = screenName(useSegments())
+    const colors = useColors()
+    const styles = useStyles()
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: one report per error, not per route change.
     useEffect(() => {
@@ -35,9 +38,9 @@ export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps): ReactE
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-})
+}))

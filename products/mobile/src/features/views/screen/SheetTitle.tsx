@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 interface SheetTitleProps {
     title: string
@@ -13,6 +14,8 @@ interface SheetTitleProps {
 
 /** The head of a Views sheet: a small line, the title, and Done. */
 export function SheetTitle({ title, subtitle, onDone }: SheetTitleProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.head}>
             <View style={styles.titles}>
@@ -32,7 +35,7 @@ export function SheetTitle({ title, subtitle, onDone }: SheetTitleProps): ReactE
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     head: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -60,7 +63,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -68,4 +71,4 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
-})
+}))

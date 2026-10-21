@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactElement, type ReactNode, useState } from 'react'
-import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type LayoutChangeEvent, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
 
 import type { InboxItem } from '@/model/types'
@@ -15,7 +15,8 @@ import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, layout, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
@@ -70,6 +71,8 @@ function ContextMenuRow({
     onPress,
     testID,
 }: ContextMenuRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -114,6 +117,8 @@ export function ReportContextMenu({
     onMarkRead,
     onMarkUnread,
 }: ReportContextMenuProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const insets = useScreenInsets()
     const { width: windowWidth } = useWindowDimensions()
     // The overlay covers the full screen, which on Android edge-to-edge includes the navigation bar that the window height leaves out.
@@ -243,7 +248,7 @@ export function ReportContextMenu({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         left: layout.inboxGutter,
         borderWidth: CARD_BORDER,
@@ -293,4 +298,4 @@ const styles = StyleSheet.create({
     disabledLabel: {
         color: colors.disabled,
     },
-})
+}))

@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
-import { colors, fonts, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { fonts, type } from '@/ui/tokens'
 
 interface SettingsRowProps {
     label: string
@@ -12,6 +13,7 @@ interface SettingsRowProps {
 }
 
 export function SettingsRow({ label, value, monoValue = false, accessory, testID }: SettingsRowProps): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.row} testID={testID}>
             <Text style={[styles.label, value ? null : styles.labelFill]}>{label}</Text>
@@ -25,7 +27,7 @@ export function SettingsRow({ label, value, monoValue = false, accessory, testID
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         minHeight: 52,
         flexDirection: 'row',
@@ -54,4 +56,4 @@ const styles = StyleSheet.create({
         fontFamily: fonts.mono,
         fontSize: 13,
     },
-})
+}))

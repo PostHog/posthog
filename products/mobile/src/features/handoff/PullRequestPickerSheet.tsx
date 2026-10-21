@@ -1,12 +1,13 @@
 import { type ReactElement, useMemo } from 'react'
-import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ScrollView, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
 import type { PullRequestView } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { PULL_REQUEST_STATE_LABELS, pullRequestIdentity, pullRequestTitle } from './pullRequestDisplay'
 import { SheetPageHeader } from './SheetPageHeader'
@@ -26,6 +27,8 @@ export function PullRequestPickerSheet({
     onClose,
     onSelect,
 }: PullRequestPickerSheetProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { height } = useWindowDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     return (
@@ -72,7 +75,7 @@ export function PullRequestPickerSheet({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -85,4 +88,4 @@ const styles = StyleSheet.create({
     body: { flex: 1, minWidth: 0, gap: 4 },
     title: { ...type.bodyStrong, color: colors.ink },
     meta: { ...type.meta, color: colors.muted },
-})
+}))

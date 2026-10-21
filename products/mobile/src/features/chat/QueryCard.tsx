@@ -1,11 +1,13 @@
 import { type ReactElement, useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { useProjectScope } from '@/auth/useProjectScope'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 import { objectMeta, objectWebUrl } from './objectTags'
 import { openReplyUrl } from './webLinks'
 
 export function QueryCard({ query, title }: { query: string; title?: string }): ReactElement {
+    const styles = useStyles()
     const scope = useProjectScope()
     const url = scope && objectWebUrl(scope.host, scope.projectId, 'hogql', query)
     const [expanded, setExpanded] = useState(false)
@@ -36,9 +38,9 @@ export function QueryCard({ query, title }: { query: string; title?: string }): 
         </View>
     )
 }
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderColor: colors.hairline,
         borderWidth: 1,
         borderRadius: radii.card,
@@ -51,4 +53,4 @@ const styles = StyleSheet.create({
     queryBox: { backgroundColor: colors.sunken, padding: 8, borderRadius: 8 },
     query: { ...type.mono, color: colors.muted },
     toggle: { ...type.meta, color: colors.blue },
-})
+}))

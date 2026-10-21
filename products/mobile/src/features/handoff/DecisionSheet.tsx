@@ -1,12 +1,13 @@
 import { type ReactElement, useMemo, useRef } from 'react'
-import { ScrollView, StyleSheet, Text, useWindowDimensions } from 'react-native'
+import { ScrollView, Text, useWindowDimensions } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
-import { colors, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { type } from '@/ui/tokens'
 
 import { DecisionCard } from './DecisionCard'
 import { SheetPageHeader } from './SheetPageHeader'
@@ -28,6 +29,7 @@ export function DecisionSheet({
     onAnswer,
     notice,
 }: DecisionSheetProps): ReactElement {
+    const styles = useStyles()
     const { height } = useWindowDimensions()
     const keyboard = useReanimatedKeyboardAnimation()
     const scroll = useRef<ScrollView>(null)
@@ -84,8 +86,8 @@ export function DecisionSheet({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     content: { marginTop: 8 },
     scroll: { flexGrow: 0 },
     notice: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 4, marginTop: 6 },
-})
+}))

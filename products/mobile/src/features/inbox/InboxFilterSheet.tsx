@@ -10,7 +10,8 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
-import { colors, iconSizes, radii, space, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, space, type } from '@/ui/tokens'
 
 import {
     CREATED_WINDOW_OPTIONS,
@@ -48,6 +49,8 @@ export function InboxFilterSheet({
     onToggleSource,
     onClear,
 }: InboxFilterSheetProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const { height } = useWindowDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     const modelScoreSort = useFeatureFlag(FEATURE_FLAGS.modelScoreSort)
@@ -150,7 +153,7 @@ export function InboxFilterSheet({
                                             >
                                                 <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
                                                     {selected ? (
-                                                        <CheckIcon size={12} color={colors.white} strokeWidth={3} />
+                                                        <CheckIcon size={12} color={colors.onInk} strokeWidth={3} />
                                                     ) : null}
                                                 </View>
                                                 <Icon
@@ -167,7 +170,7 @@ export function InboxFilterSheet({
                     </ScrollView>
                 </GestureDetector>
                 <View style={styles.fade}>
-                    <FadeEdge direction="up" solid={0} color={colors.white} />
+                    <FadeEdge direction="up" solid={0} color={colors.surface} />
                 </View>
             </View>
         </BottomSheet>
@@ -181,6 +184,8 @@ interface SortRowProps {
 }
 
 function SortRow({ option, selected, onPress }: SortRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const { Icon } = option
     return (
         <Pressable44
@@ -209,7 +214,7 @@ const ROW_GAP = space[12]
 // Dividers start under the label, past the icon, like a grouped list.
 const ROW_TEXT_INSET = ROW_PADDING + iconSizes.control + ROW_GAP
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     head: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -264,7 +269,7 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
     },
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.softCard,
@@ -317,7 +322,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     chipSelected: {
         backgroundColor: colors.sunken,
@@ -333,7 +338,7 @@ const styles = StyleSheet.create({
         marginRight: 2,
         borderRadius: 4,
         borderWidth: 1.5,
-        borderColor: colors.border,
+        borderColor: colors.control,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -346,4 +351,4 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
         paddingHorizontal: 4,
     },
-})
+}))

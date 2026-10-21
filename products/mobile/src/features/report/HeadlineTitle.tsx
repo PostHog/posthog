@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, type TextStyle } from 'react-native'
+import { type LayoutChangeEvent, Text, type TextStyle } from 'react-native'
 
 import type { Accent, Headline } from '@/model/types'
-import { accentColor, colors, prettyWrap, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { prettyWrap, type } from '@/ui/tokens'
 
 interface HeadlineTitleProps {
     headline: Headline
@@ -12,6 +13,8 @@ interface HeadlineTitleProps {
 
 /** The report headline, with its leading number in the accent color. */
 export function HeadlineTitle({ headline, accent, onLayout }: HeadlineTitleProps): ReactElement {
+    const styles = useStyles()
+    const numberStyles = useNumberStyles()
     return (
         <Text
             style={[styles.headline, prettyWrap]}
@@ -19,21 +22,21 @@ export function HeadlineTitle({ headline, accent, onLayout }: HeadlineTitleProps
             lineBreakStrategyIOS="standard"
             onLayout={onLayout}
         >
-            {headline.number ? <Text style={NUMBER_STYLES[accent]}>{headline.number} </Text> : null}
+            {headline.number ? <Text style={numberStyles[accent]}>{headline.number} </Text> : null}
             {headline.rest}
         </Text>
     )
 }
 
-const NUMBER_STYLES = StyleSheet.create<Record<Accent, TextStyle>>({
+const useNumberStyles = createStyles<Record<Accent, TextStyle>>(({ accentColor }) => ({
     alert: { color: accentColor.alert },
     opportunity: { color: accentColor.opportunity },
     resolved: { color: accentColor.resolved },
-})
+}))
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     headline: {
         ...type.headline,
         color: colors.ink,
     },
-})
+}))

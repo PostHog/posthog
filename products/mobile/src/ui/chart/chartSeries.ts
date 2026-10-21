@@ -1,7 +1,6 @@
-import { accentColor } from '@/ui/tokens'
+import type { Theme } from '@/ui/theme'
 
 import { formatAxisDate, formatChange, formatClockTime, formatTooltipDate } from './chartMath'
-import { PREVIOUS_PERIOD_COLOR } from './palette'
 import type { ChartInterval, ChartSeries, ChartTooltipPoint, ChartTooltipRow, MetricChartProps } from './types'
 
 /** The tooltip shows this many series rows, then "+N more". Full screen shows them all. */
@@ -10,21 +9,24 @@ export const TOOLTIP_MAX_ROWS = 4
 /** The key of the one series a `points` chart draws. */
 export const SINGLE_SERIES_KEY = 'value'
 
-export function chartSeriesOf(props: MetricChartProps): ChartSeries[] {
+/** A `points` chart draws its one series in the theme's color for its accent. */
+export function chartSeriesOf(props: MetricChartProps, theme: Theme): ChartSeries[] {
     if (props.series) {
         return props.series
     }
-    return [{ key: SINGLE_SERIES_KEY, label: props.label, color: accentColor[props.accent], points: props.points }]
+    return [
+        { key: SINGLE_SERIES_KEY, label: props.label, color: theme.accentColor[props.accent], points: props.points },
+    ]
 }
 
 export function isCompareSeries(series: ChartSeries): boolean {
     return series.compareOf !== undefined
 }
 
-export function seriesStroke(series: ChartSeries): { color: string; dotted: boolean } {
+export function seriesStroke(series: ChartSeries, theme: Theme): { color: string; dotted: boolean } {
     const compare = isCompareSeries(series)
     return {
-        color: compare ? PREVIOUS_PERIOD_COLOR : series.color,
+        color: compare ? theme.previousPeriodColor : series.color,
         dotted: (series.style ?? (compare ? 'dotted' : 'solid')) === 'dotted',
     }
 }

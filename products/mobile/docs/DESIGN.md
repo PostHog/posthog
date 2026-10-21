@@ -16,13 +16,36 @@ See [Android's adaptive icon guidelines](https://developer.android.com/develop/u
 
 ## Tokens
 
-All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these values.
+The app follows the device's light or dark setting; there is no in-app switch.
+`app.config.ts` sets `userInterfaceStyle: 'automatic'` and a dark splash, which take effect only after a native rebuild.
+Scheme-independent values live in `src/ui/tokens.ts`. Colors and everything derived from them live in `src/ui/theme.ts`.
 
-- `colors`: every color in the handoff, named by role (`ink`, `muted`, `secondary`, `tertiary`,
+- `lightColors`, `darkColors`: every color in the handoff, named by role (`ink`, `muted`, `secondary`, `tertiary`,
   `border`, `hairline`, `rowDivider`, `sunken`, `pressed`, `background`, `orange`, `blue`, ...),
-  plus the scrims and the white overlays used on the orange button.
-- `avatarPalette`, `accentColor`: keyed by the report `Accent`
-  (`alert` orange, `opportunity` blue, `resolved` ink).
+  plus the scrims and the overlays used on the accent button. Both palettes have the same keys.
+  The dark palette follows the web app's dark theme: cool dark neutrals, light text, amber accent.
+- Roles that were all white in the light handoff have their own tokens, because they differ in dark:
+  `surface` for cards, pills, sheets, floating cards, text fields and menus;
+  `onInk` for text and icons on an `ink` fill; `onAccent` for text and icons on an `accent` fill.
+  `white` is literal white in both schemes, only for text on a fixed color, such as avatar initials.
+  The logomark's head and the wordmark use `ink`, so they stay visible on a dark background.
+- `accent` (`accentHover` when pressed) fills the primary call to action: Sign in, Hand off, Send a decision.
+  `orange` stays for warnings, failures, destructive actions, the P0/P1 priority and the report `alert` accent.
+- Some roles shared `border` or `ink` in light but need their own value in dark:
+  `switchOn`/`switchOff` for switch tracks (the thumb is literal `white`), `control` for unselected radio and checkbox
+  rings, `disabledFill`/`onDisabled` for a disabled primary button and its label, `barNeutral` for single-series bars
+  and `terminalBorder` for the code card outline (transparent in light).
+- `useTheme()` returns the current `Theme`: `colors`, `shadows`, `avatarPalette`, `accentColor` (keyed by the report
+  `Accent`: `alert` orange, `opportunity` blue, `resolved` ink), `swipeColors`, `chartPalette` and
+  `previousPeriodColor`. `useColors()` returns only `colors`. `useColorSchemeName()` reads the device setting;
+  an unknown setting counts as light.
+- `createStyles(({ colors, shadows }) => ({ ... }))` replaces `StyleSheet.create` for any sheet that uses a color or a
+  shadow. Call it at module level; it returns a `useStyles` hook that builds the sheet once per scheme. The factory
+  must be pure. Code outside a component (a helper, a pure function) takes `ThemeColors` or the `Theme` as a
+  parameter, or a sheet typed `ReturnType<typeof useStyles>`, and the component passes it in.
+- Inline colors (`color`, `tintColor`, `stroke`, `placeholderTextColor`) come from `useTheme()` in the component.
+  `BlurEdge` tints, `keyboardAppearance`, `StatusBar`, `ActivityIndicator` and `RefreshControl` follow the scheme.
+- `environmentRibbonColors` (in `tokens.ts`) are brand bands and stay the same in both schemes.
 - `type`: the type scale. React Native letter spacing is in points, so `letterSpacing(size, em)`
   converts the handoff's em values per size. Text without an explicit line height uses the
   prototype's root line height of 1.4 (`lineHeight(size)`).
@@ -33,8 +56,8 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   for empty-state illustrations. Use the role's token at the call site instead of a glyph's default size.
 - `space` (keyed by value, `space[14]`), `radii`, `layout` (gutters, 44pt tap target, and the
   prototype frame's 54pt status bar and 34pt home indicator).
-- `shadows`: `shadow*` props plus Android `elevation` on native (radius is half the CSS blur);
-  the exact CSS `boxShadow` on web.
+- `shadows` (on the `Theme`): `shadow*` props plus Android `elevation` on native (radius is half the CSS blur);
+  the exact CSS `boxShadow` on web. Dark shadows are black and stronger.
 - `motion`: 180ms fades, 200ms sheets and chevron, 220ms floating cards, with the handoff's
   bezier curves. `usePresence` sets every duration to 0 when reduce motion is on.
 - `inputReset`, `prettyWrap`: web-only fixes, see below.

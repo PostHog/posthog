@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, waitFor } from '@testing-library/react-native'
-import { Linking } from 'react-native'
+import { Linking, useColorScheme } from 'react-native'
 import { getInsightSummary } from '@/api/insights'
+import { darkColors } from '@/ui/theme'
 import { ChatMarkdown } from './ChatMarkdown'
 import { MermaidDiagram } from './MermaidDiagram'
 
@@ -29,7 +30,18 @@ describe('reply object rendering', () => {
         expect(diagram).toHaveBeenCalled()
     })
     beforeEach(() => jest.clearAllMocks())
-    afterEach(() => jest.restoreAllMocks())
+    afterEach(() => {
+        jest.restoreAllMocks()
+        jest.mocked(useColorScheme).mockReturnValue('light')
+    })
+    test.each([
+        ['reply', darkColors.ink],
+        ['thought', darkColors.muted],
+    ] as const)('draws %s code in the dark palette', (tone, color) => {
+        jest.mocked(useColorScheme).mockReturnValue('dark')
+        const screen = render(<ChatMarkdown text="Run `pnpm test` now" tone={tone} />)
+        expect(screen.getByText('pnpm test')).toHaveStyle({ color })
+    })
     test('opens an inline object in the current project', () => {
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
         const screen = view('See <insight id="abc">Count</insight>')

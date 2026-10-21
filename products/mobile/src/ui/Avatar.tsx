@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
-import { avatarPalette, colors } from './tokens'
+import { useTheme } from './theme'
 
 interface AvatarProps {
     name: string
@@ -20,15 +20,16 @@ export function initialsFor(name: string): string {
         .toUpperCase()
 }
 
-export function paletteColorFor(seed: string): string {
+export function paletteColorFor(seed: string, palette: readonly string[]): string {
     let hash = 0
     for (const char of seed) {
         hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0
     }
-    return avatarPalette[hash % avatarPalette.length] ?? colors.ink
+    return palette[hash % palette.length] ?? 'gray'
 }
 
 export function Avatar({ name, color, seed, size = 32, fontSize = 12 }: AvatarProps): ReactElement {
+    const { avatarPalette } = useTheme()
     return (
         <View
             accessibilityLabel={name}
@@ -36,7 +37,7 @@ export function Avatar({ name, color, seed, size = 32, fontSize = 12 }: AvatarPr
             style={[
                 styles.circle,
                 { width: size, height: size, borderRadius: size / 2 },
-                { backgroundColor: color ?? paletteColorFor(seed ?? name) },
+                { backgroundColor: color ?? paletteColorFor(seed ?? name, avatarPalette) },
             ]}
         >
             <Text style={[styles.initials, { fontSize, lineHeight: Math.round(fontSize * 1.2) }]}>
@@ -52,7 +53,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     initials: {
-        color: colors.white,
+        // Literal white: it reads on every avatar palette color in both schemes.
+        color: 'white',
         fontWeight: '600',
     },
 })

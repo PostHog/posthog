@@ -1,11 +1,12 @@
 import { memo, type ReactElement, type ReactNode } from 'react'
-import { StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { Text, View, type ViewStyle } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import type { ViewRef } from '@/model/views'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { useMenuTrigger } from './useMenuTrigger'
 import { ViewIcon } from './viewMeta'
@@ -31,6 +32,7 @@ const CORNERS: Record<GroupPosition, ViewStyle> = {
 
 /** The white, bordered frame of one row in a group, with the divider above every row but the first. */
 export function GroupFrame({ position, children }: { position: GroupPosition; children: ReactNode }): ReactElement {
+    const styles = useStyles()
     return <View style={[styles.frame, CORNERS[position]]}>{children}</View>
 }
 
@@ -56,6 +58,8 @@ function ViewRowInner<T extends ViewRef>({
     onMenu,
     testID,
 }: ViewRowProps<T>): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const menu = useMenuTrigger(view, onMenu)
     return (
         <GroupFrame position={position}>
@@ -104,10 +108,10 @@ function ViewRowInner<T extends ViewRef>({
 
 export const ViewRow = memo(ViewRowInner) as typeof ViewRowInner
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     frame: {
         overflow: 'hidden',
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderColor: colors.hairline,
         borderLeftWidth: 1,
         borderRightWidth: 1,
@@ -117,7 +121,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         paddingRight: 4,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     divider: {
         borderTopWidth: 1,
@@ -160,4 +164,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

@@ -1,5 +1,5 @@
 import type { ChatSessionStatus } from '@/model/types'
-import { colors } from '@/ui/tokens'
+import { lightColors as colors } from '@/ui/theme'
 
 import { sessionStatusDisplay } from './sessionStatus'
 
@@ -13,6 +13,6 @@ describe('session status display', () => {
         ['stopped', 'Stopped', colors.tertiary],
         ['idle', 'Idle', colors.tertiary],
     ])('%s shows %s', (status, label, dotColor) => {
-        expect(sessionStatusDisplay(status)).toEqual({ label, dotColor })
+        expect(sessionStatusDisplay(status, colors)).toEqual({ label, dotColor })
     })
 })

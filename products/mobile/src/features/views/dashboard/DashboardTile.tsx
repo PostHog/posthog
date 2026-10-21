@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useMemo } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { useNow } from '@/lib/useNow'
 import type { DashboardTileView, InsightSnapshot } from '@/model/views'
@@ -8,7 +8,8 @@ import { funnelPercent } from '@/ui/chart/FunnelSteps'
 import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { RefreshIcon } from '@/ui/icons/RefreshIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { DeltaPill } from '../DeltaPill'
 import { isEligible } from '../freshness'
@@ -62,6 +63,8 @@ interface InsightTileProps {
 
 /** One insight on a dashboard: a big number, a chart, or a card that opens it on the web. */
 export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshItem }: InsightTileProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const router = useRouter()
     const { mode } = useViewsContext()
     const data = useTileData(tile)
@@ -223,6 +226,7 @@ function tileMeta(snapshot: InsightSnapshot | undefined, view: DashboardTileView
 }
 
 function NumberBody({ snapshot, onOpen }: { snapshot: InsightSnapshot; onOpen: () => void }): ReactElement {
+    const styles = useStyles()
     const formatValue = snapshotFormatter(snapshot)
     const at = valueAtText(snapshot)
     return (
@@ -242,13 +246,13 @@ function NumberBody({ snapshot, onOpen }: { snapshot: InsightSnapshot; onOpen: (
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     tile: {
         padding: 14,
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         overflow: 'hidden',
     },
     head: {
@@ -317,7 +321,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     loadButtonText: {
         fontSize: 14,
@@ -347,4 +351,4 @@ const styles = StyleSheet.create({
         height: 2,
         backgroundColor: colors.blueLight,
     },
-})
+}))

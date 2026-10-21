@@ -16,7 +16,8 @@ import { Eyebrow } from '@/ui/Eyebrow'
 import { GripIcon } from '@/ui/icons/GripIcon'
 import { MinusIcon } from '@/ui/icons/MinusIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, layout, motion, radii, shadows, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { layout, motion, radii, type } from '@/ui/tokens'
 
 import { pinModes } from '../pinHooks'
 import { ModeSegment } from './ModeSegment'
@@ -56,6 +57,7 @@ export function EditPinsList({
     onMode,
     onRemove,
 }: EditPinsListProps): ReactElement {
+    const styles = useStyles()
     const ids = useMemo(() => pins.map((pin) => pin.shortcutId), [pins])
     const idsKey = ids.join('|')
     const positions = useSharedValue<Positions>(positionsOf(ids))
@@ -126,6 +128,8 @@ function EditRow({
     onMode,
     onRemove,
 }: EditRowProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     const id = pin.shortcutId
     const top = useSharedValue(index * STEP)
     const dragging = useSharedValue(false)
@@ -198,6 +202,7 @@ function EditRow({
                     style={styles.remove}
                     testID={`edit-pin-remove-${key}`}
                 >
+                    {/* White on the red remove control in both schemes, like the iOS delete control. */}
                     <MinusIcon size={14} color={colors.white} />
                 </Pressable44>
                 <View style={styles.iconTile}>
@@ -243,7 +248,7 @@ function EditRow({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.inboxGutter,
     },
@@ -263,7 +268,7 @@ const styles = StyleSheet.create({
     },
     lift: {
         borderRadius: radii.option,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     row: {
         height: ROW_HEIGHT,
@@ -275,7 +280,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     remove: {
         width: 26,
@@ -319,4 +324,4 @@ const styles = StyleSheet.create({
         marginTop: 12,
         marginHorizontal: 4,
     },
-})
+}))

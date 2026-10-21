@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { type ImageStyle, Text, type TextStyle, type ViewStyle } from 'react-native'
 import Markdown, { type RenderRules } from 'react-native-markdown-display'
 import { createMarkdownIt } from '@/lib/markdownIt'
 import { isMermaidLang } from '@/lib/mermaid'
-import { colors, fonts, radii, type } from '@/ui/tokens'
+import { createStyles, type Theme } from '@/ui/theme'
+import { fonts, radii, type } from '@/ui/tokens'
 import { InsightCard } from './InsightCard'
 import { MermaidDiagram } from './MermaidDiagram'
 import { ObjectChip } from './ObjectChip'
@@ -71,6 +72,8 @@ interface ChatMarkdownProps {
 }
 
 export function ChatMarkdown({ text, streaming = false, tone = 'reply' }: ChatMarkdownProps): ReactElement {
+    const replyStyles = useReplyStyles()
+    const thoughtStyles = useThoughtStyles()
     return (
         <Markdown
             markdownit={markdownIt}
@@ -83,153 +86,164 @@ export function ChatMarkdown({ text, streaming = false, tone = 'reply' }: ChatMa
     )
 }
 
-const code = {
-    fontFamily: fonts.mono,
-    color: colors.ink,
-} as const
+type MarkdownStyles = Record<string, ViewStyle | TextStyle | ImageStyle>
 
-const replyStyles = StyleSheet.create({
-    body: {
-        fontSize: 16,
-        lineHeight: 23.2,
+function replyMarkdownStyles({ colors }: Theme) {
+    const code = {
+        fontFamily: fonts.mono,
         color: colors.ink,
-    },
-    paragraph: {
-        marginTop: 0,
-        marginBottom: 10,
-    },
-    heading1: { ...type.sheetTitleLarge, marginTop: 4, marginBottom: 8 },
-    heading2: { ...type.sheetTitle, marginTop: 4, marginBottom: 8 },
-    heading3: { ...type.sectionHeader, marginTop: 4, marginBottom: 6 },
-    heading4: { ...type.bodyStrong, marginTop: 4, marginBottom: 6 },
-    heading5: { ...type.bodyStrong, marginTop: 4, marginBottom: 6 },
-    heading6: { ...type.bodyStrong, marginTop: 4, marginBottom: 6 },
-    strong: {
-        fontWeight: '600',
-    },
-    link: {
-        color: colors.ink,
-        textDecorationLine: 'underline',
-    },
-    bullet_list: {
-        marginBottom: 10,
-    },
-    ordered_list: {
-        marginBottom: 10,
-    },
-    list_item: {
-        marginBottom: 4,
-    },
-    bullet_list_icon: {
-        color: colors.tertiary,
-        marginLeft: 2,
-        marginRight: 8,
-    },
-    ordered_list_icon: {
-        color: colors.secondary,
-        marginLeft: 2,
-        marginRight: 8,
-    },
-    code_inline: {
-        ...code,
-        fontSize: 14,
-        backgroundColor: colors.sunken,
-        borderWidth: 0,
-        borderRadius: 4,
-        // The library default pads 10 on every side, which makes the line box taller than the text.
-        padding: 0,
-        paddingHorizontal: 4,
-    },
-    code_block: {
-        ...code,
-        ...type.mono,
-        backgroundColor: colors.background,
-        borderColor: colors.hairline,
-        borderWidth: 1,
-        borderRadius: radii.card,
-        padding: 12,
-        marginBottom: 10,
-    },
-    fence: {
-        ...code,
-        ...type.mono,
-        backgroundColor: colors.background,
-        borderColor: colors.hairline,
-        borderWidth: 1,
-        borderRadius: radii.card,
-        padding: 12,
-        marginBottom: 10,
-    },
-    blockquote: {
-        backgroundColor: 'transparent',
-        borderColor: colors.hairline,
-        borderLeftWidth: 3,
-        marginLeft: 0,
-        paddingHorizontal: 12,
-        paddingVertical: 0,
-        marginBottom: 10,
-    },
-    hr: {
-        backgroundColor: colors.hairline,
-        height: 1,
-        marginVertical: 12,
-    },
-    table: {
-        borderColor: colors.hairline,
-        borderWidth: 1,
-        borderRadius: 8,
-        marginBottom: 10,
-    },
-    tr: {
-        borderBottomWidth: 1,
-        borderColor: colors.hairline,
-    },
-    th: {
-        padding: 8,
-        fontWeight: '600',
-    },
-    td: {
-        padding: 8,
-    },
-})
+    } as const
 
-const thoughtCode = {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    // Code inherits the italic body style, and italic monospace is hard to read.
-    fontStyle: 'normal',
-} as const
+    return {
+        body: {
+            fontSize: 16,
+            lineHeight: 23.2,
+            color: colors.ink,
+        },
+        paragraph: {
+            marginTop: 0,
+            marginBottom: 10,
+        },
+        heading1: { ...type.sheetTitleLarge, marginTop: 4, marginBottom: 8 },
+        heading2: { ...type.sheetTitle, marginTop: 4, marginBottom: 8 },
+        heading3: { ...type.sectionHeader, marginTop: 4, marginBottom: 6 },
+        heading4: { ...type.bodyStrong, marginTop: 4, marginBottom: 6 },
+        heading5: { ...type.bodyStrong, marginTop: 4, marginBottom: 6 },
+        heading6: { ...type.bodyStrong, marginTop: 4, marginBottom: 6 },
+        strong: {
+            fontWeight: '600',
+        },
+        link: {
+            color: colors.ink,
+            textDecorationLine: 'underline',
+        },
+        bullet_list: {
+            marginBottom: 10,
+        },
+        ordered_list: {
+            marginBottom: 10,
+        },
+        list_item: {
+            marginBottom: 4,
+        },
+        bullet_list_icon: {
+            color: colors.tertiary,
+            marginLeft: 2,
+            marginRight: 8,
+        },
+        ordered_list_icon: {
+            color: colors.secondary,
+            marginLeft: 2,
+            marginRight: 8,
+        },
+        code_inline: {
+            ...code,
+            fontSize: 14,
+            backgroundColor: colors.sunken,
+            borderWidth: 0,
+            borderRadius: 4,
+            // The library default pads 10 on every side, which makes the line box taller than the text.
+            padding: 0,
+            paddingHorizontal: 4,
+        },
+        code_block: {
+            ...code,
+            ...type.mono,
+            backgroundColor: colors.background,
+            borderColor: colors.hairline,
+            borderWidth: 1,
+            borderRadius: radii.card,
+            padding: 12,
+            marginBottom: 10,
+        },
+        fence: {
+            ...code,
+            ...type.mono,
+            backgroundColor: colors.background,
+            borderColor: colors.hairline,
+            borderWidth: 1,
+            borderRadius: radii.card,
+            padding: 12,
+            marginBottom: 10,
+        },
+        blockquote: {
+            backgroundColor: 'transparent',
+            borderColor: colors.hairline,
+            borderLeftWidth: 3,
+            marginLeft: 0,
+            paddingHorizontal: 12,
+            paddingVertical: 0,
+            marginBottom: 10,
+        },
+        hr: {
+            backgroundColor: colors.hairline,
+            height: 1,
+            marginVertical: 12,
+        },
+        table: {
+            borderColor: colors.hairline,
+            borderWidth: 1,
+            borderRadius: 8,
+            marginBottom: 10,
+        },
+        tr: {
+            borderBottomWidth: 1,
+            borderColor: colors.hairline,
+        },
+        th: {
+            padding: 8,
+            fontWeight: '600',
+        },
+        td: {
+            padding: 8,
+        },
+    } satisfies MarkdownStyles
+}
 
-const thoughtHeading = { ...type.bodySmallStrong, color: colors.muted, marginTop: 4, marginBottom: 6 } as const
-
-const thoughtStyles = StyleSheet.create({
-    ...replyStyles,
-    body: {
-        ...type.bodySmall,
+function thoughtMarkdownStyles(theme: Theme) {
+    const { colors } = theme
+    const replyStyles = replyMarkdownStyles(theme)
+    const thoughtCode = {
+        fontFamily: fonts.mono,
         color: colors.muted,
-        fontStyle: 'italic',
-    },
-    heading1: thoughtHeading,
-    heading2: thoughtHeading,
-    heading3: thoughtHeading,
-    heading4: thoughtHeading,
-    heading5: thoughtHeading,
-    heading6: thoughtHeading,
-    link: {
-        color: colors.muted,
-        textDecorationLine: 'underline',
-    },
-    code_inline: {
-        ...replyStyles.code_inline,
-        ...thoughtCode,
-        fontSize: 13,
-    },
-    code_block: {
-        ...replyStyles.code_block,
-        ...thoughtCode,
-    },
-    fence: {
-        ...replyStyles.fence,
-        ...thoughtCode,
-    },
-})
+        // Code inherits the italic body style, and italic monospace is hard to read.
+        fontStyle: 'normal',
+    } as const
+
+    const thoughtHeading = { ...type.bodySmallStrong, color: colors.muted, marginTop: 4, marginBottom: 6 } as const
+
+    return {
+        ...replyStyles,
+        body: {
+            ...type.bodySmall,
+            color: colors.muted,
+            fontStyle: 'italic',
+        },
+        heading1: thoughtHeading,
+        heading2: thoughtHeading,
+        heading3: thoughtHeading,
+        heading4: thoughtHeading,
+        heading5: thoughtHeading,
+        heading6: thoughtHeading,
+        link: {
+            color: colors.muted,
+            textDecorationLine: 'underline',
+        },
+        code_inline: {
+            ...replyStyles.code_inline,
+            ...thoughtCode,
+            fontSize: 13,
+        },
+        code_block: {
+            ...replyStyles.code_block,
+            ...thoughtCode,
+        },
+        fence: {
+            ...replyStyles.fence,
+            ...thoughtCode,
+        },
+    } satisfies MarkdownStyles
+}
+
+const useReplyStyles = createStyles(replyMarkdownStyles)
+const useThoughtStyles = createStyles(thoughtMarkdownStyles)

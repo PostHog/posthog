@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { DecisionRequest } from '@/features/handoff/DecisionRequest'
 import type { DecisionAnswerInput } from '@/model/types'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 import type { SessionDecision } from './types'
 
@@ -24,6 +25,8 @@ export function SessionDecisionPanel({
     onAnswer,
     onDismissNotice,
 }: SessionDecisionPanelProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     if (!decision && !notice) {
         return null
     }
@@ -56,7 +59,7 @@ export function SessionDecisionPanel({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     panel: {
         marginHorizontal: 10,
         gap: 8,
@@ -78,4 +81,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

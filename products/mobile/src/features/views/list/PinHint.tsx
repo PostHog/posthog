@@ -1,13 +1,16 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, motion, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { motion, radii, type } from '@/ui/tokens'
 
 /** The one-line callout under a pin that says the pin has a long-press menu. */
 export function PinHint({ onDismiss }: { onDismiss: () => void }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const reduceMotion = useReducedMotion()
     return (
         <Animated.View
@@ -29,7 +32,7 @@ export function PinHint({ onDismiss }: { onDismiss: () => void }): ReactElement 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     hint: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -52,4 +55,4 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         borderRadius: radii.markLarge,
     },
-})
+}))

@@ -19,7 +19,8 @@ import { InfoIcon } from '@/ui/icons/InfoIcon'
 import { PersonIcon } from '@/ui/icons/PersonIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { trackViewOpenedInWeb } from '../analytics'
 import { SheetTitle } from '../screen/SheetTitle'
@@ -58,6 +59,7 @@ function openLink(url: string | undefined, viewType: 'insight' | 'recordings' | 
  * "Watch recordings", "View people" and "Open on web". People and recordings come from one actors query at a time.
  */
 export function PointSheet({ request, onClose, onOpenAbout }: PointSheetProps): ReactElement {
+    const colors = useColors()
     // The last request stays rendered while the sheet slides out.
     const shown = useRef<PointSheetRequest | null>(request)
     if (request) {
@@ -106,6 +108,8 @@ interface PointBodyProps {
 }
 
 function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: PointBodyProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     const { source, point } = request
     const snapshot = useLiveSnapshot(source)
     const { scope } = useViewsContext()
@@ -148,7 +152,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                                     <>
                                         <Action
                                             primary
-                                            icon={<PlayIcon size={16} color={colors.white} />}
+                                            icon={<PlayIcon size={16} color={colors.onInk} />}
                                             title="Watch recordings"
                                             detail="Sessions from people counted at this point"
                                             onPress={() => load(true)}
@@ -220,6 +224,8 @@ function compareText(row: ChartTooltipRow, point: ChartTooltipPoint, formatValue
 }
 
 function SeriesRows({ point, formatValue, selectable, selectedKey, onSelect }: SeriesRowsProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.rows} accessibilityRole={selectable ? 'radiogroup' : undefined}>
             {selectable ? <Text style={styles.pickHint}>Pick a series for people and recordings.</Text> : null}
@@ -275,6 +281,8 @@ function InProgressNote({
     snapshot: InsightSnapshot
     formatValue: (value: number) => string
 }): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     const dataUntil = snapshot.lastRefreshAt ? Date.parse(snapshot.lastRefreshAt) : undefined
     const note = tooltipContent(point, {
         formatValue,
@@ -314,6 +322,8 @@ function Action({
     chevron = true,
     testID,
 }: ActionProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -329,7 +339,7 @@ function Action({
                 </Text>
                 {detail ? <Text style={[styles.actionDetail, primary && styles.onInkDetail]}>{detail}</Text> : null}
             </View>
-            {chevron ? <ChevronRightIcon size={13} color={primary ? colors.white : colors.ink} /> : null}
+            {chevron ? <ChevronRightIcon size={13} color={primary ? colors.onInk : colors.ink} /> : null}
         </Pressable44>
     )
 }
@@ -345,6 +355,8 @@ function Chip({
     onPress: () => void
     testID?: string
 }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44 onPress={onPress} style={styles.chip} pressedBackground={colors.pressed} testID={testID}>
             {icon}
@@ -406,6 +418,8 @@ function ActorsPage({
     onOpenRecording,
     onOpenPerson,
 }: ActorsPageProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const recordings = page === 'recordings'
     const state = actors.people
     return (
@@ -453,6 +467,8 @@ interface ActorListProps {
 }
 
 function ActorList({ rows, recordings, scopeOpen, onOpenRecording, onOpenPerson }: ActorListProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const demoNote = scopeOpen ? null : 'Not available in the demo'
     const limited = rows.length >= ACTORS_LIMIT ? `Showing the first ${ACTORS_LIMIT} people.` : null
     if (recordings) {
@@ -509,6 +525,8 @@ function ActorRowView({
     disabled: boolean
     onPress: () => void
 }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <Pressable44 onPress={onPress} disabled={disabled} style={styles.actorRow} pressedBackground={colors.pressed}>
             <View style={styles.actorIcon}>{icon}</View>
@@ -523,7 +541,7 @@ function ActorRowView({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     body: {
         gap: 14,
         paddingBottom: 8,
@@ -544,7 +562,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     selectedRow: {
         borderColor: colors.ink,
@@ -599,7 +617,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     noteText: {
         ...type.metaSmall,
@@ -620,7 +638,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     actionPrimary: {
         borderColor: colors.ink,
@@ -644,7 +662,7 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
     },
     onInk: {
-        color: colors.white,
+        color: colors.onInk,
     },
     onInkDetail: {
         color: colors.disabled,
@@ -667,7 +685,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     chipLabel: {
         fontSize: 14,
@@ -712,7 +730,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         overflow: 'hidden',
     },
     listNote: {
@@ -742,4 +760,4 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         color: colors.ink,
     },
-})
+}))

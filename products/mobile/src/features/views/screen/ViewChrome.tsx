@@ -7,7 +7,8 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, layout } from '@/ui/tokens'
+import { useColors } from '@/ui/theme'
+import { layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const CHROME_TOP = 62
@@ -25,6 +26,7 @@ interface ViewChromeProps {
 
 /** The floating top row of a dashboard, insight or web analytics screen: Back, then More. */
 export function ViewChrome({ onBack, onMore }: ViewChromeProps): ReactElement {
+    const colors = useColors()
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>

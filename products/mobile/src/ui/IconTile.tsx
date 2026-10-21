@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
-import { colors, radii } from './tokens'
+import { createStyles } from './theme'
+import { radii } from './tokens'
 
 interface IconTileProps {
     children: ReactNode
@@ -9,10 +10,11 @@ interface IconTileProps {
 }
 
 export function IconTile({ children, muted = false }: IconTileProps): ReactElement {
+    const styles = useStyles()
     return <View style={[styles.tile, muted && styles.muted]}>{children}</View>
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     // 38pt content box plus a 1pt border on each side, as the prototype renders it.
     tile: {
         width: 40,
@@ -20,11 +22,11 @@ const styles = StyleSheet.create({
         borderRadius: radii.tile,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
     muted: {
         backgroundColor: colors.pressed,
     },
-})
+}))

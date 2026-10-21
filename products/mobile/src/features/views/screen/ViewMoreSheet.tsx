@@ -1,12 +1,13 @@
 import { type ReactElement, useEffect } from 'react'
-import { Linking, StyleSheet, Text, View } from 'react-native'
+import { Linking, Text, View } from 'react-native'
 
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ViewKind } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { trackViewMoreOpened, trackViewOpenedInWeb } from '../analytics'
 
@@ -20,6 +21,8 @@ interface ViewMoreSheetProps {
 
 /** The view's More menu. The web has the full editor, so the menu hands off to it. */
 export function ViewMoreSheet({ visible, onClose, webUrl, viewType }: ViewMoreSheetProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const safe = webUrl ? safeHttpsUrl(webUrl) : undefined
     useEffect(() => {
         if (visible) {
@@ -60,7 +63,7 @@ export function ViewMoreSheet({ visible, onClose, webUrl, viewType }: ViewMoreSh
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     rows: {
         marginTop: 12,
     },
@@ -86,4 +89,4 @@ const styles = StyleSheet.create({
         ...type.metaSmall,
         color: colors.tertiary,
     },
-})
+}))

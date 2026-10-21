@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 
 import { useDataMode } from '@/demo/demoMode'
@@ -9,7 +9,8 @@ import { isReportId } from '@/lib/ids'
 import type { ReportView } from '@/model/types'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, iconSizes, layout, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { headlineText } from '../Headline'
@@ -29,6 +30,8 @@ interface ReportDetailsScreenProps {
 }
 
 export function ReportDetailsScreen({ reportId }: ReportDetailsScreenProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const router = useRouter()
     const demo = useDataMode() === 'demo'
     const valid = isReportId(reportId, demo)
@@ -64,6 +67,7 @@ export function ReportDetailsScreen({ reportId }: ReportDetailsScreenProps): Rea
 }
 
 function DetailsContent({ reportId, onBack }: { reportId: string; onBack: () => void }): ReactElement {
+    const colors = useColors()
     // Not the polling read: it shares the report screen's cache, so the report shows at once and refreshes once.
     const query = useReport(reportId)
     const report = query.data
@@ -108,6 +112,7 @@ interface DetailsBodyProps {
 }
 
 function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineBottom, setHeadlineBottom] = useState(0)
     const scrollY = useSharedValue(0)
@@ -158,7 +163,7 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
@@ -174,4 +179,4 @@ const styles = StyleSheet.create({
         marginTop: 24,
         color: colors.muted,
     },
-})
+}))

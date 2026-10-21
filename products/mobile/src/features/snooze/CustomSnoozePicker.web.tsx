@@ -1,9 +1,10 @@
 import { type ReactElement, useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { Text, TextInput, View } from 'react-native'
 
 import { formatClock, formatMonthDay } from '@/lib/dates'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { inputReset, radii, type } from '@/ui/tokens'
 
 import type { CustomSnoozePickerProps } from './CustomSnoozePicker'
 import { parseCustomSnooze } from './snoozeTimes'
@@ -18,6 +19,8 @@ function toInputValue(date: Date): string {
 
 /** The web build has no native picker, so "Custom…" takes a typed date and time. */
 export function CustomSnoozePicker({ initial, onConfirm, onCancel }: CustomSnoozePickerProps): ReactElement {
+    const styles = useStyles()
+    const { colors, scheme } = useTheme()
     const [text, setText] = useState(() => toInputValue(initial))
     const parsed = parseCustomSnooze(text, new Date())
     return (
@@ -27,6 +30,7 @@ export function CustomSnoozePicker({ initial, onConfirm, onCancel }: CustomSnooz
                 onChangeText={setText}
                 placeholder="2026-10-10 09:00"
                 placeholderTextColor={colors.tertiary}
+                keyboardAppearance={scheme}
                 style={styles.input}
                 accessibilityLabel="Snooze until, as year-month-day hour:minute"
                 autoFocus
@@ -50,14 +54,14 @@ export function CustomSnoozePicker({ initial, onConfirm, onCancel }: CustomSnooz
                     style={[styles.button, styles.primary, !parsed && styles.disabled]}
                     pressedBackground={colors.inkHover}
                 >
-                    <Text style={styles.primaryText}>Snooze</Text>
+                    <Text style={[styles.primaryText, !parsed && styles.disabledText]}>Snooze</Text>
                 </Pressable44>
             </View>
         </View>
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     container: {
         marginTop: 8,
         gap: 10,
@@ -98,10 +102,13 @@ const styles = StyleSheet.create({
         backgroundColor: colors.ink,
     },
     disabled: {
-        backgroundColor: colors.border,
+        backgroundColor: colors.disabledFill,
+    },
+    disabledText: {
+        color: colors.onDisabled,
     },
     primaryText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

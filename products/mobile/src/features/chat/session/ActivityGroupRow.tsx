@@ -1,5 +1,5 @@
 import { memo, type ReactElement, useEffect, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
 
 import { track } from '@/lib/analytics'
@@ -7,7 +7,8 @@ import { Dot } from '@/ui/Dot'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, motion, type } from '@/ui/tokens'
+import { createStyles, type ThemeColors, useColors } from '@/ui/theme'
+import { iconSizes, motion, type } from '@/ui/tokens'
 
 import { ChatMarkdown } from '../ChatMarkdown'
 import { isActivityRunning, summarizeActivity } from './sessionDisplay'
@@ -20,7 +21,7 @@ interface ActivityGroupRowProps {
     waitingToolCallId?: string
 }
 
-function toolDotColor(invocation: SessionToolInvocation): string {
+function toolDotColor(invocation: SessionToolInvocation, colors: ThemeColors): string {
     switch (invocation.status) {
         case 'pending':
         case 'in_progress':
@@ -33,10 +34,12 @@ function toolDotColor(invocation: SessionToolInvocation): string {
 }
 
 function ToolRow({ invocation }: { invocation: SessionToolInvocation }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.toolRow} testID={`session-tool-${invocation.toolCallId}`}>
             <View style={styles.toolDot}>
-                <Dot color={toolDotColor(invocation)} size={6} />
+                <Dot color={toolDotColor(invocation, colors)} size={6} />
             </View>
             <View style={styles.toolBody}>
                 <MonoText color={colors.muted} numberOfLines={1}>
@@ -58,6 +61,7 @@ function ToolRow({ invocation }: { invocation: SessionToolInvocation }): ReactEl
 }
 
 function ThoughtRow({ item }: { item: SessionThoughtItem }): ReactElement | null {
+    const styles = useStyles()
     return item.text ? (
         <View style={styles.thought}>
             <ChatMarkdown tone="thought" text={item.text} streaming={!item.complete} />
@@ -66,6 +70,8 @@ function ThoughtRow({ item }: { item: SessionThoughtItem }): ReactElement | null
 }
 
 function ActivityGroupRowImpl({ group, invocations, waitingToolCallId }: ActivityGroupRowProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const running = isActivityRunning(group, invocations, waitingToolCallId)
     const summary = summarizeActivity(group, invocations, waitingToolCallId)
     // Every group starts closed, also while it runs; the summary line carries the progress.
@@ -145,7 +151,7 @@ function sameRow(previous: ActivityGroupRowProps, next: ActivityGroupRowProps): 
 
 export const ActivityGroupRow = memo(ActivityGroupRowImpl, sameRow)
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     group: {
         gap: 4,
     },
@@ -196,4 +202,4 @@ const styles = StyleSheet.create({
         // Markdown blocks end with a 10pt bottom margin; this keeps the details gap even.
         marginBottom: -10,
     },
-})
+}))

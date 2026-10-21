@@ -1,5 +1,5 @@
 import { type ReactElement, useCallback, useMemo } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { InsightSnapshot } from '@/model/views'
 import { BarList } from '@/ui/chart/BarList'
@@ -10,7 +10,8 @@ import { SQL_TABLE_MAX_ROWS, sqlRowsText } from '@/ui/chart/sqlCellFormat'
 import type { ChartAccessibilityAction, ChartCanvasSlot } from '@/ui/chart/types'
 import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import type { FullScreenEntry } from './analytics'
 import { useOpenFullScreen } from './fullScreen/useOpenFullScreen'
@@ -58,6 +59,7 @@ interface InsightNoDataProps {
 
 /** The muted line in a chart's place when its result has nothing to draw. */
 export function InsightNoData({ snapshot, minHeight, testID }: InsightNoDataProps): ReactElement {
+    const styles = useStyles()
     return (
         <View style={[styles.noData, minHeight !== undefined && { minHeight }]} testID={testID}>
             <Text style={styles.noDataText}>{noDataText(snapshot)}</Text>
@@ -123,6 +125,8 @@ export function InsightVisual({
     testID,
     emptyTestID = 'view-insight-empty',
 }: InsightVisualProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     const sheets = useChartSheets()
     const openFullScreen = useOpenFullScreen()
     const display = insightDisplay(snapshot)
@@ -256,7 +260,7 @@ export function InsightVisual({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     toolbar: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -280,7 +284,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     noData: {
         justifyContent: 'center',
@@ -289,4 +293,4 @@ const styles = StyleSheet.create({
         ...type.bodySmall,
         color: colors.muted,
     },
-})
+}))

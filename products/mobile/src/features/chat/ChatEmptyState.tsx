@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { track } from '@/lib/analytics'
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, prettyWrap, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { prettyWrap, radii, type } from '@/ui/tokens'
 
 const REPORT_PROMPTS = ['What caused this?', 'Who is affected?', 'Draft a status update'] as const
 const GLOBAL_PROMPTS = ['What needs me today?', 'Summarize this week', 'What did the agents ship?'] as const
@@ -32,6 +33,8 @@ function copyFor(reportCount: number): { title: string; sub: string } {
 }
 
 export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: ChatEmptyStateProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const fromReport = suggestedPrompts !== undefined && suggestedPrompts.length > 0
     const prompts: readonly string[] = fromReport ? suggestedPrompts : reportCount > 0 ? REPORT_PROMPTS : GLOBAL_PROMPTS
     const copy = copyFor(reportCount)
@@ -67,7 +70,7 @@ export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: Chat
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     container: {
         flex: 1,
         alignItems: 'center',
@@ -102,7 +105,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.hairline,
         borderRadius: radii.card,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         justifyContent: 'center',
     },
     chipText: {
@@ -111,4 +114,4 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: colors.ink,
     },
-})
+}))

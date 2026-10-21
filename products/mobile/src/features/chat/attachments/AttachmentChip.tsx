@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Text, View } from 'react-native'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { DocumentIcon } from '@/ui/icons/DocumentIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import type { PendingAttachment } from './types'
 
@@ -15,6 +16,8 @@ interface AttachmentChipProps {
 }
 
 export function AttachmentChip({ attachment, uploading, onRemove }: AttachmentChipProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.chip} testID="chat-attachment-chip">
             {attachment.isImage ? (
@@ -49,7 +52,7 @@ export function AttachmentChip({ attachment, uploading, onRemove }: AttachmentCh
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     chip: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -80,4 +83,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

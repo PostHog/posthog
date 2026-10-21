@@ -1,10 +1,11 @@
 import { type ReactElement, useEffect } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
 import { useSignOutAction } from '@/features/settings/useSignOut'
 import { LockIcon } from '@/ui/icons/LockIcon'
 import { StateView } from '@/ui/StateView'
-import { colors, radii } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii } from '@/ui/tokens'
 
 import { trackViewsReauthShown } from './analytics'
 import type { ViewsAccess } from './useViewsAccess'
@@ -15,6 +16,8 @@ import type { ViewsAccess } from './useViewsAccess'
  * and still did not get it, a new sign-in gets the same grant, so the state explains that and offers no sign-in.
  */
 export function ViewsReauthState({ access }: { access: ViewsAccess }): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const signOut = useSignOutAction()
     const { missingScope, state } = access
     useEffect(() => {
@@ -53,15 +56,15 @@ export function ViewsReauthState({ access }: { access: ViewsAccess }): ReactElem
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     icon: {
         width: 52,
         height: 52,
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

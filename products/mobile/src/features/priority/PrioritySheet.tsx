@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { actionErrorMessage } from '@/lib/errors'
 import type { ReportPriority } from '@/model/types'
@@ -7,7 +7,8 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { Dot } from '@/ui/Dot'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, type ThemeColors, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 export const PRIORITIES: readonly ReportPriority[] = ['P0', 'P1', 'P2', 'P3', 'P4']
 
@@ -17,7 +18,7 @@ export interface PriorityTone {
 }
 
 // Only the two urgent levels color their text, so P2 and below stay quiet next to the owner chip.
-export function priorityTone(priority: ReportPriority | undefined): PriorityTone {
+export function priorityTone(priority: ReportPriority | undefined, colors: ThemeColors): PriorityTone {
     switch (priority) {
         case 'P0':
         case 'P1':
@@ -50,7 +51,9 @@ interface RowProps {
 }
 
 function PriorityRow({ priority, selected, busy, disabled, onPress }: RowProps): ReactElement {
-    const tone = priorityTone(priority)
+    const styles = useStyles()
+    const colors = useColors()
+    const tone = priorityTone(priority, colors)
     return (
         <Pressable44
             onPress={onPress}
@@ -76,6 +79,7 @@ function PriorityRow({ priority, selected, busy, disabled, onPress }: RowProps):
 }
 
 export function PrioritySheet({ visible, current, onClose, onSelect, pending }: PrioritySheetProps): ReactElement {
+    const styles = useStyles()
     const [picked, setPicked] = useState<ReportPriority | undefined>(undefined)
     const [error, setError] = useState<string | undefined>(undefined)
 
@@ -122,7 +126,7 @@ export function PrioritySheet({ visible, current, onClose, onSelect, pending }: 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     title: {
         ...type.sheetTitle,
         color: colors.ink,
@@ -156,4 +160,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         flex: 1,
     },
-})
+}))

@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, lineHeight } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, lineHeight } from '@/ui/tokens'
 
 const ROW_HEIGHT = 32
 
@@ -18,6 +19,8 @@ interface TextLinkRowProps {
 
 /** A quiet text link with a trailing mark. 32pt tall, so the default hit slop makes the target 44pt. */
 export function TextLinkRow({ label, onPress, external = false, testID }: TextLinkRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -37,7 +40,7 @@ export function TextLinkRow({ label, onPress, external = false, testID }: TextLi
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         alignSelf: 'flex-start',
         flexDirection: 'row',
@@ -54,4 +57,4 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: colors.ink,
     },
-})
+}))

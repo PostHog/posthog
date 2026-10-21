@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
+import { type LayoutChangeEvent, View } from 'react-native'
 import Animated, {
     Extrapolation,
     interpolate,
@@ -12,7 +12,8 @@ import Animated, {
 import { BackChip } from '@/ui/BackChip'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
-import { colors, layout, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { layout, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { collapsingTitleTransform, type TitleGeometry } from './collapsingTitle'
@@ -39,6 +40,7 @@ interface SettingsChromeProps {
 }
 
 export function SettingsChrome({ title, scrollY, onBack }: SettingsChromeProps): ReactElement {
+    const styles = useStyles()
     const insets = useScreenInsets()
     const reduceMotion = useReducedMotion()
     const chipWidth = useSharedValue(0)
@@ -95,7 +97,7 @@ export function SettingsChrome({ title, scrollY, onBack }: SettingsChromeProps):
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     chrome: {
         position: 'absolute',
         top: 0,
@@ -117,4 +119,4 @@ const styles = StyleSheet.create({
         transformOrigin: 'left center',
         pointerEvents: 'none',
     },
-})
+}))

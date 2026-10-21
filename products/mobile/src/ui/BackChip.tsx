@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { ChevronLeftIcon } from './icons/ChevronLeftIcon'
 import { Pressable44 } from './Pressable44'
-import { colors, iconSizes, radii, shadows, type } from './tokens'
+import { createStyles, useTheme } from './theme'
+import { iconSizes, radii, type } from './tokens'
 
 interface BackChipProps {
     onPress: () => void
@@ -11,6 +12,8 @@ interface BackChipProps {
 }
 
 export function BackChip({ onPress, testID }: BackChipProps): ReactElement {
+    const { shadows } = useTheme()
+    const styles = useStyles()
     return (
         <Pressable44
             onPress={onPress}
@@ -25,7 +28,7 @@ export function BackChip({ onPress, testID }: BackChipProps): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     // 44pt content box plus a 1pt border on each side.
     chip: {
         height: 46,
@@ -35,7 +38,7 @@ const styles = StyleSheet.create({
         paddingLeft: 12,
         paddingRight: 16,
         borderRadius: radii.pill,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
     },
@@ -46,4 +49,4 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
-})
+}))

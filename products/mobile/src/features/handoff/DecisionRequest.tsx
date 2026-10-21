@@ -1,10 +1,11 @@
 import { type ReactElement, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 import { useSheetFunnel } from '../report/reportAnalytics'
 import { DecisionSheet } from './DecisionSheet'
@@ -20,6 +21,8 @@ interface DecisionRequestProps {
 }
 
 export function DecisionRequest({ question, reportId, pending, onAnswer, notice }: DecisionRequestProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const [open, setOpen] = useState(false)
     const sheets = useSheetFunnel(reportId)
     // An answer removes this request, so the sheet unmounts without `onClose`. Only a close the user makes calls it.
@@ -57,8 +60,8 @@ export function DecisionRequest({ question, reportId, pending, onAnswer, notice 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
     title: { ...type.metaSmall, fontWeight: '600', color: colors.orange, flex: 1 },
     link: { ...type.meta, color: colors.orange },
-})
+}))

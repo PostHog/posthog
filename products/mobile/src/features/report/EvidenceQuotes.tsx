@@ -1,13 +1,16 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { EvidenceBlock } from '@/model/types'
 import { MonoText } from '@/ui/MonoText'
-import { colors, prettyWrap, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { prettyWrap, radii, type } from '@/ui/tokens'
 
 type QuotesBlock = Extract<EvidenceBlock, { kind: 'quotes' }>
 
 export function EvidenceQuotes({ block }: { block: QuotesBlock }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <View style={styles.list}>
             {block.quotes.map((quote) => (
@@ -24,12 +27,12 @@ export function EvidenceQuotes({ block }: { block: QuotesBlock }): ReactElement 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     list: {
         gap: 8,
     },
     card: {
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.card,
@@ -41,4 +44,4 @@ const styles = StyleSheet.create({
         ...type.bodySmall,
         color: colors.ink,
     },
-})
+}))

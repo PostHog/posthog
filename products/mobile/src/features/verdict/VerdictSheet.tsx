@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
@@ -9,7 +9,8 @@ import { VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 import type { VerdictCopy } from './verdictCopy'
 
@@ -34,6 +35,8 @@ export function VerdictSheet<Reason extends string>({
     pending,
     testID,
 }: VerdictSheetProps<Reason>): ReactElement {
+    const styles = useStyles()
+    const { colors, scheme } = useTheme()
     const { height } = useWindowDimensions()
     const keyboard = useReanimatedKeyboardAnimation()
     const scroll = useRef<ScrollView>(null)
@@ -118,6 +121,7 @@ export function VerdictSheet<Reason extends string>({
                                 maxLength={VERDICT_NOTE_MAX_LENGTH}
                                 placeholder={copy.notePlaceholder}
                                 placeholderTextColor={colors.tertiary}
+                                keyboardAppearance={scheme}
                                 textAlignVertical="top"
                                 style={styles.note}
                                 accessibilityLabel="Note"
@@ -131,13 +135,18 @@ export function VerdictSheet<Reason extends string>({
                     disabled={!canConfirm}
                     accessibilityState={{ disabled: !canConfirm, busy: pending }}
                     pressedBackground={colors.inkHover}
-                    style={[styles.confirm, { backgroundColor: canConfirm || pending ? colors.ink : colors.border }]}
+                    style={[
+                        styles.confirm,
+                        { backgroundColor: canConfirm || pending ? colors.ink : colors.disabledFill },
+                    ]}
                     testID={`${testID}-confirm`}
                 >
                     {pending ? (
-                        <ActivityIndicator size="small" color={colors.white} />
+                        <ActivityIndicator size="small" color={colors.onInk} />
                     ) : (
-                        <Text style={styles.confirmText}>{copy.submitLabel}</Text>
+                        <Text style={[styles.confirmText, !canConfirm && styles.confirmTextDisabled]}>
+                            {copy.submitLabel}
+                        </Text>
                     )}
                 </Pressable44>
             </Animated.View>
@@ -145,7 +154,7 @@ export function VerdictSheet<Reason extends string>({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     title: {
         ...type.sheetTitle,
         color: colors.ink,
@@ -221,6 +230,9 @@ const styles = StyleSheet.create({
     },
     confirmText: {
         ...type.button,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+    confirmTextDisabled: {
+        color: colors.onDisabled,
+    },
+}))

@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { PermissionModeApi, RuntimeAdapterApi } from '@/api/tasks'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { modesForRuntimeAdapter } from './runOptions'
 import { SheetPageHeader } from './SheetPageHeader'
@@ -17,6 +18,8 @@ interface ModePageProps {
 }
 
 export function ModePage({ runtimeAdapter, current, onPick, onBack }: ModePageProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View testID="handoff-mode-page">
             <SheetPageHeader title="Mode" onBack={onBack} testID="handoff-mode-page" />
@@ -48,7 +51,7 @@ export function ModePage({ runtimeAdapter, current, onPick, onBack }: ModePagePr
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     rows: {
         marginTop: 4,
     },
@@ -78,4 +81,4 @@ const styles = StyleSheet.create({
         width: iconSizes.control,
         alignItems: 'center',
     },
-})
+}))

@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
 
 import { actionErrorMessage } from '@/lib/errors'
 import type { Person, Reviewer } from '@/model/types'
@@ -10,7 +10,8 @@ import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { PersonIcon } from '@/ui/icons/PersonIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { MAX_REVIEWERS, useAvailableReviewers } from './hooks'
@@ -46,6 +47,8 @@ interface PersonRowProps {
 }
 
 function PersonRow({ person, selected, onPress }: PersonRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -72,6 +75,8 @@ export function AssigneeSheet({
     onSave,
     pending,
 }: AssigneeSheetProps): ReactElement {
+    const styles = useStyles()
+    const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const top = topOffset(insets, 120)
@@ -151,7 +156,7 @@ export function AssigneeSheet({
                             testID="assignee-done"
                         >
                             {pending ? (
-                                <ActivityIndicator size="small" color={colors.white} />
+                                <ActivityIndicator size="small" color={colors.onInk} />
                             ) : (
                                 <Text style={styles.doneText}>Done</Text>
                             )}
@@ -184,6 +189,7 @@ export function AssigneeSheet({
                     onChangeText={setQuery}
                     placeholder="Assign to…"
                     placeholderTextColor={colors.tertiary}
+                    keyboardAppearance={scheme}
                     autoFocus
                     autoCorrect={false}
                     style={styles.input}
@@ -240,7 +246,7 @@ export function AssigneeSheet({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         left: 14,
         right: 14,
@@ -273,7 +279,7 @@ const styles = StyleSheet.create({
     },
     doneText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
     close: {
         width: 44,
@@ -368,4 +374,4 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
-})
+}))

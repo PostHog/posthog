@@ -4,6 +4,7 @@ import type { ReactElement } from 'react'
 import { Platform, StyleSheet, type ViewStyle } from 'react-native'
 
 import { FadeEdge } from './FadeEdge'
+import { useColorSchemeName } from './theme'
 
 interface BlurEdgeProps {
     direction?: 'down' | 'up'
@@ -14,11 +15,12 @@ interface BlurEdgeProps {
 const DEFAULT_INTENSITY = 11
 
 export function BlurEdge({ direction = 'down', solid, intensity = DEFAULT_INTENSITY }: BlurEdgeProps): ReactElement {
+    const scheme = useColorSchemeName()
     const blur = (
         <BlurView
             style={[styles.fill, webMask(direction, solid)]}
             intensity={intensity}
-            tint="light"
+            tint={scheme}
             experimentalBlurMethod="dimezisBlurView"
         />
     )

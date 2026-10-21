@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg'
 
@@ -7,7 +7,8 @@ import type { DashboardTileView, InsightSnapshot, PinView } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, motion, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { motion, radii, type } from '@/ui/tokens'
 
 import { type TileSheetEntry, trackPinTileSheetClosed } from '../analytics'
 import { insightQueryKey, tileTarget } from '../items'
@@ -67,6 +68,8 @@ interface TileSheetProps {
 }
 
 function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { pin, mode, chooseFirst, entry } = target
     const { height: windowHeight } = useWindowDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
@@ -210,6 +213,8 @@ interface TileOptionProps {
 }
 
 function TileOption({ dashboardRef, tile, selected, onPick, reason }: TileOptionProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { scope } = useViewsContext()
     const target = tileTarget(dashboardRef, tile, null)
     const snapshot = useSnapshot<InsightSnapshot>(target ? insightQueryKey(scope, target) : null)
@@ -248,6 +253,7 @@ function TileOption({ dashboardRef, tile, selected, onPick, reason }: TileOption
 
 /** A small glyph of the tile's kind, so a list of tiles scans by shape. */
 function TileThumb({ kindLabel }: { kindLabel: string }): ReactElement {
+    const colors = useColors()
     const gray = colors.tertiary
     let body: ReactElement
     switch (kindLabel) {
@@ -307,7 +313,7 @@ function TileThumb({ kindLabel }: { kindLabel: string }): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     head: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -355,7 +361,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     optionSelected: {
         borderWidth: 2,
@@ -425,6 +431,6 @@ const styles = StyleSheet.create({
     },
     retryText: {
         ...type.buttonSmall,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

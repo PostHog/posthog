@@ -1,20 +1,12 @@
 import { useIsFocused } from 'expo-router'
 import { type ReactElement, useCallback, useRef, useState } from 'react'
-import {
-    FlatList,
-    type ListRenderItem,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
-    type ViewToken,
-} from 'react-native'
+import { FlatList, type ListRenderItem, RefreshControl, ScrollView, Text, View, type ViewToken } from 'react-native'
 
 import type { DashboardView, InsightSnapshot, PinDisplayMode, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
-import { colors, layout, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { PinButton } from '../PinButton'
 import { dashboardCompareRow } from '../range/compareRow'
@@ -96,6 +88,8 @@ function useViewableItems(
 }
 
 function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const motion = useChartListMotion()
     const viewport = useCanvasBudgetViewport()
@@ -163,6 +157,8 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
                     refreshing={refresh.pulling}
                     onRefresh={refresh.onPull}
                     tintColor={colors.tertiary}
+                    progressBackgroundColor={colors.surface}
+                    colors={[colors.tertiary]}
                     progressViewOffset={topOffset(insets, VIEW_CONTENT_TOP)}
                 />
             }
@@ -172,6 +168,7 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
 }
 
 function TileGap(): ReactElement {
+    const styles = useStyles()
     return <View style={styles.gap} />
 }
 
@@ -184,6 +181,7 @@ interface DashboardHeaderProps {
 const NO_TILE = { itemKey: null, queryKey: null }
 
 function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderProps): ReactElement {
+    const styles = useStyles()
     // The dashboard response has no resolved dates, so the header uses those of the first tile that follows the range.
     const rangeTile = screen.tiles.find((tile) => tile.view.kind === 'insight' && !tile.view.usesOwnRange)
     const { snapshot } = useTileData(rangeTile ?? NO_TILE)
@@ -229,7 +227,7 @@ function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderPro
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.inboxGutter,
     },
@@ -250,4 +248,4 @@ const styles = StyleSheet.create({
         ...type.meta,
         color: colors.tertiary,
     },
-})
+}))

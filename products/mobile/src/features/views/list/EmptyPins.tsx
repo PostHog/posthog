@@ -1,11 +1,14 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { PinIcon } from '@/ui/icons/PinIcon'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 /** Pinned with nothing in it: what pinning does and how to do it, with Recent right below. */
 export function EmptyPins(): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.card} testID="views-pins-empty">
             <View style={styles.icon}>
@@ -19,7 +22,7 @@ export function EmptyPins(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         gap: 6,
         alignItems: 'flex-start',
@@ -29,7 +32,7 @@ const styles = StyleSheet.create({
         borderStyle: 'dashed',
         borderColor: colors.border,
         borderRadius: radii.option,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     icon: {
         width: 36,
@@ -50,4 +53,4 @@ const styles = StyleSheet.create({
         ...type.bodySmall,
         color: colors.muted,
     },
-})
+}))

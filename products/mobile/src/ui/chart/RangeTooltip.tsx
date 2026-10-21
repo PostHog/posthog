@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
+import { type LayoutChangeEvent, Text, View } from 'react-native'
 
-import { colors, lineHeight, shadows, space } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { lineHeight, space } from '@/ui/tokens'
 
 import type { RangeContent } from './chartSeries'
 
@@ -18,6 +19,7 @@ interface RangeTooltipProps {
 
 /** The two-finger result: "Oct 1 → Oct 14", then each series' two values and the change between them. */
 export function RangeTooltip({ content, left, top, maxWidth, onLayout, testID }: RangeTooltipProps): ReactElement {
+    const styles = useStyles()
     return (
         <View onLayout={onLayout} style={[styles.card, { left, top, maxWidth }]} testID={testID}>
             <Text style={styles.header} numberOfLines={1}>
@@ -39,7 +41,8 @@ export function RangeTooltip({ content, left, top, maxWidth, onLayout, testID }:
     )
 }
 
-const styles = StyleSheet.create({
+// An ink card in both schemes, so it stands out from the chart.
+const useStyles = createStyles(({ colors, shadows }) => ({
     card: {
         position: 'absolute',
         pointerEvents: 'none',
@@ -76,6 +79,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         lineHeight: lineHeight(12, 1.35),
         fontVariant: ['tabular-nums'],
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

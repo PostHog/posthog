@@ -1,12 +1,13 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
-import { colors } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
 
 import { TextLinkRow } from '../TextLinkRow'
 import { openDetailsLink } from './openDetailsLink'
 
 export function DetailsFooter({ webUrl, reportId }: { webUrl: string; reportId: string }): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.footer}>
             <TextLinkRow
@@ -19,11 +20,11 @@ export function DetailsFooter({ webUrl, reportId }: { webUrl: string; reportId: 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     footer: {
         marginTop: 24,
         paddingTop: 12,
         borderTopWidth: 1,
         borderTopColor: colors.border,
     },
-})
+}))

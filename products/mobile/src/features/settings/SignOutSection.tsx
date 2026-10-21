@@ -1,14 +1,17 @@
 import { type ReactElement, useState } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { SignOutConfirm } from './SignOutConfirm'
 import { useExitDemo, useSignOutAction } from './useSignOut'
 
 export function SignOutSection(): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     const signedIn = useAuthStore((state) => state.signedIn)
     const exitDemo = useExitDemo()
     const signOut = useSignOutAction()
@@ -56,14 +59,14 @@ export function SignOutSection(): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     button: {
         marginTop: 32,
         height: 52,
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -77,6 +80,6 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
-})
+}))

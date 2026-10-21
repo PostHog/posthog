@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useCallback } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 
 import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 import { ChartSelectionProvider } from '@/ui/chart/selection/ChartSelectionProvider'
 import { OverlayHost } from '@/ui/OverlayPortal'
-import { colors } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
 
 import { ChartSheetsProvider } from '../pointSheet/ChartSheetsProvider'
 
@@ -21,6 +21,7 @@ interface ViewScreenFrameProps {
  * selection, so the pinned tooltip stays behind an open Point sheet.
  */
 export function ViewScreenFrame({ children, chrome }: ViewScreenFrameProps): ReactElement {
+    const styles = useStyles()
     return (
         <OverlayHost>
             <View style={styles.screen} testID="view-screen">
@@ -47,9 +48,9 @@ export function useViewBack(): () => void {
     }, [router])
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-})
+}))

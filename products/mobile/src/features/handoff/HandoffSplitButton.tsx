@@ -1,11 +1,12 @@
 import { type ReactElement, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import type { ReportView } from '@/model/types'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { launchExternalHandoff } from './externalHandoff'
 import { handoffAgentName, useHandoffPreferenceStore } from './handoffPreferenceStore'
@@ -23,6 +24,8 @@ export function HandoffSplitButton({
     onOpenPicker,
     pending,
 }: HandoffSplitButtonProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const target = useHandoffPreferenceStore((state) => state.target)
     const agentName = handoffAgentName(target)
     const [error, setError] = useState<string | null>(null)
@@ -56,11 +59,11 @@ export function HandoffSplitButton({
                     haptic="light"
                     accessibilityLabel={`Hand off to ${agentName}`}
                     accessibilityState={{ busy, disabled: busy }}
-                    pressedBackground={colors.pressOverlay}
+                    pressedBackground={colors.accentHover}
                     style={styles.main}
                     testID="handoff-button"
                 >
-                    {busy ? <ActivityIndicator size="small" color={colors.white} /> : null}
+                    {busy ? <ActivityIndicator size="small" color={colors.onAccent} /> : null}
                     <Text style={styles.label} numberOfLines={1}>
                         Hand off to {agentName}
                     </Text>
@@ -69,24 +72,24 @@ export function HandoffSplitButton({
                     onPress={onOpenPicker}
                     disabled={busy}
                     accessibilityLabel="Choose how to hand off"
-                    pressedBackground={colors.pressOverlay}
+                    pressedBackground={colors.accentHover}
                     style={styles.chevron}
                     testID="handoff-picker-button"
                 >
-                    <ChevronDownIcon size={iconSizes.inline} color={colors.white} strokeWidth={2.6} />
+                    <ChevronDownIcon size={iconSizes.inline} color={colors.onAccent} strokeWidth={2.6} />
                 </Pressable44>
             </View>
         </>
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     error: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 4 },
     button: {
         flexDirection: 'row',
         height: 52,
         borderRadius: radii.card,
-        backgroundColor: colors.orange,
+        backgroundColor: colors.accent,
         overflow: 'hidden',
     },
     main: {
@@ -100,7 +103,7 @@ const styles = StyleSheet.create({
     },
     label: {
         ...type.button,
-        color: colors.white,
+        color: colors.onAccent,
         flexShrink: 1,
     },
     chevron: {
@@ -110,4 +113,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { Dot } from '@/ui/Dot'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface AgentStatusCardProps {
     title: string
@@ -25,6 +26,8 @@ export function AgentStatusCard({
     undoPending,
     testID,
 }: AgentStatusCardProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.card} testID={testID}>
             <Pressable44
@@ -70,12 +73,12 @@ export function AgentStatusCard({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         flexDirection: 'row',
         alignItems: 'center',
         minHeight: 52,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     body: {
         flex: 1,
@@ -120,4 +123,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.ink,
     },
-})
+}))

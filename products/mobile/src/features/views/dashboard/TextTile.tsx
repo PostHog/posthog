@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { Linking, StyleSheet, Text, View } from 'react-native'
+import { Linking, Text, View } from 'react-native'
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display'
 
 import { safeHttpsUrl } from '@/lib/urls'
-import { colors, fonts, radii, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { fonts, radii, type } from '@/ui/tokens'
 
 /** `html: false` renders raw HTML in a text card as text, so a card cannot inject markup. */
 const markdownIt = MarkdownIt({ html: false, linkify: true, typographer: false })
@@ -29,6 +30,8 @@ const HEADING_ONLY = /^\s*#{1,3}\s+([^\n]+?)\s*#*\s*$/
  * section header instead of a card.
  */
 export function TextTile({ text, tileId }: { text: string | null; tileId: number }): ReactElement | null {
+    const styles = useStyles()
+    const markdownStyles = useMarkdownStyles()
     const body = text?.trim()
     if (!body) {
         return null
@@ -50,7 +53,7 @@ export function TextTile({ text, tileId }: { text: string | null; tileId: number
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     section: {
         ...type.sectionHeader,
         color: colors.ink,
@@ -64,11 +67,11 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
-})
+}))
 
-const markdownStyles = StyleSheet.create({
+const useMarkdownStyles = createStyles(({ colors }) => ({
     body: {
         ...type.bodySmall,
         color: colors.ink,
@@ -95,4 +98,4 @@ const markdownStyles = StyleSheet.create({
     ordered_list: {
         marginBottom: 10,
     },
-})
+}))

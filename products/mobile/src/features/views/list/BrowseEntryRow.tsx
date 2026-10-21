@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { DashboardIcon } from '@/ui/icons/DashboardIcon'
@@ -8,7 +8,8 @@ import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { LineChartIcon } from '@/ui/icons/LineChartIcon'
 import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { radii, type } from '@/ui/tokens'
 
 import { GroupFrame, type GroupPosition } from './ViewRow'
 
@@ -28,6 +29,7 @@ export function browseEntryLabel(entry: BrowseEntry): string {
 }
 
 function EntryIcon({ entry }: { entry: BrowseEntry }): ReactElement {
+    const colors = useColors()
     switch (entry) {
         case 'dashboards':
             return <DashboardIcon size={17} color={colors.muted} />
@@ -49,6 +51,8 @@ interface BrowseEntryRowProps {
 }
 
 export function BrowseEntryRow({ entry, position, enabled, onPress }: BrowseEntryRowProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const { label, web } = ENTRIES[entry]
     return (
         <GroupFrame position={position}>
@@ -75,7 +79,7 @@ export function BrowseEntryRow({ entry, position, enabled, onPress }: BrowseEntr
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         height: 52,
         flexDirection: 'row',
@@ -103,4 +107,4 @@ const styles = StyleSheet.create({
     disabled: {
         color: colors.tertiary,
     },
-})
+}))

@@ -2,7 +2,8 @@ import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { Dot } from './Dot'
-import { colors, type } from './tokens'
+import { useColors } from './theme'
+import { type } from './tokens'
 
 interface EyebrowProps {
     children: string
@@ -10,7 +11,9 @@ interface EyebrowProps {
     withDot?: boolean
 }
 
-export function Eyebrow({ children, color = colors.tertiary, withDot = false }: EyebrowProps): ReactElement {
+export function Eyebrow({ children, color: colorProp, withDot = false }: EyebrowProps): ReactElement {
+    const colors = useColors()
+    const color = colorProp ?? colors.tertiary
     return (
         <View style={styles.row}>
             {withDot ? <Dot color={color} /> : null}

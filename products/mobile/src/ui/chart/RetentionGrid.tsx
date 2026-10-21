@@ -1,11 +1,12 @@
 import { type ReactElement, useCallback, useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 
 import { formatMonthDay, parseBucketStart } from '@/lib/dates'
 import { groupThousands, plural } from '@/model/adapters/text'
 import type { RetentionCohortView, RetentionPeriodUnit, RetentionView } from '@/model/views'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, lineHeight, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { lineHeight, type } from '@/ui/tokens'
 
 import { useItemChartAccessibility } from './accessibility/useChartAccessibility'
 import { formatAxisDate, formatClockTime } from './chartMath'
@@ -46,20 +47,23 @@ function percentText(percent: number): string {
     return `${groupThousands(percent, percent < 10 && percent > 0 ? 1 : 0)}%`
 }
 
-const BASE = seriesColor(0)
-
 function channel(hex: string, offset: number): number {
     return Number.parseInt(hex.slice(offset, offset + 2), 16)
 }
 
-// White text reads better than ink only on the darkest shades of the series blue.
+// In the light scheme, white text reads better than ink only on the darkest shades of the series blue. In the dark
+// scheme ink is already light and reads on every shade.
 const LIGHT_TEXT_FROM = 0.75
 
-/** The web's cell shade: the series color mixed into white, from 12% for nobody to 90% for everybody. */
-function cellShade(percent: number): { background: string; light: boolean } {
+/**
+ * The web's cell shade: the series color (`#RRGGBB`) mixed into the card color (`#RRGGBB`), from 12% for nobody to 90%
+ * for everybody.
+ */
+function cellShade(percent: number, base: string, card: string): { background: string; mix: number } {
     const mix = (12 + Math.max(0, Math.min(100, percent)) * 0.78) / 100
-    const blend = (offset: number): number => Math.round(255 + (channel(BASE, offset) - 255) * mix)
-    return { background: `rgb(${blend(1)}, ${blend(3)}, ${blend(5)})`, light: mix > LIGHT_TEXT_FROM }
+    const blend = (offset: number): number =>
+        Math.round(channel(card, offset) + (channel(base, offset) - channel(card, offset)) * mix)
+    return { background: `rgb(${blend(1)}, ${blend(3)}, ${blend(5)})`, mix }
 }
 
 function cohortSentence(cohort: RetentionCohortView, labels: readonly string[], period: RetentionPeriodUnit): string {
@@ -94,6 +98,9 @@ export function RetentionGrid({
     accessibilityActions,
     testID,
 }: RetentionGridProps): ReactElement {
+    const { colors, chartPalette, scheme } = useTheme()
+    const styles = useStyles()
+    const base = seriesColor(0, chartPalette)
     const { cohorts, period, periodLabels } = retention
     const columns = periodLabels.slice(0, maxPeriods)
     const selection = useItemSelection({
@@ -198,7 +205,8 @@ export function RetentionGrid({
                                     if (!cell) {
                                         return <View key={column} style={styles.cell} />
                                     }
-                                    const shade = cellShade(cell.percent)
+                                    const shade = cellShade(cell.percent, base, colors.surface)
+                                    const lightText = scheme === 'light' && shade.mix > LIGHT_TEXT_FROM
                                     const active = picked?.cohort === row && picked.period === index
                                     return (
                                         <Pressable44
@@ -213,7 +221,7 @@ export function RetentionGrid({
                                             ]}
                                             testID={testID ? `${testID}-cell-${row}-${index}` : undefined}
                                         >
-                                            <Text style={[styles.cellText, shade.light && styles.cellTextLight]}>
+                                            <Text style={[styles.cellText, lightText && styles.cellTextLight]}>
                                                 {percentText(cell.percent)}
                                             </Text>
                                         </Pressable44>
@@ -245,7 +253,7 @@ export function RetentionGrid({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     grid: {
         flexDirection: 'row',
     },
@@ -326,4 +334,4 @@ const styles = StyleSheet.create({
         color: colors.muted,
         paddingVertical: 8,
     },
-})
+}))

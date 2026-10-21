@@ -1,12 +1,13 @@
 import type { ReactElement, ReactNode } from 'react'
-import { StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { Text, type TextStyle, View } from 'react-native'
 
 import type { ReportOwner, ReportPriority, ReportView } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
 import { Dot } from '@/ui/Dot'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, lineHeight, radii } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, lineHeight, radii } from '@/ui/tokens'
 
 import { priorityTone } from '../priority/PrioritySheet'
 import { ReportByline } from './ReportByline'
@@ -23,6 +24,7 @@ interface ReportMetaProps {
 // Facts that never change (source, start time) read as a quiet byline. Facts the user can change (owner, priority)
 // are chips that open the sheet for that value.
 export function ReportMeta({ report, onReassign, onChangePriority }: ReportMetaProps): ReactElement {
+    const styles = useStyles()
     return (
         <View>
             <ReportByline report={report} />
@@ -35,6 +37,8 @@ export function ReportMeta({ report, onReassign, onChangePriority }: ReportMetaP
 }
 
 function OwnerChip({ owner, onPress }: { owner: ReportOwner; onPress: () => void }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     if (owner.kind === 'none') {
         return (
             <Chip
@@ -63,7 +67,9 @@ function OwnerChip({ owner, onPress }: { owner: ReportOwner; onPress: () => void
 }
 
 function PriorityChip({ priority, onPress }: { priority?: ReportPriority; onPress: () => void }): ReactElement {
-    const tone = priorityTone(priority)
+    const styles = useStyles()
+    const colors = useColors()
+    const tone = priorityTone(priority, colors)
     return (
         <Chip
             accessibilityLabel={priority ? `Priority ${priority}, change` : 'No priority, set'}
@@ -91,6 +97,8 @@ interface ChipProps {
 
 // The trailing chevron is what tells these chips apart from the read-only byline above them.
 function Chip({ accessibilityLabel, leading, label, labelStyle, onPress, testID }: ChipProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -111,7 +119,7 @@ function Chip({ accessibilityLabel, leading, label, labelStyle, onPress, testID 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     chips: {
         marginTop: 10,
         flexDirection: 'row',
@@ -129,7 +137,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.pill,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
     },
     chipBody: {
         flexDirection: 'row',
@@ -165,4 +173,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

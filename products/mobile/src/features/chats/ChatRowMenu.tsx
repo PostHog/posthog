@@ -1,11 +1,12 @@
 import { type ReactElement, useEffect, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { MenuCard, MenuDivider, MenuItem } from '@/features/views/list/ViewsMenu'
 import type { ChatListItem } from '@/model/types'
 import { ArchiveIcon } from '@/ui/icons/ArchiveIcon'
-import { colors, motion, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { motion, type } from '@/ui/tokens'
 
 export interface ChatRowMenuTarget {
     item: ChatListItem
@@ -21,6 +22,8 @@ interface ChatRowMenuProps {
 
 /** The long-press menu of a Chats row. It keeps the last row through the exit animation, then unmounts. */
 export function ChatRowMenu({ target, onClose, onArchive }: ChatRowMenuProps): ReactElement | null {
+    const colors = useColors()
+    const styles = useStyles()
     const [shown, setShown] = useState(target)
     if (target !== null && target !== shown) {
         setShown(target)
@@ -61,7 +64,7 @@ export function ChatRowMenu({ target, onClose, onArchive }: ChatRowMenuProps): R
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     header: {
         paddingHorizontal: 10,
         paddingTop: 8,
@@ -71,4 +74,4 @@ const styles = StyleSheet.create({
         ...type.rowTitle,
         color: colors.ink,
     },
-})
+}))

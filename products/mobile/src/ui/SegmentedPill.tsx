@@ -1,8 +1,9 @@
 import { Fragment, type ReactElement, type ReactNode } from 'react'
-import { type AccessibilityRole, type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
+import { type AccessibilityRole, type StyleProp, View, type ViewStyle } from 'react-native'
 
 import { Pressable44 } from './Pressable44'
-import { colors, radii, shadows } from './tokens'
+import { createStyles, useTheme } from './theme'
+import { radii } from './tokens'
 
 export interface Segment {
     key: string
@@ -31,6 +32,8 @@ export function SegmentedPill({
     raised = false,
     style,
 }: SegmentedPillProps): ReactElement {
+    const { colors, shadows } = useTheme()
+    const styles = useStyles()
     return (
         <View style={[styles.outer, { height }, raised && shadows.chip, style]}>
             <View style={styles.inner}>
@@ -61,10 +64,10 @@ export function SegmentedPill({
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     outer: {
         borderRadius: radii.pill,
-        backgroundColor: colors.white,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
     },
@@ -89,4 +92,4 @@ const styles = StyleSheet.create({
         marginVertical: 10,
         backgroundColor: colors.border,
     },
-})
+}))

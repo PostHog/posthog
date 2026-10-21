@@ -6,7 +6,7 @@ import { shortcutMatchKey } from '@/model/adapters/viewPins'
 import type { PinView } from '@/model/views'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors } from '@/ui/tokens'
+import { useColors } from '@/ui/theme'
 
 import type { PinSource } from './analytics'
 import { usePinActions, usePins } from './pinHooks'
@@ -31,6 +31,7 @@ interface PinButtonProps {
  * Starred items follow at once. A toast confirms each change and offers Undo.
  */
 export function PinButton({ target, match }: PinButtonProps): ReactElement {
+    const colors = useColors()
     const actions = usePinActions()
     const { pins } = usePins()
     const key = shortcutMatchKey(match.kind, match.ref)

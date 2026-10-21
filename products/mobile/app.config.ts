@@ -58,7 +58,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         scheme,
         version: '1.2.1',
         orientation: 'portrait',
-        userInterfaceStyle: 'light',
+        userInterfaceStyle: 'automatic',
         icon: icons.png,
         ios: {
             // The Icon Composer bundle draws the iOS 26 layered icon and has no badged copy, so the internal
@@ -132,6 +132,10 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     imageWidth: 120,
                     resizeMode: 'contain',
                     backgroundColor: '#FFFFFF',
+                    dark: {
+                        image: './assets/splash-icon-dark.png',
+                        backgroundColor: '#1D1F27',
+                    },
                 },
             ],
             'expo-font',

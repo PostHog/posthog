@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { Text } from 'react-native'
 
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 interface SettingsLinkRowProps {
     label: string
@@ -13,6 +14,8 @@ interface SettingsLinkRowProps {
 
 /** A Settings row that opens a web page in the browser. */
 export function SettingsLinkRow({ label, onPress, testID }: SettingsLinkRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -28,7 +31,7 @@ export function SettingsLinkRow({ label, onPress, testID }: SettingsLinkRowProps
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         minHeight: 52,
         flexDirection: 'row',
@@ -41,4 +44,4 @@ const styles = StyleSheet.create({
         color: colors.ink,
         flex: 1,
     },
-})
+}))

@@ -1,14 +1,17 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { WarningIcon } from '@/ui/icons/WarningIcon'
-import { colors, iconSizes, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface ChatErrorBubbleProps {
     text: string
 }
 
 export function ChatErrorBubble({ text }: ChatErrorBubbleProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.card} testID="chat-error">
             <View style={styles.row}>
@@ -19,7 +22,7 @@ export function ChatErrorBubble({ text }: ChatErrorBubbleProps): ReactElement {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         alignSelf: 'stretch',
         borderWidth: 1,
@@ -39,4 +42,4 @@ const styles = StyleSheet.create({
         color: colors.ink,
         flex: 1,
     },
-})
+}))

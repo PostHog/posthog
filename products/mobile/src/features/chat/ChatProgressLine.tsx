@@ -1,13 +1,16 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
-import { colors, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { type } from '@/ui/tokens'
 
 interface ChatProgressLineProps {
     text: string
 }
 
 export function ChatProgressLine({ text }: ChatProgressLineProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     return (
         <View style={styles.row} accessibilityRole="progressbar" accessibilityLabel={text} testID="chat-progress">
             <ActivityIndicator size="small" color={colors.tertiary} />
@@ -18,7 +21,7 @@ export function ChatProgressLine({ text }: ChatProgressLineProps): ReactElement 
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -29,4 +32,4 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
         flexShrink: 1,
     },
-})
+}))

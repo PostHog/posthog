@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -9,7 +9,8 @@ import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { layout, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import type { TabHeaderSlot, TabKey } from './tabHeaderStore'
@@ -48,6 +49,8 @@ interface TabsHeaderProps {
  * the title row, and the refresh hint takes its place while it shows, so every tab's content starts at the same offset.
  */
 export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement {
+    const colors = useColors()
+    const styles = useStyles()
     const insets = useScreenInsets()
     const editing = slot?.editing ?? null
     const status = slot?.status ?? null
@@ -124,7 +127,7 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     header: {
         position: 'absolute',
         top: 0,
@@ -195,6 +198,6 @@ const styles = StyleSheet.create({
     },
     doneText: {
         ...type.button,
-        color: colors.white,
+        color: colors.onInk,
     },
-})
+}))

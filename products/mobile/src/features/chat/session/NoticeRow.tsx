@@ -1,9 +1,10 @@
 import { memo, type ReactElement } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { createStyles, useColors } from '@/ui/theme'
+import { iconSizes, type } from '@/ui/tokens'
 
 import type { SessionNoticeItem } from './types'
 
@@ -12,6 +13,7 @@ interface NoticeRowProps {
 }
 
 function NoticeIcon({ item }: NoticeRowProps): ReactElement | null {
+    const colors = useColors()
     if (item.spinning) {
         return <ActivityIndicator size="small" color={colors.tertiary} />
     }
@@ -25,6 +27,7 @@ function NoticeIcon({ item }: NoticeRowProps): ReactElement | null {
 }
 
 export const NoticeRow = memo(function NoticeRow({ item }: NoticeRowProps): ReactElement {
+    const styles = useStyles()
     return (
         <View style={styles.row} accessibilityRole="text" testID={`session-notice-${item.id}`}>
             <NoticeIcon item={item} />
@@ -33,7 +36,7 @@ export const NoticeRow = memo(function NoticeRow({ item }: NoticeRowProps): Reac
     )
 })
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     row: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -47,4 +50,4 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         flexShrink: 1,
     },
-})
+}))

@@ -1,16 +1,19 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { Text, type TextStyle, View } from 'react-native'
 
 import type { Fact } from '@/model/types'
-import { colors, fonts, lineHeight } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { fonts, lineHeight } from '@/ui/tokens'
 
-const TONE_STYLES = StyleSheet.create<Record<Fact['tone'], TextStyle>>({
+const useToneStyles = createStyles<Record<Fact['tone'], TextStyle>>(({ colors }) => ({
     default: { color: colors.ink },
     alert: { color: colors.orange },
     agent: { color: colors.blue },
-})
+}))
 
 export function Facts({ facts }: { facts: Fact[] }): ReactElement | null {
+    const styles = useStyles()
+    const toneStyles = useToneStyles()
     if (facts.length === 0) {
         return null
     }
@@ -20,7 +23,7 @@ export function Facts({ facts }: { facts: Fact[] }): ReactElement | null {
                 <View key={fact.key}>
                     <Text style={styles.key}>{fact.key}</Text>
                     <View style={[styles.value, index === facts.length - 1 && styles.last]}>
-                        <Text style={[styles.title, TONE_STYLES[fact.tone]]}>{fact.title}</Text>
+                        <Text style={[styles.title, toneStyles[fact.tone]]}>{fact.title}</Text>
                         {fact.sub ? <Text style={styles.sub}>{fact.sub}</Text> : null}
                     </View>
                 </View>
@@ -29,7 +32,7 @@ export function Facts({ facts }: { facts: Fact[] }): ReactElement | null {
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     list: {
         marginTop: 24,
         borderTopWidth: 1,
@@ -62,4 +65,4 @@ const styles = StyleSheet.create({
         color: colors.muted,
         marginTop: 2,
     },
-})
+}))

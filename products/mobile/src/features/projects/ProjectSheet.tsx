@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
 
 import { type AuthProject, useAuthStore } from '@/auth/authStore'
 import { DEMO_PROJECT_NAME } from '@/demo/briefings'
@@ -9,7 +9,8 @@ import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { filterProjects, groupByOrganization } from './projectList'
@@ -31,6 +32,8 @@ interface ProjectRowProps {
 }
 
 function ProjectRow({ project, selected, onPress }: ProjectRowProps): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
     return (
         <Pressable44
             onPress={onPress}
@@ -50,6 +53,8 @@ function ProjectRow({ project, selected, onPress }: ProjectRowProps): ReactEleme
 }
 
 export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps): ReactElement {
+    const styles = useStyles()
+    const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const top = topOffset(insets, 120)
@@ -187,6 +192,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                     onChangeText={setQuery}
                     placeholder="Find a project…"
                     placeholderTextColor={colors.tertiary}
+                    keyboardAppearance={scheme}
                     autoFocus
                     autoCorrect={false}
                     autoCapitalize="none"
@@ -202,7 +208,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         left: 14,
         right: 14,
@@ -310,4 +316,4 @@ const styles = StyleSheet.create({
         ...type.buttonSmall,
         color: colors.ink,
     },
-})
+}))

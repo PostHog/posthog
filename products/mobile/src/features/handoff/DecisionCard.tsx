@@ -1,12 +1,13 @@
 import { type ReactElement, useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { Text, TextInput, View } from 'react-native'
 
 import { ChatMarkdown } from '@/features/chat/ChatMarkdown'
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 interface DecisionCardProps {
     question: DecisionQuestion
@@ -23,6 +24,8 @@ export function DecisionCard({
     onReplyFocus,
     onReplyBlur,
 }: DecisionCardProps): ReactElement {
+    const { colors, scheme } = useTheme()
+    const styles = useStyles()
     const [reply, setReply] = useState('')
     const canSend = reply.trim().length > 0 && !pending
 
@@ -68,6 +71,7 @@ export function DecisionCard({
                     onSubmitEditing={sendReply}
                     placeholder={question.options.length > 0 ? 'Or type your answer' : 'Type your reply'}
                     placeholderTextColor={colors.tertiary}
+                    keyboardAppearance={scheme}
                     returnKeyType="send"
                     style={styles.input}
                     accessibilityLabel="Your answer"
@@ -77,17 +81,17 @@ export function DecisionCard({
                     disabled={!canSend}
                     accessibilityLabel="Send"
                     accessibilityState={{ disabled: !canSend, busy: pending }}
-                    style={[styles.send, { backgroundColor: canSend ? colors.orange : colors.border }]}
+                    style={[styles.send, { backgroundColor: canSend ? colors.accent : colors.disabledFill }]}
                     hitSlop={4}
                 >
-                    <ArrowUpIcon size={iconSizes.control} color={colors.white} />
+                    <ArrowUpIcon size={iconSizes.control} color={canSend ? colors.onAccent : colors.onDisabled} />
                 </Pressable44>
             </View>
         </View>
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     card: {
         gap: 14,
         paddingHorizontal: 4,
@@ -149,4 +153,4 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-})
+}))

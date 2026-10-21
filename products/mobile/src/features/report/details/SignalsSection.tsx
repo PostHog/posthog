@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { useNow } from '@/lib/useNow'
 import { groupThousands } from '@/model/adapters/text'
 import type { ReportSignalView } from '@/model/types'
-import { colors, type } from '@/ui/tokens'
+import { createStyles } from '@/ui/theme'
+import { type } from '@/ui/tokens'
 
 import { SignalCard } from './SignalCard'
 
@@ -13,6 +14,7 @@ interface SignalsSectionProps {
 }
 
 export function SignalsSection({ signals, reportId }: SignalsSectionProps): ReactElement | null {
+    const styles = useStyles()
     const now = useNow()
     if (signals.length === 0) {
         return null
@@ -32,7 +34,7 @@ export function SignalsSection({ signals, reportId }: SignalsSectionProps): Reac
     )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles(({ colors }) => ({
     section: {
         marginTop: 12,
         paddingTop: 20,
@@ -56,4 +58,4 @@ const styles = StyleSheet.create({
         marginTop: 14,
         gap: 10,
     },
-})
+}))
