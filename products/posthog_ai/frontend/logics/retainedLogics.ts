@@ -1,15 +1,12 @@
 import { BuiltLogic, getContext } from 'kea'
 
+import { findLiveRunStreamKey } from './runStreamLogic'
+
 export const RETAINED_RUN_STREAMS = 'run-stream'
 
-interface RetainedLogic {
-    logic: BuiltLogic
-    unmount: () => void
-}
+const retainedByContext = new WeakMap<object, Map<string, Map<string, () => void>>>()
 
-const retainedByContext = new WeakMap<object, Map<string, Map<string, RetainedLogic>>>()
-
-function retainedGroup(group: string): Map<string, RetainedLogic> {
+function retainedGroup(group: string): Map<string, () => void> {
     const context = getContext()
     let groups = retainedByContext.get(context)
     if (!groups) {
@@ -26,19 +23,19 @@ function retainedGroup(group: string): Map<string, RetainedLogic> {
 
 export function retainMountedLogic(group: string, key: string, logic: BuiltLogic, limit: number): boolean {
     const retained = retainedGroup(group)
-    const existing = retained.get(key)
-    if (existing) {
+    const unmount = retained.get(key)
+    if (unmount) {
         retained.delete(key)
-        retained.set(key, existing)
+        retained.set(key, unmount)
         return true
     }
-    retained.set(key, { logic, unmount: logic.mount() })
-    for (const [oldestKey, oldest] of retained) {
+    retained.set(key, logic.mount())
+    for (const [oldestKey, oldestUnmount] of retained) {
         if (retained.size <= limit) {
             break
         }
         retained.delete(oldestKey)
-        oldest.unmount()
+        oldestUnmount()
     }
     return false
 }
@@ -47,23 +44,9 @@ export function isLogicRetained(group: string, key: string): boolean {
     return retainedGroup(group).has(key)
 }
 
-export function findRetainedLogicKey(group: string, matches: (logic: BuiltLogic) => boolean): string | null {
-    for (const [key, { logic }] of retainedGroup(group)) {
-        if (matches(logic)) {
-            return key
-        }
-    }
-    return null
-}
-
 export function resolveRunStreamKey(runId: string, streamKey: string | undefined): string | undefined {
     if (streamKey && streamKey !== runId) {
         return streamKey
     }
-    return (
-        findRetainedLogicKey(
-            RETAINED_RUN_STREAMS,
-            (logic) => (logic.values as { bootstrappedRunId?: string | null }).bootstrappedRunId === runId
-        ) ?? streamKey
-    )
+    return findLiveRunStreamKey(runId) ?? streamKey
 }
