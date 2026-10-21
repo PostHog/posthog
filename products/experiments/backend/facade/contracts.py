@@ -112,6 +112,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
+    NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
 
 
 class HealthExposureInputsStatus(LabeledStrEnum):
@@ -190,6 +191,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
+    NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     NO_METRIC = "no_metric"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"

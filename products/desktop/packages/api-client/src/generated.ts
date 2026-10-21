@@ -9734,6 +9734,7 @@ export namespace Schemas {
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9749,7 +9750,8 @@ export namespace Schemas {
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
-        | "release_conditions_changed_mid_run";
+        | "release_conditions_changed_mid_run"
+        | "new_flag_no_traffic";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9796,6 +9798,7 @@ export namespace Schemas {
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `new_flag_no_traffic` - New Flag No Traffic
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -9839,6 +9842,7 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
@@ -9853,6 +9857,7 @@ export namespace Schemas {
         | "release_conditions_changed_mid_run"
         | "flag_variants_mismatch"
         | "forced_variant_release_condition"
+        | "new_flag_no_traffic"
         | "no_metric"
         | "zero_exposures"
         | "srm"
@@ -9880,6 +9885,7 @@ export namespace Schemas {
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
