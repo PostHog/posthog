@@ -84,9 +84,10 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
 # Replaces the buffer above when the source is flag_evaluations. Its MV stamps inserted_at on the ingestion node,
 # before the row reaches a shard and before the other replicas of that shard fetch it. The query reads each shard
 # from a random replica. ClickHouse skips a replica that lags more than max_replica_delay_for_distributed_queries
-# (300 seconds by default) only when another replica of the shard is fresher, so a replica that lags up to 300
-# seconds can still answer. This buffer must stay above that limit. A row that becomes visible later than this
-# falls behind the checkpoint and is never read.
+# (300 seconds by default). The sync query turns off the stale-replica fallback, so the read fails when every
+# replica of a shard lags past that limit. A replica that lags up to 300 seconds can still answer, so this buffer
+# must stay above that limit. A row that becomes visible later than this falls behind the checkpoint and is never
+# read.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS: int = max(
     0,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS", 360, type_cast=int),
