@@ -60,17 +60,18 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
 _expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
 
 
-def push_registry(job_name: str, registry: CollectorRegistry, *, replace_group: bool) -> None:
+def push_registry(job_name: str, registry: CollectorRegistry, *, replace_group: bool, timeout: float = 30) -> None:
     """
     Push the registry to the PushGateway under job_name. It logs and captures a failed push instead of raising it.
 
     With replace_group=True the push is a PUT, which deletes every metric in the job's group that the registry does not carry.
     With replace_group=False the push is a POST, which replaces only the metrics the registry carries.
+    The timeout applies to each socket operation of the push. The connect and the response can each take that long.
     """
     try:
         if settings.PROM_PUSHGATEWAY_ADDRESS:
             push = push_to_gateway if replace_group else pushadd_to_gateway
-            push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
+            push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry, timeout=timeout)
     except Exception as err:
         logger.exception(
             "push_to_gateway",

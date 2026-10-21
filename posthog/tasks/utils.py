@@ -12,6 +12,10 @@ from prometheus_client import CollectorRegistry, Gauge
 from posthog.celery_queues import CeleryQueue as CeleryQueue
 from posthog.metrics import push_registry, pushed_metrics_registry
 
+# A run that hits its soft time limit makes the failure push after that limit.
+# The push must end before the hard limit kills the worker. Otherwise Celery loses the task's own exception.
+FAILURE_PUSH_TIMEOUT_SECONDS = 5
+
 
 class PushGatewayTask(Task):
     """
@@ -58,7 +62,7 @@ class PushGatewayTask(Task):
         except Exception:
             failure_registry = CollectorRegistry()
             self._set_run_metrics(failure_registry, task_name, time.monotonic() - start_time, success=False)
-            push_registry(job_name, failure_registry, replace_group=False)
+            push_registry(job_name, failure_registry, replace_group=False, timeout=FAILURE_PUSH_TIMEOUT_SECONDS)
             raise
         finally:
             self._local.registry = None

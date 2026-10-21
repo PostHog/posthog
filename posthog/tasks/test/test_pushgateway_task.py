@@ -81,6 +81,7 @@ class TestPushGatewayTask:
 
         assert exc_info.value is error
         registry = _pushed_registry(pushadd_to_gateway)
+        assert pushadd_to_gateway.call_args.kwargs["timeout"] == 5
         assert registry.get_sample_value("posthog_celery_sample_task_success") == 0
         assert registry.get_sample_value("posthog_celery_sample_task_duration_seconds") == run_duration
         assert registry.get_sample_value(TASK_GAUGE) is None
