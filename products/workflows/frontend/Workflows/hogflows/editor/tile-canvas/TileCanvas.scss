@@ -1,0 +1,120 @@
+.TileCanvas {
+    --tile-canvas-edge: var(--border-bold);
+}
+
+[theme='dark'] .TileCanvas {
+    --tile-canvas-edge: var(--color-text-tertiary);
+}
+
+// Steps fly out of a stack when it opens and back into it when the path closes, while the rest of the
+// canvas glides to its new place. Each moving node sets --tile-canvas-dx and --tile-canvas-dy to the
+// distance from its new spot to the stack.
+@keyframes TileCanvas__enter {
+    from {
+        opacity: 0;
+        transform: translate(var(--tile-canvas-dx), var(--tile-canvas-dy)) scale(0.4);
+    }
+}
+
+@keyframes TileCanvas__leave {
+    to {
+        opacity: 0;
+        transform: translate(var(--tile-canvas-dx), var(--tile-canvas-dy)) scale(0.4);
+    }
+}
+
+@keyframes TileCanvas__pop {
+    from {
+        opacity: 0;
+        transform: scale(0.6);
+    }
+}
+
+@keyframes TileCanvas__fadeIn {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes TileCanvas__fadeOut {
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes TileCanvas__edges {
+    0%,
+    55% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+.TileCanvas__motion--enter {
+    animation: TileCanvas__enter 460ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.TileCanvas__motion--leave {
+    animation: TileCanvas__leave 260ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.TileCanvas__motion--pop {
+    animation: TileCanvas__pop 320ms cubic-bezier(0.2, 0.8, 0.2, 1) 200ms both;
+}
+
+.TileCanvas__motion--fade-in {
+    animation: TileCanvas__fadeIn 380ms ease 180ms both;
+}
+
+.TileCanvas__motion--fade-out {
+    animation: TileCanvas__fadeOut 160ms ease forwards;
+}
+
+.TileCanvas__appear {
+    animation: TileCanvas__fadeIn 160ms ease both;
+}
+
+.TileCanvas--moving {
+    .react-flow__node,
+    .react-flow__viewport {
+        transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .react-flow__edges,
+    .react-flow__edgelabel-renderer {
+        animation: TileCanvas__edges 760ms ease both;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TileCanvas__motion--enter,
+    .TileCanvas__motion--leave,
+    .TileCanvas__motion--pop,
+    .TileCanvas__motion--fade-in,
+    .TileCanvas__motion--fade-out,
+    .TileCanvas__appear,
+    .TileCanvas--moving .react-flow__edges,
+    .TileCanvas--moving .react-flow__edgelabel-renderer {
+        animation: none;
+    }
+
+    .TileCanvas--moving .react-flow__node,
+    .TileCanvas--moving .react-flow__viewport {
+        transition: none;
+    }
+}
+
+// React Flow focuses the node wrapper, whose box spans the tile and its caption, so the default
+// outline draws a square around both. The ring goes on the tile face instead.
+.TileCanvas .react-flow__node:focus-visible {
+    outline: none;
+}
+
+.TileCanvas .react-flow__node:focus-visible [data-tile-anchor] {
+    border-radius: 14px;
+    outline: 2px solid var(--color-text-tertiary);
+    outline-offset: 3px;
+}

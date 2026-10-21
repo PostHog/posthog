@@ -37,7 +37,7 @@ use super::keys::{
 };
 use super::keyspace::{
     BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, SliceCoverageKey, SliceCoverages,
-    META_SCHEMA_VERSION, META_SLICE_COVERAGE,
+    META_POD_PARTITIONS, META_SCHEMA_VERSION, META_SLICE_COVERAGE,
 };
 use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
@@ -46,6 +46,7 @@ use crate::observability::metrics::{
     STORE_SCHEMA_MISMATCH_WIPES_TOTAL, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
     WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
 };
+use crate::partitions::PartitionOwnership;
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
 /// A layout revision (key codec, value shape) that keeps the same CF set MUST bump this so an older
@@ -120,8 +121,10 @@ pub struct StoreConfig {
     /// `cf_person_records` **only** — never `cf_behavioral`, whose eviction deadlines are the sweep's
     /// contract. See [`super::ttl_filter`].
     pub person_record_ttl_days: u32,
-    /// Partitions adopted as complete when the store predates coverage records.
-    pub partition_count: u16,
+    /// The partitions this pod owns. The store records it, and refuses to open under a split its
+    /// record does not cover. A store that predates coverage records adopts all of its partitions
+    /// as complete.
+    pub ownership: PartitionOwnership,
 }
 
 impl Default for StoreConfig {
@@ -144,7 +147,7 @@ impl Default for StoreConfig {
             periodic_compaction_seconds: 0,
             max_background_jobs: 0,
             person_record_ttl_days: 0,
-            partition_count: COHORT_PARTITION_COUNT as u16,
+            ownership: PartitionOwnership::single(COHORT_PARTITION_COUNT as u16),
         }
     }
 }
@@ -191,6 +194,18 @@ pub enum StoreError {
          (set COHORT_WIPE_ON_SCHEMA_MISMATCH=true to wipe and recreate)"
     )]
     SchemaMismatch { found: Option<u32>, expected: u32 },
+
+    /// The store's slices belong to a split that does not cover this pod's partitions, so its
+    /// slices for them may be missing or another pod's. `None` when the record is unreadable.
+    #[error(
+        "store ownership mismatch: the store was written as {}, which does not cover {expected}; \
+         refusing to open (wipe the store to start this pod's slices over)",
+        .found.map_or_else(|| "an unreadable ownership record".to_owned(), |found| found.to_string())
+    )]
+    OwnershipMismatch {
+        found: Option<PartitionOwnership>,
+        expected: PartitionOwnership,
+    },
 
     /// A batched read answered fewer slots than it was asked keys. RocksDB answers one slot per
     /// key, so this is a backend contract break rather than a data problem, and pairing a slot
@@ -357,8 +372,9 @@ impl CohortStore {
             let store = Self::open_inner(config, &db_opts)?;
             match store.check_schema(path_existed, config.wipe_on_schema_mismatch)? {
                 SchemaCheck::Ok => {
+                    store.claim_ownership(config.ownership)?;
                     if path_existed {
-                        store.settle_coverage(config.partition_count)?;
+                        store.settle_coverage(config.ownership.partition_count())?;
                     }
                     return Ok(store);
                 }
@@ -499,6 +515,30 @@ impl CohortStore {
             batch.put::<Meta>(&META_SCHEMA_VERSION, &STORE_SCHEMA_VERSION.to_be_bytes());
             batch.put::<Meta>(&META_SLICE_COVERAGE, &[]);
         })
+    }
+
+    /// Records `ownership` in a store written under a split that covers it, and refuses any other
+    /// store. A covering split is this pod's own, or in a reshard the split that wrote the
+    /// parent's store or checkpoint. A store from before ownership records adopts the configured
+    /// one.
+    fn claim_ownership(&self, ownership: PartitionOwnership) -> Result<(), StoreError> {
+        if let Some(recorded) = self.get(Meta::CF, &Meta::encode(&META_POD_PARTITIONS))? {
+            match PartitionOwnership::decode(&recorded) {
+                Some(found) if found == ownership => return Ok(()),
+                Some(found) if found.covers(&ownership) => {}
+                found => {
+                    return Err(StoreError::OwnershipMismatch {
+                        found,
+                        expected: ownership,
+                    })
+                }
+            }
+        }
+        self.write_batch(|batch| {
+            batch.put::<Meta>(&META_POD_PARTITIONS, &ownership.encode());
+        })?;
+        info!(%ownership, "recorded the store's partition ownership");
+        Ok(())
     }
 
     /// Adopt every partition as complete in a store without the coverage stamp. The stamp rides the
@@ -1623,6 +1663,7 @@ mod tests {
 
     use super::super::keyspace::{Behavioral, PersonRecords};
     use crate::stage1::key::LeafStateKey;
+    use crate::store::durability::PodOrdinal;
 
     fn behavioral_key() -> BehavioralKey {
         BehavioralKey::new(3, 7, Uuid::from_u128(1), LeafStateKey([0xAB; 16]))
@@ -2795,7 +2836,7 @@ mod tests {
         let created = TempDir::new().unwrap();
         let config = StoreConfig {
             path: created.path().join("db"),
-            partition_count: 4,
+            ownership: PartitionOwnership::single(4),
             ..StoreConfig::default()
         };
         {
@@ -2860,6 +2901,66 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn a_store_opens_only_under_a_split_its_record_covers_and_then_records_that_split() {
+        let pods = std::num::NonZeroU16::new(2).unwrap();
+        let pod_zero = PartitionOwnership::new(pods, PodOrdinal::STANDALONE, 4).unwrap();
+        let pod_one = PartitionOwnership::new(pods, PodOrdinal::from(1), 4).unwrap();
+        let dir = TempDir::new().unwrap();
+        let under = |ownership| StoreConfig {
+            path: dir.path().join("db"),
+            ownership,
+            ..StoreConfig::default()
+        };
+
+        drop(CohortStore::open(&under(pod_one)).unwrap());
+        CohortStore::open(&under(pod_one)).expect("the recorded ownership reopens");
+        for other in [pod_zero, PartitionOwnership::single(4)] {
+            assert!(
+                matches!(
+                    CohortStore::open(&under(other)),
+                    Err(StoreError::OwnershipMismatch { found: Some(found), expected })
+                        if found == pod_one && expected == other
+                ),
+                "{other}",
+            );
+        }
+
+        // A store from before ownership records adopts the ownership it opens under.
+        CohortStore::open(&under(pod_one))
+            .unwrap()
+            .write_batch(|batch| batch.delete::<Meta>(&META_POD_PARTITIONS))
+            .unwrap();
+        drop(CohortStore::open(&under(pod_zero)).unwrap());
+        assert!(matches!(
+            CohortStore::open(&under(pod_one)),
+            Err(StoreError::OwnershipMismatch { .. })
+        ));
+
+        CohortStore::open(&under(pod_zero))
+            .unwrap()
+            .write_batch(|batch| batch.put::<Meta>(&META_POD_PARTITIONS, &[0xFF]))
+            .unwrap();
+        assert!(matches!(
+            CohortStore::open(&under(pod_zero)),
+            Err(StoreError::OwnershipMismatch { found: None, .. })
+        ));
+
+        // A parent's store, or a checkpoint of it, opens under a split it covers and records it.
+        let parent = TempDir::new().unwrap();
+        let resharded = |ownership| StoreConfig {
+            path: parent.path().join("db"),
+            ownership,
+            ..StoreConfig::default()
+        };
+        drop(CohortStore::open(&resharded(PartitionOwnership::single(4))).unwrap());
+        drop(CohortStore::open(&resharded(pod_one)).expect("a covering record opens"));
+        assert!(matches!(
+            CohortStore::open(&resharded(PartitionOwnership::single(4))),
+            Err(StoreError::OwnershipMismatch { found: Some(found), .. }) if found == pod_one
+        ));
     }
 
     #[test]

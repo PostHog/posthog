@@ -83,6 +83,7 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -122,6 +123,7 @@ from products.cdp.backend.presentation.serializers import (
     InputsSerializer,
     require_viewer_access_to_added_actions,
 )
+from products.cohorts.backend.facade.api import get_cohort_ref
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.replay_vision.backend.facade.api import (
@@ -266,6 +268,7 @@ from products.workflows.backend.facade.secrets import (
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
+    suggestions_sample,
     suggestions_scout_refusal,
     suggestions_scout_status,
     sync_suggestions_scout,
@@ -284,6 +287,7 @@ from products.workflows.backend.facade.validation import (
     realtime_cohort_cant_finish_error,
 )
 from products.workflows.backend.facade.workflows import (
+    ADD_TO_STATIC_COHORT_TEMPLATE_ID,
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
     COHORT_TRIGGER_TRANSITIONS,
@@ -298,6 +302,8 @@ from products.workflows.backend.facade.workflows import (
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    literal_static_cohort_id,
+    static_cohort_ids,
     workflow_from_fields,
     workflow_publish_impact,
 )
@@ -1615,6 +1621,45 @@ class HogFlowActionSerializer(serializers.Serializer):
         if error is not None:
             raise serializers.ValidationError({"template_id": error})
 
+    def _validate_add_to_static_cohort_action(self, inputs: dict, *, strict: bool) -> None:
+        """The step adds people as a service, so whoever saves it must be able to edit the cohort it names.
+
+        Runs on lenient draft saves too. The callback endpoint accepts only cohorts the saved workflow names,
+        so this is the one check that guards every way to run the step."""
+        cohort_id = literal_static_cohort_id(inputs)
+        if cohort_id is None:
+            if strict:
+                raise serializers.ValidationError({"inputs": {"cohort_id": "Choose a static cohort."}})
+            return
+        # Someone already passed this check for a cohort the saved workflow names, so other editors can keep
+        # saving the workflow.
+        if cohort_id in (self.context.get("stored_static_cohort_ids") or set()):
+            return
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        team = get_team()
+        cohort = get_cohort_ref(team_id=team.id, cohort_id=cohort_id)
+        if cohort is None or cohort.deleted or not cohort.is_static:
+            raise serializers.ValidationError({"inputs": {"cohort_id": "Choose a static cohort."}})
+
+        request = self.context.get("request")
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        if scopes is not None and "*" not in scopes and "cohort:write" not in scopes:
+            raise serializers.ValidationError(
+                {"inputs": {"cohort_id": "Adding people to a cohort needs a key with the cohort:write scope."}}
+            )
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return
+        cohort_ref = ObjectAccessRef(
+            resource="cohort", id=str(cohort.id), team_id=cohort.team_id, created_by_id=cohort.created_by_id
+        )
+        if not UserAccessControl(user=user, team=team).check_access_level_for_ref(cohort_ref, "editor"):
+            raise serializers.ValidationError(
+                {"inputs": {"cohort_id": "You need edit access to this cohort to add people to it."}}
+            )
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -1851,6 +1896,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
+            # Before template resolution, because a lenient save of a gated or unknown template skips input
+            # validation but still stores the cohort ID that the callback later trusts.
+            if data.get("type") == "function" and template_id == ADD_TO_STATIC_COHORT_TEMPLATE_ID:
+                self._validate_add_to_static_cohort_action(config.get("inputs") or {}, strict=strict)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
@@ -3221,6 +3270,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
+        self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
+
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
                 "cohort_id": (action.get("config") or {}).get("cohort_id"),
@@ -3427,6 +3478,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         action.get("type", "")
                         for action in actions
                         if action.get("type") in PERSON_DEPENDENT_ACTION_TYPES
+                    }
+                    | {
+                        ADD_TO_STATIC_COHORT_TEMPLATE_ID
+                        for action in actions
+                        if (action.get("config") or {}).get("template_id") == ADD_TO_STATIC_COHORT_TEMPLATE_ID
                     }
                 )
                 if offending_types:
@@ -4051,7 +4107,27 @@ class SuggestionsScoutStatus(models.TextChoices):
     RUNNING = "running"
     PAUSED_BY_USER = "paused_by_user"
     PAUSED_BY_SYSTEM = "paused_by_system"
+    DRY_RUN = "dry_run"
     NOT_RUNNING = "not_running"
+
+
+class SuggestionsSampleSerializer(serializers.Serializer):
+    reached = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether an email step of the live version has enough tracked sends, over enough time, for "
+        "PostHog to judge it.",
+    )
+    tracked_sends = serializers.IntegerField(
+        read_only=True,
+        help_text="Tracked sends (sends with open tracking on) from the live version's busiest email step in the "
+        "last 7 days.",
+    )
+    required_sends = serializers.IntegerField(
+        read_only=True, help_text="Tracked sends an email step needs before PostHog judges it."
+    )
+    version_live_since = serializers.DateTimeField(
+        read_only=True, help_text="When the live version was published. PostHog waits 48 hours before judging it."
+    )
 
 
 class HogFlowOptimizationSerializer(serializers.Serializer):
@@ -4060,7 +4136,14 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         choices=SuggestionsScoutStatus.choices,
         read_only=True,
         help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
-        "workflows that have suggestions on.",
+        "workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on "
+        "writing to the inbox in its scout settings.",
+    )
+    sample = SuggestionsSampleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
+        "while suggestions are on but the scout is not running, or when the workflow has no email step.",
     )
 
 
@@ -6115,10 +6198,19 @@ class HogFlowViewSet(
         else:
             enabled = is_optimization_enabled(instance.id)
 
+        scout_status = suggestions_scout_status(self.team)
+        sample = None
+        # Off, the sample tells the person what to expect before they turn it on. On, only a running scout is
+        # held back by it, so the metrics read is skipped while the scout is paused or in dry run.
+        if not enabled or scout_status == SuggestionsScoutStatus.RUNNING:
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            try:
+                sample = suggestions_sample(team_id=self.team_id, hog_flow_id=instance.id)
+            except Exception as error:
+                # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
+                capture_exception(error)
         return Response(
-            HogFlowOptimizationSerializer(
-                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
-            ).data
+            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:

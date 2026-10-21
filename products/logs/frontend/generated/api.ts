@@ -15,8 +15,10 @@ import type {
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
+    LogsAlertDestinationSendApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
+    LogsAlertsDestinationsSendsListParams,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAnomalyScanRequestApi,
@@ -288,6 +290,41 @@ export const logsAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsSendsListUrl = (
+    projectId: string,
+    id: string,
+    params: LogsAlertsDestinationsSendsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/${id}/destinations/sends/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/${id}/destinations/sends/`
+}
+
+/**
+ * The last messages sent to one destination of this alert in the past 7 days, newest first, on both delivery paths, with whether each one succeeded.
+ */
+export const logsAlertsDestinationsSendsList = async (
+    projectId: string,
+    id: string,
+    params: LogsAlertsDestinationsSendsListParams,
+    options?: RequestInit
+): Promise<LogsAlertDestinationSendApi[]> => {
+    return apiMutator<LogsAlertDestinationSendApi[]>(getLogsAlertsDestinationsSendsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

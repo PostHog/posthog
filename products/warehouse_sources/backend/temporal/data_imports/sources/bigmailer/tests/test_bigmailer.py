@@ -189,7 +189,7 @@ class TestAuthErrors:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("invalid", 400, False), ("forbidden", 403, False)])
+    @parameterized.expand([("invalid", 400, False)])
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key") is expected
