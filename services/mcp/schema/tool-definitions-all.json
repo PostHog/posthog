@@ -14189,6 +14189,20 @@
             "readOnlyHint": false
         }
     },
+    "view-check-incremental": {
+        "description": "Check whether a view's HogQL query can refresh incrementally, without running it. Pass the query from view-get. Returns key_candidates, the date, datetime and number columns that can be the incremental key, and unique_key_candidates, the columns a unique key can use. Pass incremental_key and unique_key to check a specific choice: blockers then says why it cannot work. Use it before accepting a materialize suggestion with keys the person chose.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Check incremental refresh",
+        "title": "Check incremental refresh",
+        "required_scopes": ["warehouse_view:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "view-create": {
         "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be\nupdated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced\nby name in other HogQL queries. Set `description` to record what the view represents (a semantic description\nsurfaced to agents); per-column descriptions are set via the saved-query column annotation tools.\n\nPut the HogQL in `query`:\n\n```json\n{ \"name\": \"example\", \"query\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } }\n```",
         "category": "Data warehouse",
@@ -15446,7 +15460,7 @@
         }
     },
     "warehouse-suggestions-accept-execute": {
-        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. A 409 means the view changed since the suggestion was made and its keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (execute)",
@@ -15461,7 +15475,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-accept-prepare": {
-        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. A 409 means the view changed since the suggestion was made and its keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (prepare)",

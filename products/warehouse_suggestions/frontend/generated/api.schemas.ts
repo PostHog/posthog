@@ -89,7 +89,7 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     /** How old the data can be once materialized, in seconds. */
     freshness_after_seconds: number
     /**
-     * Date or datetime output column whose advancing value marks new rows. Null for a full refresh.
+     * Output column whose advancing value marks new rows. A proposal only uses a date or datetime column the query groups by. Null for a full refresh.
      * @nullable
      */
     incremental_key?: string | null
@@ -298,11 +298,26 @@ export interface PaginatedWarehouseSuggestionListApi {
 
 export interface AcceptWarehouseSuggestionApi {
     /**
-     * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+     * Materialize only: refresh interval to use instead of the proposed one, in seconds. Omit to keep the proposed interval.
      * @minimum 1
      * @maximum 2592000
      */
     refresh_interval_seconds?: number
+    /** Materialize only: incremental or full, instead of the proposed refresh_mode. Omit to keep the proposed one. Switching to incremental needs incremental_key and unique_key when the payload has none.
+     *
+     * * `full` - Full
+     * * `incremental` - Incremental */
+    refresh_mode?: WarehouseSuggestionRefreshModeEnumApi
+    /** Materialize only, incremental refresh only: an output column whose value only grows as rows arrive, such as a date, a datetime or an increasing number, instead of the proposed one. view-check-incremental lists the columns that qualify. Omit to keep the proposed key. */
+    incremental_key?: string
+    /** Materialize only, incremental refresh only: output columns that identify a row, instead of the proposed ones. Must include every GROUP BY column. Omit to keep the proposed key. */
+    unique_key?: string[]
+    /**
+     * Materialize only, incremental refresh only: how far before the last refresh's highest incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the proposed lookback.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
 }
 
 export interface DismissWarehouseSuggestionApi {

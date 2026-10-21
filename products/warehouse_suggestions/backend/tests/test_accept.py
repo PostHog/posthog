@@ -37,6 +37,8 @@ from .test_suggestions import make_draft
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
+ACCEPT_INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.accept.incremental_enabled"
+DAY_KEYS = {"refresh_mode": "incremental", "incremental_key": "day", "unique_key": ["day"]}
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
@@ -95,6 +97,7 @@ class TestAcceptSuggestion(APIBaseTest):
         super().setUp()
         self.enterContext(patch(FLAG, return_value=True))
         self.enterContext(patch.object(DataWarehouseSavedQuery, "schedule_materialization"))
+        self.enterContext(patch(ACCEPT_INCREMENTAL_FLAG, return_value=True))
         self.url = f"/api/projects/{self.team.id}/warehouse_suggestions"
         self.view = create_view_in_dag(self.team, self.user)
 
@@ -241,6 +244,114 @@ class TestAcceptSuggestion(APIBaseTest):
 
         self.view.refresh_from_db()
         assert (accepted["http_status"], self.view.incremental_config) == (expected_status, expected_config), accepted
+
+    def _suggest_and_accept(self, payload: SuggestionPayload, body: dict, flag_on: bool) -> tuple[dict, list]:
+        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(
+            query={"kind": "HogQLQuery", "query": DAILY_COUNTS}
+        )
+        kind = (
+            WarehouseSuggestionKind.MATERIALIZE
+            if isinstance(payload, MaterializePayload)
+            else WarehouseSuggestionKind.CERTIFY
+        )
+        draft = make_draft(fingerprint=f"{kind}:orders", subject_id=self.view.id)
+        suggestion = ingest_surfaced(self.team.id, replace(draft, kind=kind, payload=payload))
+        with patch(ACCEPT_INCREMENTAL_FLAG, return_value=flag_on), patch(REPORT) as report:
+            accepted = self._accept(suggestion.id, body)
+        self.view.refresh_from_db()
+        return accepted, [call.args[1]["changed_fields"] for call in report.call_args_list]
+
+    @parameterized.expand(
+        [
+            (
+                "chosen_keys_replace_a_full_refresh",
+                MATERIALIZE_PAYLOAD,
+                DAY_KEYS,
+                STORED_DAY_KEY,
+                ["refresh_mode", "incremental_key", "unique_key"],
+            ),
+            (
+                "chosen_full_refresh_replaces_keys",
+                INCREMENTAL_DAY_PAYLOAD,
+                {"refresh_mode": "full"},
+                None,
+                ["refresh_mode"],
+            ),
+        ]
+    )
+    def test_a_person_can_change_the_refresh_before_accepting(
+        self, _name: str, payload: MaterializePayload, body: dict, expected_config: dict | None, changed: list[str]
+    ) -> None:
+        accepted, reported_changes = self._suggest_and_accept(payload, body, flag_on=True)
+
+        assert accepted["http_status"] == status.HTTP_200_OK, accepted
+        assert (self.view.incremental_config, reported_changes) == (expected_config, [changed])
+
+    @parameterized.expand(
+        [
+            (
+                "hostile_key",
+                INCREMENTAL_DAY_PAYLOAD,
+                {"incremental_key": 'day"; DROP TABLE events; --'},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "incremental_key",
+            ),
+            (
+                "aggregate_in_a_chosen_unique_key",
+                MATERIALIZE_PAYLOAD,
+                {**DAY_KEYS, "unique_key": ["day", "c"]},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "unique_key",
+            ),
+            (
+                "keys_with_a_full_refresh",
+                MATERIALIZE_PAYLOAD,
+                {"incremental_key": "day"},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "refresh_mode",
+            ),
+            (
+                "incremental_while_the_flag_is_off",
+                MATERIALIZE_PAYLOAD,
+                DAY_KEYS,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "refresh_mode",
+            ),
+            (
+                "an_option_for_another_kind",
+                PAYLOADS[WarehouseSuggestionKind.CERTIFY],
+                {"refresh_interval_seconds": 60 * 60},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "refresh_interval_seconds",
+            ),
+            (
+                "lookback_only_on_stale_suggested_keys",
+                replace(INCREMENTAL_DAY_PAYLOAD, incremental_key="hour", unique_key=("hour",)),
+                {"lookback_seconds": 60 * 60},
+                True,
+                status.HTTP_409_CONFLICT,
+                None,
+            ),
+        ]
+    )
+    def test_a_refused_change_writes_nothing(
+        self,
+        _name: str,
+        payload: SuggestionPayload,
+        body: dict,
+        flag_on: bool,
+        expected_status: int,
+        expected_attr: str | None,
+    ) -> None:
+        accepted, reported_changes = self._suggest_and_accept(payload, body, flag_on)
+
+        assert (accepted["http_status"], accepted.get("attr")) == (expected_status, expected_attr), accepted
+        assert (self.view.incremental_config, reported_changes) == (None, [])
 
     @parameterized.expand([("not_a_schedulable_interval", 7), ("past_the_largest_interval", 10**14)])
     def test_a_refused_interval_is_a_field_error_and_keeps_the_suggestion_open(
