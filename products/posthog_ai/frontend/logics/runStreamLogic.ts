@@ -3851,11 +3851,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
             actions.setStreamHasEnded(hasEnded(session))
             return session
         }
+        const dropHistoryPrefetch = (): void => {
+            cache.historyPrefetch = undefined
+            cache.disposables.dispose('history-prefetch')
+        }
         const failRecovery = (session: RunStreamRecovery, error: unknown): void => {
             if (!session.owns() || session.paused) {
                 return
             }
             cache.bootstrapStartedAt = undefined
+            dropHistoryPrefetch()
             const envelope =
                 isRecord(error) && typeof error.errorTitle === 'string'
                     ? (error as unknown as StreamErrorEnvelope)
@@ -3922,19 +3927,62 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.recoveryStartedAt = undefined
             }
         }
+        const startHistoryPrefetch = (session: RunStreamRecovery): void => {
+            dropHistoryPrefetch()
+            const controller = new AbortController()
+            const entries = api.tasks.runs.getLogEntries(session.taskId, session.runId, {
+                signal: controller.signal,
+                projectId: session.projectId,
+            })
+            entries.catch(() => {})
+            cache.disposables.add(() => () => controller.abort(), 'history-prefetch', { pauseOnPageHidden: false })
+            cache.historyPrefetch = {
+                projectId: session.projectId,
+                taskId: session.taskId,
+                runId: session.runId,
+                entries,
+            }
+        }
+        const takeHistoryPrefetch = (session: RunStreamRecovery): Promise<Record<string, any>[]> | undefined => {
+            const prefetch = cache.historyPrefetch as
+                | { projectId: number; taskId: string; runId: string; entries: Promise<Record<string, any>[]> }
+                | undefined
+            cache.historyPrefetch = undefined
+            if (
+                !prefetch ||
+                session.phase === 'finalization' ||
+                session.committedCursor ||
+                prefetch.projectId !== session.projectId ||
+                prefetch.taskId !== session.taskId ||
+                prefetch.runId !== session.runId
+            ) {
+                cache.disposables.dispose('history-prefetch')
+                return undefined
+            }
+            return prefetch.entries
+        }
         const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
             const turnCompleteBeforeReconcile = values.turnComplete
             const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
             if (session.phase !== 'finalization') {
                 session.phase = 'history'
             }
+            let prefetched = takeHistoryPrefetch(session)
             const entries = await readWithRetry(session, () =>
-                session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) =>
-                    api.tasks.runs.getLogEntries(session.taskId, session.runId, {
+                session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
+                    const pending = prefetched
+                    prefetched = undefined
+                    if (pending) {
+                        signal.addEventListener('abort', () => cache.disposables.dispose('history-prefetch'), {
+                            once: true,
+                        })
+                        return pending
+                    }
+                    return api.tasks.runs.getLogEntries(session.taskId, session.runId, {
                         signal,
                         projectId: session.projectId,
                     })
-                )
+                })
             )
             session.check()
             // Django log-N cursors index the same object entries, including non-notification records.
@@ -4088,6 +4136,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (!props.replayOnly) {
                     liveRunStreams().set(props.streamKey, runId)
                 }
+                dropHistoryPrefetch()
                 const previous = sessionNow()
                 if (
                     previous?.paused &&
@@ -4130,6 +4179,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.setRunOpening(false)
                         actions.bootstrapReplayComplete()
                     } else {
+                        if (!session.committedCursor) {
+                            startHistoryPrefetch(session)
+                        }
                         actions.openSseForRun({ taskId, runId, startLatest: false })
                     }
                 } catch (error) {
@@ -4480,6 +4532,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.streamTokenRefreshes = 0
             },
             sseDropped: async () => {
+                dropHistoryPrefetch()
                 const previous = sessionNow()
                 if (!previous?.owns() || previous.paused || hasEnded(previous)) {
                     return
@@ -4530,6 +4583,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             },
             streamEnded: () => {
+                dropHistoryPrefetch()
                 const previous = sessionNow()
                 if (!previous?.owns() || previous.phase === 'finalization') {
                     return
@@ -4831,6 +4885,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 })
             },
             closeSse: () => {
+                dropHistoryPrefetch()
                 cache.disposables.dispose('stream-session')
                 if (sessionNow()) {
                     sessionNow()!.paused = false
@@ -4847,6 +4902,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 cache.disposables.dispose('stream-session')
                 cache.bootstrapStartedAt = undefined
+                dropHistoryPrefetch()
                 cache.recoverySession = undefined
                 cache.eventCoverage = undefined
                 cache.retainedMessage = undefined

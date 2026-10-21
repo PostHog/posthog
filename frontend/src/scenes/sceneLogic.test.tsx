@@ -209,16 +209,6 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.eventDefinitions())
     })
 
-    it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
-        router.actions.push('/feature-flags')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlags())
-
-        router.actions.push('/feature-flags/123')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
-    })
-
     it.each<[string, boolean]>([
         ['/inbox/scout-trials', false],
         ['/inbox/scout-trials', true],
@@ -340,6 +330,7 @@ describe('sceneLogic', () => {
     // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
     // both across. The hash also carries global side-panel state, so it has to survive too.
     // Visual review PR comments, commit statuses and digests link to the old /visual_review paths.
+    // Emails, comments and bookmarks link to the old /feature_flags paths.
     it.each([
         ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
         ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
@@ -355,6 +346,11 @@ describe('sceneLogic', () => {
             {},
             { panel: 'max:inspect' },
         ],
+        ['/feature_flags', () => urls.featureFlags(), { tab: 'history' }, {}],
+        ['/feature_flags/123', () => urls.featureFlag('123'), {}, { panel: 'max:inspect' }],
+        ['/feature_flags/templates', () => urls.featureFlagTemplates(), { search: 'checkout' }, {}],
+        ['/feature_flags/staff', () => urls.featureFlagsStaffTools(), { team_id: 2 }, {}],
+        ['/feature_flags/staff/cohorts', () => urls.cohortsStaffTools(), { cohort_id: 3 }, {}],
     ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
         router.actions.push(from, search, hash)
         await expectLogic(logic).delay(1)

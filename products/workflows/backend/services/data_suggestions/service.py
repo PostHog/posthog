@@ -63,9 +63,9 @@ from products.workflows.backend.services.data_suggestions.premade import (
     with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
+    STAGE_WEIGHTS,
     pick_one_per_stage,
     select_prompt_events,
-    suggestion_score,
 )
 from products.workflows.backend.services.data_suggestions.stages import (
     MAX_CLASSIFIED_EVENTS,
@@ -699,7 +699,9 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
                 step_outline=outline,
             )
         )
-    ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
+    # The sort is stable, so within a stage the model's order wins. A busier event is not a better moment: a
+    # dismissed upgrade dialog fires more often than a started checkout.
+    ranked = sorted(suggestions, key=lambda item: STAGE_WEIGHTS[item.stage], reverse=True)
     return DataSuggestionsResult(
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),
