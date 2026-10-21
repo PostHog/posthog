@@ -925,7 +925,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
         else ""
     )
     ticket_reach = (
-        "\n- **Scouts can only add private notes to tickets.** Set `is_private: true` when you reply. You cannot send customer-facing replies, compose emails, edit or delete existing notes, or change customer identity fields. Use the ticket reply tool; the generic comments API refuses scout ticket writes. A status, priority, or assignee change can start a workflow that this project set up, and that workflow can also message the customer. You cannot delete a ticket."
+        "\n- **Scouts can only add private notes to tickets.** Add one with `conversations-tickets-notes-create`, which only writes private notes. You cannot send customer-facing replies, compose emails, edit or delete existing notes, or change customer identity fields. The generic comments API refuses scout ticket writes. A status, priority, or assignee change can start a workflow that this project set up, and that workflow can also message the customer. You cannot delete a ticket."
         if "ticket:write" in write_scopes
         else ""
     )
