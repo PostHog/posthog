@@ -510,6 +510,11 @@ _FAILED_CHECKS: Final = frozenset({SkipReason.QUERY_FAILED, SkipReason.BROKEN_CO
 # The one label a grouped insight alert splits on: each breakdown value is a group.
 BREAKDOWN_GROUPING_KEY = "breakdown"
 
+# How much of what a check found one group's detail keeps. Production lists one breach per series,
+# and every group's detail rides in the outcome Temporal carries, so a long label must not grow it.
+MAX_DETAIL_BREACHES: Final = 10
+MAX_BREACH_CHARS: Final = 500
+
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
 # production alert never reaches here, because `_decide` records that check without a query.
@@ -559,7 +564,12 @@ def _decide_grouped(
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
     if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
-        breaches = {bounded_grouping_key(series.identity): series.result.breaches or [] for series in evaluated.series}
+        # The row `decide_groups` judged for each key: the first, unless a later one breaches and it did not.
+        breaches: dict[str, list[str]] = {}
+        for series in evaluated.series:
+            key, found = bounded_grouping_key(series.identity), series.result.breaches or []
+            if key not in breaches or (found and not breaches[key]):
+                breaches[key] = found
         # One render serves every value that fires, because they all show the same insight.
         chart = _chart(check, alert)
         decision = replace(
@@ -605,9 +615,14 @@ def _context(alert: AlertConfiguration) -> dict[str, Any]:
     return {"insight_name": alert.insight.name, "insight_short_id": alert.insight.short_id}
 
 
+def _clipped(breach: str) -> str:
+    return breach if len(breach) <= MAX_BREACH_CHARS else breach[: MAX_BREACH_CHARS - 1] + "…"
+
+
 def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
+    # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
     detail: dict[str, Any] = {
-        "breaches": list(breaches),
+        "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
         **_context(alert),
         # The legacy alert's id, which a native message's snooze menu snoozes.
         "alert_id": str(alert.id),

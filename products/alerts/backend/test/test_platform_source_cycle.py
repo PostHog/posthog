@@ -34,6 +34,7 @@ from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
+    MAX_BREACH_CHARS,
     evaluate_insight_check,
     plan_insight_batch,
     readmit_retried_check,
@@ -89,7 +90,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
 
     def _evaluate_per_series(
-        self, configuration: PlatformConfigurationSnapshot, values: dict[str, float], *, truncated: bool = False
+        self,
+        configuration: PlatformConfigurationSnapshot,
+        values: dict[str, float] | list[tuple[str, float]],
+        *,
+        truncated: bool = False,
+        breach: str = "above 100",
     ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
@@ -100,9 +106,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 SeriesEvaluation(
                     identity=identity,
                     label="browser",
-                    result=AlertEvaluationResult(value=value, breaches=["above 100"] if value > 100 else []),
+                    result=AlertEvaluationResult(value=value, breaches=[breach] if value > 100 else []),
                 )
-                for identity, value in values.items()
+                for identity, value in (values.items() if isinstance(values, dict) else values)
             ),
             truncated=truncated,
         )
@@ -135,6 +141,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         expected = {"Chrome": "firing"} | ({"Firefox": missing_state} if missing_state else {})
         assert {group.grouping_key: group.new_state for group in resolved.groups} == expected
+
+    def test_a_breakdown_value_reported_twice_keeps_the_breach_of_the_row_that_fired(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+
+        fired = self._evaluate_per_series(configuration, [("Chrome", 150.0), ("Chrome", 40.0)], breach="x" * 2000)
+
+        (group,) = fired.groups
+        # The detail rides in the outcome Temporal carries, so a long breach is clipped.
+        assert (group.kind, len(group.source_detail["breaches"][0])) == (AlertEventKind.FIRING, MAX_BREACH_CHARS)
 
     def test_a_muted_breakdown_value_tracks_its_firing_without_announcing_it(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
