@@ -104,6 +104,13 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
     CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
 
+    // Valkey for caller-supplied idempotency keys, such as an `Idempotency-Key` header. When it is
+    // unset, each route decides what a request with a key does.
+    CDP_IDEMPOTENCY_VALKEY_HOST: string
+    CDP_IDEMPOTENCY_VALKEY_PORT: number
+    CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
+    CDP_IDEMPOTENCY_VALKEY_TLS: boolean
+
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
@@ -333,6 +340,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FREQUENCY_CAP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
         CDP_FREQUENCY_CAP_VALKEY_TLS: false,
+
+        CDP_IDEMPOTENCY_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
+        CDP_IDEMPOTENCY_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,

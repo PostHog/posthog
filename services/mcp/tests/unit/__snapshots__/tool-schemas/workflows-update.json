@@ -175,6 +175,15 @@
             ],
             "description": "Workflow name."
         },
+        "tags": {
+            "description": "Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
         "trigger_masking": {
             "anyOf": [
                 {

@@ -10,6 +10,7 @@ import { UUID, UUIDT } from '~/common/utils/utils'
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
+import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
@@ -39,6 +40,8 @@ const DISALLOWED_HEADERS = [
     'x-real-ip',
     'true-client-ip',
 ]
+
+const IDEMPOTENCY_KEY_MAX_LENGTH = 255
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
@@ -110,7 +113,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        private idempotencyKeys: IdempotencyKeys = new IdempotencyKeys(null, 'workflow-webhook')
     ) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
@@ -211,11 +215,32 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         }
     }
 
+    private getIdempotencyKey(req: ModifiedRequest, hogFlow: HogFlow): string | null {
+        if (hogFlow.trigger?.type !== 'webhook') {
+            return null
+        }
+        const idempotencyKey = getFirstHeaderValue(req.headers['idempotency-key'])
+        if (!idempotencyKey) {
+            return null
+        }
+        if (idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+            throw new SourceWebhookError(
+                400,
+                `Idempotency-Key must be ${IDEMPOTENCY_KEY_MAX_LENGTH} characters or fewer`
+            )
+        }
+        return idempotencyKey
+    }
+
     private async executeHogFlow(
         req: ModifiedRequest,
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const idempotencyKey = this.getIdempotencyKey(req, hogFlow)
+        // A key belongs to one workflow, so the same key on two workflows starts a run on each.
+        const scopedIdempotencyKey = idempotencyKey ? `${hogFlow.id}/${idempotencyKey}` : null
+
         logger.info('Executing hog flow trigger', {
             id: hogFlow.id,
             template_id: hogFunction.template_id,
@@ -312,6 +337,35 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 
+                if (scopedIdempotencyKey) {
+                    // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
+                    const reservation = await this.idempotencyKeys.reserve(
+                        hogFlow.team_id,
+                        scopedIdempotencyKey,
+                        hogFlow.id,
+                        invocationId
+                    )
+                    if (reservation.status === 'replayed') {
+                        addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
+                        functionResult.finished = false
+                        functionResult.execResult = { httpResponse: { status: 200, body: { status: 'duplicate' } } }
+                        return functionResult
+                    }
+                    if (reservation.status === 'in_flight') {
+                        // The first request can still fail to queue, so this one must not report a duplicate.
+                        functionResult.finished = false
+                        functionResult.execResult = { httpResponse: { status: 409, body: { status: 'in_flight' } } }
+                        return functionResult
+                    }
+                    if (reservation.status === 'unavailable') {
+                        // A webhook run matters more than its deduplication, so the run queues without a claim.
+                        logger.warn('Idempotency store unavailable, queueing the hog flow run anyway', {
+                            team_id: hogFlow.team_id,
+                            hog_flow_id: hogFlow.id,
+                        })
+                    }
+                }
+
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
@@ -326,7 +380,22 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     'running'
                 )
 
-                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                try {
+                    await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                } catch (error) {
+                    if (scopedIdempotencyKey) {
+                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
+                    }
+                    throw error
+                }
+                if (scopedIdempotencyKey) {
+                    await this.idempotencyKeys.markQueued(
+                        hogFlow.team_id,
+                        scopedIdempotencyKey,
+                        hogFlow.id,
+                        invocationId
+                    )
+                }
             } else {
                 addMetric({
                     metric_kind: 'failure',

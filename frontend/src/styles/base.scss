@@ -1242,9 +1242,10 @@
     }
 
     // Quill controls draw their own focus ring, so the Lemon accent outline must not stack on them.
+    // Base UI also marks the parts inside a highlighted item, such as a menu's radio indicator, so only the item gets it.
     a:focus-visible:not([data-quill]),
     button:focus-visible:not([data-quill]),
-    [data-highlighted]:not(:hover, [data-quill]) {
+    [data-highlighted]:not(:hover, [data-quill], [data-highlighted] *) {
         outline: 2px solid var(--color-accent);
     }
 
