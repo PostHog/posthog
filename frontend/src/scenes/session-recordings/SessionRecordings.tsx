@@ -3,12 +3,14 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -44,6 +46,8 @@ import {
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
 import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
@@ -193,6 +197,43 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
     )
 }
 
+// Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
+const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
+
+function FieldGuideBanner(): JSX.Element | null {
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
+
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-field-guide-banner-shown">
+            <LemonBanner
+                type="info"
+                dismissKey={FIELD_GUIDE_DISMISS_KEY}
+                onClose={() => posthog.capture('replay-field-guide-banner-dismissed')}
+                // Negative margins let the hog overflow the banner edges without making the banner taller.
+                // z-10 draws it over the border of a banner above. It hides in a narrow banner to keep the text width.
+                icon={<HedgehogExplorer className="hidden @lg:block relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />}
+            >
+                <p>
+                    <span className="font-semibold">Meet the 10 species living in your replays.</span> A naturalist's{' '}
+                    <Link
+                        to="https://posthog.com/field-guide"
+                        target="_blank"
+                        data-attr="replay-field-guide-banner-link"
+                    >
+                        field guide
+                    </Link>{' '}
+                    to the rage-clickers, tab-hoppers, and other wild users you'll spot in user recordings.
+                </p>
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
+    )
+}
+
 // Keeps the recordings logic mounted for the scene's lifetime so its state survives tab
 // switches. Rendered only on the Home tab so landing on Collections/Templates does not mount
 // it — which would otherwise fire a wasted loadSessionRecordings ClickHouse query on load.
@@ -212,6 +253,7 @@ function MainPanel(): JSX.Element {
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
             <ReplayVisionPromoBanner />
+            {tab === ReplayTabs.Home && <FieldGuideBanner />}
 
             {!tab ? (
                 <Spinner />
