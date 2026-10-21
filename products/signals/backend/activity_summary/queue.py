@@ -40,7 +40,7 @@ _UNPRICED_UPDATE_COST_USD = 0.05
 _CALLED_MODEL = (UserActivitySummary.Status.OK, UserActivitySummary.Status.FAILED)
 
 
-@frozen
+@frozen(order=True)
 class ActivitySummaryPair:
     team_id: int
     user_id: int
@@ -102,20 +102,22 @@ def _enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     )
 
 
-def _stored_rows(team_ids: list[int]) -> dict[tuple[int, int], _Stored]:
+def _stored_rows(team_ids: list[int]) -> dict[ActivitySummaryPair, _Stored]:
     # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
     rows = UserActivitySummary.all_teams.filter(team_id__in=team_ids).values_list(
         "team_id", "user_id", "input_watermark", "generated_at", "next_eligible_at"
     )
     return {
-        (team_id, user_id): _Stored(input_watermark=watermark, generated_at=generated_at, next_eligible_at=eligible)
+        ActivitySummaryPair(team_id=team_id, user_id=user_id): _Stored(
+            input_watermark=watermark, generated_at=generated_at, next_eligible_at=eligible
+        )
         for team_id, user_id, watermark, generated_at, eligible in rows
     }
 
 
 def _new_activity_rows(
     team_ids: list[int], window_start: datetime.datetime, now: datetime.datetime
-) -> dict[tuple[int, int], int]:
+) -> dict[ActivitySummaryPair, int]:
     """Activity log rows per pair after the pair's watermark, with the scope filters of `inputs.py`."""
     watermark = Subquery(
         # nosemgrep: idor-lookup-without-team (correlated on the outer row's team_id)
@@ -136,7 +138,9 @@ def _new_activity_rows(
         .values_list("team_id", "user_id", "rows")
     )
     return {
-        (team_id, user_id): count for team_id, user_id, count in rows if team_id is not None and user_id is not None
+        ActivitySummaryPair(team_id=team_id, user_id=user_id): count
+        for team_id, user_id, count in rows
+        if team_id is not None and user_id is not None
     }
 
 
@@ -144,13 +148,13 @@ def _new_tasks(
     team_ids: list[int],
     window_start: datetime.datetime,
     now: datetime.datetime,
-    stored: dict[tuple[int, int], _Stored],
-) -> Counter[tuple[int, int]]:
-    counts: Counter[tuple[int, int]] = Counter()
+    stored: dict[ActivitySummaryPair, _Stored],
+) -> Counter[ActivitySummaryPair]:
+    counts: Counter[ActivitySummaryPair] = Counter()
     for task in list_user_task_times(
         team_ids=team_ids, start=window_start, end=now, origin_products=TASK_ORIGIN_PRODUCTS
     ):
-        pair = (task.team_id, task.user_id)
+        pair = ActivitySummaryPair(team_id=task.team_id, user_id=task.user_id)
         row = stored.get(pair)
         if row is None or row.input_watermark is None or task.created_at > row.input_watermark:
             counts[pair] += 1
@@ -173,7 +177,7 @@ def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: i
         team_ids, window_start, now, stored
     )
 
-    due: list[tuple[bool, int, datetime.datetime, tuple[int, int]]] = []
+    due: list[tuple[bool, int, datetime.datetime, ActivitySummaryPair]] = []
     for pair, count in new_rows.items():
         row = stored.get(pair)
         if row is not None and row.next_eligible_at is not None and row.next_eligible_at > now:
@@ -181,4 +185,4 @@ def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: i
         generated_at = row.generated_at if row is not None else None
         due.append((generated_at is not None, -count, generated_at or window_start, pair))
     due.sort()
-    return [ActivitySummaryPair(team_id=team_id, user_id=user_id) for *_, (team_id, user_id) in due[:limit]]
+    return [pair for *_, pair in due[:limit]]
