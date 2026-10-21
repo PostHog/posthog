@@ -2513,6 +2513,7 @@ export class AgentServer {
             await clientConnection.resumeSession({
               sessionId: nativeResume.sessionId,
               cwd: sessionCwd,
+              additionalDirectories: this.sessionAdditionalDirectories(),
               mcpServers: sessionMcpServers,
               _meta: {
                 ...effectiveSessionMeta,
@@ -2544,6 +2545,7 @@ export class AgentServer {
             : sessionMeta;
           const sessionResponse = await clientConnection.newSession({
             cwd: sessionCwd,
+            additionalDirectories: this.sessionAdditionalDirectories(),
             mcpServers: sessionMcpServers,
             _meta: effectiveSessionMeta,
           });
@@ -3420,6 +3422,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
+        additionalDirectories: this.sessionAdditionalDirectories(),
         mcpServers: this.config.mcpServers ?? [],
         _meta: this.session.sessionMeta,
       });
@@ -3536,6 +3539,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
+        additionalDirectories: this.sessionAdditionalDirectories(),
         mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
         _meta: this.session.sessionMeta,
       });
@@ -4221,7 +4225,7 @@ export class AgentServer {
 
     const safeSkillName = safeArtifactFileName(skillName);
     const skillRoot = join(
-      this.config.workspacePath ?? CLOUD_WORKSPACE_PATH,
+      this.workspacePath,
       ".posthog",
       "skills",
       runId,
@@ -4352,7 +4356,7 @@ export class AgentServer {
     }
 
     const artifactPath = attachmentFilePath(
-      this.config.workspacePath ?? CLOUD_WORKSPACE_PATH,
+      this.workspacePath,
       runId,
       artifact,
     );
@@ -4406,6 +4410,14 @@ export class AgentServer {
       return;
     }
     await this.installStoreSkills(taskId, runId, state ?? null);
+  }
+
+  private get workspacePath(): string {
+    return this.config.workspacePath ?? CLOUD_WORKSPACE_PATH;
+  }
+
+  private sessionAdditionalDirectories(): string[] {
+    return [join(this.workspacePath, ".posthog")];
   }
 
   private async waitForRepoReady(): Promise<void> {

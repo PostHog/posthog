@@ -736,6 +736,19 @@ describe("AgentServer HTTP Mode", () => {
       });
     }, 30000);
 
+    it("lets the session read the workspace attachments and skills", async () => {
+      mockedClaudeSdk.query.mockClear();
+      const s = createServer();
+      await s.start();
+
+      const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+        options: { additionalDirectories?: string[] };
+      };
+      expect(request.options.additionalDirectories).toContain(
+        join(repo.path, ".posthog"),
+      );
+    }, 30000);
+
     it("reports the initialization phase the runtime agent published", async () => {
       const s = createServer();
       await s.start();
