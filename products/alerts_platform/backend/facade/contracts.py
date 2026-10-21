@@ -17,12 +17,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import (
-    AlertDestinationDelivery,
-    DeliveryPath,
-    PlatformAlertCheckStatus,
-    PlatformAlertState,
-)
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -1071,9 +1066,6 @@ class NewAlertDestination:
 
     data: AlertDestinationData
     event_kinds: tuple[AlertEventKind, ...]
-    delivery: AlertDestinationDelivery = AlertDestinationDelivery.NATIVE
-    # Required for a workflow destination, and refused for a native one.
-    hog_flow_id: UUID | None = None
     enabled: bool = True
     legacy_hog_function_ids: tuple[UUID, ...] = ()
 
@@ -1086,8 +1078,6 @@ class StoredAlertDestination:
     configuration_id: UUID
     data: AlertDestinationData
     event_kinds: tuple[AlertEventKind, ...]
-    delivery: AlertDestinationDelivery
-    hog_flow_id: UUID | None
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]

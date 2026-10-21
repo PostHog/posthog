@@ -20,7 +20,6 @@ from posthog.models.utils import UUIDModel
 
 from products.alerts_platform.backend.facade.contracts import DestinationType, Grouping
 from products.alerts_platform.backend.facade.enums import (
-    AlertDestinationDelivery,
     DeliveryPath,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
@@ -270,12 +269,9 @@ class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
     """Where an alert sends, for an alert whose `destinations_owner` is the platform.
 
-    One row is one destination a person sees on the alert's page. A native row sends through the
-    platform's transport for its type. A workflow row sends through the workflow it owns, which is
-    how a customized destination keeps what it sends.
+    One row is one destination a person sees on the alert's page. It sends through the platform's
+    transport for its type.
     """
-
-    Delivery = AlertDestinationDelivery
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="destinations")
@@ -283,13 +279,10 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     type = models.CharField(max_length=32, choices=DestinationType.choices)
-    delivery = models.CharField(max_length=16, choices=Delivery.choices)
     # Encrypted as one document so its value types survive a read. A webhook URL or a routing key is a credential.
     config = EncryptedJSONStringField(default=dict)
     # The transitions it sends about, as `AlertEventKind` values.
     event_kinds = ArrayField(models.CharField(max_length=16), default=list)
-    # Set only for a workflow row. A plain id, because the platform does not import the workflows product.
-    hog_flow_id = models.UUIDField(null=True, blank=True)
     enabled = models.BooleanField(default=True, db_default=True)
 
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
@@ -300,12 +293,3 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "alerts_platformalertdestination"
-        constraints = [
-            models.CheckConstraint(
-                condition=(
-                    models.Q(delivery=AlertDestinationDelivery.NATIVE.value, hog_flow_id__isnull=True)
-                    | models.Q(delivery=AlertDestinationDelivery.WORKFLOW.value, hog_flow_id__isnull=False)
-                ),
-                name="alert_destination_flow_only_for_workflow",
-            )
-        ]
