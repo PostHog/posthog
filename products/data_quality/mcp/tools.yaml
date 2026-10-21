@@ -158,8 +158,14 @@ tools:
             idempotent: true
         title: List what a data quality check can be authored on
         description: >
-            Every table, view, metric and PostHog table in this project you can read, with each one's columns and
-            whether you can put a check on it. Start here: a check names its subject by the subject_type and id this
-            returns, and a relationships check can point at a subject you can only read. A subject whose time_column is
-            set can take a lookback_hours window.
+            Tables, views, metrics and PostHog tables in this project you can read, with each one's columns and whether
+            you can put a check on it. Start here: a check names its subject by the subject_type and id this returns,
+            and a relationships check can point at a subject you can only read. A subject whose time_column is set can
+            take a lookback_hours window. A project can have thousands of subjects, so pass search (a name fragment,
+            such as 'events') and subject_type to find one. Results are sorted by subject_type, then name, and come back
+            limit at a time (20 by default). When a page has limit rows, call again with offset increased by limit. Set
+            include_columns to false to browse ids and names without column schemas.
+        param_overrides:
+            limit:
+                default: 20
         feature_flag: data-quality-checks
