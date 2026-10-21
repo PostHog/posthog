@@ -6,7 +6,7 @@ import graphlib
 from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import quote, quote_plus, urlparse
+from urllib.parse import quote, quote_plus, urlparse, urlsplit, urlunsplit
 
 from django.db import IntegrityError
 
@@ -1203,6 +1203,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             path = endpoint.get("path", "")
             # Resolve via the shared helper so the probe hits the same host the sync will.
             url = resolve_request_url(base_url, path)
+            display_url = _url_without_query(url)
             # Replay the configured query params and request body so the probe
             # matches what the sync sends — an endpoint that needs them shouldn't
             # answer differently at probe vs sync time.
@@ -1224,13 +1225,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 # str(exc) here is the raw urllib3 "HTTPSConnectionPool(...): Read timed out" dump,
                 # which isn't actionable — surface the configured timeouts instead.
                 return False, (
-                    f"Resource {resource['name']!r}: timed out reaching {url} "
+                    f"Resource {resource['name']!r}: timed out reaching {display_url} "
                     f"(connect timeout {PROBE_CONNECT_TIMEOUT}s, read timeout {PROBE_READ_TIMEOUT}s). "
                     "The endpoint may be slow or temporarily unreachable — check the URL and try again."
                 )
             except Exception:
                 return False, (
-                    f"Resource {resource['name']!r}: could not reach {url}. "
+                    f"Resource {resource['name']!r}: could not reach {display_url}. "
                     "Check that the URL is correct and the endpoint is reachable."
                 )
 
@@ -1243,7 +1244,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 if response.status_code in (401, 403):
                     message = (
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                        f"HTTP {response.status_code} from {url} — check the configured auth credentials."
+                        f"HTTP {response.status_code} from {display_url} — check the configured auth credentials."
                     )
                     # Redact the credential from the echoed body before surfacing it: an upstream
                     # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
@@ -1698,6 +1699,13 @@ def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
             if key not in columns or columns[key] == "null":
                 columns[key] = _json_type_label(value)
     return [{"name": name, "type": type_label} for name, type_label in columns.items()]
+
+
+def _url_without_query(url: str) -> str:
+    # A resource path can carry a credential in its query string (`?access_token=...`). That value is
+    # not one of the auth secrets `_redact_secrets` knows about, so drop the query from echoed URLs.
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(query="", fragment=""))
 
 
 def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:

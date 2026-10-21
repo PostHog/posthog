@@ -1196,6 +1196,17 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert "sk_secret_value" not in (err or "")
         assert "***" in (err or "")
 
+    def test_auth_rejection_omits_query_string_from_echoed_url(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "/users?status=active&access_token=inline-secret-123"
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with scripted_network([ScriptedResponse(status=403)]):
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "https://api.example.com/users " in (err or "")
+        assert "inline-secret-123" not in (err or "")
+
     @parameterized.expand([401, 403])
     def test_returns_false_on_auth_rejection(self, status_code):
         source = CustomSource()
