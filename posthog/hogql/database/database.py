@@ -119,7 +119,7 @@ from posthog.hogql.database.schema.marketing_conversions_preaggregated import Ma
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
     MetricNamesTable,
@@ -436,7 +436,6 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "raw_sessions_v3": TableNode(name="raw_sessions_v3", table=RawSessionsTableV3()),
     "raw_query_log": TableNode(name="raw_query_log", table=RawQueryLogArchiveTable()),
     "raw_document_embeddings": TableNode(name="raw_document_embeddings", table=RawDocumentEmbeddingsTable()),
-    "mcp_intent_assignments": TableNode(name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()),
 }
 # Read comment above this block before editing ^
 # --------------------
@@ -588,6 +587,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 children={
                     **clone_root_tables(),
                     # Add new tables here
+                    "raw_mcp_intent_assignments": TableNode(
+                        name="raw_mcp_intent_assignments", table=RawMCPIntentAssignmentsTable()
+                    ),
                     **{name: TableNode(name=name, table=table) for name, table in HOGQL_POSTHOG_MODEL_TABLES.items()},
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
@@ -661,6 +663,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
             "marketing_costs_precomputed": TableNode(
                 name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
             ),
+            # Latest assignment per intent over posthog.raw_mcp_intent_assignments, at root for the same reason.
+            "mcp_intent_assignments": TableNode(name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()),
             **children,
         }
 

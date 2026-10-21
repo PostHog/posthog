@@ -1,9 +1,13 @@
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    LazyTable,
+    LazyTableToAdd,
     StringDatabaseField,
     Table,
 )
@@ -41,12 +45,49 @@ MCP_INTENT_ASSIGNMENTS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-class MCPIntentAssignmentsTable(Table):
+RAW_TABLE_ALIAS = "raw_mcp_intent_assignments"
+
+
+class RawMCPIntentAssignmentsTable(Table):
     description: str = (
-        "Latest intent topic assignment per MCP tool intent text. Join to `events` on "
+        "Every intent topic assignment row, one per run. Rows for the same intent are only merged in the "
+        "background; query the deduplicated `mcp_intent_assignments` table instead."
+    )
+    fields: dict[str, FieldOrTable] = MCP_INTENT_ASSIGNMENTS_FIELDS
+
+    def to_printed_clickhouse(self, context: HogQLContext):
+        return MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE
+
+    def to_printed_hogql(self):
+        return "raw_mcp_intent_assignments"
+
+
+def select_latest_assignments(requested_fields: dict[str, list[str | int]]) -> SelectQuery:
+    # Older rows for an intent can sit in another monthly partition and never merge, so every read
+    # keeps only the newest row per intent hash before any filter applies.
+    from posthog.hogql import ast
+
+    if "intent_hash" not in requested_fields:
+        requested_fields = {**requested_fields, "intent_hash": ["intent_hash"]}
+    select = argmax_select(
+        table_name=RAW_TABLE_ALIAS,
+        select_fields=requested_fields,
+        group_fields=["intent_hash"],
+        argmax_field="timestamp",
+    )
+    select.select_from = ast.JoinExpr(table=ast.Field(chain=["posthog", RAW_TABLE_ALIAS]), alias=RAW_TABLE_ALIAS)
+    return select
+
+
+class MCPIntentAssignmentsTable(LazyTable):
+    description: str = (
+        "Latest intent topic assignment per MCP tool intent text, one row per intent hash. Join to `events` on "
         "sha256(toString(properties.$mcp_intent)) = intent_hash to break tool calls down by intent topic."
     )
     fields: dict[str, FieldOrTable] = MCP_INTENT_ASSIGNMENTS_FIELDS
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: HogQLContext, node: SelectQuery):
+        return select_latest_assignments(table_to_add.fields_accessed)
 
     def to_printed_clickhouse(self, context: HogQLContext):
         return MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE

@@ -1,12 +1,15 @@
 """Django models for mcp_analytics."""
 
+from typing import TYPE_CHECKING, ClassVar
+
 from django.db import models
 
-import numpy as np
-
-from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.manager import TeamScopedManager, TeamScopedQuerySet
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class MCPIntentClusterSnapshot(TeamScopedRootMixin):
@@ -130,8 +133,8 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
         ]
 
 
-class ActiveTopicManager(TeamScopedManager):
-    def get_queryset(self) -> models.QuerySet:
+class ActiveTopicManager(TeamScopedManager["MCPIntentTopic"]):
+    def get_queryset(self) -> TeamScopedQuerySet["MCPIntentTopic"]:
         return super().get_queryset().filter(status=MCPIntentTopic.Status.ACTIVE)
 
 
@@ -147,7 +150,8 @@ class MCPIntentTopic(UUIDModel, TeamScopedRootMixin):
         ACTIVE = "active", "Active"
         ARCHIVED = "archived", "Archived"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # No database constraint: creating one locks posthog_team, a hot table.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     label = models.CharField(max_length=200)
     summary = models.TextField(blank=True, default="")
     centroid = models.BinaryField()
@@ -161,18 +165,22 @@ class MCPIntentTopic(UUIDModel, TeamScopedRootMixin):
     first_seen_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(auto_now=True)
 
-    objects = TeamScopedManager()
-    active = ActiveTopicManager()
+    objects: ClassVar[TeamScopedManager["MCPIntentTopic"]] = TeamScopedManager()  # type: ignore[assignment]
+    active: ClassVar[ActiveTopicManager] = ActiveTopicManager()
 
     class Meta:
         db_table = "posthog_mcp_analytics_intent_topic"
         indexes = [models.Index(fields=["team", "status"])]
 
     @staticmethod
-    def encode_centroid(vector: np.ndarray) -> bytes:
+    def encode_centroid(vector: "np.ndarray") -> bytes:
+        import numpy as np
+
         return np.asarray(vector, dtype=np.float32).tobytes()
 
-    def decoded_centroid(self) -> np.ndarray:
+    def decoded_centroid(self) -> "np.ndarray":
+        import numpy as np
+
         return np.frombuffer(bytes(self.centroid), dtype=np.float32)
 
 
@@ -191,7 +199,7 @@ class MCPIntentClusteringRun(UUIDModel, TeamScopedRootMixin):
         SKIPPED_NO_CONSENT = "skipped_no_consent", "Skipped: no AI data processing consent"
         SKIPPED_TOO_FEW = "skipped_too_few", "Skipped: too few intents"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     run_id = models.CharField(max_length=100)
     kind = models.CharField(max_length=16, choices=Kind.choices)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.RUNNING)
