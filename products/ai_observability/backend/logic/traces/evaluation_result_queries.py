@@ -2,6 +2,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+from django.db.models import QuerySet
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -10,6 +12,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ...models.evaluations import Evaluation
 from .trace_queries import canonical_uuid
@@ -109,14 +113,22 @@ def load_evaluation_results(team: Team, user: User | None, trace_id: str) -> tup
     return tuple(_result_row(values) for values in response.results or [])
 
 
-def load_output_configs(team: Team, evaluation_ids: Iterable[str]) -> dict[str, Mapping[str, object]]:
+def load_output_configs(
+    team: Team, user: User | None, evaluation_ids: Iterable[str]
+) -> dict[str, Mapping[str, object]]:
     """Keyed by each id as given, not by its canonical UUID form."""
     # Results can come from outside PostHog with any id, and a malformed UUID in the lookup raises.
     ids_by_uuid = {uuid: evaluation_id for evaluation_id in evaluation_ids if (uuid := canonical_uuid(evaluation_id))}
     if not ids_by_uuid:
         return {}
     # A deleted detector's results still read as a detector's, so deleted evaluations stay in.
-    rows = Evaluation.objects.filter(team_id=team.pk, id__in=ids_by_uuid).values_list("id", "output_config")
+    evaluations: QuerySet[Evaluation] = Evaluation.objects.filter(team_id=team.pk, id__in=ids_by_uuid)
+    if user is not None:
+        # Evaluations have their own access control, apart from the llm_analytics access that opens the trace.
+        evaluations = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
+            evaluations, resource="evaluation"
+        )
+    rows = evaluations.values_list("id", "output_config")
     return {
         ids_by_uuid[str(evaluation_id)]: output_config
         for evaluation_id, output_config in rows

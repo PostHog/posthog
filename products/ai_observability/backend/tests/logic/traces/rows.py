@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -65,7 +66,7 @@ def make_evaluation_result_event(
     timestamp: datetime,
     trace_id: str = "trace-1",
     event: str = "$ai_evaluation",
-    **properties: object,
+    properties: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "event": event,
@@ -73,5 +74,5 @@ def make_evaluation_result_event(
         "distinct_id": "user-1",
         "team": team,
         "timestamp": timestamp,
-        "properties": {"$ai_trace_id": trace_id, "$ai_evaluation_result": True, **properties},
+        "properties": {"$ai_trace_id": trace_id, "$ai_evaluation_result": True, **(properties or {})},
     }

@@ -91,7 +91,7 @@ def _create_evaluation_result(team: Team) -> None:
                 uuid=EVALUATION_RESULT,
                 team=team,
                 timestamp=T0 + timedelta(seconds=30),
-                **{
+                properties={
                     "$ai_target_event_id": GENERATION,
                     "$ai_evaluation_name": "Answers the question",
                     "$ai_evaluation_reasoning": "Direct answer.",

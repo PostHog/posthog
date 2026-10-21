@@ -53,10 +53,7 @@ def _format_score(score: float) -> str:
 
 
 def _result_type(raw: str | None) -> OutputType | None:
-    try:
-        return OutputType(raw)
-    except ValueError:
-        return None
+    return OutputType(raw) if raw in OutputType.values else None
 
 
 def _parse_categories(raw: str | None, applicable: str | None) -> list[str] | None:

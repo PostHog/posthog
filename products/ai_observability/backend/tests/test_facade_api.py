@@ -7,9 +7,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.facade import api
 from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -58,11 +60,22 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
     def _other_team(self) -> Team:
         return Team.objects.create(organization=self.organization, name="other")
 
+    def _detector_hidden_from_the_viewer(self) -> str:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="evaluation", access_level="none", organization_member=self.organization_membership
+        )
+        return self._detector()
+
     @parameterized.expand(
         [
             ("an active detector", lambda test: test._detector(), "fail"),
             ("a deleted detector", lambda test: test._detector(deleted=True), "fail"),
             ("another team's detector", lambda test: test._detector(test._other_team()), "pass"),
+            ("a detector the viewer cannot read", lambda test: test._detector_hidden_from_the_viewer(), "pass"),
             ("an id that is not a UUID", lambda test: "not-a-uuid", "pass"),
             (
                 "a detector whose stored config is not an object",
@@ -80,12 +93,12 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
                     uuid="00000000-0000-0000-0000-000000000001",
                     team=self.team,
                     timestamp=T0 + timedelta(seconds=1),
-                    **{"$ai_evaluation_id": evaluation_id_for(self)},
+                    properties={"$ai_evaluation_id": evaluation_id_for(self)},
                 )
             ]
         )
 
-        [result] = api.get_trace_evaluation_results(self.team, None, "trace-1").results
+        [result] = api.get_trace_evaluation_results(self.team, self.user, "trace-1").results
 
         assert result.outcome == outcome
 
@@ -102,7 +115,7 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
                     uuid="00000000-0000-0000-0000-000000000001",
                     team=self.team,
                     timestamp=T0 + timedelta(seconds=1),
-                    **{"$ai_evaluation_applicable": False},
+                    properties={"$ai_evaluation_applicable": False},
                 )
             ]
         )
@@ -121,7 +134,7 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
                     uuid=backfill,
                     team=self.team,
                     timestamp=T0 + timedelta(seconds=1),
-                    **{
+                    properties={
                         "$ai_evaluation_start_time": (T0 + timedelta(days=20)).isoformat(),
                         "$ai_evaluation_backfill_id": "backfill-1",
                     },

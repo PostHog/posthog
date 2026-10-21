@@ -161,7 +161,7 @@ def get_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters
 
 def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
     rows = load_evaluation_results(team, user, trace_id)
-    configs = load_output_configs(team, {row.evaluation_id for row in rows if row.evaluation_id})
+    configs = load_output_configs(team, user, {row.evaluation_id for row in rows if row.evaluation_id})
     return contracts.TraceEvaluationResults(
         results=[
             _to_evaluation_result(
