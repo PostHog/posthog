@@ -209,12 +209,12 @@ async function startInvestigation(url, payload) {
 function investigationPayload(verdict, ts) {
     return {
         event: ALERT_OPENED_EVENT,
-        distinct_id: 'merge-queue-watch',
+        distinct_id: 'merge-queue-detector',
         properties: {
             channel: process.env.SLACK_CHANNEL,
             ts,
             window_minutes: WINDOW_MINUTES,
-            reasons: verdict.reasons,
+            reasons: verdict.reasons.join('; '),
             top_prs: verdict.top.map(([pr, failed_runs]) => ({ pr, failed_runs })),
             failed_runs: verdict.failedRuns,
             total_runs: verdict.totalRuns,
