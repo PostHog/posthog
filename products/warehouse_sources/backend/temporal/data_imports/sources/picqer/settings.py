@@ -30,7 +30,7 @@ class PicqerFanoutConfig:
     resolve_field: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class PicqerEndpointConfig:
     name: str
     path: str  # Path under /api/v1, e.g. "/orders"

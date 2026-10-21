@@ -37,7 +37,7 @@ PICQER_USER_AGENT = "PostHog (https://posthog.com - hey@posthog.com)"
 _ACCOUNT_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PicqerResumeConfig:
     # Next offset to fetch. None means "start from offset 0".
     offset: int | None = None
