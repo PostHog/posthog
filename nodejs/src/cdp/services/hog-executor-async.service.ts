@@ -468,6 +468,22 @@ export class HogExecutorAsyncService {
                 params.url
             )
             if (!resolved.ok) {
+                // A failure that can pass, such as STS throttling, uses the retries of the fetch instead of
+                // ending the invocation, and waits until the credentials service tries again.
+                result.invocation.state.attempts++
+                if (
+                    resolved.retryAfterMs !== undefined &&
+                    result.invocation.state.attempts < (options?.maxFetchRetries ?? this.config.fetchRetries)
+                ) {
+                    addLog('warn', `${resolved.error} Retrying.`)
+                    result.invocation.queueParameters = params
+                    result.invocation.queuePriority = invocation.queuePriority + 1
+                    result.invocation.queueScheduledAt = DateTime.utc().plus({
+                        milliseconds:
+                            resolved.retryAfterMs + Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+                    })
+                    return result
+                }
                 return failSigning(resolved.error)
             }
             signedHeaders = signAwsRequest({

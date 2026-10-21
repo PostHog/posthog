@@ -3,6 +3,7 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { FetchOptions } from '~/common/utils/request'
 import { createHmac } from 'node:crypto'
+import { STSServiceException } from '@aws-sdk/client-sts'
 import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
@@ -1676,7 +1677,12 @@ describe('Hog Executor', () => {
                 })
 
                 it('fails without sending the request when AWS denies the role', async () => {
-                    customerRoleError = new Error('AccessDenied')
+                    customerRoleError = new STSServiceException({
+                        name: 'AccessDenied',
+                        $fault: 'client',
+                        $metadata: {},
+                        message: 'Not authorized to perform sts:AssumeRole',
+                    })
 
                     const result = await executor.executeFetch(await createConnectionFetchInvocation())
 
@@ -1686,6 +1692,20 @@ describe('Hog Executor', () => {
                         `could not assume the AWS role ${roleArn} with the external ID posthog-org-example`
                     )
                     expect(result.logs.map((log) => log.message)).toContainEqual(result.error.message)
+                })
+
+                it('retries later without sending the request when STS fails for a reason that can pass', async () => {
+                    customerRoleError = new Error('connect ETIMEDOUT')
+
+                    const result = await executor.executeFetch(await createConnectionFetchInvocation())
+
+                    expect(mockRequest).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(false)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    expect(result.logs.map((log) => log.message)).toContainEqual(
+                        expect.stringMatching(/could not assume the AWS role .* Retrying\.$/)
+                    )
                 })
             })
         })

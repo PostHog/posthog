@@ -220,6 +220,58 @@ describe('AwsSigV4CredentialsService', () => {
         expect(stsCalls).toHaveLength(4)
     })
 
+    it.each([
+        [
+            'throttling',
+            new STSServiceException({ name: 'Throttling', $fault: 'client', $metadata: {}, message: 'Rate exceeded' }),
+            10_000,
+        ],
+        [
+            'a server fault',
+            new STSServiceException({ name: 'InternalFailure', $fault: 'server', $metadata: {}, message: 'Internal' }),
+            10_000,
+        ],
+        ['a network error', new Error('connect ETIMEDOUT'), 10_000],
+        [
+            'access denied',
+            new STSServiceException({ name: 'AccessDenied', $fault: 'client', $metadata: {}, message: 'Denied' }),
+            undefined,
+        ],
+    ])('asks the caller to retry after %s only when it can pass', async (_name, error, retryAfterMs) => {
+        customerRoleError = error
+
+        const result = await createService().resolve(sigv4, hogFunction(), KINESIS_URL)
+
+        expect(result).toMatchObject({ ok: false })
+        expect(result.ok === false && result.retryAfterMs).toBe(retryAfterMs)
+    })
+
+    it('ends an assume that STS never answers, so later lookups are not blocked', async () => {
+        jest.useFakeTimers({ doNotFake: ['Date', 'performance'] })
+        try {
+            const service = new AwsSigV4CredentialsService(
+                { externalRoleArn: EXTERNAL_ROLE_ARN, stsRegion: 'us-east-1' },
+                {
+                    integrationManager: { get: () => Promise.resolve(integration) },
+                    teamManager: { getTeam: () => Promise.resolve({ organization_id: ORGANIZATION_ID } as Team) },
+                    pubSub: { on: () => {} },
+                    createStsClient: () => ({ send: () => new Promise(() => {}), destroy: () => {} }),
+                }
+            )
+
+            const pending = service.resolve(sigv4, hogFunction(), KINESIS_URL)
+            await jest.advanceTimersByTimeAsync(10_000)
+
+            expect(await pending).toEqual({
+                ok: false,
+                error: `AWS SigV4 signing failed: AWS STS did not answer within 10 seconds for the role ${CUSTOMER_ROLE_ARN}.`,
+                retryAfterMs: 10_000,
+            })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('keeps using credentials that are still valid when a refresh fails', async () => {
         const service = createService()
         await service.resolve(sigv4, hogFunction(), KINESIS_URL)

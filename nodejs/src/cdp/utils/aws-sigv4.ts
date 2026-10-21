@@ -13,7 +13,10 @@ export type AwsSigV4Credentials = {
     session_token?: string
 }
 
-export type ResolvedAwsSigV4Credentials = { ok: true; credentials: AwsSigV4Credentials } | { ok: false; error: string }
+export type ResolvedAwsSigV4Credentials =
+    | { ok: true; credentials: AwsSigV4Credentials }
+    // `retryAfterMs` marks a failure that can pass, such as STS throttling, and says when to try again.
+    | { ok: false; error: string; retryAfterMs?: number }
 
 export type SignAwsRequestArgs = {
     method: string

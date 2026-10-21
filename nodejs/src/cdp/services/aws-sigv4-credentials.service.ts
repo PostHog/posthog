@@ -19,10 +19,14 @@ const REFRESH_BEFORE_EXPIRY_MS = 10 * 60 * 1000
 // AWS checks the session when it receives the request, so credentials this close to expiry are not used.
 const MIN_REMAINING_VALIDITY_MS = 60 * 1000
 // Every invocation of a broken connection would otherwise call STS twice, and all connections share
-// the STS quota of PostHog's role.
+// the STS quota of PostHog's role. A failure that can pass, such as throttling, waits less.
 const FAILURE_RETRY_DELAY_MS = 60 * 1000
+const TRANSIENT_FAILURE_RETRY_DELAY_MS = 10 * 1000
 const STS_CONNECTION_TIMEOUT_MS = 2000
 const STS_REQUEST_TIMEOUT_MS = 5000
+// Lookups for a connection wait on its pending assume, so an assume must always end.
+const ASSUME_DEADLINE_MS = 10 * 1000
+const STS_THROTTLING_ERRORS = new Set(['Throttling', 'ThrottlingException', 'RequestLimitExceeded'])
 
 // A connection signs only requests to the endpoint of its own service. Hog code chooses the URL, so without
 // this check it could sign any AWS API call, such as an STS call that returns credentials in the response.
@@ -56,7 +60,7 @@ type RoleSession = {
     roleArn: string
     credentials?: TemporaryCredentials
     pendingAssume?: Promise<void>
-    failure?: { error: string; retryAt: number }
+    failure?: { error: string; retryAt: number; transient: boolean }
 }
 
 type RoleRequest = {
@@ -68,7 +72,7 @@ type RoleRequest = {
 }
 
 export type StsClientLike = {
-    send(command: AssumeRoleCommand): Promise<AssumeRoleCommandOutput>
+    send(command: AssumeRoleCommand, options?: { abortSignal?: AbortSignal }): Promise<AssumeRoleCommandOutput>
     destroy(): void
 }
 
@@ -85,7 +89,18 @@ export type AwsSigV4CredentialsDependencies = {
     serviceOrigin?: (service: string, region: string) => string
 }
 
-class AwsRoleAssumeError extends Error {}
+class AwsRoleAssumeError extends Error {
+    constructor(
+        message: string,
+        readonly transient: boolean
+    ) {
+        super(message)
+    }
+}
+
+// Network errors and timeouts never get an answer from STS, so they can pass too.
+const isTransientStsError = (error: unknown): boolean =>
+    !(error instanceof STSServiceException) || error.$fault === 'server' || STS_THROTTLING_ERRORS.has(error.name)
 
 const failed = (error: string): ResolvedAwsSigV4Credentials => ({
     ok: false,
@@ -199,7 +214,7 @@ export class AwsSigV4CredentialsService {
             sessionActions: connectionKind.sessionActions,
         })
         if (!session.ok) {
-            return { ok: false, error: session.error }
+            return session
         }
 
         return {
@@ -243,7 +258,7 @@ export class AwsSigV4CredentialsService {
 
     private async getRoleCredentials(
         request: RoleRequest
-    ): Promise<{ ok: true; credentials: TemporaryCredentials } | { ok: false; error: string }> {
+    ): Promise<{ ok: true; credentials: TemporaryCredentials } | { ok: false; error: string; retryAfterMs?: number }> {
         let session = this.sessions.get(request.integrationId)
         if (!session || session.roleArn !== request.roleArn) {
             session = { roleArn: request.roleArn }
@@ -272,30 +287,50 @@ export class AwsSigV4CredentialsService {
         if (isUsable(current.credentials, MIN_REMAINING_VALIDITY_MS)) {
             return { ok: true, credentials: current.credentials }
         }
+        const failure = current.failure
         return {
             ok: false,
-            error:
-                current.failure?.error ?? `AWS SigV4 signing failed: could not assume the AWS role ${request.roleArn}.`,
+            error: failure?.error ?? `AWS SigV4 signing failed: could not assume the AWS role ${request.roleArn}.`,
+            retryAfterMs: failure?.transient ? Math.max(failure.retryAt - Date.now(), 0) : undefined,
         }
     }
 
     private async assume(session: RoleSession, request: RoleRequest): Promise<void> {
+        const deadline = new AbortController()
+        const timer = setTimeout(() => deadline.abort(), ASSUME_DEADLINE_MS)
         try {
-            session.credentials = await this.assumeCustomerRole(request)
+            session.credentials = await Promise.race([
+                this.assumeCustomerRole(request, deadline.signal),
+                // The SDK may not observe the abort signal while it resolves the worker credentials.
+                new Promise<never>((_, reject) =>
+                    deadline.signal.addEventListener('abort', () =>
+                        reject(
+                            new AwsRoleAssumeError(
+                                `AWS SigV4 signing failed: AWS STS did not answer within ${ASSUME_DEADLINE_MS / 1000} seconds for the role ${request.roleArn}.`,
+                                true
+                            )
+                        )
+                    )
+                ),
+            ])
             session.failure = undefined
             awsRoleCredentialsCounter.inc({ result: 'assumed' })
         } catch (error) {
+            const transient = error instanceof AwsRoleAssumeError ? error.transient : true
             session.failure = {
                 error:
                     error instanceof AwsRoleAssumeError
                         ? error.message
                         : `AWS SigV4 signing failed: could not assume the AWS role ${request.roleArn}.`,
-                retryAt: Date.now() + FAILURE_RETRY_DELAY_MS,
+                retryAt: Date.now() + (transient ? TRANSIENT_FAILURE_RETRY_DELAY_MS : FAILURE_RETRY_DELAY_MS),
+                transient,
             }
+        } finally {
+            clearTimeout(timer)
         }
     }
 
-    private async assumeCustomerRole(request: RoleRequest): Promise<TemporaryCredentials> {
+    private async assumeCustomerRole(request: RoleRequest, abortSignal: AbortSignal): Promise<TemporaryCredentials> {
         // The customer filters CloudTrail by this name to find the sessions of PostHog.
         const roleSessionName = `PostHog-destinations-team-${request.teamId}`
 
@@ -309,7 +344,8 @@ export class AwsSigV4CredentialsService {
                         RoleSessionName: roleSessionName,
                         DurationSeconds: SESSION_DURATION_SECONDS,
                         Policy: sessionPolicy('sts:AssumeRole', request.roleArn),
-                    })
+                    }),
+                    { abortSignal }
                 )
             )
         } catch (error) {
@@ -320,7 +356,8 @@ export class AwsSigV4CredentialsService {
                 integrationId: request.integrationId,
             })
             throw new AwsRoleAssumeError(
-                `AWS SigV4 signing failed: PostHog could not start an AWS session to assume the role ${request.roleArn}. This is a problem on the PostHog side. Contact support if it continues.`
+                `AWS SigV4 signing failed: PostHog could not start an AWS session to assume the role ${request.roleArn}. This is a problem on the PostHog side. Contact support if it continues.`,
+                isTransientStsError(error)
             )
         }
 
@@ -334,7 +371,8 @@ export class AwsSigV4CredentialsService {
                         ExternalId: request.externalId,
                         DurationSeconds: SESSION_DURATION_SECONDS,
                         Policy: sessionPolicy(request.sessionActions, '*'),
-                    })
+                    }),
+                    { abortSignal }
                 )
             )
         } catch (error) {
@@ -342,7 +380,8 @@ export class AwsSigV4CredentialsService {
             // Only an AWS error response goes into the function logs. Network errors can name internal addresses.
             const reason = error instanceof STSServiceException ? ` (${error.name}: ${error.message})` : ''
             throw new AwsRoleAssumeError(
-                `AWS SigV4 signing failed: could not assume the AWS role ${request.roleArn} with the external ID ${request.externalId}${reason}. Check that the trust policy of the role lets PostHog assume it with this external ID.`
+                `AWS SigV4 signing failed: could not assume the AWS role ${request.roleArn} with the external ID ${request.externalId}${reason}. Check that the trust policy of the role lets PostHog assume it with this external ID.`,
+                isTransientStsError(error)
             )
         } finally {
             customerStsClient.destroy()
@@ -360,6 +399,7 @@ export class AwsSigV4CredentialsService {
             requestHandler: new NodeHttpHandler({
                 connectionTimeout: STS_CONNECTION_TIMEOUT_MS,
                 requestTimeout: STS_REQUEST_TIMEOUT_MS,
+                throwOnRequestTimeout: true,
             }),
             ...(credentials
                 ? {
