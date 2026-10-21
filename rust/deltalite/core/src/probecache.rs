@@ -220,17 +220,19 @@ impl ProbeCache {
 
     /// Store the key hashes of a file. `hashes` need not be sorted or unique.
     pub(crate) fn insert(&self, key: String, signature: u64, mut hashes: Vec<u64>) {
-        let max_bytes = self.max_bytes();
-        if max_bytes == 0 {
+        if !self.enabled() {
             return;
         }
         hashes.sort_unstable();
         hashes.dedup();
         let bytes = hashes.len() * 8 + key.len() + ENTRY_OVERHEAD_BYTES;
-        if bytes > self.max_entry_bytes() {
+        let mut inner = self.lock();
+        // Read the cap under the lock: `set_max_bytes` evicts under it too, so a cap lowered
+        // concurrently is never missed by this insertion.
+        let max_bytes = self.max_bytes();
+        if max_bytes == 0 || bytes > max_bytes / 8 {
             return;
         }
-        let mut inner = self.lock();
         inner.remove(&key);
         inner.tick += 1;
         let tick = inner.tick;
@@ -303,21 +305,29 @@ impl KeyCollector {
         if self.abandoned {
             return None;
         }
-        let need = (self.hashes.len() + additional) * 8;
+        let need_len = self.hashes.len() + additional;
         let max_entry = self.cache.max_entry_bytes();
-        if need > max_entry {
+        if need_len * 8 > max_entry {
             self.abandon();
             return None;
         }
-        if need > self.reserved {
-            let step = (need - self.reserved)
-                .max(RESERVE_STEP_BYTES.min(max_entry / 8))
-                .min(max_entry - self.reserved);
-            if !self.cache.try_reserve(step) {
-                self.abandon();
-                return None;
+        if need_len > self.hashes.capacity() {
+            // Grow the buffer here, geometrically and with an exact capacity, so that the
+            // pool is charged for the allocation itself and not just the rows in it.
+            let target_len = need_len
+                .max(self.hashes.capacity() * 2)
+                .max(RESERVE_STEP_BYTES.min(max_entry / 8) / 8)
+                .min(max_entry / 8);
+            let target_bytes = target_len * 8;
+            if target_bytes > self.reserved {
+                let step = target_bytes - self.reserved;
+                if !self.cache.try_reserve(step) {
+                    self.abandon();
+                    return None;
+                }
+                self.reserved += step;
             }
-            self.reserved += step;
+            self.hashes.reserve_exact(target_len - self.hashes.len());
         }
         Some(&mut self.hashes)
     }
@@ -527,6 +537,17 @@ mod tests {
         kept.store("t\na".into(), 0);
         assert_eq!(c.collecting.load(Ordering::Acquire), 0);
         assert_eq!(c.get("t\na", 0).as_deref(), Some(&[7u64][..]));
+    }
+
+    #[test]
+    fn a_collector_is_charged_for_its_whole_allocation() {
+        let c = Arc::new(ProbeCache::new(1 << 24));
+        let mut k = c.collector().unwrap();
+        for _ in 0..3 {
+            k.reserve(8192).unwrap().extend(std::iter::repeat_n(1, 8192));
+            assert!(k.hashes.capacity() * 8 <= k.reserved);
+        }
+        assert_eq!(c.collecting.load(Ordering::Acquire), k.reserved);
     }
 
     #[test]
