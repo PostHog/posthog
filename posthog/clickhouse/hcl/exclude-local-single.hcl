@@ -42,5 +42,11 @@ exclude {
     # Orphan: no migration or code creates it; roles/coshared/custom_metrics models it
     # for the ops nodes, which do carry it.
     "events_team_daily_stats",
+
+    # --- retired, same call as the multinode gate ---
+    "ops_query_log_archive_mv",
+    "writable_query_log_archive",
+    "query_log_archive_buffer",
+    "sharded_query_log_archive",
   ]
 }

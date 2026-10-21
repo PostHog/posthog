@@ -508,6 +508,9 @@ def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
 # SKIP for PII/bulky keys). ProfileEvents is stored as the raw Map. All lc_* and
 # ProfileEvents_* columns are read-time ALIASes over those two columns, so the
 # MV and the writable table only ever carry the real physical columns.
+#
+# Retired: the v3 tables replace this write path, and schema.py no longer creates
+# it. Migrations 0273, 0276 and 0337 import these helpers, so keep them.
 # ============================================================================
 
 WRITABLE_QUERY_LOG_ARCHIVE_TABLE = "writable_query_log_archive"
@@ -755,8 +758,7 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     """Distributed read table (query_log_archive), created on every cluster, pointing at OPS.
 
     Reads are served by the v3 per-query aggregate (sharded_query_log_archive_v3), so this table
-    carries the v3 columns. The JSON-backed sharded_query_log_archive below is still written to,
-    but nothing reads it through query_log_archive.
+    carries the v3 columns.
     """
     return DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, cluster=cluster)
 
