@@ -1036,4 +1036,21 @@ export const DashboardsWidgetCatalogRetrieveParams = () => zod.object({
 
 export const DashboardsWidgetCatalogRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    widget_type: zod
+        .array(
+            zod.enum([
+                'activity_events_list',
+                'canvas_app',
+                'conversations_recent_tickets',
+                'error_tracking_list',
+                'experiment_results',
+                'experiments_list',
+                'logs_list',
+                'notebook_widget',
+                'session_replay_list',
+                'survey_results',
+            ])
+        )
+        .optional()
+        .describe('Widget types to return. Omit to return every registered widget type.'),
 })
