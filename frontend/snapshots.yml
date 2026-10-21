@@ -12755,33 +12755,33 @@ snapshots:
     scenes-app-llm-observability-evaluation-templates--narrow--light:
         hash: v1.k794b7964.acb588946dd41382c78934be3f8912589d1a15df06ef9a976f617fad21f1ddd2.0LsEsqRoncEFZhEVh5X8gbA_QoGZelV2t1ABDsxGeao
     scenes-app-llm-observability-evaluationmodelpicker--decision--dark:
-        hash: v1.k794b7964.5562145a41dea72f27ce564064efbeaa4908e281809a9b54a1571f7da7f3e2f9.cf6l4ZRZaxOvnn0n8C6hvt6HLQZcQO3uOzgtpszTAXU
+        hash: v1.k794b7964.a9c0baac61b11f86986d2939d35b4a97a7e81802c86fd4ccbf07c9ee3369fd15.XiipYzOUcq18KZELmDMUdwA6n0FdToNVsUCXbmaCfns
     scenes-app-llm-observability-evaluationmodelpicker--decision--light:
-        hash: v1.k794b7964.feb7b7a68b8621977f2095616077fbda6eaacf384f1bbd30195a81edf92521df.gDzACTp68b-hY1iXhORC-DiZWYTPtVc7TMJYnl5ur8c
+        hash: v1.k794b7964.45efc6f2f9903de48507033653d344909ed13bf1731c89056bad14e69b96e12a.9NGJH7yteZxQASERxRgjjh0STONDRx5CP2OvAl3uBD8
     scenes-app-llm-observability-evaluationmodelpicker--decision-narrow--dark:
-        hash: v1.k794b7964.2cc5a685b95d9b77556df85b606bdff8ccc0943a0294f12eef3ab1715dc862b1.3KlJ_Xzkp_yC9sRUZibDPQenEcuAOyQTpMS70b5CTXk
+        hash: v1.k794b7964.73dd8de58ec7a3f458f01cf723a64e3114ab680dc6efc965ebf9a6d65d6e1e0e.cC-ebDDJe9CAloNQ1UyVCVd7utawTwykH4Wuo-uVSp4
     scenes-app-llm-observability-evaluationmodelpicker--decision-narrow--light:
-        hash: v1.k794b7964.d82135caba2d77824e328d0d7145e62ca92b14e0fada7be2055ae91552400d81.Ew4mZtChk02L66e1zEax2Je1nE664lwKmZp1M9vZk74
+        hash: v1.k794b7964.0c1371aecd01164f6f1070fbfc682a391e11e0f9e36277cefd75db5d479b7235.iY4gG-YkcdP2VT2N3wvgPIvQf-EScIKvrF58syfVw7U
     scenes-app-llm-observability-evaluationmodelpicker--flag-off--dark:
-        hash: v1.k794b7964.f74cda6699e5b141f87c19ff9c8321489d5d9270131af12048631b657204918c.z4Sg9qB6e3u7D1orq6Z022G_fp-mUcpluVnAnMZnGW4
+        hash: v1.k794b7964.277344d00b8edc7551d8850029611c83e1740ac1ea3adb9e679ceffd2037064b.0gLUQZyT3_xppzOwry0tkGL0HlIjU-jdxq6V8VIAGs4
     scenes-app-llm-observability-evaluationmodelpicker--flag-off--light:
-        hash: v1.k794b7964.d04712113894120613c91816812cdf6d6ea55f1ca11ce91196e5fe00b0ec23b1.zZqV5OhiYrHekB5CZKdffc1mTb8Wu6lpe2FLJZ59px4
+        hash: v1.k794b7964.060fc008f850bbab373cb0c43a70e91454426b70a2d259ab371e1c2cfa7d1834.YTIqtwuIVdRppnvMFv142GGjOIDBIehxdylH9qJJQLY
     scenes-app-llm-observability-evaluationmodelpicker--llm--dark:
-        hash: v1.k794b7964.d7689fdc9f71084879154b5bc9e3e886539ed9f69e6f9c0334901a54fae4f72d.a-jcIwlvssNrK79TxURjANuh9k4xS4T5SGtvdqrYo5Q
+        hash: v1.k794b7964.43b905fdb235f4c15e7b906f14467c4ee9e8df010a3f26e476a2b3e6f59a4323.MZUQFFzWautdc3zzDJVWS6YbBa4qxX69-2HNwn-4wXQ
     scenes-app-llm-observability-evaluationmodelpicker--llm--light:
-        hash: v1.k794b7964.a65534589a6af5d20189fd7890fdca4f3466df3f32f3b408015e69fd557679a5.ABRZcOSSqQCoyQq6c_hOJQTzNnYewJrQ4BzAa0Si7DA
+        hash: v1.k794b7964.5fbd678972f802f1baf3bb1e1dc4869a6d2b78c8279bc5f03e3b55e149d24c8f.FAWGdhvRzIqww3vfNkkv-FISpmlDCBK9QHYPiQ6sS6c
     scenes-app-llm-observability-evaluationmodelpicker--native-open-ai--dark:
-        hash: v1.k794b7964.5562145a41dea72f27ce564064efbeaa4908e281809a9b54a1571f7da7f3e2f9.mS00sJJtvwHyWRggu2TsH61MK34knaI6lUEWHyZdvm8
+        hash: v1.k794b7964.a9c0baac61b11f86986d2939d35b4a97a7e81802c86fd4ccbf07c9ee3369fd15.bW1bQMgWLkSMejVZ8-8gt9tEchiuvd_AeJf0gGcv3Yc
     scenes-app-llm-observability-evaluationmodelpicker--native-open-ai--light:
-        hash: v1.k794b7964.feb7b7a68b8621977f2095616077fbda6eaacf384f1bbd30195a81edf92521df.OJiBHpBc7NvSGrVpFsw0bM9mKGRh2hY-J5z9zQjXsJw
+        hash: v1.k794b7964.45efc6f2f9903de48507033653d344909ed13bf1731c89056bad14e69b96e12a.VJAyamIoCFCRiqrLboD2BBVE_2bk2JzQNdSGQt9w61c
     scenes-app-llm-observability-evaluationmodelpicker--native-open-ai-narrow--dark:
-        hash: v1.k794b7964.2cc5a685b95d9b77556df85b606bdff8ccc0943a0294f12eef3ab1715dc862b1.dfPKd8pDCzIffD9PtlmtJ91keZFbiMV-Jw0eSpjKo1U
+        hash: v1.k794b7964.73dd8de58ec7a3f458f01cf723a64e3114ab680dc6efc965ebf9a6d65d6e1e0e.73I_zrtRgTcZD5J-9y-5A96QnzewfQbOlS-GzqXqDN8
     scenes-app-llm-observability-evaluationmodelpicker--native-open-ai-narrow--light:
-        hash: v1.k794b7964.d82135caba2d77824e328d0d7145e62ca92b14e0fada7be2055ae91552400d81.Igj-vFsvnOnzz6SU2A15uZGUXlb8lZoYWnVOQF-kj7Y
+        hash: v1.k794b7964.0c1371aecd01164f6f1070fbfc682a391e11e0f9e36277cefd75db5d479b7235.BQM5LKEuJFwtTUd-VRi-E516jncsN5ywMGN8NjsLWq0
     scenes-app-llm-observability-evaluationmodelpicker--no-decision-models--dark:
-        hash: v1.k794b7964.ad9ea73d0bf9e87acd8bb321aea9f56ffc55508c18e8810349c60ef2102451a0.o954YssNcVBqGXNxkT01pYc9Pu0RworI3n76Bd5FBn8
+        hash: v1.k794b7964.ba5206f054f85372119023e24c4a01da4d0777ba31f66807cdc0523de4d5edc0.qr36U7Blkwgs46fNy1QTqCUJXEtr0q0kjeFteZJwJWo
     scenes-app-llm-observability-evaluationmodelpicker--no-decision-models--light:
-        hash: v1.k794b7964.1834f5cc526d4a4bf2b07700e4979c894a8fd258f7aef933d22baa8ec5b69a7e.mLxPbh59fznfia0oDqeuGf8QCzdZxsutVxYDXXP7qEo
+        hash: v1.k794b7964.454b4b8ed00b0edb5cc452a5c4c5621df9c689076553f4c435ceb9897a90aac0.uf4yjayq1yAn_Mc0x4cZFyMuXDsZ629E1m2ARKrTPW8
     scenes-app-llm-observability-evaluationreportconfig--lemon-ui--dark:
         hash: v1.k794b7964.195aa4a5a39e8f947e17fe67f5c23303b7dd0579c278907761be24a08780be92.IkGQtAI95T60kJKVZcmmFBIWNCd4meuJv-bcNDoohwU
     scenes-app-llm-observability-evaluationreportconfig--lemon-ui--light:
