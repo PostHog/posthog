@@ -194,6 +194,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    events_route_cache_modifiers,
     events_route_is_explicit,
     events_route_scope,
     get_new_events_cluster_host,
@@ -2145,7 +2146,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return None
 
     def _reads_events_route(self) -> bool:
-        """Whether this query reads PostHog events, so its events route keys the cache and the queued payload."""
+        """True when this query reads the PostHog events table.
+
+        Only then does the events route belong in the query's cache key and in its queued payload.
+        """
         return True
 
     def enqueue_async_calculation(
@@ -3221,13 +3225,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
         strip_events_route(query, drop_empty=True)
 
-        cache_modifiers = to_dict(self.modifiers)
-        # A legacy-table query omits these default values, so its cache key does not depend on them. A query
-        # that reads no events table is never keyed by one.
-        if cache_modifiers.get("useNewEventsSchema") is False or not self._reads_events_route():
-            cache_modifiers.pop("useNewEventsSchema", None)
-        if not cache_modifiers.get("useNewEventsCluster"):
-            cache_modifiers.pop("useNewEventsCluster", None)
+        cache_modifiers = events_route_cache_modifiers(to_dict(self.modifiers), reads_events=self._reads_events_route())
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
