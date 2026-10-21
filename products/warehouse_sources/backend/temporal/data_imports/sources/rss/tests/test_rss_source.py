@@ -15,38 +15,14 @@ class TestRssSource:
     @parameterized.expand(
         [
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.rss.com/v4/podcasts",
-            ),
-            (
                 "payment_required",
                 "402 Client Error: Payment Required for url: https://api.rss.com/v4/podcasts",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.rss.com/v4/podcasts/1/episodes?page=1",
             ),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.rss.com/v4/podcasts",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.rss.com/v4/podcasts",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rss.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:

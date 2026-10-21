@@ -93,6 +93,7 @@ export function WorkflowHeaderBar({ commands, ...props }: WorkflowHeaderBarProps
                         description={workflow?.description}
                         onChange={(description) => setWorkflowValue('description', description)}
                         canEdit
+                        clamp
                         renameDebounceMs={200}
                     />
                 </div>
