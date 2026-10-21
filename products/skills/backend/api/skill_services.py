@@ -957,8 +957,7 @@ def archive_skill(team: Team, skill_name: str, *, acting_user: User | None, auth
         # Owners are keyed on the logical `(team, skill_name)`, so they'd otherwise outlive the
         # archived skill and attach to a later skill that reuses the name. Retire them with it.
         clear_skill_owners(team, skill_name)
-        if item_id is not None:
-            log_skill_activity(team=team, user=acting_user, item_id=item_id, skill_name=skill_name, activity="deleted")
+        log_skill_activity(team=team, user=acting_user, item_id=item_id, skill_name=skill_name, activity="deleted")
     return skill_versions
 
 
