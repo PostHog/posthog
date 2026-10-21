@@ -7,6 +7,7 @@ import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
+import { removeSuppressedRecipients } from './helpers/suppressed-recipients'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
@@ -15,22 +16,6 @@ type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 // Why the send was skipped, so callers can render a user-facing log/metric that names the actual
 // reason instead of collapsing suppression and opt-out into a single "opted out" message.
 export type RecipientSkipReason = 'suppressed' | 'opted_out'
-
-// Split a comma-separated address list and, for each entry, extract the bare email from an RFC-822
-// `"Name" <email@x>` form so it can be matched against normalized suppression identifiers.
-const extractEmailsFromAddressList = (value: unknown): string[] => {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        return []
-    }
-    return value
-        .split(',')
-        .map((raw) => {
-            const trimmed = raw.trim()
-            const bracketed = trimmed.match(/<([^>]+)>/)
-            return (bracketed ? bracketed[1] : trimmed).trim()
-        })
-        .filter((addr) => addr.length > 0)
-}
 
 // One Lua script, so two concurrent sends to one person cannot both pass with one slot left. Each slot
 // is keyed on the step visit. The email queue and send retries run the same step visit again, so a
@@ -127,28 +112,22 @@ export class RecipientPreferencesService {
             return false
         }
 
-        // Check every destination address SES will see — `to`, `cc`, and `bcc`. A suppressed
-        // address in any of the three blocks the send, not just when it appears in `to`.
+        // Skip only when `to` is suppressed and no cc address can take its place. EmailService
+        // removes the other suppressed addresses at send time, and the email still goes to the rest.
         const emailInputs = invocation.state.globals.inputs?.email
-        const to = emailInputs?.to?.email
-        const recipients = [
-            ...(typeof to === 'string' && to.trim() ? [to.trim()] : []),
-            ...extractEmailsFromAddressList(emailInputs?.cc),
-            ...extractEmailsFromAddressList(emailInputs?.bcc),
-        ]
-
-        if (recipients.length === 0) {
-            return false
-        }
-
         try {
-            const results = await Promise.all(
-                recipients.map((email) => this.emailSuppressionService.isSuppressed(invocation.teamId, email))
+            const result = await removeSuppressedRecipients(
+                {
+                    to: { email: typeof emailInputs?.to?.email === 'string' ? emailInputs.to.email : undefined },
+                    cc: typeof emailInputs?.cc === 'string' ? emailInputs.cc : undefined,
+                    bcc: typeof emailInputs?.bcc === 'string' ? emailInputs.bcc : undefined,
+                },
+                (email) => this.emailSuppressionService.isSuppressed(invocation.teamId, email)
             )
-            return results.some(Boolean)
+            return result.skip
         } catch (error) {
             // Fail open — never block a send on a suppression-lookup error.
-            logger.error(`Failed to check suppression list for recipients ${recipients.join(', ')}:`, error)
+            logger.error(`Failed to check suppression list for team ${invocation.teamId}:`, error)
             return false
         }
     }
