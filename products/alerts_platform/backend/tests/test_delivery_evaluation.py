@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -146,8 +147,10 @@ def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     )
 
 
-def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDestinationGroup:
-    return AlertDestinationGroup(hog_function_ids=(), data=data, fully_enabled=fully_enabled)
+def _group(
+    data: AlertDestinationData, fully_enabled: bool = True, hog_function_ids: tuple[UUID, ...] = ()
+) -> AlertDestinationGroup:
+    return AlertDestinationGroup(hog_function_ids=hog_function_ids, data=data, fully_enabled=fully_enabled)
 
 
 class TestDeliverEvaluation(APIBaseTest):
@@ -220,6 +223,27 @@ class TestDeliverEvaluation(APIBaseTest):
             ("C-fires", "Log alert 'API errors' is firing"),
             ("C-resolves", "Log alert 'API errors' is resolved"),
         ]
+
+    def test_each_send_is_recorded_under_the_hog_function_of_the_event_it_sent(self) -> None:
+        firing_function = UUID("00000000-0000-0000-0000-00000000000f")
+        resolved_function = UUID("00000000-0000-0000-0000-00000000000a")
+        announced = _announcement(
+            _transition(AlertEventKind.FIRING, "checkout"),
+            _transition(AlertEventKind.RESOLVED, "search"),
+        )
+
+        with patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded:
+            self._run(
+                announced,
+                {
+                    FIRING_EVENT: [_group(SLACK, hog_function_ids=(firing_function,))],
+                    RESOLVED_EVENT: [_group(SLACK, hog_function_ids=(resolved_function,))],
+                },
+            )
+
+        assert sorted(c.kwargs["destination_id"] for c in recorded.call_args_list) == sorted(
+            [str(firing_function), str(resolved_function)]
+        )
 
     def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
         announced = _announcement(

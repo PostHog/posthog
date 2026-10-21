@@ -22,6 +22,7 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -43,12 +44,18 @@ from products.alerts.backend.facade.destinations import (
     destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
+    owned_alert_destination_ids,
     redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
+from products.alerts_platform.backend.facade.api import (
+    history_by_legacy_id,
+    recent_destination_sends,
+    reset_broken,
+    runtime_by_legacy_id,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -60,7 +67,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.platform_alert import GroupingSerializer
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -1136,6 +1143,41 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     )
 
 
+MAX_DESTINATION_SENDS: Final = 20
+
+
+class LogsAlertDestinationSendsQuerySerializer(serializers.Serializer):
+    hog_function_ids = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="HogFunction IDs of one destination group. IDs that are not this alert's are ignored.",
+    )
+
+
+class LogsAlertDestinationSendSerializer(serializers.Serializer):
+    hog_function_id = serializers.CharField(
+        source="destination_id",
+        help_text="The HogFunction the message was sent for. It names the lifecycle event that was sent.",
+    )
+    sent_at = serializers.DateTimeField(help_text="When the send started.")
+    path = serializers.ChoiceField(
+        choices=DeliveryPath.choices,
+        help_text=(
+            "Which delivery path sent it. `native` is the stock message sent by the alerts platform. "
+            "`hog_function` is the destination's HogFunction."
+        ),
+    )
+    succeeded = serializers.BooleanField(help_text="Whether the destination accepted the message.")
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, "
+            "whose reason is in the HogFunction's own logs."
+        ),
+    )
+
+
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -1484,6 +1526,36 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=request,
         )
         return Response(status=204)
+
+    @extend_schema(
+        parameters=[LogsAlertDestinationSendsQuerySerializer],
+        responses={200: LogsAlertDestinationSendSerializer(many=True)},
+        description=(
+            "The last messages sent to one destination of this alert in the past 7 days, newest first, "
+            "on both delivery paths, with whether each one succeeded."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="destinations/sends",
+        required_scopes=["logs:read"],
+        pagination_class=None,
+    )
+    def destination_sends(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        query = LogsAlertDestinationSendsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        owned = owned_alert_destination_ids(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            hog_function_ids=query.validated_data["hog_function_ids"],
+        )
+        sends = recent_destination_sends(
+            team_id=self.team_id, destination_ids=[str(i) for i in owned], limit=MAX_DESTINATION_SENDS
+        )
+        return Response(LogsAlertDestinationSendSerializer(sends, many=True).data)
 
     @extend_schema(
         request=None,
