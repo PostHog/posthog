@@ -31404,6 +31404,7 @@ export namespace Schemas {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -32811,6 +32812,7 @@ export namespace Schemas {
       ReplyIo: 'ReplyIo',
       RetailExpress: 'RetailExpress',
       Retently: 'Retently',
+      Retreaver: 'Retreaver',
       RevolutMerchant: 'RevolutMerchant',
       RocketChat: 'RocketChat',
       Rocketlane: 'Rocketlane',
@@ -34232,6 +34234,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -36988,6 +36991,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -44641,6 +44645,8 @@ export namespace Schemas {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -44661,6 +44667,8 @@ export namespace Schemas {
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
@@ -44724,6 +44732,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -44769,6 +44779,8 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -44787,6 +44799,8 @@ export namespace Schemas {
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -44821,6 +44835,8 @@ export namespace Schemas {
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -49245,6 +49261,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -50686,6 +50703,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -105989,6 +106007,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -107461,6 +107480,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
@@ -108900,6 +108920,7 @@ export namespace Schemas {
        * * `ReplyIo` - ReplyIo
        * * `RetailExpress` - RetailExpress
        * * `Retently` - Retently
+       * * `Retreaver` - Retreaver
        * * `RevolutMerchant` - RevolutMerchant
        * * `RocketChat` - RocketChat
        * * `Rocketlane` - Rocketlane
