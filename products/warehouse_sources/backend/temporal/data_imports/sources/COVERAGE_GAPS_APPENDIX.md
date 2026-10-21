@@ -1142,13 +1142,13 @@ Today (7): `aggregated_resources`, `config_rules`, `conformance_pack_compliance_
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/config/2014-11-12/service-2.json>
 
-- [ ] `Resource configuration history (GetResourceConfigHistory, POST /)` — provides configuration changes, deleted resource states, and historical relationships for auditing and incident analysis (high)
+- [x] `Resource configuration history (GetResourceConfigHistory, POST /)` — provides configuration changes, deleted resource states, and historical relationships for auditing and incident analysis (high)
 - [x] `Rule evaluation results (GetComplianceDetailsByConfigRule, POST /)` — connects synced rules to evaluated resources, compliance outcomes, timestamps, and reasons for failures (high)
-- [ ] `Conformance pack evaluation results (GetConformancePackComplianceDetails, POST /)` — connects synced packs, rules, and resources to detailed compliance outcomes (high)
+- [x] `Conformance pack evaluation results (GetConformancePackComplianceDetails, POST /)` — connects synced packs, rules, and resources to detailed compliance outcomes (high)
 - [x] `Conformance pack compliance scores (ListConformancePackComplianceScores, POST /)` — provides the percentage of compliant rule-resource combinations for compliance dashboards (high)
 - [x] `Aggregated resource configurations (SelectAggregateResourceConfig, POST /)` — enables resource inventory and configuration analysis across accounts and regions (high)
-- [ ] `Remediation execution status (DescribeRemediationExecutionStatus, POST /)` — shows remediation progress, step timestamps, and errors for noncompliant resources (medium)
-- [ ] `Proactive resource evaluations (ListResourceEvaluations, POST /)` — tracks compliance evaluations before resources are deployed (medium)
+- [x] `Remediation execution status (DescribeRemediationExecutionStatus, POST /)` — shows remediation progress, step timestamps, and errors for noncompliant resources (medium)
+- [x] `Proactive resource evaluations (ListResourceEvaluations, POST /)` — tracks compliance evaluations before resources are deployed (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. Current tables contain regional snapshots and rule summaries; history and detailed evaluations require calls for each resource or rule. Aggregated resource queries require aggregator discovery and separate traversal. JSON RPC reads use POST /; recorder settings, delivery channels, and stored queries were excluded.
 
@@ -1182,7 +1182,7 @@ Note: Compared the official botocore operation model with the static table map a
 
 ## AWS Glue Data Catalog — **thin**
 
-Today (11): `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `databases`, `job_runs`, `jobs`, `partitions`, `table_versions`, `tables`, `workflow_runs`
+Today (14): `column_statistics`, `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `databases`, `job_runs`, `jobs`, `partitions`, `sessions`, `table_optimizer_runs`, `table_versions`, `tables`, `workflow_runs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/glue/2017-03-31/service-2.json>
 
@@ -1191,9 +1191,9 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Table versions (GetTableVersions, POST /)` — preserves schema and metadata history for existing catalog tables (medium)
 - [x] `Crawler history (ListCrawls, POST /)` — tracks crawl duration, failures, catalog changes, and compute use beyond the latest crawler result (medium)
 - [x] `Workflow runs (GetWorkflowRuns, POST /)` — measures complete pipeline duration and failures across related jobs and crawlers (medium)
-- [ ] `Table column statistics (GetColumnStatisticsForTable, POST /)` — provides column distributions, null counts, and cardinality for data profiling (medium)
-- [ ] `Table optimizer runs (ListTableOptimizerRuns, POST /)` — tracks compaction and cleanup execution history, failures, and resource use for catalog tables (medium)
-- [ ] `Interactive sessions (ListSessions, POST /)` — measures interactive ETL session duration, status, and compute use alongside scheduled job runs (medium)
+- [x] `Table column statistics (GetColumnStatisticsForTable, POST /)` — provides column distributions, null counts, and cardinality for data profiling (medium)
+- [x] `Table optimizer runs (ListTableOptimizerRuns, POST /)` — tracks compaction and cleanup execution history, failures, and resource use for catalog tables (medium)
+- [x] `Interactive sessions (ListSessions, POST /)` — measures interactive ETL session duration, status, and compute use alongside scheduled job runs (medium)
 
 Note: Compared the official botocore operation model with the static table map and extraction code; reads use POST /. Existing traversal already covers database tables, table partitions, and job runs. Data quality results require GetDataQualityResult hydration; workflow runs require ListWorkflows discovery and calls for each workflow. Table history, statistics, and optimizer runs require table traversal; connection settings, security configuration, and write operations were excluded.
 
@@ -2876,7 +2876,7 @@ Diffed against: <https://developers.coassemble.com/api/tracking>
 - [x] `/screen/trackings` — Per-screen progress, the finest analytical grain; the only way to see where inside a course learners drop off (high)
 - [x] `/user/trackings` — Progress rows keyed by learner across all courses, the natural per-user completion table (medium)
 - [x] `/usage/clients (and /usage/client/{identifier})` — Per-client consumption (identified/anonymous recipients, narration tokens, image generations) - joins to the clients table already synced (medium)
-- [ ] `/usage/allowances` — Workspace billing-period limits and current usage, giving usage rows a denominator (low)
+- [x] `/usage/allowances` — Workspace billing-period limits and current usage, giving usage rows a denominator (low)
 
 Note: Headless API (https://api.coassemble.com/api/v1/headless). Docs sections are Courses, Generate, Collections, Identities, Tracking, Themes, Translations, Usage, Webhooks. The synced course_trackings maps to GET /trackings; its three sibling grains (collection, screen and user trackings) are synced alongside it. Themes/Translations are content config and excluded.
 
@@ -3790,7 +3790,7 @@ Audit logs are not: v3 places them at `/v3/enterprise/audit-logs` and `/v3/enter
 
 ## DigitalOcean — gaps
 
-Today (25): `actions`, `apps`, `billing_history`, `database_backups`, `database_events`, `databases`, `domain_records`, `domains`, `droplets`, `images`, `invoice_items`, `invoice_summaries`, `invoices`, `kubernetes_clusters`, `load_balancers`, `project_resources`, `projects`, `regions`, `reserved_ips`, `sizes`, `snapshots`, `ssh_keys`, `tags`, `volumes`, `vpcs`
+Today (32): `actions`, `app_deployments`, `app_events`, `apps`, `billing_history`, `database_backups`, `database_events`, `databases`, `domain_records`, `domains`, `droplets`, `images`, `invoice_items`, `invoice_summaries`, `invoices`, `kubernetes_clusters`, `kubernetes_node_pools`, `load_balancers`, `project_resources`, `projects`, `regions`, `registries`, `registry_repositories`, `reserved_ips`, `sizes`, `snapshots`, `ssh_keys`, `tags`, `uptime_check_states`, `uptime_checks`, `volumes`, `vpcs`
 
 Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml>
 
@@ -3799,13 +3799,13 @@ Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci
 - [x] `/v2/regions` — lookup resolving the region slug carried by droplets, databases, load balancers and volumes (high)
 - [x] `/v2/projects/{project_id}/resources (and /v2/projects/default/resources)` — the join table mapping every synced resource URN to a project — projects are synced but the membership is not (high) — added as `project_resources` (`/v2/projects/default/resources` is an alias for the project flagged `is_default`, which the fan-out over `/v2/projects` already visits)
 - [x] `/v2/actions (and /v2/droplets/{droplet_id}/actions)` — account-wide action history: creates, resizes, power cycles with status and timing — the state-transition log for infrastructure (high)
-- [ ] `/v2/apps/{app_id}/deployments (+ /v2/apps/{app_id}/events)` — App Platform deployment history and phase transitions; apps are synced but not their deploy activity (medium)
-- [ ] `/v2/kubernetes/clusters/{cluster_id}/node_pools` — node pool sizing per cluster, needed to explain Kubernetes cost and capacity (medium)
+- [x] `/v2/apps/{app_id}/deployments (+ /v2/apps/{app_id}/events)` — App Platform deployment history and phase transitions; apps are synced but not their deploy activity (medium) — added as `app_deployments` and `app_events`
+- [x] `/v2/kubernetes/clusters/{cluster_id}/node_pools` — node pool sizing per cluster, needed to explain Kubernetes cost and capacity (medium) — added as `kubernetes_node_pools`
 - [ ] `/v2/tags/{tag_id}/resources` — resolves tags (already synced as names) to the resources they are applied to (medium) — not buildable: the spec exposes only POST and DELETE on this path, so tag membership cannot be read back. `/v2/tags` carries per-resource-type counts and a `last_tagged_uri`, which is the closest available data and is already synced.
 - [x] `/v2/domains/{domain_name}/records` — DNS records under the domains already synced (medium) — added as `domain_records`
 - [x] `/v2/databases/{database_cluster_uuid}/backups and /v2/databases/{database_cluster_uuid}/events` — backup inventory and cluster event history for managed databases (medium) — added as `database_backups` and `database_events`
-- [ ] `/v2/uptime/checks (+ /checks/{check_id}/state)` — uptime check inventory and current state for availability reporting (low)
-- [ ] `/v2/registry/{registry_name}/repositories (+ /tags, /digests)` — container registry repository and tag inventory with sizes (low)
+- [x] `/v2/uptime/checks (+ /checks/{check_id}/state)` — uptime check inventory and current state for availability reporting (low) — added as `uptime_checks` and `uptime_check_states`
+- [x] `/v2/registry/{registry_name}/repositories (+ /tags, /digests)` — container registry repository and tag inventory with sizes (low) — added as `registries` and `registry_repositories`, from the non-deprecated `/v2/registries` and `/v2/registries/{registry_name}/repositoriesV2` paths. Per-tag and per-digest tables are not added: they need a two-level fan-out, and repository names that contain `/` must be sent URL-encoded. The repository rows already carry `tag_count`, `manifest_count` and the sizes of the latest manifest.
 
 Note: The public spec has 447 paths, but a large share is GenAI, monitoring metric time series, and mutation-only endpoints. Firewalls, certificates, CDN endpoints and monitoring alert policies were treated as config and excluded.
 
@@ -6312,11 +6312,11 @@ Diffed against: <https://cloudapi.inflowinventory.com/docs/api/swagger.json>
 - [x] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
 - [x] `/{companyId}/stock-counts` — physical count cycles and their variances, for shrinkage and count-accuracy reporting (medium). Added as `stock_counts` (header rows only; per-product counts and variances live in `sheets`, which needs `include=sheets`, not requested yet).
 - [x] `/{companyId}/product-cost-adjustments` — cost basis changes over time, needed for correct COGS and margin on historical orders (medium)
-- [ ] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium)
-- [ ] `/{companyId}/adjustment-reasons` — lookup resolving the reason code on each stock adjustment - without it adjustments cannot be categorized (medium)
+- [x] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium). Added as `product_groups` (list only; the per-group `quantities` route is not synced, because `products` already carries `totalQuantityOnHand`; per-location `inventoryLines` need `include=inventoryLines`, not requested yet).
+- [x] `/{companyId}/adjustment-reasons` — lookup resolving the reason code on each stock adjustment - without it adjustments cannot be categorized (medium)
 - [x] `/{companyId}/tax-codes and /{companyId}/taxing-schemes` — lookups resolving tax IDs on order lines, needed to reconcile order totals (medium)
-- [ ] `/{companyId}/currencies` — lookup with exchange rates, required to normalize multi-currency order totals (medium)
-- [ ] `/{companyId}/team-members` — lookup resolving the user IDs that created or own orders, for per-rep performance reporting (medium)
+- [x] `/{companyId}/currencies` — lookup with exchange rates, required to normalize multi-currency order totals (medium)
+- [x] `/{companyId}/team-members` — lookup resolving the user IDs that created or own orders, for per-rep performance reporting (medium)
 
 Note: inFlow publishes a clean ReDoc/Swagger spec and even advertises it in a static header for scrapers, so this diff is exact. Also present but lower value and omitted: payment-terms, pricing-schemes, operation-types, stockroom-users, stockroom-scans, custom-field-definitions / custom-field-dropdown-options, report-settings. Webhooks and batch-job excluded as plumbing. Every path is company-scoped ({companyId} prefix), so the source already resolves a company ID and adding tables is mechanical.
 
@@ -9924,7 +9924,7 @@ Today (1): `nudges`
 
 Diffed against: <https://help.qualaroo.com/hc/en-us/articles/201969438-The-REST-Reporting-API>
 
-- [ ] `GET /nudges/{nudge_id}/responses.json` — the survey answers themselves - the only analytical data the Reporting API exposes; today the source syncs survey definitions with no responses (high)
+- [x] `GET /nudges/{nudge_id}/responses.json` — the survey answers themselves - the only analytical data the Reporting API exposes; today the source syncs survey definitions with no responses (high)
 
 Note: The REST Reporting API is essentially two endpoints (nudges list, and per-nudge responses with start_date/end_date/offset/limit paging). The source's settings define only the nudges endpoint - no dynamic table discovery - so the entire response dataset is unavailable. Adding it requires a fan-out over nudge IDs, same shape as other per-parent sources.
 
@@ -10157,9 +10157,9 @@ Today (12): `custom_domains`, `deploys`, `disks`, `env_groups`, `environments`, 
 
 Diffed against: <https://api-docs.render.com/reference/introduction>
 
-- [ ] `/services/{id}/instances (list-instances)` — per-instance rows behind each service - the unit that scaling and cost analysis is done on (high)
-- [ ] `/owners/{ownerId}/members (retrieve-owner-members)` — membership table linking users to the owners/workspaces already synced (high)
-- [ ] `/owners/{ownerId}/audit-logs and /organizations/{id}/audit-logs` — who changed what and when - the change history for services, env groups and members (high)
+- [x] `/services/{id}/instances (list-instances)` — per-instance rows behind each service - the unit that scaling and cost analysis is done on (high)
+- [x] `/owners/{ownerId}/members (retrieve-owner-members)` — membership table linking users to the owners/workspaces already synced (high)
+- [x] `/owners/{ownerId}/audit-logs and /organizations/{id}/audit-logs` — who changed what and when - the change history for services, env groups and members (high)
 - [ ] `/metrics/* (http-requests, http-latency, cpu, memory, instance-count, bandwidth)` — the headline observability time series per service; nothing in the current tables carries runtime metrics (high)
 - [ ] `/blueprints and /blueprints/{id}/syncs` — IaC definitions plus their sync history, the deploy path for most multi-service accounts (medium)
 - [ ] `/snapshots (list-snapshots)` — backup/restore point history for Postgres instances already synced (medium)
