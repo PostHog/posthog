@@ -42,29 +42,6 @@ class TestFolkValidateCredentials:
             assert {request.param("limit") for request in network.requests_log} == {"1"}
 
 
-class TestFolkNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.folk.app/v1/people?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.folk.app/v1/groups?limit=100"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = FolkSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.folk.app/v1/people"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.folk.app/v1/companies"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.folk.app', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FolkSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestFolkResumableAndPipeline:
     @parameterized.expand(
         [

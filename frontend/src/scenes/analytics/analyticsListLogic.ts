@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { AnalyticsListUrlParams, urls } from 'scenes/urls'
@@ -39,10 +40,15 @@ import {
 
 export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
 // A folder lists its direct children in one request. Deeper folders are opened by drilling in.
-const FOLDER_PAGE_SIZE = 100
+const FOLDER_PAGE_SIZE = ANALYTICS_FEED_PAGE_SIZE
+const SORT_TEAM_ID = getCurrentTeamIdOrNone()
+const SORT_USER_ID = getCurrentUserIdOrNone()
+const SORT_PERSIST_OPTIONS =
+    SORT_TEAM_ID && SORT_USER_ID ? { persist: true, prefix: `${SORT_TEAM_ID}__${SORT_USER_ID}__` } : { persist: false }
 
 export interface AnalyticsListFilters {
     type: AnalyticsTypeFilter
+    orderBy?: AnalyticsFeedQuery['orderBy']
     search: string
     /** User uuids; empty means anyone. */
     createdBy: string[]
@@ -62,6 +68,7 @@ export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
 export type AnalyticsListMode = 'feed' | 'folder'
 /** `all` lists what the project shares; `mine` lists everything the person created, shared or not. */
 export type AnalyticsListScope = 'all' | 'mine'
+type AnalyticsSortChoices = Partial<Record<AnalyticsListScope, NonNullable<AnalyticsFeedQuery['orderBy']>>>
 
 export interface FolderContents {
     /** The folder these rows belong to, so a failed or slow load never shows another folder's rows. */
@@ -88,6 +95,11 @@ function stringList(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+/** The router reads a value that looks like a number or a boolean as one, so text goes back to a string. */
+function urlParamToString(value: unknown): string {
+    return `${value ?? ''}`
+}
+
 export function analyticsListFiltersFromUrl(params: Record<string, any>): AnalyticsListFilters {
     const type = typeof params.type === 'string' && isAnalyticsType(params.type) ? params.type : 'all'
     const tags = Array.isArray(params.tags)
@@ -95,15 +107,19 @@ export function analyticsListFiltersFromUrl(params: Record<string, any>): Analyt
         : []
     return {
         type,
-        search: typeof params.search === 'string' ? params.search : '',
+        orderBy: ['-created_at', '-last_viewed_at', 'last_viewed_at'].includes(params.orderBy)
+            ? params.orderBy
+            : undefined,
+        search: urlParamToString(params.search),
         createdBy: stringList(params.createdBy),
-        folder: typeof params.folder === 'string' ? params.folder : null,
+        folder: params.folder === undefined || params.folder === null ? null : urlParamToString(params.folder),
         tags,
     }
 }
 
 export function analyticsListUrlParams(filters: AnalyticsListFilters): AnalyticsListUrlParams {
     return {
+        orderBy: filters.orderBy,
         type: filters.type === 'all' ? undefined : filters.type,
         search: filters.search.trim() || undefined,
         createdBy: filters.createdBy.length ? filters.createdBy : undefined,
@@ -158,6 +174,7 @@ export interface analyticsListLogicValues {
     scope: AnalyticsListScope
     searchInput: string
     shownQuery: AnalyticsFeedQuery | null
+    sortChoicesByScope: AnalyticsSortChoices
     subfolders: FolderRow[]
 }
 
@@ -243,6 +260,13 @@ export interface analyticsListLogicActions {
         folderContents: FolderContents | null
         payload?: void
     }
+    rememberOrderBy: (
+        scope: AnalyticsListScope,
+        orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>
+    ) => {
+        orderBy: NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
+        scope: AnalyticsListScope
+    }
     setFeedSearch: (search: string) => {
         search: string
     }
@@ -277,7 +301,14 @@ export interface analyticsListLogicMeta {
             filters: AnalyticsListFilters,
             feedSearch: string,
             creators: string[],
-            currentUserUuid: string | null
+            currentUserUuid: string | null,
+            scope: AnalyticsListScope,
+            sortChoicesByScope: Partial<
+                Record<
+                    AnalyticsListScope,
+                    NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
+                >
+            >
         ) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
@@ -364,6 +395,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     actions({
         setScope: (scope: AnalyticsListScope) => ({ scope }),
         setFilters: (filters: Partial<AnalyticsListFilters>) => ({ filters }),
+        rememberOrderBy: (scope: AnalyticsListScope, orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>) => ({
+            scope,
+            orderBy,
+        }),
         setFiltersFromUrl: (filters: AnalyticsListFilters) => ({ filters }),
         /** Remembers URL filters without reading anything, for a visit the flag does not render yet. */
         storeFilters: (filters: AnalyticsListFilters) => ({ filters }),
@@ -421,6 +456,13 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         ],
     })),
     reducers({
+        sortChoicesByScope: [
+            {} as AnalyticsSortChoices,
+            SORT_PERSIST_OPTIONS,
+            {
+                rememberOrderBy: (state, { scope, orderBy }) => ({ ...state, [scope]: orderBy }),
+            },
+        ],
         scope: ['all' as AnalyticsListScope, { setScope: (_, { scope }) => scope }],
         filters: [
             DEFAULT_ANALYTICS_LIST_FILTERS,
@@ -470,14 +512,17 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 scope === 'mine' ? (currentUserUuid ? [currentUserUuid] : []) : filters.createdBy,
         ],
         feedQuery: [
-            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid],
+            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid, s.scope, s.sortChoicesByScope],
             (
                 filters: AnalyticsListFilters,
                 feedSearch: string,
                 creators: string[],
-                currentUserUuid: string | null
+                currentUserUuid: string | null,
+                scope: AnalyticsListScope,
+                sortChoicesByScope: AnalyticsSortChoices
             ): AnalyticsFeedQuery => ({
                 type: filters.type,
+                orderBy: filters.orderBy ?? sortChoicesByScope[scope] ?? '-last_viewed_at',
                 search: feedSearch.trim(),
                 createdBy: creators,
                 createdByMe: !!currentUserUuid && creators.length === 1 && creators[0] === currentUserUuid,
@@ -728,6 +773,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 actions.setFilters({ search })
             },
             setFilters: ({ filters }) => {
+                if (filters.orderBy) {
+                    actions.rememberOrderBy(values.scope, filters.orderBy)
+                }
                 if (filters.search !== undefined) {
                     actions.setFeedSearch(filters.search)
                 }
@@ -750,7 +798,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             setFiltersFromUrl: () => {
                 actions.setFeedSearch(values.filters.search)
-                loadCurrentMode()
+                actions.loadList()
             },
             clearFilters: () => {
                 actions.setFeedSearch('')

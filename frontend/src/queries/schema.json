@@ -1267,9 +1267,6 @@
                             "$ref": "#/definitions/FunnelsActorsQuery"
                         },
                         {
-                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
-                        },
-                        {
                             "$ref": "#/definitions/ExperimentActorsQuery"
                         },
                         {
@@ -1878,19 +1875,6 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
-                }
-            ]
-        },
-        "AnyEntityNode": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/DataWarehouseNode"
                 }
             ]
         },
@@ -9529,124 +9513,6 @@
                 }
             },
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
-            "type": "object"
-        },
-        "CachedFunnelCorrelationResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary",
-                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_compare_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "$ref": "#/definitions/FunnelCorrelationResult"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                },
-                "used_data_warehouse_sources": {
-                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSourceUsage"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                    "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            {
-                                "$ref": "#/definitions/AccessControlFilterWarning"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
             "type": "object"
         },
         "CachedFunnelsQueryResponse": {
@@ -24399,23 +24265,6 @@
             "enum": ["hog", "llm_judge", "sentiment"],
             "type": "string"
         },
-        "EventDefinition": {
-            "additionalProperties": false,
-            "properties": {
-                "elements": {
-                    "items": {},
-                    "type": "array"
-                },
-                "event": {
-                    "type": "string"
-                },
-                "properties": {
-                    "type": "object"
-                }
-            },
-            "required": ["event", "properties", "elements"],
-            "type": "object"
-        },
         "EventMetadataPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -24437,29 +24286,6 @@
                 }
             },
             "required": ["key", "operator", "type"],
-            "type": "object"
-        },
-        "EventOddsRatioSerialized": {
-            "additionalProperties": false,
-            "properties": {
-                "correlation_type": {
-                    "enum": ["success", "failure"],
-                    "type": "string"
-                },
-                "event": {
-                    "$ref": "#/definitions/EventDefinition"
-                },
-                "failure_count": {
-                    "$ref": "#/definitions/integer"
-                },
-                "odds_ratio": {
-                    "type": "number"
-                },
-                "success_count": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["event", "success_count", "failure_count", "odds_ratio", "correlation_type"],
             "type": "object"
         },
         "EventPropertyFilter": {
@@ -25756,7 +25582,7 @@
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded"],
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
             "type": "string"
         },
         "ExperimentExposureHealthFindingSeverity": {
@@ -27751,202 +27577,6 @@
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
-            "type": "string"
-        },
-        "FunnelCorrelationActorsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "funnelCorrelationPersonConverted": {
-                    "type": "boolean"
-                },
-                "funnelCorrelationPersonEntity": {
-                    "$ref": "#/definitions/AnyEntityNode"
-                },
-                "funnelCorrelationPropertyValues": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "includeRecordings": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "FunnelCorrelationActorsQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "response": {
-                    "$ref": "#/definitions/ActorsQueryResponse"
-                },
-                "source": {
-                    "$ref": "#/definitions/FunnelCorrelationQuery"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "source"],
-            "type": "object"
-        },
-        "FunnelCorrelationQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "funnelCorrelationEventExcludePropertyNames": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "funnelCorrelationEventNames": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "funnelCorrelationExcludeEventNames": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "funnelCorrelationExcludeNames": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "funnelCorrelationNames": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "funnelCorrelationType": {
-                    "$ref": "#/definitions/FunnelCorrelationResultsType"
-                },
-                "kind": {
-                    "const": "FunnelCorrelationQuery",
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/FunnelCorrelationResponse"
-                },
-                "source": {
-                    "$ref": "#/definitions/FunnelsActorsQuery"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["funnelCorrelationType", "kind", "source"],
-            "type": "object"
-        },
-        "FunnelCorrelationResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_compare_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "$ref": "#/definitions/FunnelCorrelationResult"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                },
-                "used_data_warehouse_sources": {
-                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSourceUsage"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                    "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            {
-                                "$ref": "#/definitions/AccessControlFilterWarning"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "FunnelCorrelationResult": {
-            "additionalProperties": false,
-            "properties": {
-                "events": {
-                    "items": {
-                        "$ref": "#/definitions/EventOddsRatioSerialized"
-                    },
-                    "type": "array"
-                },
-                "skewed": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["events", "skewed"],
-            "type": "object"
-        },
-        "FunnelCorrelationResultsType": {
-            "enum": ["events", "properties", "event_with_properties"],
             "type": "string"
         },
         "FunnelExclusion": {
@@ -30217,9 +29847,6 @@
                             "$ref": "#/definitions/FunnelsActorsQuery"
                         },
                         {
-                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
-                        },
-                        {
                             "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
@@ -30520,6 +30147,7 @@
                     "type": "string"
                 },
                 "showCorrelationTable": {
+                    "deprecated": "Funnel correlation was removed. The value is ignored.",
                     "type": "boolean"
                 },
                 "showFilters": {
@@ -35761,6 +35389,29 @@
             "enum": ["Goal", "Cost per", "ROAS", "customer", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsCostFallback": {
+            "additionalProperties": false,
+            "properties": {
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseNode"
+                    },
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "sourceIds": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "type": "array"
+                }
+            },
+            "required": ["series", "sourceIds"],
+            "type": "object"
+        },
         "MarketingAnalyticsDrillDownConfig": {
             "additionalProperties": false,
             "properties": {
@@ -38828,9 +38479,6 @@
                         "$ref": "#/definitions/MaxNotebookContext"
                     },
                     "type": "array"
-                },
-                "voice_mode": {
-                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -39960,7 +39608,6 @@
                 "ActorsQuery",
                 "GroupsQuery",
                 "FunnelsActorsQuery",
-                "FunnelCorrelationActorsQuery",
                 "PathsV2ActorsQuery",
                 "SessionsTimelineQuery",
                 "RecordingsQuery",
@@ -39998,7 +39645,6 @@
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
-                "FunnelCorrelationQuery",
                 "WebOverviewQuery",
                 "WebStatsTableQuery",
                 "WebExternalClicksTableQuery",
@@ -47133,85 +46779,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "$ref": "#/definitions/FunnelCorrelationResult"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "used_data_warehouse_sources": {
-                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSourceUsage"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/AccessControlFilterWarning"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
                         "joins": {
                             "items": {
                                 "$ref": "#/definitions/DataWarehouseViewLink"
@@ -50589,9 +50156,6 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 },
                 {
-                    "$ref": "#/definitions/FunnelCorrelationQuery"
-                },
-                {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 },
                 {
@@ -52010,6 +51574,7 @@
                     "type": "boolean"
                 },
                 "showCorrelationTable": {
+                    "deprecated": "Funnel correlation was removed. The value is ignored.",
                     "type": "boolean"
                 },
                 "showCount": {
@@ -56440,6 +56005,10 @@
                 "kind": {
                     "const": "TrendsQuery",
                     "type": "string"
+                },
+                "marketingAnalyticsCostFallback": {
+                    "$ref": "#/definitions/MarketingAnalyticsCostFallback",
+                    "description": "Live series for a Marketing cost trend when materialization coverage is incomplete."
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
