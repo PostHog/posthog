@@ -29,15 +29,12 @@ export interface HogFlowEditorPanelProps {
     layout?: 'floating' | 'panel' | 'docked'
     onClose?: () => void
     view?: { title: string; content: JSX.Element }
-    /** Replaces the selected step's head, for a canvas that draws steps its own way. */
-    stepHead?: JSX.Element
 }
 
 export function HogFlowEditorPanel({
     layout = 'floating',
     onClose,
     view,
-    stepHead,
 }: HogFlowEditorPanelProps = {}): JSX.Element | null {
     const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
@@ -79,12 +76,12 @@ export function HogFlowEditorPanel({
             ref={panelRef}
             data-attr="workflow-editor-panel"
             className={clsx(
-                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden @max-[48rem]/workflow-editor:!relative @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:shrink-0',
-                layout === 'floating' && 'absolute right-0 max-w-full p-2',
+                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden @max-[48rem]/workflow-editor:!relative @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:shrink-0',
+                layout === 'floating' && 'absolute right-0 max-w-full p-2 @max-[48rem]/workflow-editor:!h-96',
                 layout === 'panel' &&
-                    'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:border-t',
+                    'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:border-t',
                 layout === 'docked' &&
-                    'relative h-full min-w-80 max-w-[calc(100%-30rem)] shrink-0 border-l bg-surface-primary @max-[48rem]/workflow-editor:border-t @max-[48rem]/workflow-editor:border-l-0'
+                    'relative h-full min-w-80 max-w-[calc(100%-30rem)] shrink-0 border-l bg-surface-primary @max-[48rem]/workflow-editor:!h-1/2 @max-[48rem]/workflow-editor:border-t @max-[48rem]/workflow-editor:border-l-0'
             )}
             style={
                 layout === 'panel'
@@ -153,9 +150,9 @@ export function HogFlowEditorPanel({
                     view.content
                 ) : (
                     <>
-                        {selectedNode &&
-                            ['build', 'metrics', 'test', 'logs'].includes(mode) &&
-                            (stepHead ?? <HogFlowEditorPanelSelectedStep />)}
+                        {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
+                            <HogFlowEditorPanelSelectedStep />
+                        )}
                         {mode === 'build' && (
                             <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                         )}
