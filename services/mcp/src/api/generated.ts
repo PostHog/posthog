@@ -44720,9 +44720,91 @@ export namespace Schemas {
       diagnostic_ref: string | null;
     }
 
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `no_metric` - No Metric
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
+
+
+    export const ExperimentHealthCheckKeyEnum = {
+      FlagState: 'flag_state',
+      FlagHistory: 'flag_history',
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NoMetric: 'no_metric',
+      ZeroExposures: 'zero_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    /**
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked
+     */
+    export type ExperimentHealthCheckStatusEnum = typeof ExperimentHealthCheckStatusEnum[keyof typeof ExperimentHealthCheckStatusEnum];
+
+
+    export const ExperimentHealthCheckStatusEnum = {
+      Passed: 'passed',
+      Finding: 'finding',
+      NotApplicable: 'not_applicable',
+      NotChecked: 'not_checked',
+    } as const;
+
+    export interface ExperimentHealthCheckResult {
+      /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+       *
+       * * `flag_state` - Flag State
+       * * `flag_history` - Flag History
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `no_metric` - No Metric
+       * * `zero_exposures` - Zero Exposures
+       * * `srm` - Srm
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share */
+      key: ExperimentHealthCheckKeyEnum;
+      /** What the check looks at, for example 'Feature flag variants'. */
+      name: string;
+      /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+       *
+       * * `passed` - Passed
+       * * `finding` - Finding
+       * * `not_applicable` - Not Applicable
+       * * `not_checked` - Not Checked */
+      status: ExperimentHealthCheckStatusEnum;
+      /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
     export interface ExperimentHealth {
-      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
+      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
       findings: ExperimentHealthFinding[];
+      /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
+      checks: ExperimentHealthCheckResult[];
     }
 
     /**
@@ -44971,6 +45053,37 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    export type ExperimentExposureHealthCheckKey = typeof ExperimentExposureHealthCheckKey[keyof typeof ExperimentExposureHealthCheckKey];
+
+
+    export const ExperimentExposureHealthCheckKey = {
+      ZeroExposures: 'zero_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
+
+
+    export const ExperimentExposureHealthCheckStatus = {
+      Passed: 'passed',
+      Finding: 'finding',
+      NotApplicable: 'not_applicable',
+      NotChecked: 'not_checked',
+    } as const;
+
+    export interface ExperimentExposureHealthCheck {
+      /** Stable identifier of the check. */
+      key: ExperimentExposureHealthCheckKey;
+      /** What the check looks at, as the health panel lists it. */
+      name: string;
+      /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
+      reason: string | null;
+      /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
+      status: ExperimentExposureHealthCheckStatus;
+    }
+
     /**
      * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
      */
@@ -45069,6 +45182,8 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
+      health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
@@ -94088,6 +94203,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative19 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
+      health_checks?: ExperimentExposureHealthCheck[] | null;
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
