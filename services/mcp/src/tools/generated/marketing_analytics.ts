@@ -159,6 +159,39 @@ const marketingAnalyticsExplainConversionGoal = (): ToolBase<
     },
 })
 
+const MarketingAnalyticsSearchRecommendationsSchema = () => {
+    const MarketingAnalyticsSearchRecommendationsCreateBody =
+        orvalSchemas.MarketingAnalyticsSearchRecommendationsCreateBody()
+    return MarketingAnalyticsSearchRecommendationsCreateBody
+}
+
+const marketingAnalyticsSearchRecommendations = (): ToolBase<
+    ReturnType<typeof MarketingAnalyticsSearchRecommendationsSchema>,
+    Schemas.SearchRecommendationsResponse
+> => ({
+    name: 'marketing-analytics-search-recommendations',
+    schema: MarketingAnalyticsSearchRecommendationsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsSearchRecommendationsSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.goal_id !== undefined) {
+            body['goal_id'] = params.goal_id
+        }
+        const result = await context.api.request<Schemas.SearchRecommendationsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/search_recommendations/`,
+            body,
+        })
+        return result
+    },
+})
+
 const MarketingAnalyticsSetupPlanSchema = () => {
     const MarketingAnalyticsSetupPlanRetrieveQueryParams = orvalSchemas.MarketingAnalyticsSetupPlanRetrieveQueryParams()
     return MarketingAnalyticsSetupPlanRetrieveQueryParams
@@ -308,6 +341,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-delete-conversion-goal': marketingAnalyticsDeleteConversionGoal,
     'marketing-analytics-diagnose': marketingAnalyticsDiagnose,
     'marketing-analytics-explain-conversion-goal': marketingAnalyticsExplainConversionGoal,
+    'marketing-analytics-search-recommendations': marketingAnalyticsSearchRecommendations,
     'marketing-analytics-setup-plan': marketingAnalyticsSetupPlan,
     'marketing-analytics-suggest-conversion-goals': marketingAnalyticsSuggestConversionGoals,
     'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,

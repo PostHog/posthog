@@ -28,6 +28,8 @@ import type {
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
+    SearchRecommendationsRequestApi,
+    SearchRecommendationsResponseApi,
     SetupPlanResponseApi,
     SourceValidationApi,
     UtmAuditResponseApi,
@@ -261,6 +263,26 @@ export const marketingAnalyticsExplainConversionGoalRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getMarketingAnalyticsSearchRecommendationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/search_recommendations/`
+}
+
+export const marketingAnalyticsSearchRecommendationsCreate = async (
+    projectId: string,
+    searchRecommendationsRequestApi: SearchRecommendationsRequestApi,
+    options?: RequestInit
+): Promise<SearchRecommendationsResponseApi> => {
+    return apiMutator<SearchRecommendationsResponseApi>(
+        getMarketingAnalyticsSearchRecommendationsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(searchRecommendationsRequestApi),
+        }
+    )
 }
 
 export const getMarketingAnalyticsSetupPlanRetrieveUrl = (

@@ -81,6 +81,28 @@ Turning the switch off removes PostHog goal columns and stops their queries whil
 The switch only loads search conversions in the Conversions view; organic detail views do not imply query-level PostHog attribution.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 
+## Search recommendations
+
+`marketing-analytics-search-recommendations` enables read-only suggestions above the main Search performance table.
+It is independent of the source onboarding and organic search rollout flags.
+Suggestions use the report's filters and comparison period and do not change campaigns.
+The interface and the read-only `marketing-analytics-search-recommendations` MCP tool call the same project-scoped API endpoint.
+The endpoint executes the search report with the caller's permissions, then applies the rules in `products/marketing_analytics/backend/services/search_recommendations.py`.
+It is protected by the same feature flag, read scope, query throttles, and concurrency limits as other marketing queries.
+The conversion source can be a single loaded PostHog goal or platform-reported conversions.
+PostHog is the default when its conversion columns are enabled, and incomplete goal data never silently falls back to platform conversions.
+
+The initial checks are review heuristics, not significance tests or profitability estimates:
+
+- Spend without conversions: at least 100 current clicks, positive spend in both periods, zero current conversions, and at least 5 previous conversions.
+- Higher CPA: at least 10 conversions in each period and CPA at least 50% higher than the comparison period.
+- Lower organic CTR: at least 1,000 impressions in each period, at least 30 previous clicks, and CTR at least 30% lower.
+
+Paid checks require a known currency and compare individual report rows without summing currencies or conversion goals.
+Organic CTR uses only GSC traffic, not query-level conversion attribution.
+Only five suggestions are shown, from the rows returned by the existing report, so absence of a suggestion does not establish that performance is optimal.
+Conversion delay, attribution coverage, position changes, and traffic composition must be investigated before taking action.
+
 ## X Ads
 
 X Ads uses `twitter`, `x`, `twitter_ads`, and `x_ads` as its default source aliases.

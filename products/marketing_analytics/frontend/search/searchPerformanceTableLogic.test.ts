@@ -1,6 +1,9 @@
 import { waitFor } from '@testing-library/dom'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { performQuery } from '~/queries/query'
 import {
     MarketingAnalyticsSearchQuery,
@@ -91,6 +94,46 @@ describe('searchPerformanceTableLogic', () => {
         mockedQuery.mockReset()
     })
     afterEach(() => logic?.unmount())
+
+    it('keeps suggestions off behind the flag and never substitutes platform data for pending PostHog goals', async () => {
+        const pending = deferred<MarketingAnalyticsSearchQueryResponse>()
+        const current = { ...row, previous: { ...row, cost: 50 } }
+        mockedQuery.mockImplementation(async (request) =>
+            (request as MarketingAnalyticsSearchQuery).includePostHogConversions
+                ? pending.promise
+                : { results: [current] }
+        )
+        logic = searchPerformanceTableLogic({ query, queryKey: 'recommendations-test' })
+        logic.mount()
+        await waitFor(() => expect(logic.values.responseLoading).toBe(false))
+        expect(logic.values.recommendationsEnabled).toBe(false)
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_RECOMMENDATIONS]: true,
+        })
+        pending.resolve({
+            posthogConversionGoals: [{ id: 'signup', name: 'Signups' }],
+            results: [
+                {
+                    ...current,
+                    posthogConversions: [
+                        {
+                            id: 'signup',
+                            name: 'Signups',
+                            conversions: 20,
+                            previousConversions: 2,
+                            costPerConversion: 10,
+                        },
+                    ],
+                },
+            ],
+        })
+        await waitFor(() => expect(logic.values.conversionsLoading).toBe(false))
+        expect(logic.values.recommendationGoalId).toBe('signup')
+        logic.actions.setRecommendationSource('platform')
+        expect(logic.values.recommendationGoalId).toBeNull()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.recommendationsEnabled).toBe(false)
+    })
 
     it.each(['success', 'failure'] as const)(
         'keeps search data visible during conversion loading and %s, with an independent retry',
