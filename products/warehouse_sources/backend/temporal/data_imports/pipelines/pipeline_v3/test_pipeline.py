@@ -35,6 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.p
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
     SourceAbandonedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    observe_and_project_table as _real_observe_and_project_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -380,6 +383,50 @@ class TestReplaceScopeHandOff:
         [(empty_batch, batch_index), _] = s3_writer.write_batch.call_args
         assert (empty_batch.num_rows, empty_batch.column_names, batch_index) == (0, ["_file_name"], 0)
         producer.send_final_batch.assert_called_once()
+
+    @pytest.mark.parametrize("has_scope", [False, True])
+    def test_a_scoped_run_never_continues_from_a_handoff_checkpoint(self, has_scope: bool) -> None:
+        pipeline = _make_pipeline()
+        pipeline._run_uuid = "run-abc-a1"
+        schema = cast(Any, pipeline._schema)
+        schema.is_incremental = True
+        schema.incremental_field = "_modified_at"
+        scope = ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset())
+        source_response = MagicMock(
+            sort_mode="asc", lanes=None, cdc_write_mode=None, replace_scope=scope if has_scope else None
+        )
+
+        assert pipeline._tracks_handoff_checkpoint(source_response, reset_pipeline=False) is not has_scope
+
+    @pytest.mark.asyncio
+    async def test_column_selection_keeps_the_replace_scope_column(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._uses_delta_write_column_selection = True
+        schema = cast(Any, pipeline._schema)
+        schema.enabled_columns = ["value"]
+        schema.incremental_field = None
+        schema.partitioning_keys_override = None
+        schema.partitioning_keys = None
+        pipeline._resource.primary_keys = None
+        pipeline._resource.partition_keys = None
+        pipeline._resource.replace_scope = ReplaceScope(column="_file_name", replaced=frozenset(), retained=frozenset())
+        table = pa.table({"value": [1], "other": [2], "_file_name": ["a.csv"]})
+
+        class _Stop(Exception):
+            pass
+
+        projected: list[pa.Table] = []
+
+        async def project(*args: Any) -> pa.Table:
+            projected.append(await _real_observe_and_project_table(*args))
+            raise _Stop
+
+        with patch(f"{_PIPELINE}.observe_and_project_table", side_effect=project), pytest.raises(_Stop):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=1)
+
+        [result] = projected
+        assert "_file_name" in result.column_names
+        assert "other" not in result.column_names
 
 
 class TestExtractionFailureDoesNotCleanupS3:

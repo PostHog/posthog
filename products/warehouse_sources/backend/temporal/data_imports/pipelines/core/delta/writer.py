@@ -873,9 +873,13 @@ class DeltaWriter:
             predicate = f"{_sql_identifier(column)} IN ({literals})"
             if before_commit is not None:
                 before_commit()
+
+            def _delete(predicate: str = predicate) -> dict[str, Any]:
+                return target.delete(predicate, commit_properties=commit_properties)
+
             metrics = await execute_with_conflict_retry(
                 target,
-                lambda predicate=predicate: target.delete(predicate, commit_properties=commit_properties),
+                _delete,
                 "delete_where",
                 self._logger,
             )

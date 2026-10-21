@@ -420,6 +420,7 @@ class PipelineV3(Generic[ResumableData]):
         The source must promise ascending order, and nothing else may own the restart point: a
         source that resumes from its own cursor reads that cursor, and a reset reloads the table.
         A run that writes several tables keeps one queue per table, which one value cannot cover.
+        A replace scope makes each attempt delete every file it reads again, so it must read from the start.
         """
         return (
             self._schema.is_incremental
@@ -429,6 +430,7 @@ class PipelineV3(Generic[ResumableData]):
             and self._resumable_source_manager is None
             and not source_response.lanes
             and source_response.cdc_write_mode is None
+            and source_response.replace_scope is None
             and self._run_uuid is not None
         )
 
@@ -1056,6 +1058,8 @@ class PipelineV3(Generic[ResumableData]):
                     *(self._schema.partitioning_keys_override or []),
                     *(self._schema.partitioning_keys or []),
                     *(self._resource.partition_keys or []),
+                    # The loader deletes by this column, so a row without it could never be replaced.
+                    *([self._resource.replace_scope.column] if self._resource.replace_scope else []),
                 ],
                 self._observed_columns,
                 self._logger,
