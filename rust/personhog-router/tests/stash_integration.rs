@@ -253,7 +253,8 @@ async fn born_partition_write_parks(retired_first: bool) {
             partitions: old_count,
             epoch: 1,
         }],
-    });
+    })
+    .holding_floor();
     if retired_first {
         let mut retired = changelog.current();
         retired.draining.clear();

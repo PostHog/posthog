@@ -192,6 +192,8 @@ pub struct LiveChangelog {
     draining_floor: Arc<AtomicU32>,
     /// The floor outlived the generation that set it, until `release_floor`.
     floor_held: Arc<AtomicBool>,
+    /// Only a router routes by the floor, so only it holds one past a retire.
+    holds_floor: bool,
 }
 
 /// The smallest partition count among the draining generations; `u32::MAX` when none drains.
@@ -210,8 +212,16 @@ impl LiveChangelog {
             partitions: Arc::new(AtomicU32::new(config.partitions)),
             draining_floor: Arc::new(AtomicU32::new(draining_floor_of(&config))),
             floor_held: Arc::new(AtomicBool::new(false)),
+            holds_floor: false,
             current: Arc::new(std::sync::RwLock::new(config)),
         }
+    }
+
+    /// Keeps a grow's floor past its retire until `release_floor`, for a router.
+    pub fn holding_floor(mut self) -> Self {
+        self.holds_floor = true;
+        metrics::gauge!("personhog_changelog_floor_held").set(0.0);
+        self
     }
 
     pub fn partitions(&self) -> u32 {
@@ -251,7 +261,7 @@ impl LiveChangelog {
         // created, so the floor of a grow stays until `release_floor`. A grow
         // adopted without its draining config holds one at the old count.
         let mut floor = draining_floor_of(config);
-        let held = if floor == u32::MAX {
+        let held = if self.holds_floor && floor == u32::MAX {
             let grown_from = if config.partitions > current.partitions {
                 current.partitions
             } else {
@@ -270,7 +280,9 @@ impl LiveChangelog {
         // The floor first: a reader that sees the new count sees its floor too.
         self.draining_floor.store(floor, Ordering::Release);
         self.partitions.store(config.partitions, Ordering::Release);
-        metrics::gauge!("personhog_changelog_floor_held").set(if held { 1.0 } else { 0.0 });
+        if self.holds_floor {
+            metrics::gauge!("personhog_changelog_floor_held").set(if held { 1.0 } else { 0.0 });
+        }
         true
     }
 
@@ -397,7 +409,7 @@ mod tests {
             ),
         ];
         for (name, before, after, held) in cases {
-            let live = LiveChangelog::new(before);
+            let live = LiveChangelog::new(before).holding_floor();
             assert!(live.adopt(&after), "{name}");
             assert_eq!(live.draining_floor(), held, "{name}");
             assert_eq!(live.floor_held(), held.is_some(), "{name}");
@@ -405,19 +417,25 @@ mod tests {
             assert_eq!(live.draining_floor(), None, "{name}");
         }
 
-        let draining = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)]));
+        let draining = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)])).holding_floor();
         draining.release_floor(4, 8);
         assert_eq!(draining.draining_floor(), Some(4));
 
         // A second grow adopted between the check and the release carries the
         // floor over a larger count; the release of the checked range is stale.
-        let regrown = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)]));
+        let regrown = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)])).holding_floor();
         assert!(regrown.adopt(&at_epoch(2, 8, vec![])));
         assert!(regrown.adopt(&at_epoch(3, 16, vec![])));
         regrown.release_floor(4, 8);
         assert_eq!(regrown.draining_floor(), Some(4));
         regrown.release_floor(4, 16);
         assert_eq!(regrown.draining_floor(), None);
+
+        // A process that does not route never holds a floor past the retire.
+        let leader = LiveChangelog::new(at_epoch(2, 8, vec![(4, 1)]));
+        assert!(leader.adopt(&at_epoch(2, 8, vec![])));
+        assert_eq!(leader.draining_floor(), None);
+        assert!(!leader.floor_held());
     }
 
     fn old_partitions(
