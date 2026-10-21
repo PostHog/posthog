@@ -1,24 +1,5 @@
 import type { ScoutToolCatalogueApi, ScoutToolCatalogueEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
-/**
- * The tools every scout run holds whatever its list says, mirroring `SCOUT_RUN_CONTEXT_TOOLS` in
- * `products/signals/backend/scout_harness/tool_catalogue.py`. The API rejects a list that names one,
- * so the picker shows them apart and never sends them.
- */
-export const SCOUT_RUN_CONTEXT_TOOLS: readonly string[] = [
-    'scout-emit-report',
-    'scout-edit-report',
-    'scout-emit-signal',
-    'scout-scratchpad-search',
-    'scout-scratchpad-remember',
-    'scout-scratchpad-forget',
-    'scout-notes-list',
-    'scout-metadata-get',
-    'scout-project-profile-get',
-    'scout-record-output',
-    'scout-check-record-result',
-]
-
 export interface ScoutToolGroup {
     category: string
     tools: ScoutToolCatalogueEntryApi[]
@@ -31,12 +12,12 @@ export function scoutToolUnavailableReason(tool: ScoutToolCatalogueEntryApi): st
 
 /** The catalogue tools a list can name: everything except the run context tools. */
 export function selectableScoutTools(catalogue: ScoutToolCatalogueApi): ScoutToolCatalogueEntryApi[] {
-    return catalogue.tools.filter((tool) => !SCOUT_RUN_CONTEXT_TOOLS.includes(tool.name))
+    return catalogue.tools.filter((tool) => !catalogue.run_context_tools.includes(tool.name))
 }
 
 /** Labels for the run context tools, for the always-held group. A tool the catalogue lacks shows its name. */
 export function runContextScoutToolLabels(catalogue: ScoutToolCatalogueApi): string[] {
-    return SCOUT_RUN_CONTEXT_TOOLS.map((name) => catalogue.tools.find((tool) => tool.name === name)?.title || name)
+    return catalogue.run_context_tools.map((name) => catalogue.tools.find((tool) => tool.name === name)?.title || name)
 }
 
 /**
