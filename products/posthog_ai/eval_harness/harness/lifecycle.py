@@ -42,7 +42,7 @@ from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
-from .ports import DJANGO_LIVE_PORT
+from .ports import AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
@@ -50,11 +50,15 @@ from .requirements import Infra, infra_union
 if TYPE_CHECKING:
     from .dashboard import EvalDashboard
 from .services import (
+    EVAL_AI_PRODUCT,
     LONG_LIVED_SUBPROCESSES,
     build_local_skills,
+    ensure_ai_gateway_binary,
     ensure_personhog_binaries,
+    maintain_ai_gateway_mint_key,
     package_local_skills_archive,
-    start_llm_gateway,
+    provision_ai_gateway_mint_key,
+    start_ai_gateway,
     start_mcp_server,
     start_personhog,
     start_skill_archive_server,
@@ -121,6 +125,7 @@ class SandboxedEvalHarness:
         self._posthog_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
         self._offline_delivery: OfflineEvalDelivery | None = None
+        self._ai_gateway_mint_key: str | None = None
         # Capture the revision before any eval starts so every result describes the same run.
         self._git_sha = _git("rev-parse", "HEAD")
         self._git_dirty = _worktree_dirty()
@@ -189,6 +194,9 @@ class SandboxedEvalHarness:
                 if Infra.PERSONHOG in required:
                     reporter.setup_started("build personhog")
                     ensure_personhog_binaries()
+                if Infra.AI_GATEWAY in required:
+                    reporter.setup_started("build ai-gateway")
+                    ensure_ai_gateway_binary()
                 reporter.setup_started("start shared services and prepare demo data")
                 self._bootstrap(required, reporter)
                 if self._dashboard:
@@ -262,6 +270,7 @@ class SandboxedEvalHarness:
     def _bootstrap(self, required: frozenset[Infra], reporter: ProgressReporter) -> None:
         """Stand up everything the selected suites share. Teardown is registered in
         reverse on the stack, so what wasn't started is never torn down."""
+        self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=None))
         LONG_LIVED_SUBPROCESSES.startup_retries = self.options.infrastructure_retries
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
@@ -289,10 +298,10 @@ class SandboxedEvalHarness:
             self._stack.callback(live_server.stop)
             self._live_server = live_server
 
-        if Infra.LLM_GATEWAY in required:
-            reporter.setup_started("start LLM gateway")
-            assert self._live_server is not None
-            self._stack.callback(start_llm_gateway(self._live_server.url))
+        if Infra.AI_GATEWAY in required:
+            reporter.setup_started("start AI gateway")
+            self._stack.callback(start_ai_gateway())
+            self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=AI_GATEWAY_REDIS_URL))
         if Infra.MCP_SERVER in required:
             reporter.setup_started("build skills and start MCP server")
             assert self._live_server is not None
@@ -341,10 +350,22 @@ class SandboxedEvalHarness:
                 ),
             )
 
+        if Infra.AI_GATEWAY in required:
+            assert self._demo_data is not None and self._database is not None
+            with self._database.blocker.unblock():
+                self._ai_gateway_mint_key = provision_ai_gateway_mint_key(
+                    self._demo_data.master_team_id, agent_model=self.options.agent_model
+                )
+
     async def _run_suites(
         self, suites: Sequence[EvalSuite], required: frozenset[Infra], reporter: ProgressReporter
     ) -> list[SuiteRunResult]:
         async with AsyncExitStack() as stack:
+            if Infra.AI_GATEWAY in required:
+                assert self._demo_data is not None and self._ai_gateway_mint_key is not None
+                await stack.enter_async_context(
+                    maintain_ai_gateway_mint_key(self._demo_data.master_team_id, self._ai_gateway_mint_key)
+                )
             overrides: dict[str, object] = {}
             if Infra.LIVE_SERVER in required:
                 overrides.update(
@@ -375,6 +396,10 @@ class SandboxedEvalHarness:
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
+                    # Only the eval product routes to the Go gateway. The worker mints each
+                    # run a capped scoped token with this key, as it does in production.
+                    SANDBOX_AI_GATEWAY_PRODUCTS=EVAL_AI_PRODUCT,
+                    SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
 
