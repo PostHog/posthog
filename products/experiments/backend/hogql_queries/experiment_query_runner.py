@@ -630,7 +630,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _uses_evaluation_pass_markers(self) -> bool:
         return mentions_evaluation_pass_markers(
-            self.metric.model_dump_json() + json.dumps(self.experiment.exposure_criteria or {})
+            self.metric.model_dump_json()
+            + json.dumps(self.experiment.exposure_criteria or {})
+            + (self.actors_query.model_dump_json() if self.actors_query else "")
         )
 
     def to_query(self) -> ast.SelectQuery:
