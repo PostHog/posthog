@@ -1,7 +1,8 @@
-import dataclasses
 from collections.abc import Iterable
 from typing import Any, Optional
 from urllib.parse import urlencode
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -28,7 +29,7 @@ PEXELS_BASE_URL = "https://api.pexels.com"
 REQUEST_TIMEOUT = 30
 
 
-@dataclasses.dataclass
+@frozen
 class PexelsResumeConfig:
     # 1-based page number to (re-)start from. Pexels uses page-number pagination.
     page: int = 1
