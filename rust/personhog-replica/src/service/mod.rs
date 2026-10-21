@@ -46,10 +46,12 @@ use personhog_proto::personhog::types::v1::{
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
     PersonsResponse, RaiseOutcome as ProtoRaiseOutcome, RaisePersonVersionFloorResult,
     RaisePersonVersionFloorsRequest, RaisePersonVersionFloorsResponse,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
-    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
-    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
-    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    RestoreOutcome as ProtoRestoreOutcome, RestorePersonResult, RestorePersonsRequest,
+    RestorePersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
     VersionFloorOutcome as ProtoVersionFloorOutcome,
 };
@@ -1709,6 +1711,65 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .collect(),
         }))
     }
+
+    async fn restore_persons(
+        &self,
+        request: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        let req = request.into_inner();
+        check_floor_batch(
+            req.persons
+                .iter()
+                .map(|p| (p.person_uuid.as_str(), p.version)),
+        )?;
+        let persons: Vec<storage::types::RestoredPerson> = req
+            .persons
+            .iter()
+            .map(|p| {
+                let properties: serde_json::Value =
+                    serde_json::from_slice(&p.properties).map_err(|e| {
+                        Status::invalid_argument(format!("Invalid properties JSON: {e}"))
+                    })?;
+                if !properties.is_object() {
+                    return Err(Status::invalid_argument("properties must be a JSON object"));
+                }
+                Ok(storage::types::RestoredPerson {
+                    uuid: parse_uuid(&p.person_uuid)?,
+                    properties,
+                    created_at: chrono::DateTime::from_timestamp_millis(p.created_at_ms)
+                        .ok_or_else(|| Status::invalid_argument("created_at_ms out of range"))?,
+                    is_identified: p.is_identified,
+                    version: p.version,
+                    distinct_ids: p
+                        .distinct_ids
+                        .iter()
+                        .map(|d| (d.distinct_id.clone(), d.version))
+                        .collect(),
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        reject_duplicate_uuids(persons.iter().map(|p| p.uuid))?;
+        check_restored_distinct_ids(&persons)?;
+
+        let results = self
+            .storage
+            .restore_persons(req.team_id, &persons)
+            .await
+            .map_err(|e| log_and_convert_error(e, "restore_persons"))?;
+
+        Ok(Response::new(RestorePersonsResponse {
+            results: results
+                .into_iter()
+                .map(|r| RestorePersonResult {
+                    person_uuid: r.uuid.to_string(),
+                    outcome: restore_outcome_to_proto(r.outcome) as i32,
+                    person_id: r.person_id,
+                    version: r.version,
+                    restored_distinct_ids: r.restored_distinct_ids,
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1778,6 +1839,34 @@ fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPer
 }
 
 #[allow(clippy::result_large_err)]
+fn check_restored_distinct_ids(persons: &[storage::types::RestoredPerson]) -> Result<(), Status> {
+    let ids: Vec<&(String, i64)> = persons.iter().flat_map(|p| &p.distinct_ids).collect();
+    if ids.len() > MAX_DISTINCT_ID_ROWS_SIZE {
+        return Err(Status::invalid_argument(format!(
+            "At most {MAX_DISTINCT_ID_ROWS_SIZE} distinct ids per restore, got {}",
+            ids.len()
+        )));
+    }
+    let mut seen = HashSet::with_capacity(ids.len());
+    for (distinct_id, version) in ids {
+        if distinct_id.is_empty() {
+            return Err(Status::invalid_argument("distinct_id must not be empty"));
+        }
+        if *version < 0 {
+            return Err(Status::invalid_argument(format!(
+                "version must not be negative, got {version} for {distinct_id}"
+            )));
+        }
+        if !seen.insert(distinct_id.as_str()) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate distinct_id in request: {distinct_id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
 fn reject_duplicate_uuids(uuids: impl Iterator<Item = Uuid>) -> Result<(), Status> {
     // Two spellings of one UUID pass the string check but lock the same row.
     let mut seen = HashSet::new();
@@ -1797,5 +1886,14 @@ fn raise_outcome_to_proto(outcome: storage::types::RaiseOutcome) -> ProtoRaiseOu
         storage::types::RaiseOutcome::AtOrAbove => ProtoRaiseOutcome::AtOrAbove,
         storage::types::RaiseOutcome::NotLive => ProtoRaiseOutcome::NotLive,
         storage::types::RaiseOutcome::Missing => ProtoRaiseOutcome::Missing,
+    }
+}
+
+fn restore_outcome_to_proto(outcome: storage::types::RestoreOutcome) -> ProtoRestoreOutcome {
+    match outcome {
+        storage::types::RestoreOutcome::Inserted => ProtoRestoreOutcome::Inserted,
+        storage::types::RestoreOutcome::ExistsLive => ProtoRestoreOutcome::ExistsLive,
+        storage::types::RestoreOutcome::ExistsTombstoned => ProtoRestoreOutcome::ExistsTombstoned,
+        storage::types::RestoreOutcome::NoDistinctId => ProtoRestoreOutcome::NoDistinctId,
     }
 }

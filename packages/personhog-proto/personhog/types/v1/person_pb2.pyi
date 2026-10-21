@@ -55,6 +55,14 @@ class RaiseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RAISE_OUTCOME_NOT_LIVE: _ClassVar[RaiseOutcome]
     RAISE_OUTCOME_MISSING: _ClassVar[RaiseOutcome]
 
+class RestoreOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RESTORE_OUTCOME_UNSPECIFIED: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_INSERTED: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_EXISTS_LIVE: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_EXISTS_TOMBSTONED: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_NO_DISTINCT_ID: _ClassVar[RestoreOutcome]
+
 DELETE_PERSONS_MODE_UNSPECIFIED: DeletePersonsMode
 DELETE_PERSONS_MODE_HARD: DeletePersonsMode
 DELETE_PERSONS_MODE_TOMBSTONE: DeletePersonsMode
@@ -74,6 +82,11 @@ RAISE_OUTCOME_RAISED: RaiseOutcome
 RAISE_OUTCOME_AT_OR_ABOVE: RaiseOutcome
 RAISE_OUTCOME_NOT_LIVE: RaiseOutcome
 RAISE_OUTCOME_MISSING: RaiseOutcome
+RESTORE_OUTCOME_UNSPECIFIED: RestoreOutcome
+RESTORE_OUTCOME_INSERTED: RestoreOutcome
+RESTORE_OUTCOME_EXISTS_LIVE: RestoreOutcome
+RESTORE_OUTCOME_EXISTS_TOMBSTONED: RestoreOutcome
+RESTORE_OUTCOME_NO_DISTINCT_ID: RestoreOutcome
 
 class Person(_message.Message):
     __slots__ = (
@@ -1054,3 +1067,72 @@ class RaisePersonVersionFloorsResponse(_message.Message):
     def __init__(
         self, results: _Optional[_Iterable[_Union[RaisePersonVersionFloorResult, _Mapping]]] = ...
     ) -> None: ...
+
+class RestoredPerson(_message.Message):
+    __slots__ = ("person_uuid", "properties", "created_at_ms", "is_identified", "version", "distinct_ids")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
+    IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    properties: bytes
+    created_at_ms: int
+    is_identified: bool
+    version: int
+    distinct_ids: _containers.RepeatedCompositeFieldContainer[RestoredDistinctId]
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        properties: _Optional[bytes] = ...,
+        created_at_ms: _Optional[int] = ...,
+        is_identified: bool = ...,
+        version: _Optional[int] = ...,
+        distinct_ids: _Optional[_Iterable[_Union[RestoredDistinctId, _Mapping]]] = ...,
+    ) -> None: ...
+
+class RestoredDistinctId(_message.Message):
+    __slots__ = ("distinct_id", "version")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    version: int
+    def __init__(self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+
+class RestorePersonsRequest(_message.Message):
+    __slots__ = ("team_id", "persons")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSONS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    persons: _containers.RepeatedCompositeFieldContainer[RestoredPerson]
+    def __init__(
+        self, team_id: _Optional[int] = ..., persons: _Optional[_Iterable[_Union[RestoredPerson, _Mapping]]] = ...
+    ) -> None: ...
+
+class RestorePersonResult(_message.Message):
+    __slots__ = ("person_uuid", "outcome", "person_id", "version", "restored_distinct_ids")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    RESTORED_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    outcome: RestoreOutcome
+    person_id: int
+    version: int
+    restored_distinct_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        outcome: _Optional[_Union[RestoreOutcome, str]] = ...,
+        person_id: _Optional[int] = ...,
+        version: _Optional[int] = ...,
+        restored_distinct_ids: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
+
+class RestorePersonsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[RestorePersonResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[RestorePersonResult, _Mapping]]] = ...) -> None: ...
