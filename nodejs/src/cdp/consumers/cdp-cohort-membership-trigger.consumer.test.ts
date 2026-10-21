@@ -12,11 +12,9 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { createCohortMembershipEvent, createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '../types'
-import {
-    COHORT_MEMBERSHIP_CHANGED_EVENT,
-    CdpCohortMembershipTriggerConsumer,
-} from './cdp-cohort-membership-trigger.consumer'
+import { CdpCohortMembershipTriggerConsumer } from './cdp-cohort-membership-trigger.consumer'
 
 describe('CdpCohortMembershipTriggerConsumer', () => {
     let processor: CdpCohortMembershipTriggerConsumer

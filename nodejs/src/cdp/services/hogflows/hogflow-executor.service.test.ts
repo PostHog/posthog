@@ -1574,6 +1574,17 @@ describe('Hogflow Executor', () => {
                     'left cohort 42',
                     true,
                 ],
+                // The trigger moved to this cohort while the run was parked, so no enrolling write is pending.
+                [
+                    'an entered trigger that changed cohort since the run enrolled',
+                    'entered',
+                    { inCohort: false, caughtUp: false },
+                    false,
+                    false,
+                    'left cohort 42',
+                    true,
+                    7,
+                ],
                 // The membership writer lags the trigger consumer, so these reads can still show the old state.
                 [
                     'an entered trigger the table has not caught up with',
@@ -1597,7 +1608,16 @@ describe('Hogflow Executor', () => {
                 ['a membership lookup that fails', 'entered', null, true, true, null, true],
             ])(
                 'cohort trigger exit check: %s',
-                async (_name, transition, membership, confirmedBefore, lookupFails, expectedReason, confirmedAfter) => {
+                async (
+                    _name,
+                    transition,
+                    membership,
+                    confirmedBefore,
+                    lookupFails,
+                    expectedReason,
+                    confirmedAfter,
+                    enrolledCohortId = 42
+                ) => {
                     hogFlow.exit_condition = 'exit_on_trigger_not_matched'
                     hogFlow.trigger = { type: 'cohort', cohort_id: 42, transition: transition as 'entered' | 'left' }
                     const lookup = jest.spyOn(cohortMembershipRepository, 'getCohortMembership')
@@ -1609,7 +1629,13 @@ describe('Hogflow Executor', () => {
                     const invocation = createExampleHogFlowInvocation(hogFlow, {
                         event: {
                             ...createHogExecutionGlobals().event,
-                            properties: { name: 'John Doe', $membership_version: '2026-10-20 10:00:00.000000' },
+                            event: '$cohort_membership_changed',
+                            properties: {
+                                name: 'John Doe',
+                                cohort_id: enrolledCohortId,
+                                status: transition,
+                                $membership_version: '2026-10-20 10:00:00.000000',
+                            },
                         },
                     })
                     if (confirmedBefore) {
@@ -1626,7 +1652,12 @@ describe('Hogflow Executor', () => {
                     } else {
                         expect(result.metrics.map((m) => m.metric_name)).not.toContain('early_exit')
                     }
-                    expect(lookup).toHaveBeenCalledWith(hogFlow.team_id, 'person_id', 42, '2026-10-20 10:00:00.000000')
+                    expect(lookup).toHaveBeenCalledWith(
+                        hogFlow.team_id,
+                        'person_id',
+                        42,
+                        enrolledCohortId === 42 ? '2026-10-20 10:00:00.000000' : undefined
+                    )
                     expect(result.invocation.state.cohortTriggerConfirmed).toBe(confirmedAfter)
                 }
             )

@@ -1,3 +1,6 @@
+// pinned: stored as the event of every cohort-triggered run, which workflow steps and logs read
+export const COHORT_MEMBERSHIP_CHANGED_EVENT = '$cohort_membership_changed'
+
 // The run event property that carries the version stamp of the change that started a cohort-triggered run.
 export const COHORT_MEMBERSHIP_VERSION_PROPERTY = '$membership_version'
 

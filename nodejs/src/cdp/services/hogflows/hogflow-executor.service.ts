@@ -24,6 +24,7 @@ import {
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import {
+    COHORT_MEMBERSHIP_CHANGED_EVENT,
     COHORT_MEMBERSHIP_VERSION_PROPERTY,
     CohortMembershipRepository,
     StoredCohortMembership,
@@ -506,7 +507,14 @@ export class HogFlowExecutorService {
         if (!personUuid) {
             return undefined
         }
-        const triggerVersion = invocation.state.event?.properties?.[COHORT_MEMBERSHIP_VERSION_PROPERTY]
+        const enrolledBy = invocation.state.event?.properties
+        // Only the change that enrolled the run can still be pending in the table. A run enrolled by another
+        // cohort or transition, because the trigger changed while it was parked, has nothing to wait for.
+        const enrolledByThisTrigger =
+            invocation.state.event?.event === COHORT_MEMBERSHIP_CHANGED_EVENT &&
+            enrolledBy?.cohort_id === trigger.cohort_id &&
+            enrolledBy?.status === trigger.transition
+        const triggerVersion = enrolledByThisTrigger ? enrolledBy?.[COHORT_MEMBERSHIP_VERSION_PROPERTY] : undefined
         let membership: StoredCohortMembership | null
         try {
             membership = await this.cohortMembershipRepository.getCohortMembership(
@@ -529,7 +537,10 @@ export class HogFlowExecutorService {
         const rowMatches = trigger.transition === 'entered' ? inCohort === true : inCohort === false
         // The row's version stamp shows whether the writer has applied the change that started this run.
         // Without a stamp, only a read that matches the trigger shows it, because the change flips the state.
-        const caughtUp = invocation.state.cohortTriggerConfirmed === true || (membership?.caughtUp ?? rowMatches)
+        const caughtUp =
+            !enrolledByThisTrigger ||
+            invocation.state.cohortTriggerConfirmed === true ||
+            (membership?.caughtUp ?? rowMatches)
         if (!caughtUp) {
             return undefined
         }

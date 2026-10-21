@@ -12,7 +12,10 @@ import { captureException } from '~/common/utils/posthog'
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { HogFlow } from '../schema/hogflow'
 import { PRODUCER_VERSION_FORMAT } from '../services/cohort-membership/sweeper.service'
-import { COHORT_MEMBERSHIP_VERSION_PROPERTY } from '../services/cohorts/cohort-membership-repository'
+import {
+    COHORT_MEMBERSHIP_CHANGED_EVENT,
+    COHORT_MEMBERSHIP_VERSION_PROPERTY,
+} from '../services/cohorts/cohort-membership-repository'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
@@ -20,9 +23,6 @@ import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../uti
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CohortMembershipChange, CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
 import { counterParseError } from './metrics'
-
-// pinned: stored as the event of every cohort-triggered run, which workflow steps and logs read
-export const COHORT_MEMBERSHIP_CHANGED_EVENT = '$cohort_membership_changed'
 
 export const counterCohortMembershipTriggerSkipped = new Counter({
     name: 'cdp_cohort_membership_trigger_skipped',
