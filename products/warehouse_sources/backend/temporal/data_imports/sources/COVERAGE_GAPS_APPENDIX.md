@@ -5185,13 +5185,13 @@ Today (5): `calls`, `conversations`, `participants`, `queues`, `users`
 
 Diffed against: <https://api.mypurecloud.com/api/v2/docs/swagger>
 
-- [ ] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
-- [ ] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
-- [ ] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
+- [x] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
+- [x] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
+- [x] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
 - [ ] `Get Team listing (GET /api/v2/teams)` — resolve participant teamId values for agent team reporting (high)
 - [ ] `Get a group list (GET /api/v2/groups)` — resolve groupId and agentGroups references in conversation routing data (high)
 - [ ] `Get external contacts (GET /api/v2/externalcontacts/contacts)` — resolve externalContactId on participants into customer identities (high)
-- [ ] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
+- [x] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
 - [ ] `Query for user details (POST /api/v2/analytics/users/details/query)` — measure agent presence and routing-state history, including time available and offline (high)
 - [ ] `Queries Evaluations (GET /api/v2/quality/evaluations/query)` — analyze detailed quality evaluations beyond evaluation summaries embedded in conversations (medium)
 - [ ] `Get the members of this queue (GET /api/v2/routing/queues/{queueId}/members)` — connect agents to queues and report queue staffing and membership (medium)
@@ -5430,16 +5430,16 @@ Note: The swagger-ui URL recorded in the source (https://customapi.goldcast.io/s
 
 ## GoLogin — gaps
 
-Today (3): `profiles`, `proxy_devices`, `workspaces`
+Today (7): `cloud_usage_daily`, `deleted_profiles`, `folders`, `profiles`, `proxy_devices`, `tags`, `workspaces`
 
 Diffed against: <https://api.gologin.com/docs-json>
 
-- [ ] `Folders (GET /folders)` — explain folder references on synced profiles and group profile activity by folder (high)
-- [ ] `Tags (GET /tags/all)` — resolve profile tag references for consistent analysis of browser profile groups (high)
-- [ ] `Workspace cloud usage statistics (GET /cloud-usage/stats)` — measure daily cloud launches, runtime minutes, and consumption against workspace limits (high)
+- [x] `Folders (GET /folders)` — explain folder references on synced profiles and group profile activity by folder (high)
+- [x] `Tags (GET /tags/all)` — resolve profile tag references for consistent analysis of browser profile groups (high)
+- [x] `Workspace cloud usage statistics (GET /cloud-usage/stats)` — measure daily cloud launches, runtime minutes, and consumption against workspace limits (high)
 - [ ] `Profile cloud usage statistics (GET /cloud-usage/profile/{browserId}/stats)` — attribute cloud runtime to individual profiles and identify profiles with high resource consumption (medium)
 - [ ] `Workspace members (GET /workspaces/{wid}, members collection)` — join workspace members and roles to profile activity for collaboration and access analysis (medium)
-- [ ] `Deleted profiles (GET /deleted-profiles/v2)` — track profile deletion and retain lifecycle coverage beyond the current active profile inventory (medium)
+- [x] `Deleted profiles (GET /deleted-profiles/v2)` — track profile deletion and retain lifecycle coverage beyond the current active profile inventory (medium)
 - [ ] `GoLogin proxy traffic (GET /users-proxies/geolocation/traffic)` — monitor remaining proxy traffic allowances alongside cloud usage and profile activity (medium)
 
 Note: Parsed all GET operations and response schemas in the official OpenAPI document. The profiles endpoint already covers all workspaces; workspace list responses omit the members available from workspace detail reads. Cloud usage needs workspace or profile fan-out, and workspace statistics cover at most 30 days per request. Excluded cookies, fingerprints, credentials, proxy configuration, and workspace settings.
@@ -5471,9 +5471,9 @@ Today (26): `anomalies`, `anr_rate`, `anr_rate_by_api_level`, `anr_rate_by_devic
 
 Diffed against: <https://playdeveloperreporting.googleapis.com/$discovery/rest?version=v1beta1>
 
-- [ ] `Release filter options (GET /v1beta1/apps/{app}:fetchReleaseFilterOptions)` — resolve versionCode values in synced metrics to release names and distribution tracks (high)
-- [ ] `Anonymous RSS and swap memory usage (POST /v1beta1/apps/{app}/anonRssAndSwapMemoryUsageMetricSet:query)` — track app memory pressure and connect memory consumption with crashes and low-memory kills (medium)
-- [ ] `Bitmap memory usage (POST /v1beta1/apps/{app}/bitmapMemoryUsageMetricSet:query)` — identify bitmap memory regressions by app version and device characteristics (medium)
+- [x] `Release filter options (GET /v1beta1/apps/{app}:fetchReleaseFilterOptions)` — resolve versionCode values in synced metrics to release names and distribution tracks (high)
+- [x] `Anonymous RSS and swap memory usage (POST /v1beta1/apps/{app}/anonRssAndSwapMemoryUsageMetricSet:query)` — track app memory pressure and connect memory consumption with crashes and low-memory kills (medium)
+- [x] `Bitmap memory usage (POST /v1beta1/apps/{app}/bitmapMemoryUsageMetricSet:query)` — identify bitmap memory regressions by app version and device characteristics (medium)
 
 Note: Parsed every resource and method in Google's official v1beta1 discovery document. The static catalog covers existing rate metrics, errors, apps, and anomalies, but omits two memory datasets and release metadata. Metric queries use POST for read operations; all three additions need app fan-out. Commerce, reviews, and store sales belong to separate APIs and were outside this Reporting API comparison.
 
@@ -5618,12 +5618,12 @@ Today (12): `data_sources`, `dimensions`, `environments`, `experiments`, `fact_m
 
 Diffed against: <https://docs.growthbook.io/openapi.yaml>
 
-- [ ] `Experiment results (GET /v1/experiments/results; GET /v1/experiments/{id}/results)` — analyze measured lift, uncertainty, sample sizes, and variation performance beyond experiment metadata and result summaries (high)
-- [ ] `Teams (GET /v1/teams)` — resolve team IDs on synced members and compare experiment ownership across named teams (high)
-- [ ] `Namespaces (GET /v1/namespaces)` — resolve namespace references in feature rules and explain mutually exclusive experiment allocation (high)
+- [x] `Experiment results (GET /v1/experiments/results; GET /v1/experiments/{id}/results)` — analyze measured lift, uncertainty, sample sizes, and variation performance beyond experiment metadata and result summaries (high). Added as `experiment_results` from the list endpoint, which returns each experiment's latest snapshot; the per-experiment endpoint is only needed for older phases or dimension breakdowns
+- [x] `Teams (GET /v1/teams)` — resolve team IDs on synced members and compare experiment ownership across named teams (high)
+- [x] `Namespaces (GET /v1/namespaces)` — resolve namespace references in feature rules and explain mutually exclusive experiment allocation (high)
 - [ ] `Feature revisions (GET /v2/feature-revisions; GET /v1/revisions)` — track feature rule changes, approval state, and rollout history instead of keeping only current feature definitions (medium)
 - [ ] `Contextual Bandits (GET /v1/contextual-bandits; GET /v1/contextual-bandits/{id}/results)` — compare adaptive allocation and measured rewards across contexts and optimization strategies (medium)
-- [ ] `Holdouts (GET /v1/holdouts)` — identify persistent control groups and explain long-term exposure differences across experiments (medium)
+- [x] `Holdouts (GET /v1/holdouts)` — identify persistent control groups and explain long-term exposure differences across experiments (medium)
 - [ ] `Saved-group revisions (GET /v1/saved-groups-revisions)` — track targeting group changes and explain changes in experiment eligibility over time (medium)
 - [ ] `Reports (GET /v1/reports)` — bring saved analysis definitions and reporting context into portfolio comparisons (medium)
 
@@ -5641,14 +5641,14 @@ Note: The Content API documents exactly five endpoints: content (/search), tags,
 
 ## Gumroad — gaps
 
-Today (8): `custom_fields`, `offer_codes`, `payouts`, `product_reviews`, `products`, `sales`, `subscribers`, `variant_categories`
+Today (13): `custom_fields`, `earnings`, `emails`, `offer_codes`, `payouts`, `product_reviews`, `products`, `sales`, `subscribers`, `upcoming_payouts`, `variant_categories`, `workflow_emails`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/antiwork/gumroad/main/app/javascript/pages/Public/Api.tsx>
 
-- [ ] `Earnings (GET /v2/earnings)` — reconcile annual net income, tax totals, fees, and affiliate credits with the Tax Center (high)
-- [ ] `Upcoming payouts (GET /v2/payouts/upcoming)` — forecast pending cash receipts and compare payable balances with settled payouts (medium)
-- [ ] `Emails (GET /v2/emails)` — analyze audience outreach, delivered recipient counts, publishing dates, and product targeting alongside sales (medium)
-- [ ] `Workflows (GET /v2/workflows; GET /v2/workflows/{id})` — compare automated email sequences, delivery statistics, and product targeting with subscriber and sales outcomes (medium)
+- [x] `Earnings (GET /v2/earnings)` — reconcile annual net income, tax totals, fees, and affiliate credits with the Tax Center (high)
+- [x] `Upcoming payouts (GET /v2/payouts/upcoming)` — forecast pending cash receipts and compare payable balances with settled payouts (medium)
+- [x] `Emails (GET /v2/emails)` — analyze audience outreach, delivered recipient counts, publishing dates, and product targeting alongside sales (medium)
+- [x] `Workflows (GET /v2/workflows; GET /v2/workflows/{id})` — compare automated email sequences, delivery statistics, and product targeting with subscriber and sales outcomes (medium)
 
 Note: Read the current API page source, its endpoint modules, and shared response definitions from Gumroad's official repository. Product responses already include variant options, so separate variant reads add no missing collection. The existing payout stream excludes upcoming payouts, whose null identifiers need a different key. Earnings require US Tax Center access; email and workflow reads require additional scopes.
 
@@ -5675,19 +5675,19 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Gusto — gaps
 
-Today (10): `companies`, `contractor_payments`, `contractors`, `employees`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `tax_payments`
+Today (14): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `employees`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`
 
 Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 
-- [ ] `Departments (GET /v1/companies/{company_uuid}/departments)` — resolve department_uuid values on employees and analyze workforce composition by department (high)
-- [ ] `ACH transactions (GET /v1/companies/{company_uuid}/ach_transactions)` — reconcile payroll funding and payment movements with bank transaction status and failures (high)
-- [ ] `Company benefits (GET /v1/companies/{company_id}/company_benefits)` — explain employee deductions and employer contributions using named benefit plans (high)
+- [x] `Departments (GET /v1/companies/{company_uuid}/departments)` — resolve department_uuid values on employees and analyze workforce composition by department (high)
+- [x] `ACH transactions (GET /v1/companies/{company_uuid}/ach_transactions)` — reconcile payroll funding and payment movements with bank transaction status and failures (high)
+- [x] `Company benefits (GET /v1/companies/{company_id}/company_benefits)` — explain employee deductions and employer contributions using named benefit plans (high)
 - [ ] `Earning types (GET /v1/companies/{company_id}/earning_types)` — separate standard earnings from custom pay categories in payroll analysis (medium)
 - [ ] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
 - [ ] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
 - [ ] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
 - [ ] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
-- [ ] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
+- [x] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
 - [ ] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
 - [x] `Tax payments (GET /v1/companies/{company_uuid}/tax_payments)` — reconcile payroll tax liabilities with what Gusto paid each agency and when (medium)
 
@@ -5695,13 +5695,13 @@ Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI
 
 ## Harness — **thin**
 
-Today (4): `environments`, `executions`, `pipelines`, `services`
+Today (7): `environments`, `executions`, `infrastructures`, `organizations`, `pipelines`, `projects`, `services`
 
 Diffed against: <https://apidocs.harness.io/_bundle/index.yaml>
 
-- [ ] `Projects (GET /ng/api/projects)` — resolve project identifiers on synced resources into project names and organizational context (high)
-- [ ] `Organizations (GET /ng/api/organizations)` — resolve organization identifiers on synced resources for named organizational reporting (high)
-- [ ] `Infrastructures (GET /ng/api/infrastructures)` — explain infrastructure references and deployment targets within synced pipeline definitions and environments (high)
+- [x] `Projects (GET /ng/api/projects)` — resolve project identifiers on synced resources into project names and organizational context (high)
+- [x] `Organizations (GET /ng/api/organizations)` — resolve organization identifiers on synced resources for named organizational reporting (high)
+- [x] `Infrastructures (GET /ng/api/infrastructures)` — explain infrastructure references and deployment targets within synced pipeline definitions and environments (high)
 - [ ] `Approval instances (GET /v1/orgs/{org}/projects/{project}/approvals/execution/{execution-id})` — measure manual approval bottlenecks and identify approval outcomes within pipeline executions (medium)
 - [ ] `Pipeline execution notes (GET /pipeline/api/pipelines/execution/{planExecutionId}/notes)` — connect execution outcomes with operator comments and explanations (medium)
 - [ ] `Pipeline execution annotations (GET /pipeline/api/pipelines/execution/{planExecutionId}/annotations)` — join execution outcomes with structured annotations and deployment context (medium)
@@ -5712,18 +5712,18 @@ Note: Downloaded the official bundled OpenAPI specification and enumerated GET c
 
 ## Harvest — gaps
 
-Today (15): `clients`, `contacts`, `estimate_item_categories`, `estimates`, `expense_categories`, `expenses`, `invoice_item_categories`, `invoices`, `projects`, `roles`, `task_assignments`, `tasks`, `time_entries`, `user_assignments`, `users`
+Today (19): `clients`, `contacts`, `estimate_item_categories`, `estimates`, `expense_categories`, `expenses`, `invoice_item_categories`, `invoice_payments`, `invoices`, `projects`, `pto_requests`, `pto_types`, `roles`, `task_assignments`, `tasks`, `time_entries`, `user_assignments`, `user_cost_rates`, `users`
 
 Diffed against: <https://help.getharvest.com/api-v2/>
 
-- [ ] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high)
-- [ ] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium)
+- [x] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high) Shipped as `invoice_payments`, fanned out over `invoices`.
+- [x] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium) Shipped as `user_cost_rates`, fanned out over `users` (full refresh only).
 - [ ] `User billable rates (GET /v2/users/{USER_ID}/billable_rates)` — track billing rate changes and compare historical pricing across users and projects (medium)
 - [ ] `Invoice messages (GET /v2/invoices/{INVOICE_ID}/messages)` — analyze invoice communication, payment reminders, and collection follow-up activity (medium)
 - [ ] `Estimate messages (GET /v2/estimates/{estimate_ID}/messages)` — connect estimate follow-up activity with acceptance outcomes and sales cycle duration (medium)
-- [ ] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium)
+- [x] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium) Shipped as `pto_requests`.
 - [ ] `Time off balances (GET /v2/pto/balances)` — measure accrued, used, pending, and remaining leave by employee and policy (medium)
-- [ ] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium)
+- [x] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium) Shipped as `pto_types` (active policies, full refresh).
 - [ ] `Work schedules (GET /v2/pto/work_schedules)` — compare tracked hours and leave against expected working days and capacity (medium)
 
 Note: Read the official API index and selected pages, extracting documented GET collection paths. Compared them with fifteen static tables; time entries include applied rates, while rate collections add effective history. Invoice, estimate, and rate collections need parent fan-out; leave collections require appropriate permissions. Excluded writes, settings, duplicate assignment views, and reports derivable from existing detail tables.
@@ -5830,10 +5830,10 @@ Today (7): `conversations`, `customers`, `mailboxes`, `tags`, `threads`, `users`
 
 Diffed against: <https://developer.helpscout.com/mailbox-api/>
 
-- [ ] `Organizations (GET /v2/organizations)` — resolve organizationId on customers to company names for account-level support analysis (high)
-- [ ] `Teams (GET /v2/teams)` — identify support teams that receive conversations and compare team workloads (high)
-- [ ] `Inbox custom fields (GET /v2/mailboxes/{mailboxId}/fields)` — resolve conversation field IDs and dropdown option IDs to names and labels (high)
-- [ ] `Happiness Ratings Report (GET /v2/reports/happiness/ratings)` — measure customer satisfaction and connect ratings to support conversations and agents (high)
+- [x] `Organizations (GET /v2/organizations)` — resolve organizationId on customers to company names for account-level support analysis (high)
+- [x] `Teams (GET /v2/teams)` — identify support teams that receive conversations and compare team workloads (high)
+- [x] `Inbox custom fields (GET /v2/mailboxes/{mailboxId}/fields)` — resolve conversation field IDs and dropdown option IDs to names and labels (high)
+- [x] `Happiness Ratings Report (GET /v2/reports/happiness/ratings)` — measure customer satisfaction and connect ratings to support conversations and agents (high)
 - [ ] `Team members (GET /v2/teams/{teamId}/members)` — join agents to teams for staffing, workload, and performance comparisons (medium)
 - [ ] `Productivity Overall Report (GET /v2/reports/productivity)` — compare response times, resolution times, and support productivity with the vendor's reported metrics (medium)
 - [ ] `User Conversation History (GET /v2/reports/user/conversation-history)` — measure each agent's participation in conversations beyond the current assigned agent (medium)
@@ -5899,7 +5899,7 @@ Today (8): `account`, `avatar_groups`, `avatar_looks`, `templates`, `video_agent
 
 Diffed against: <https://developers.heygen.com/openapi/external-api.json>
 
-- [ ] `Lipsyncs (GET /v3/lipsyncs)` — track dubbing jobs, completion status, failures, and output duration alongside generated videos (high)
+- [x] `Lipsyncs (GET /v3/lipsyncs)` — track dubbing jobs, completion status, failures, and output duration alongside generated videos (high)
 - [ ] `Workflow runs (GET /v3/workflow-runs)` — measure automated video workflows by run status, creation time, and failure rate (medium)
 - [ ] `Workflow run nodes (GET /v3/workflow-runs/{run_id}/nodes)` — identify slow or failed workflow steps from node status and timestamps (medium)
 - [ ] `AI Clipping (GET /v3/ai-clipping)` — analyze clipping job outcomes and the clips produced from each source video (medium)
@@ -5907,7 +5907,7 @@ Diffed against: <https://developers.heygen.com/openapi/external-api.json>
 - [ ] `Proofread sessions (GET /v3/video-translations/proofreads)` — track subtitle review status before translated videos reach final generation (medium)
 - [ ] `Podcasts (GET /v3/podcasts)` — analyze podcast generation outcomes and output across the workspace (medium)
 - [ ] `Background removals (GET /v3/background-removals)` — measure background removal job volume, outcomes, and failures (medium)
-- [ ] `Audio voices (GET /v3/models/audio/voices)` — inventory professional and instant voice clones with their training status and creation dates (medium)
+- [x] `Audio voices (GET /v3/models/audio/voices)` — inventory professional and instant voice clones with their training status and creation dates (medium)
 
 Note: Parsed every GET operation in the official external API specification and compared paths with the v3 catalog. Avatar and voice tables currently select private resources. Workflow runs require workflow IDs from GET /v3/workflows, and node history needs run fan-out. Uploads and webhook configuration are excluded.
 
@@ -8071,14 +8071,14 @@ Today (15): `appointment_links`, `code_snippets`, `file_requests`, `insights_rep
 
 Diffed against: <https://developer.mixmax.com/reference>
 
-- [ ] `sequence recipients (GET /v1/sequences/{id}/recipients)` — the per-recipient membership and stage state for the sequences we already sync — the core sequence fact table (high)
+- [x] `sequence recipients (GET /v1/sequences/{id}/recipients)` — the per-recipient membership and stage state for the sequences we already sync — the core sequence fact table (high). Added as `sequence_recipients` (fan-out over `sequences`, offset paging capped by the API at 10,000 recipients per sequence).
 - [ ] `sent sequences (GET /v1/sequences/sent)` — per-send records with delivery outcome, the transaction table behind sequence performance (high). Skipped: the endpoint returns a single count of sequence messages sent in the past 24 hours, not per-send records.
 - [ ] `contacts (GET /v1/contacts)` — lookup table resolving contact IDs referenced by messages, sequences, and live feed events (high). Skipped: Mixmax marks `/contacts` as deprecated. Live feed events already carry the recipient email and name.
 - [x] `live feed events (GET /v1/livefeed/events)` — the individual open/click/reply events; the synced live_feed table is the container, not the events (high). Added as `live_feed_events` (fan-out over `live_feed` by `messageId`).
 - [ ] `report data table (POST /v1/reports/data/table)` — Mixmax's own aggregated reporting grid — the vendor's headline metrics (high). Skipped: an aggregate query whose rows change with the caller's `groupBy` and query string, with no documented row key. The per-message counters are already on `live_feed`.
-- [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium)
-- [ ] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium)
-- [ ] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium)
+- [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium). Skipped: Mixmax marks both `/contactgroups` operations as deprecated with no replacement, like `/contacts`.
+- [x] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium). Added as `teams` and `team_members` (fan-out over `teams`).
+- [x] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium). Added as `unsubscribes`.
 - [ ] `snippets (GET /v1/snippets)` — message snippets, a distinct resource from the code_snippets table already synced, and the target of the synced snippet_tags (medium)
 - [ ] `yes/no enhancements (GET /v1/yesno)` — recipient responses to yes/no prompts embedded in emails (low)
 - [ ] `Q&A enhancements (GET /v1/qa)` — recipient answers to in-email questions, parallel to the polls table (low)

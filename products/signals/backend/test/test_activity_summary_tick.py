@@ -26,6 +26,7 @@ from products.signals.backend.activity_summary import (
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
+    DailyUsage,
     daily_usage,
     max_update_cost_usd,
     select_pairs,
@@ -238,8 +239,24 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert (plan.stop_reason, len(plan.pairs), plan.enabled) == (stop_reason, pairs, bool(gateway_key))
 
-    def test_a_skipped_pair_does_not_come_back_on_the_next_tick(self) -> None:
-        self._changes(self.user, 2)
+    @parameterized.expand(
+        [
+            ("too few units", 2, {"return_value": FakeLLM([ANSWER])}, False, "skipped_too_few_units", False),
+            (
+                "an exception before the model call",
+                3,
+                {"side_effect": RuntimeError("no gateway")},
+                False,
+                "failed",
+                False,
+            ),
+            ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+        ]
+    )
+    def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
+        self, _name: str, changes: int, gateway: dict[str, Any], store_fails: bool, status: str, called_model: bool
+    ) -> None:
+        self._changes(self.user, changes)
         pair_input = ActivitySummaryPairInput(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -250,11 +267,49 @@ class TestActivitySummaryQueue(BaseTest):
         )
         assert self._select() == [(self.team.id, self.user.id)]
 
-        with patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])):
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", **gateway),
+            patch(
+                "products.signals.backend.activity_summary.logic.summary_text",
+                side_effect=RuntimeError("store failed") if store_fails else None,
+                return_value="summary",
+            ),
+        ):
             result = run_pair(pair_input)
 
-        assert (result.status, result.called_model) == ("skipped_too_few_units", False)
+        assert (result.status, result.called_model) == (status, called_model)
         assert self._select() == []
+        if called_model:
+            assert result.cost_usd
+            usage = daily_usage(NOW)
+            assert usage.updates == 1
+            assert usage.cost_usd == pytest.approx(result.cost_usd)
+        else:
+            assert daily_usage(NOW) == DailyUsage(updates=0, cost_usd=0.0)
+
+    def test_an_exception_before_the_model_call_keeps_an_earlier_paid_update_in_the_daily_caps(self) -> None:
+        self._changes(self.user, 3)
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, status=UserActivitySummary.Status.FAILED, cost_usd=0.25
+        )
+
+        with patch(
+            "products.signals.backend.activity_summary.logic.gateway_client", side_effect=RuntimeError("no gateway")
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=True,
+                    capture_events=True,
+                )
+            )
+
+        assert (result.status, result.called_model) == ("failed", False)
+        assert self._select() == []
+        assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
 
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
         self._changes(self.user, 3)
