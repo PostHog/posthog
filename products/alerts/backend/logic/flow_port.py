@@ -569,11 +569,16 @@ def _drafts_refusal(team_id: int, ports: tuple[FlowPort, ...]) -> str | None:
     if not configuration_ids:
         return None
     # The HogFlow API runs this check on every save, and the draft is saved without it.
-    refusal = workflow_trigger_refusal(
-        team_id=team_id, configuration_ids=configuration_ids, user_access_control=None, token_scopes=None
-    )
-    if refusal is not None:
-        return refusal
+    for port in ports:
+        if port.flow is not None:
+            refusal = workflow_trigger_refusal(
+                team_id=team_id,
+                filters=port.flow["trigger"]["filters"],
+                user_access_control=None,
+                token_scopes=None,
+            )
+            if refusal is not None:
+                return refusal
     named = {str(configuration_id) for configuration_id in configuration_ids}
     existing = [
         workflow.id
