@@ -22189,6 +22189,7 @@ export namespace Endpoints {
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 trigger: string;
                 type: string;
