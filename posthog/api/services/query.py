@@ -71,7 +71,11 @@ from posthog.hogql_queries.query_runner import (
     source_with_wrapper_modifiers,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import native_events_async_enabled, native_events_cluster_ineligibility
+from posthog.models.event.new_events_schema import (
+    events_route_is_explicit,
+    native_events_async_enabled,
+    native_events_cluster_ineligibility,
+)
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -496,13 +500,12 @@ def native_events_cluster_modifiers_for_user(
     # A queued query would fail while async native execution is off, so it keeps the legacy cluster.
     if execution_mode not in NEVER_ENQUEUED_EXECUTION_MODES and not native_events_async_enabled():
         return None
-    if isinstance(team.modifiers, dict) and team.modifiers.get("useNewEventsSchema") is not None:
-        return None
     if not isinstance(query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
         return None
-    modifiers = query_node_modifiers(query) or HogQLQueryModifiers()
-    if modifiers.useNewEventsCluster is not None or modifiers.useNewEventsSchema is not None:
+    modifiers = query_node_modifiers(query)
+    if events_route_is_explicit(team.modifiers, modifiers):
         return None
+    modifiers = modifiers or HogQLQueryModifiers()
     if native_events_cluster_ineligibility(team.pk) is not None:
         return None
     enabled = posthoganalytics.feature_enabled(
