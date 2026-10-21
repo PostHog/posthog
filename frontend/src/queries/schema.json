@@ -2226,7 +2226,14 @@
             "additionalProperties": {},
             "properties": {
                 "kind": {
-                    "$ref": "#/definitions/InsightNodeKind"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightNodeKind"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantMetricsNodeKind"
+                        }
+                    ]
                 }
             },
             "required": ["kind"],
@@ -4090,6 +4097,10 @@
                 "ai/planning",
                 "ai/task_execution"
             ],
+            "type": "string"
+        },
+        "AssistantMetricsNodeKind": {
+            "enum": ["MetricsQuery", "MetricsHistogramQuery"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
