@@ -1888,7 +1888,7 @@ class InsightDataChecksSerializer(serializers.Serializer):
     )
 
 
-def _display_filter(value: str) -> Q:
+def chart_display_filter(value: str) -> Q:
     displays = [display for display in value.split(",") if display]
     unknown = set(displays) - {display.value for display in schema.ChartDisplayType}
     if not displays or unknown:
@@ -2401,7 +2401,7 @@ class InsightViewSet(
                 else:
                     queryset = queryset.filter(legacy_filter)
             elif key == "display":
-                queryset = queryset.filter(_display_filter(request.GET["display"]))
+                queryset = queryset.filter(chart_display_filter(request.GET["display"]))
             elif key == "search":
                 term = request.GET["search"]
                 if len(term) > MAX_SEARCH_LENGTH:

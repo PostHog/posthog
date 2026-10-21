@@ -39,7 +39,7 @@ def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
         key_metrics = [pin.key for pin in inputs.pins if not pin.key.startswith(INSIGHT_PREFIX)]
         if key_metrics and context.allows("customer_analytics:read"):
             found = context.guard(
-                "pinned key metrics", partial(get_key_metrics, team=context.team, user=context.user), []
+                "pinned key metrics", partial(get_key_metrics, team=context.team, user=context.user), None
             )
             by_key = {metric.key: metric for metric in found or []}
             metrics.extend(replace(tile(by_key[key]), reason=None) for key in key_metrics if key in by_key)
