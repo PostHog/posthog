@@ -10449,6 +10449,21 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-conversion-recommendations": {
+        "description": "Read the project's persisted conversion recommendations and latest analysis state without starting AI. Previous results remain available during an update. Present source evidence, questions, and limitations for the user to review before configuring a goal. This tool does not create or modify goals.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Read conversion recommendations",
+        "title": "Read conversion recommendations",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-conversion-setup-ai"
+    },
     "marketing-analytics-create-conversion-goal": {
         "description": "Add one conversion goal to the project. Everything goes inside a single `goal` object — fields sent at the top level are rejected. Required inside it: conversion_goal_name, schema_map naming the fields that hold utm_campaign, utm_source, the timestamp and the distinct id, and conversion_goal_id (assigned by the server, so send an empty string). Also send kind (EventsNode for a PostHog event, ActionsNode for an action, DataWarehouseNode for an external table) and its target: `event` for EventsNode, `id` for ActionsNode, and `id` + table_name + id_field + timestamp_field + distinct_id_field for DataWarehouseNode. Omitting math counts conversions; set it to sum with math_property to total a value. Unknown fields are rejected. Existing goals are left untouched. Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.",
         "category": "Marketing analytics",
@@ -10546,6 +10561,22 @@
             "readOnlyHint": true
         },
         "feature_flag": "marketing-analytics-setup-plan-mcp"
+    },
+    "marketing-analytics-start-conversion-recommendations": {
+        "description": "Start the first 30-day analysis once with refresh=false. Only use refresh=true after the user explicitly requests an update; later runs analyze 14 days. Active runs are reused. This creates proposals, never goals. Read marketing-analytics-conversion-recommendations for results. Requires project admin access.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Analyze conversion candidates",
+        "title": "Analyze conversion candidates",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "marketing-analytics-conversion-setup-ai"
     },
     "marketing-analytics-suggest-conversion-goals": {
         "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
