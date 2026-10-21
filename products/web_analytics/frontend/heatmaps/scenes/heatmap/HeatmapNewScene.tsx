@@ -486,25 +486,25 @@ function RecordingBackgroundPreview({
     return (
         <div ref={ref} className="overflow-hidden rounded border bg-surface-secondary w-full">
             {hasDims ? (
-                measured ? (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div className="relative" style={{ height: height * scale }}>
-                        <iframe
-                            srcDoc={html}
-                            title="Selected session recording background"
-                            sandbox="allow-same-origin"
-                            tabIndex={-1}
-                            className="absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width, height, transform: `scale(${scale})` }}
-                        />
-                    </div>
-                ) : (
-                    // Reserve the recording's aspect ratio until the observer reports a width, so a wide
-                    // capture never renders at full size and gets clipped before we can scale it down.
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div className="w-full" style={{ aspectRatio: `${width} / ${height}` }} />
-                )
+                // CSS sizes the box to the scaled recording, so the iframe mounts on the first render and
+                // keeps its document. A remount reloads srcDoc, and the frame stays blank until that load ends.
+                // eslint-disable-next-line react/forbid-dom-props
+                <div className="relative" style={{ maxWidth: width, aspectRatio: `${width} / ${height}` }}>
+                    <iframe
+                        srcDoc={html}
+                        title="Selected session recording background"
+                        sandbox="allow-same-origin"
+                        tabIndex={-1}
+                        // Hide the natural-size frame until the observer reports a width, so a wide capture
+                        // never shows clipped before we can scale it down.
+                        className={cn(
+                            'absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture',
+                            !measured && 'invisible'
+                        )}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width, height, transform: `scale(${scale})` }}
+                    />
+                </div>
             ) : (
                 <iframe
                     srcDoc={html}

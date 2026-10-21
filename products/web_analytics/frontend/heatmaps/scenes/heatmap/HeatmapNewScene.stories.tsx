@@ -240,4 +240,9 @@ export const AuthenticatedReview: Story = {
         pageAccess: 'login',
         recordingBackgroundSelected: true,
     },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'iframe[title="Selected session recording background"] >>> section',
+        },
+    },
 }
