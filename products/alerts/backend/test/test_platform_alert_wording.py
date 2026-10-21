@@ -37,6 +37,18 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     data_link=LINK,
                 ),
             ),
+            (
+                "every_breach_survives_a_transport_that_keys_details_by_label",
+                AlertEventKind.FIRING,
+                {**DETAIL, "breaches": ["Series A is above 10", "Series B is above 10"]},
+                SourceDescription(
+                    details=(
+                        MessageDetail(label="Threshold breached", value="Series A is above 10\nSeries B is above 10"),
+                    ),
+                    context=("Insight: Signups",),
+                    data_link=LINK,
+                ),
+            ),
             # The platform states a failure in its own words, so only the insight's name and link are added.
             (
                 "an_error_keeps_the_platform_failure_details",

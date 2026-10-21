@@ -545,6 +545,8 @@ class CheckFailure:
     notified: bool
     firing_episode: FiringEpisode | None = None
     muted_notification: str = ""
+    # As on `GroupOutcome`: what the source's stack sends beside the failure, stored unread.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -612,6 +614,7 @@ class PlatformAlertOutcome:
                 notified=notified,
                 firing_episode=firing_episode,
                 muted_notification=muted_notification,
+                source_detail=source_detail or {},
             )
             if failed
             else None

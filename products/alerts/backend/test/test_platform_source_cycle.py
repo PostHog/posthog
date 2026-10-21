@@ -295,6 +295,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
+        # The error message names and links the insight, as a firing's does.
+        assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:

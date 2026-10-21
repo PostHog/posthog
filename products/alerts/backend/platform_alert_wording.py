@@ -26,7 +26,8 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
     insight_name = detail.get("insight_name")
     insight_short_id = detail.get("insight_short_id")
     return SourceDescription(
-        details=tuple(MessageDetail(label="Threshold breached", value=breach) for breach in breaches),
+        # One detail for every breach, because a transport such as PagerDuty keys its details by label.
+        details=(MessageDetail(label="Threshold breached", value="\n".join(breaches)),) if breaches else (),
         context=(f"Insight: {insight_name}",) if insight_name else (),
         data_link=MessageLink(label="View insight", url=insight_url(project_id, insight_short_id))
         if insight_short_id
