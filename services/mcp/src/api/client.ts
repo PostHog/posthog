@@ -1610,12 +1610,16 @@ export class ApiClient {
                 columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                has_next?: boolean
+                next_cursor?: string | null
             }> => {
                 return this.request<{
                     results: unknown
                     columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                    has_next?: boolean
+                    next_cursor?: string | null
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
