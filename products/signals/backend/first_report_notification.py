@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.text import Truncator
 
 import structlog
 
@@ -26,6 +27,7 @@ from products.signals.backend.constants import SIGNALS_FIRST_REPORT_EMAIL_TEMPLA
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
+from products.signals.backend.report_priority import latest_report_priorities
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -109,6 +111,8 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
                 "project_id": team_id,
                 "report_id": str(report.id),
                 "report_title": report.title,
+                "report_summary": Truncator((report.summary or "").strip().split("\n", 1)[0]).chars(320),
+                "report_priority": latest_report_priorities(team_id, [str(report.id)]).get(str(report.id), ""),
                 "report_url": absolute_uri(f"/project/{team_id}/inbox/reports/{report.id}"),
                 "activation_id": str(notification.id),
             }
