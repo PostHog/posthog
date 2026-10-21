@@ -1477,7 +1477,7 @@
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ group }),
-            }, `Add ${group} as a retire group?\n\nRetire then also waits for this group to read each generation to the end. A changelog consumer such as the relay refuses to start until its group is listed. It cannot be removed here afterward.`);
+            }, `Add ${group} as a retire group?\n\nRetire then also waits for this group to read each generation to the end. A changelog consumer such as the relay refuses to start until its group is listed. Remove it from its row once that consumer no longer runs.`);
           };
           return el("div", { class: "row", style: "padding: 6px 14px; border-top: 1px solid var(--border)" },
             el("span", { class: "muted" }, "Other consumers retire waits on:"), groupInput, button);
