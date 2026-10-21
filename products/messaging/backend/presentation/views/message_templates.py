@@ -207,6 +207,11 @@ class MessageTemplateSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
     )
+    sensitive = serializers.BooleanField(
+        required=False,
+        help_text="For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent "
+        "email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+    )
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
@@ -275,6 +280,16 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
     description="A UUID string identifying this message template.",
 )
 
+IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
+    name="Idempotency-Key",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.HEADER,
+    required=False,
+    description="A unique key for this email, 1 to 255 visible ASCII characters. Retrying with the same key and "
+    "the same request within 24 hours sends nothing new and returns the first send's `message_id`. Reusing a key "
+    "for a different request returns a 422.",
+)
+
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 
@@ -318,10 +333,14 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     message_id = serializers.CharField(
         help_text="ID of the queued send. Delivery and engagement are reported against the template asynchronously."
     )
+    replayed = serializers.BooleanField(
+        help_text="True when an earlier request with the same `Idempotency-Key` already queued this email. "
+        "No new email was sent, and `message_id` is the earlier send's ID."
+    )
 
 
 class TransactionalEmailRejected(exceptions.APIException):
-    STATUS_BY_CODE = {"quota_limited": 429}
+    STATUS_BY_CODE = {"quota_limited": 429, "idempotency_key_in_flight": 409, "idempotency_key_reused": 422}
     # The caller has to change the request. Without this the error handler reports a server error.
     default_type = "invalid_request"
 
@@ -601,9 +620,12 @@ class MessageTemplatesViewSet(
         responses={
             202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
             400: OpenApiResponse(
-                description="The template isn't transactional or its email is paused, or the recipient can't be used"
+                description="The template isn't transactional or its email is paused, the recipient can't be used, "
+                "or the Idempotency-Key is invalid"
             ),
             404: OpenApiResponse(description="Template not found"),
+            409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
+            422: OpenApiResponse(description="The Idempotency-Key was already used for a different request"),
             429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
             503: OpenApiResponse(description="The email pipeline did not confirm the send"),
         },
@@ -611,9 +633,10 @@ class MessageTemplatesViewSet(
         description=(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
-            "Transactional emails skip opt-outs and frequency caps."
+            "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
+            "safely without sending the email twice."
         ),
-        parameters=[TEMPLATE_ID_PARAMETER],
+        parameters=[TEMPLATE_ID_PARAMETER, IDEMPOTENCY_KEY_PARAMETER],
     )
     @action(detail=True, methods=["POST"], pagination_class=None)
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
@@ -623,7 +646,8 @@ class MessageTemplatesViewSet(
         if template.transactional_hog_flow_id:
             self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
-        outcome: dict[str, Any] = {"outcome": "error"}
+        idempotency_key = request.headers.get("Idempotency-Key")
+        outcome: dict[str, Any] = {"outcome": "error", "has_idempotency_key": idempotency_key is not None}
         try:
             queued = send_transactional_email(
                 self.team,
@@ -631,13 +655,14 @@ class MessageTemplatesViewSet(
                 to=data["to"],
                 distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
                 message_data=data["message_data"],
+                idempotency_key=idempotency_key,
             )
-            outcome = {"outcome": "queued"}
+            outcome["outcome"] = "replayed" if queued.replayed else "queued"
         except TransactionalEmailError as e:
-            outcome = {"outcome": "rejected", "error_code": e.code}
+            outcome.update({"outcome": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e)
         except DeliveryUnavailable:
-            outcome = {"outcome": "unavailable"}
+            outcome["outcome"] = "unavailable"
             raise TransactionalEmailUnavailable() from None
         finally:
             self._report_transactional_email_send(request, template, outcome)

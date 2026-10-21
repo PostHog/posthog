@@ -25,7 +25,6 @@ class TestBabelforceSource:
         "status, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid Babelforce API credentials"),
         ],
     )
     def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:

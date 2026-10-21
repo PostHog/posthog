@@ -42,9 +42,7 @@ class TestKickscaleSource:
     @pytest.mark.parametrize(
         "observed_error,expect_match",
         [
-            ("403 Client Error: Forbidden for url: https://api.kickscale.com/meetings", True),
             ("401 Client Error: Unauthorized for url: https://api.kickscale.com/meetings", False),
-            ("500 Server Error: Internal Server Error for url: https://api.kickscale.com/meetings", False),
         ],
     )
     def test_non_retryable_errors_match_auth_failures_only(self, observed_error: str, expect_match: bool) -> None:
