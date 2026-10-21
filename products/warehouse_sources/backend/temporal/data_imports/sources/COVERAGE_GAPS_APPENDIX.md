@@ -6359,11 +6359,11 @@ Note: https://api.insightly.com/v3.1/swagger/docs/v3 (the URL linked from the He
 
 ## Instagram — gaps
 
-Today (6): `account`, `account_insights`, `media`, `media_comments`, `media_insights`, `stories`
+Today (7): `account`, `account_insights`, `media`, `media_comments`, `media_insights`, `media_insights_breakdowns`, `stories`
 
 Diffed against: <https://raw.githubusercontent.com/facebook/facebook-python-business-sdk/main/facebook_business/adobjects/igmedia.py>
 
-- [ ] `Replies (GET /{ig-comment-id}/replies)` — include conversations below comments when measuring engagement and response activity (medium)
+- [x] `Replies (GET /{ig-comment-id}/replies)` — include conversations below comments when measuring engagement and response activity (medium). Added to `media_comments` with `parent_id` set to the top-level comment. The first page of replies comes back inline on each comment, and `/{ig-comment-id}/replies` is called only when a thread has more.
 - [ ] `Tagged media (GET /{ig-user-id}/tags)` — measure customer mentions and content that tags the account but belongs to other creators (medium)
 - [ ] `Children (GET /{ig-media-id}/children)` — identify individual images and videos within carousel posts (medium)
 - [ ] `Collaborators (GET /{ig-media-id}/collaborators)` — attribute collaborative posts to participating accounts (medium)
@@ -7326,13 +7326,13 @@ Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 - [x] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
 - [x] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
 - [x] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
-- [ ] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
-- [ ] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
+- [x] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
+- [x] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
 - [x] `stock_adjustments (GET /api/2.0/stock_adjustments)` — inventory movement/shrinkage records that explain changes in the inventory table we sync (medium)
 - [x] `promotions (+ /promotions/{id}/products, promo codes)` — discount campaigns and their product scope; needed to attribute discounted revenue (medium)
 - [x] `gift_cards (+ gift card transactions)` — outstanding liability and gift-card redemption transactions (medium)
-- [ ] `store_credits (+ transactions and balances)` — store credit liability and per-customer transaction ledger (medium)
-- [ ] `shifts (GET /api/2.0/shifts)` — register shift open/close records for labor and till-reconciliation analysis (medium)
+- [x] `store_credits (+ transactions and balances)` — store credit liability and per-customer transaction ledger (medium)
+- [x] `shifts (GET /api/2.0/shifts)` — register shift open/close records for labor and till-reconciliation analysis (medium)
 
 Note: The X-Series docs are a ReadMe.io site with no downloadable OpenAPI; the endpoint inventory was recovered from the 228 operation slugs embedded in the reference page payload. Also unsynced but lower value: price_books/price_book_products, product_types, product_images, serial_numbers, service_orders, quotes, fulfillments, audit log events, custom fields, variant attributes, customer_addresses, channels and retailers.
 
@@ -13377,10 +13377,10 @@ Today (3): `forms`, `reports`, `users`
 
 Diffed against: <https://wufoo.github.io/docs/>
 
-- [ ] `form entries (GET /api/v3/forms/{hash}/entries.json)` — the actual form submission data; without it the source syncs metadata only (high)
-- [ ] `form fields (GET /api/v3/forms/{hash}/fields.json)` — lookup mapping Field1/Field2 entry column ids to human field titles and choice values (high)
-- [ ] `report entries (GET /api/v3/reports/{hash}/entries.json)` — the filtered entry set behind each report we already sync (medium)
-- [ ] `report fields (GET /api/v3/reports/{hash}/fields.json)` — lookup resolving column ids on report entries (medium)
+- [x] `form entries (GET /api/v3/forms/{hash}/entries.json)` — the actual form submission data; without it the source syncs metadata only (high)
+- [x] `form fields (GET /api/v3/forms/{hash}/fields.json)` — lookup mapping Field1/Field2 entry column ids to human field titles and choice values (high)
+- [x] `report entries (GET /api/v3/reports/{hash}/entries.json)` — the filtered entry set behind each report we already sync (medium)
+- [x] `report fields (GET /api/v3/reports/{hash}/fields.json)` — lookup resolving column ids on report entries (medium)
 - [ ] `form entries count (GET /api/v3/forms/{hash}/entries/count.json)` — cheap submission-volume metric per form (low)
 - [ ] `report widgets (GET /api/v3/reports/{hash}/widgets.json)` — the aggregate/chart definitions attached to a report (low)
 - [ ] `form comments (GET /api/v3/forms/{hash}/comments.json)` — entry-level comments for review workflows (low)

@@ -338,11 +338,6 @@ CONSTANCE_CONFIG = {
         "Comma-separated team IDs always subject to the 'full' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster.",
         list[int],
     ),
-    "CLICKHOUSE_HEDGED_APP_QUERIES": (
-        get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
-        "Enable hedged requests for online APP queries to ClickHouse.",
-        bool,
-    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -492,7 +487,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
-    "CLICKHOUSE_HEDGED_APP_QUERIES",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",

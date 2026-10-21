@@ -8,7 +8,7 @@ import hooks_logsFacetValuesCreate from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatterns from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatternsDiff from '@/tools/logs/redactCredentialsHooks'
 import hooks_queryLogs from '@/tools/logs/redactCredentialsHooks'
-import { withToolHooks } from '@/tools/tool-hooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -690,7 +690,7 @@ const logsFacetValuesCreate = (): ToolBase<
             const result = await context.api.request<Schemas._LogsFacetValuesResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/facet_values/`,
-                body,
+                body: await transformRequestBody(hooks_logsFacetValuesCreate, context, params, body),
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
             return filtered
@@ -741,7 +741,7 @@ const logsPatterns = (): ToolBase<ReturnType<typeof LogsPatternsSchema>, Schemas
             const result = await context.api.request<Schemas._LogsPatternsResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
-                body,
+                body: await transformRequestBody(hooks_logsPatterns, context, params, body),
             })
             const filtered = omitResponseFields(result, [
                 'patterns.*.examples',
@@ -780,7 +780,7 @@ const logsPatternsDiff = (): ToolBase<
             const result = await context.api.request<Schemas._LogsPatternsDiffResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns_diff/`,
-                body,
+                body: await transformRequestBody(hooks_logsPatternsDiff, context, params, body),
             })
             const filtered = omitResponseFields(result, [
                 'entries.*.pattern.pattern',
@@ -876,7 +876,7 @@ const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._Logs
             const result = await context.api.request<Schemas._LogsQueryResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
-                body,
+                body: await transformRequestBody(hooks_queryLogs, context, params, body),
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
             return filtered
