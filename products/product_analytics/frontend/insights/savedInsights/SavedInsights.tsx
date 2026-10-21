@@ -386,7 +386,7 @@ export function SavedInsights(): JSX.Element {
                             'data-attr': 'home-tab-choose-dashboard',
                         },
                         {
-                            label: 'Use PostHog Home',
+                            label: 'Use default dashboard',
                             onClick: restorePostHogHome,
                             'data-attr': 'home-tab-restore-posthog-home',
                         },
@@ -470,7 +470,7 @@ export function SavedInsights(): JSX.Element {
                                                 onClick={restorePostHogHome}
                                                 data-attr="home-tab-restore-posthog-home"
                                             >
-                                                Use PostHog Home
+                                                Use default dashboard
                                             </DropdownMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenu>

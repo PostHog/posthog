@@ -112,9 +112,9 @@ export function HomeDashboardStarterModal({
                         data-attr="home-dashboard-restore-posthog-home"
                     >
                         <span className="flex min-w-0 flex-col gap-0.5 py-1">
-                            <span className="font-semibold">Use PostHog Home</span>
+                            <span className="font-semibold">Use default dashboard</span>
                             <span className="whitespace-normal text-xs font-normal text-secondary">
-                                Return to the ready-made product analytics overview.
+                                Go back to the default product analytics dashboard.
                             </span>
                         </span>
                     </LemonButton>
