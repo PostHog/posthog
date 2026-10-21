@@ -82,5 +82,19 @@ def ceilings_for_field(field: str) -> dict[str, float]:
     return MAX_WAIT_VALUE_FOR_DURATION_UNIT if field == "max_wait_duration" else MAX_DELAY_VALUE_FOR_DURATION_UNIT
 
 
+def exceeds_unit_cap(field: str, value: object) -> bool:
+    """True for a duration whose amount is above what the executor waits for in that unit."""
+    parsed = parse_duration(value)
+    return parsed is not None and parsed.amount > ceilings_for_field(field)[parsed.unit]
+
+
+def duration_cap_error(field: str) -> str:
+    max_days = int(ceilings_for_field(field)["d"])
+    return (
+        f"{field} can be at most {max_days}d, 24h, 60m or 60s, and a longer value only waits that long. "
+        "Use a larger unit, for example '1.5d' instead of '36h'."
+    )
+
+
 def duration_error(field: str) -> str:
     return f"{field} must be a duration string such as {DURATION_EXAMPLES}. ISO-8601 formats are not supported."
