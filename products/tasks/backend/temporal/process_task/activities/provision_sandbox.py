@@ -79,7 +79,11 @@ from products.tasks.backend.temporal.metrics import (
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
-from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.observability import (
+    emit_agent_log,
+    log_activity_execution,
+    log_with_activity_context,
+)
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
 )
