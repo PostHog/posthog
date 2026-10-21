@@ -54,6 +54,32 @@ describe('formatResponse', () => {
         expect(result).toContain(expectedJson)
     })
 
+    it.each([
+        ["$'", "SELECT count() FROM events WHERE match(properties.$pathname, '^/pricing$')"],
+        ['$&', "SELECT '$&' AS token"],
+        ['$`', 'SELECT 1 AS `$`col`'],
+        ['$$', "SELECT '$$' AS cost"],
+    ])('keeps %s in a query literal', (_sequence, sql) => {
+        const data = {
+            charts: [
+                { name: 'first', query: { kind: 'HogQLQuery', query: sql } },
+                {
+                    name: 'second',
+                    query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: sql } },
+                },
+            ],
+            metrics: 'trailing-metrics-field',
+            prompts: 'trailing-prompts-field',
+        }
+        const result = formatResponse(data)
+
+        expect(result).toContain(JSON.stringify(data.charts[0]!.query, null, 2))
+        expect(result).toContain(JSON.stringify(data.charts[1]!.query, null, 2))
+        expect(result.split('trailing-metrics-field')).toHaveLength(2)
+        expect(result.split('trailing-prompts-field')).toHaveLength(2)
+        expect(result).not.toContain('__QUERY_PLACEHOLDER_')
+    })
+
     it('handles arrays', () => {
         const data = {
             flags: [

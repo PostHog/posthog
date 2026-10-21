@@ -1341,9 +1341,11 @@
           this.ui = {
             summary: el("div", { class: "row", style: "padding: 0 0 10px" }),
             changelogStatus: el("div", {}, el("div", { class: "empty" }, "Loading…")),
-            // Rebuilt only when the config's presence changes, so a refresh keeps what is typed.
+            // Rebuilt only when the action it offers changes, so a refresh keeps what is typed.
             changelogForm: el("div"),
             changelogFormKey: null,
+            changelogError: el("div", { style: "padding: 0 14px" }),
+            changelogDetail: el("div"),
             issuesBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
             partitionsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
             podsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
@@ -1361,7 +1363,8 @@
           });
           root.append(
             this.ui.summary,
-            el("div", { class: "panel" }, el("h2", {}, "Changelog"), this.ui.changelogStatus, this.ui.changelogForm),
+            el("div", { class: "panel" }, el("h2", {}, "Changelog"),
+              this.ui.changelogStatus, this.ui.changelogForm, this.ui.changelogError, this.ui.changelogDetail),
             el("div", { class: "panel" }, el("h2", {}, "Issues"), this.ui.issuesBody),
             el("div", { class: "panel" }, el("h2", {}, "Partitions"), this.ui.partitionsBody),
             el("div", { class: "panel" }, el("h2", {}, "Pods"), this.ui.podsBody),
@@ -1390,14 +1393,16 @@
         },
 
         renderChangelog(view) {
-          const formKey = view.config ? "seeded" : "unseeded";
+          const formKey = this.changelogFormKeyOf(view);
           if (this.ui.changelogFormKey !== formKey) {
             this.ui.changelogFormKey = formKey;
-            this.ui.changelogForm.replaceChildren(...(view.config ? [] : [this.seedForm()]));
+            this.ui.changelogError.replaceChildren();
+            this.ui.changelogForm.replaceChildren(view.config ? this.migrationForm(view) : this.seedForm());
           }
           if (!view.config) {
             this.ui.changelogStatus.replaceChildren(
-              el("div", { class: "muted", style: "padding: 6px 14px 8px" }, "Not seeded."));
+              el("div", { class: "muted", style: "padding: 6px 14px 8px" }, "Not seeded. Every personhog service waits at startup until the changelog is seeded."));
+            this.ui.changelogDetail.replaceChildren();
             return;
           }
           const c = view.config;
@@ -1405,13 +1410,15 @@
             el("div", { class: "row", style: "padding: 6px 14px" },
               el("span", { class: "pill accent mono" }, c.topic),
               el("span", { class: "pill muted" }, `${fmtInt(c.partitions)} partitions`),
-              el("span", { class: "pill muted" }, `epoch ${fmtInt(c.epoch)}`)),
+              el("span", { class: "pill muted" }, `epoch ${fmtInt(c.epoch)}`)));
+          this.ui.changelogDetail.replaceChildren(
+            this.migrationDetail(view),
             !view.writer
               ? el("div", { class: "empty" }, "No writer group.")
               : el("table", {},
                   el("thead", {}, el("tr", {},
                     el("th", {}, "writer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
-                    el("th", {}, "worst partition"))),
+                    el("th", { title: "A grow's restart replays about this many records per partition; a shrink by k replays about k partitions' worth. Larger replays lengthen the pause." }, "worst partition"))),
                   el("tbody", {}, [view.writer].map((g) =>
                     el("tr", {},
                       el("td", { class: "mono" }, g.group),
@@ -1419,6 +1426,24 @@
                       el("td", { class: "mono" }, g.error ? "–" : fmtInt(g.lagging_partitions)),
                       el("td", { class: "mono" }, g.error ? "–" : el("span", { class: `pill ${g.total_lag === 0 ? "good" : "warn"}` }, fmtInt(g.total_lag))),
                       el("td", { class: "mono" }, g.error ? "–" : fmtInt(g.max_partition_lag)))))));
+        },
+
+        changelogFormKeyOf(view) {
+          if (!view.config) return "unseeded";
+          if (view.migration) return `migration:${view.migration.id}:${view.migration.phase}`;
+          if (view.request) return `request:${view.request.id}`;
+          return "idle";
+        },
+
+        async postChangelogAction(path, options, confirmText) {
+          if (!window.confirm(confirmText)) return;
+          try {
+            await fetchJSON(path, options);
+            this.ui.changelogError.replaceChildren();
+            this.refresh();
+          } catch (e) {
+            this.ui.changelogError.replaceChildren(el("div", { class: "error-box" }, String(e)));
+          }
         },
 
         seedForm() {
@@ -1433,7 +1458,7 @@
               error.replaceChildren(el("div", { class: "error-box" }, "Enter the topic and the writer's consumer group."));
               return;
             }
-            if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata.`)) return;
+            if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata. Every personhog participant adopts this object; only a migration can move it afterward.`)) return;
             button.disabled = true;
             try {
               await fetchJSON("api/personhog/changelog/seed", {
@@ -1453,6 +1478,97 @@
             error);
         },
 
+        migrationForm(view) {
+          const m = view.migration;
+          const r = view.request;
+          const form = el("div", { class: "row", style: "padding: 6px 14px; border-top: 1px solid var(--border)" });
+          if (m) {
+            const cancellable = ["Freezing", "Draining"].includes(m.phase);
+            const cancel = el("button", { disabled: !cancellable }, "Cancel migration");
+            cancel.onclick = () => this.postChangelogAction("api/personhog/migrations/current", {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: m.id }),
+            },
+              `Cancel the migration to ${m.to.topic}? Held partitions resume on ${m.from.topic}.`);
+            form.append(
+              el("span", { class: "pill warn" }, `migrating: ${m.phase}`),
+              el("span", { class: "mono" }, `${m.from.topic} (${fmtInt(m.from.partitions)}) → ${m.to.topic} (${fmtInt(m.to.partitions)})`),
+              cancel);
+          } else if (r) {
+            const withdraw = el("button", {}, "Stop migration");
+            withdraw.onclick = () => this.postChangelogAction("api/personhog/migrations/current", {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: r.id }),
+            },
+              `Stop the migration to ${r.to.topic}? It has not started, so nothing is held; if it starts in the meantime, it is cancelled before the flip.`);
+            form.append(
+              el("span", { class: "pill muted" }, "requested: waiting to start"),
+              el("span", { class: "mono" }, `${r.from.topic} (${fmtInt(r.from.partitions)}) → ${r.to.topic} (${fmtInt(r.to.partitions)})`),
+              withdraw);
+          } else {
+            const topicInput = el("input", { type: "text", placeholder: "target topic, e.g. personhog_updates_128", style: "width: 360px" });
+            const start = el("button", {}, "Migrate changelog");
+            start.onclick = () => {
+              const topic = topicInput.value.trim();
+              if (!topic) return;
+              this.postChangelogAction("api/personhog/migrations", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ topic }),
+              }, `Migrate the changelog to ${topic}?\n\nThe coordinator starts it once no partition is moving and every owner is ready, then every partition pauses briefly while the fleet restarts onto the new topic. The partition count is read from the topic's metadata.`);
+            };
+            form.append(topicInput, start);
+          }
+          return form;
+        },
+
+        migrationDetail(view) {
+          const m = view.migration;
+          const r = view.request;
+          const body = el("div", { style: "padding: 0 14px 6px" });
+          if (m) {
+            body.append(m.blocking.length === 0
+              ? el("div", { class: "muted" }, "Nothing blocking.")
+              : el("ul", { class: "mono", style: "margin: 4px 0" }, m.blocking.slice(0, 12).map((b) => el("li", {}, b))));
+          } else if (r) {
+            body.append(r.waiting.length === 0
+              ? el("div", { class: "muted" }, "Starting once no partition is moving and every owner is ready.")
+              : el("ul", { class: "mono", style: "margin: 4px 0" }, r.waiting.slice(0, 12).map((w) => el("li", {}, w))));
+          }
+          for (const g of view.draining) {
+            const w = g.writer;
+            const drained = !w.error && w.partitions > 0 && w.drained_partitions === w.partitions;
+            const retire = el("button", { disabled: !drained }, `Retire ${g.topic}`);
+            retire.onclick = () => this.postChangelogAction("api/personhog/changelog/retire", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ topic: g.topic }),
+            }, `Retire ${g.topic}?\n\nThe writer group has read it to the end. It leaves the config; delete the topic in Terraform afterwards.`);
+            body.append(el("div", { class: "row", style: "margin-top: 6px" },
+              el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)}) draining`),
+              el("span", { class: `pill ${w.error ? "bad" : drained ? "good" : "warn"}`, title: w.error || "" },
+                `${w.group}: ${fmtInt(w.drained_partitions)}/${fmtInt(w.partitions)}`),
+              retire));
+          }
+          if (view.history.length > 0) {
+            body.append(el("table", {},
+              el("thead", {}, el("tr", {}, el("th", {}, "migration"), el("th", {}, "from"), el("th", {}, "to"), el("th", {}, "outcome"))),
+              el("tbody", {}, view.history.slice(0, 5).map((h) =>
+                el("tr", {},
+                  el("td", { class: "mono" }, h.id),
+                  el("td", { class: "mono" }, `${h.from.topic} (${fmtInt(h.from.partitions)})`),
+                  el("td", { class: "mono" }, `${h.to.topic} (${fmtInt(h.to.partitions)})`),
+                  el("td", {},
+                    el("span", { class: `pill ${h.phase === "Complete" ? "good" : "bad"}`, title: h.blocking.join("; ") }, h.phase),
+                    h.cancel_reason ? el("span", { class: "muted mono", style: "margin-left: 8px" }, h.cancel_reason)
+                      : h.phase !== "Complete" && h.blocking.length > 0 ? el("span", { class: "muted mono", style: "margin-left: 8px" }, h.blocking.join("; ")) : null,
+                    h.phase === "Complete" && !view.draining.some((g) => g.topic === h.from.topic) ? el("span", { class: "muted", style: "margin-left: 8px" }, `${h.from.topic} is retired; delete it in Terraform`) : null))))));
+          }
+          return body;
+        },
+
         render(data) {
           const readyPods = data.pods.filter((p) => p.status === "Ready").length;
           const errors = data.issues.filter((issue) => issue.severity === "error").length;
@@ -1464,7 +1580,7 @@
               ? el("span", { class: "pill good", title: `lease ${data.leader.lease_id}${data.leader.lease_ttl_secs !== null ? ` · ttl ${data.leader.lease_ttl_secs}s` : ""}` }, `coordinator ${data.leader.holder}`)
               : el("span", { class: "pill bad" }, "no coordinator"),
             el("span", { class: "pill muted" },
-              data.total_partitions === null ? "total_partitions missing" : `${fmtInt(data.total_partitions)} partitions`),
+              data.total_partitions === null ? "changelog not seeded" : `${fmtInt(data.total_partitions)} partitions`),
             el("span", { class: `pill ${readyPods === data.pods.length && readyPods > 0 ? "good" : "warn"}` },
               `${fmtInt(readyPods)}/${fmtInt(data.pods.length)} pods ready`),
             el("span", { class: "pill muted" }, `${fmtInt(data.routers.length)} router${data.routers.length === 1 ? "" : "s"}`),

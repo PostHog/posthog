@@ -2,44 +2,20 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     QUERY_LOG_ARCHIVE_DATA_TABLE,
-    QUERY_LOG_ARCHIVE_OPS_MV,
-    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
     QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
     QUERY_LOG_ARCHIVE_V3_MV_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_TABLE,
     SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
-    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.run_mode import run_mode
 
-# Rebuild query_log_archive as a JSON-backed data table living on the OPS cluster:
-#   - sharded_query_log_archive : OPS data table, stores log_comment as a curated JSON column and
-#     ProfileEvents as the raw Map; every lc_* / ProfileEvents_* column is a read-time ALIAS.
-#   - query_log_archive         : Distributed read table over ops.sharded_query_log_archive, everywhere.
-#   - writable_query_log_archive: Distributed write table (physical columns only), everywhere.
-#   - ops_query_log_archive_mv  : slim MV (system.query_log -> writable), on every cluster.
-#
-# The v3 generation (one aggregated row per query chain) runs beside it with the same topology:
-# sharded_query_log_archive_v3 and query_log_archive_v3_buffer on OPS; writable_query_log_archive_v3,
-# ops_query_log_archive_v3_mv and query_log_archive_v3 on every cluster. query_log_archive reads the
-# v3 data table, not sharded_query_log_archive.
-#
-# This migration is idempotent and converges TWO divergent starting states:
-#   (A) Production, set up by hand: query_log_archive is the *data table* on OPS, writable_query_log_archive
-#       and ops_query_log_archive_mv already exist (old schema, all lc_*/ProfileEvents_* physical).
-#   (B) Repo migration history (0196+): sharded_query_log_archive is the data table, with
-#       sharded_query_log_archive_mv / dist_query_log_archive_mv MVs.
-# The old OPS data table is renamed to query_log_archive_old (NOT dropped) so it can be backfilled into
-# the new table manually; the ClickHouse team drops it afterwards.
+# The query_log_archive suite on the OPS cluster, one aggregated row per query chain:
+#   - sharded_query_log_archive_v3 and query_log_archive_v3_buffer on OPS.
+#   - writable_query_log_archive_v3 and ops_query_log_archive_v3_mv on every cluster, so every cluster
+#     archives its own system.query_log into OPS.
+#   - query_log_archive, the Distributed read table over the v3 data table, everywhere.
 
-# Every cluster produces its own system.query_log, archives it into OPS via the writable table, and can
-# read it back through the Distributed query_log_archive.
 ALL_ROLES = [
     NodeRole.DATA,
     NodeRole.ENDPOINTS,
@@ -48,66 +24,47 @@ ALL_ROLES = [
     NodeRole.SESSIONS,
     NodeRole.OPS,
 ]
-QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_old"  # renamed OPS data table, kept for manual backfill
-SHARDED_OLD_TABLE = "sharded_query_log_archive_old"  # renamed repo-history data table (state B)
 
-# Previous-generation MV names retired here (prod uses ops_query_log_archive_mv; history uses the others).
-OLD_SHARDED_MV = "sharded_query_log_archive_mv"
-OLD_DIST_MV = "dist_query_log_archive_mv"
+# Write path of earlier generations. A stack that ran part of the old migration chain can still have
+# these objects. None of them stores data, so they are dropped. The data tables of those generations
+# (sharded_query_log_archive, query_log_archive_v2) stay, and the operator decides when to drop them.
+# The cloud clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the
+# v3 objects take over some of these names there.
+LEGACY_VIEWS = [
+    "query_log_archive_mv",
+    "sharded_query_log_archive_mv",
+    "dist_query_log_archive_mv",
+    "ops_query_log_archive_mv",
+    "daily_aggregated_query_log_archive",
+]
+LEGACY_WRITE_TABLES = [
+    "writable_query_log_archive",
+    "writable_sharded_query_log_archive",
+    "query_log_archive_buffer",
+]
 
 operations = [
-    # ---------- A. Stop the old write path (MVs hold no data) ----------
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OPS_MV}", node_roles=ALL_ROLES),
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {OLD_SHARDED_MV}", node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {OLD_DIST_MV}", node_roles=[NodeRole.ENDPOINTS]),
-    # ---------- B. Move the old populated data tables aside (no data dropped) ----------
-    # State B: the repo-history sharded data table collides with the new JSON table name.
-    run_sql_with_exceptions(
-        f"RENAME TABLE IF EXISTS {SHARDED_QUERY_LOG_ARCHIVE_TABLE} TO {SHARDED_OLD_TABLE}",
-        node_roles=[NodeRole.DATA],
-    ),
-    # State A: the production OPS data table. Kept as query_log_archive_old for the manual backfill.
-    run_sql_with_exceptions(
-        f"RENAME TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE} TO {QUERY_LOG_ARCHIVE_OLD_TABLE}",
-        node_roles=[NodeRole.OPS],
-    ),
-    # Only cloud has data to backfill. Off cloud the rename above is either a no-op (OPS
-    # carries no query_log_archive until step G creates it) or, where every role shares one
-    # node, it catches the DATA-side table and leaves an empty copy behind — so drop it.
     *(
         []
         if run_mode().is_deployed_cloud
         else [
-            run_sql_with_exceptions(
-                f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OLD_TABLE}",
-                node_roles=[NodeRole.OPS],
-            ),
-            run_sql_with_exceptions(
-                f"DROP TABLE IF EXISTS {SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE}",
-                node_roles=[NodeRole.ENDPOINTS],
-            ),
+            # Drop the views first, so that no MV writes into a table this migration drops.
+            *[run_sql_with_exceptions(f"DROP TABLE IF EXISTS {view}", node_roles=ALL_ROLES) for view in LEGACY_VIEWS],
+            *[
+                run_sql_with_exceptions(f"DROP TABLE IF EXISTS {table}", node_roles=ALL_ROLES)
+                for table in LEGACY_WRITE_TABLES
+            ],
         ]
     ),
-    # ---------- C. New JSON-backed data table on OPS ----------
-    run_sql_with_exceptions(SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.OPS]),
-    # ---------- D. Writable Distributed (physical columns only) -> ops.sharded, on every cluster ----------
-    # Drop first to replace prod's existing old-schema writable (a no-data Distributed).
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {WRITABLE_QUERY_LOG_ARCHIVE_TABLE}", node_roles=ALL_ROLES),
-    run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=ALL_ROLES),
-    # ---------- E. Slim MV (system.query_log -> writable), on every cluster ----------
-    run_sql_with_exceptions(
-        QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE),
-        node_roles=ALL_ROLES,
-    ),
-    # ---------- F. v3 write path: data table + Buffer on OPS, writable + MV on every cluster ----------
     run_sql_with_exceptions(SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=[NodeRole.OPS]),
     run_sql_with_exceptions(QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(), node_roles=[NodeRole.OPS]),
     run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=ALL_ROLES),
     run_sql_with_exceptions(QUERY_LOG_ARCHIVE_V3_MV_SQL(), node_roles=ALL_ROLES),
-    # ---------- G. Read Distributed tables -> ops.sharded_query_log_archive_v3, on EVERY node ----------
-    # Created everywhere so query_log_archive is queryable from any node. Safe to drop on every node:
-    # the only place it is a populated data table is OPS, already renamed aside in B.
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=[NodeRole.ALL]),
+    # An earlier generation used query_log_archive as a data table. Rename it aside, so that the read
+    # table can take the name and no archived rows are lost.
+    run_sql_with_exceptions(
+        f"RENAME TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE} TO {QUERY_LOG_ARCHIVE_DATA_TABLE}_legacy",
+        node_roles=[NodeRole.ALL],
+    ),
     run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.ALL]),
-    run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=[NodeRole.ALL]),
 ]
