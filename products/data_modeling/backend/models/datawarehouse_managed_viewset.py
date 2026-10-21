@@ -26,7 +26,6 @@ from products.data_modeling.backend.facade.managed_viewset_hooks import get_expe
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.incremental import parse_incremental_config
-from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -373,6 +372,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         The check resolves the whole query, so a view whose query and config the sync already stored
         skips it.
         """
+        from products.data_modeling.backend.logic.incremental_eligibility import (  # noqa: PLC0415 keeps posthog.schema off django.setup()
+            check_incremental_eligibility,
+        )
+
         if view.incremental_config is None or not view.materialized:
             return None
         if stored is not None and stored.query == view.query and stored.incremental_config == view.incremental_config:
