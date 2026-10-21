@@ -49,6 +49,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",

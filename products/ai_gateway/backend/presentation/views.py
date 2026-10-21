@@ -88,7 +88,7 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
 
     def _caller_refusal(self, request: Request) -> DevTokenRefused | None:
         if is_impersonated(request):
-            return DevTokenRefused("impersonated", "Developer mode is unavailable while impersonating.", 403)
+            return DevTokenRefused("impersonated", "Developer mode isn't available while impersonating a user.", 403)
         return api.eligibility_refusal(cast(User, request.user))
 
     @validated_request(
@@ -109,7 +109,7 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
             429: _REFUSAL,
             503: _REFUSAL,
         },
-        summary="Mint a developer mode token pinned to you",
+        summary="Create a developer mode token attributed to you",
     )
     def create(self, request: Request) -> Response:
         refused = self._caller_refusal(request)
@@ -134,7 +134,9 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="revoke")
     def revoke(self, request: Request) -> Response:
         if is_impersonated(request):
-            return _refusal(DevTokenRefused("impersonated", "Developer mode is unavailable while impersonating.", 403))
+            return _refusal(
+                DevTokenRefused("impersonated", "Developer mode isn't available while impersonating a user.", 403)
+            )
         token_id = request.validated_data.get("id")
         try:
             count = api.revoke_dev_tokens(cast(User, request.user), str(token_id) if token_id else None)

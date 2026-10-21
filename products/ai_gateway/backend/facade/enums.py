@@ -15,3 +15,9 @@ from posthog.enums import LabeledStrEnum
 class DevTokenClient(LabeledStrEnum):
     WEB = "web", "Web"
     CLI = "cli", "CLI"
+
+
+class DevTokenStatus(LabeledStrEnum):
+    LIVE = "live", "Live"
+    REVOKED = "revoked", "Revoked"
+    EXPIRED = "expired", "Expired"

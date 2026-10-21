@@ -1,14 +1,17 @@
 import base64
 import hashlib
+from datetime import timedelta
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 
 from products.ai_gateway.backend.models import DevGatewayToken
@@ -38,7 +41,7 @@ class TestDevTokens(APIBaseTest):
             DEV_GATEWAY_MINT_KEY="phs_dev",
             DEV_GATEWAY_TEAM_ID=self.team.id,
             DEV_GATEWAY_TOKEN_CAP_USD="25",
-            DEV_GATEWAY_DAILY_CAP_USD="100",
+            DEV_GATEWAY_DAILY_CAP_USD="50",
         )
         override.enable()
         self.addCleanup(override.disable)
@@ -69,6 +72,9 @@ class TestDevTokens(APIBaseTest):
         row = self._rows(user=self.user).get()
         assert row.token_hash == hashlib.sha256(b"phe_secret").hexdigest()
         assert row.client == "web"
+        entry = ActivityLog.objects.get(scope="DevGatewayToken", item_id=str(row.id))
+        assert (entry.activity, entry.user_id, entry.team_id) == ("minted", self.user.id, self.team.id)
+        assert "phe_secret" not in str(entry.detail)
 
     @parameterized.expand(
         [
@@ -104,20 +110,20 @@ class TestDevTokens(APIBaseTest):
             assert self.client.post(URL).status_code == 201
 
     def test_daily_cap_is_reserved_before_the_gateway_call(self):
-        with patch(_POST, side_effect=[_minted(f"phe_{i}") for i in range(4)]):
-            for _ in range(4):
+        with patch(_POST, side_effect=[_minted(f"phe_{i}") for i in range(2)]):
+            for _ in range(2):
                 assert self.client.post(URL).status_code == 201
 
         with patch(_POST) as post:
             response = self.client.post(URL)
         assert response.status_code == 429
         assert response.json()["code"] == "daily_limit"
-        assert "100" in response.json()["detail"]
+        assert "$50.00 limit" in response.json()["detail"]
         post.assert_not_called()
 
         usage = self.client.get(f"{URL}usage/").json()
-        assert Decimal(usage["used_usd"]) == Decimal("100")
-        assert len(usage["tokens"]) == 4
+        assert Decimal(usage["used_usd"]) == Decimal("50")
+        assert [t["status"] for t in usage["tokens"]] == ["live", "live"]
 
     def test_failed_mint_does_not_spend_the_daily_cap(self):
         with patch(_POST, return_value=_response(500)):
@@ -129,7 +135,12 @@ class TestDevTokens(APIBaseTest):
     def test_revoke_sends_only_the_callers_hashes(self):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", None, is_staff=True)
         others = DevGatewayToken.objects.unscoped().create(
-            team=self.team, user=other, client="web", cap_usd=Decimal("25"), token_hash="b" * 64
+            team=self.team,
+            user=other,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="b" * 64,
+            expires_at=timezone.now() + timedelta(hours=1),
         )
         with patch(_POST, return_value=_minted("phe_mine")):
             self.client.post(URL)
@@ -148,6 +159,11 @@ class TestDevTokens(APIBaseTest):
         assert post.call_args.kwargs["json"] == {"token_hashes": [hashlib.sha256(b"phe_mine").hexdigest()]}
         assert self._rows(user=self.user, revoked_at__isnull=False).count() == 1
         assert self._rows(user=other, revoked_at__isnull=True).count() == 1
+        mine = self._rows(user=self.user).get()
+        assert (
+            ActivityLog.objects.filter(scope="DevGatewayToken", item_id=str(mine.id), activity="revoked").count() == 1
+        )
+        assert self.client.get(f"{URL}usage/").json()["tokens"][0]["status"] == "revoked"
 
     def test_cli_code_exchanges_once_for_the_authorizing_user(self):
         code = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE}).json()["code"]

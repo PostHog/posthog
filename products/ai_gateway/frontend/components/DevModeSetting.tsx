@@ -6,10 +6,16 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { DevTokenApi } from '../generated/api.schemas'
-import { devModeLogic, envSnippet } from '../logics/devModeLogic'
+import { devModeLogic } from '../logics/devModeLogic'
+
+const STATUS_TAG: Record<DevTokenApi['status'], { label: string; type: 'success' | 'muted' | 'danger' }> = {
+    live: { label: 'Live', type: 'success' },
+    expired: { label: 'Expired', type: 'muted' },
+    revoked: { label: 'Revoked', type: 'danger' },
+}
 
 export function DevModeSetting(): JSX.Element {
-    const { usage, usageLoading, minted, mintedLoading, refusal, remainingUsd, canMint, cliRequest } =
+    const { usage, usageLoading, minted, mintedLoading, refusal, remainingUsd, canMint, cliRequest, liveTokenCount } =
         useValues(devModeLogic)
     const { mint, revokeToken, authorizeCli, dismissCliRequest } = useActions(devModeLogic)
 
@@ -23,8 +29,8 @@ export function DevModeSetting(): JSX.Element {
                 <LemonBanner type="info" data-attr="ai-gateway-dev-mode-cli-request">
                     <div className="flex flex-col gap-2">
                         <span>
-                            A <code>posthog-cli</code> on this computer is asking for a developer mode token. Approve
-                            only if you just ran the command yourself.
+                            <code>posthog-cli gateway token</code> is asking for a token. Approve only if you just ran
+                            that command.
                         </span>
                         <div className="flex flex-wrap gap-2">
                             <LemonButton type="primary" size="small" onClick={authorizeCli}>
@@ -39,8 +45,8 @@ export function DevModeSetting(): JSX.Element {
             ) : null}
 
             <p className="mb-0">
-                Mint a short-lived AI gateway token for local development. Every request made with it is attributed to
-                you. Each token can spend up to ${usage?.token_cap_usd ?? '…'} and lasts{' '}
+                Create a token to call the AI gateway from your machine. Requests made with it are attributed to you.
+                Each token can spend up to ${usage?.token_cap_usd ?? '…'} and expires after{' '}
                 {usage ? Math.round(usage.ttl_seconds / 3600) : '…'} hours.
             </p>
 
@@ -53,30 +59,28 @@ export function DevModeSetting(): JSX.Element {
                         usageLoading && !usage
                             ? 'Loading'
                             : !canMint
-                              ? 'Your developer mode spend for the last 24 hours is at the daily limit'
+                              ? `You've reached your $${usage?.daily_cap_usd} limit for the last 24 hours`
                               : undefined
                     }
                     data-attr="ai-gateway-dev-mode-mint"
                 >
-                    Generate token
+                    Create token
                 </LemonButton>
                 {usage ? (
                     <span className="text-secondary">
                         <span translate="no">
                             ${remainingUsd?.toFixed(2)} of ${usage.daily_cap_usd}
                         </span>{' '}
-                        left today
+                        left in the last 24 hours
                     </span>
                 ) : null}
             </div>
 
             {minted ? (
                 <div className="flex flex-col gap-2">
-                    <LemonBanner type="success">
-                        Copy this token now. PostHog only stores its hash, so it cannot be shown again.
-                    </LemonBanner>
-                    <CodeSnippet language={Language.Bash} wrap thing="environment variables">
-                        {envSnippet(minted)}
+                    <LemonBanner type="success">Copy this token now. It won't be shown again.</LemonBanner>
+                    <CodeSnippet language={Language.Text} wrap thing="token">
+                        {minted.token}
                     </CodeSnippet>
                 </div>
             ) : null}
@@ -84,7 +88,7 @@ export function DevModeSetting(): JSX.Element {
             <LemonTable<DevTokenApi>
                 dataSource={usage?.tokens ?? []}
                 loading={usageLoading}
-                emptyState="No live tokens"
+                emptyState="No tokens created in the last 24 hours"
                 columns={[
                     {
                         title: 'Created',
@@ -97,27 +101,35 @@ export function DevModeSetting(): JSX.Element {
                         render: (_, token) => (token.expires_at ? <TZLabel time={token.expires_at} /> : null),
                     },
                     {
-                        title: 'From',
+                        title: 'Status',
+                        key: 'status',
+                        render: (_, token) => (
+                            <LemonTag type={STATUS_TAG[token.status].type}>{STATUS_TAG[token.status].label}</LemonTag>
+                        ),
+                    },
+                    {
+                        title: 'Source',
                         key: 'client',
                         render: (_, token) => <LemonTag>{token.client === 'cli' ? 'CLI' : 'Web'}</LemonTag>,
                     },
                     {
-                        title: 'Cap',
+                        title: 'Spend limit',
                         key: 'cap_usd',
                         render: (_, token) => <span translate="no">${token.cap_usd}</span>,
                     },
                     {
                         key: 'actions',
                         width: 0,
-                        render: (_, token) => (
-                            <LemonButton status="danger" size="small" onClick={() => revokeToken(token.id)}>
-                                Revoke
-                            </LemonButton>
-                        ),
+                        render: (_, token) =>
+                            token.status === 'live' ? (
+                                <LemonButton status="danger" size="small" onClick={() => revokeToken(token.id)}>
+                                    Revoke
+                                </LemonButton>
+                            ) : null,
                     },
                 ]}
             />
-            {usage && usage.tokens.length > 1 ? (
+            {liveTokenCount > 1 ? (
                 <div>
                     <LemonButton status="danger" type="secondary" size="small" onClick={() => revokeToken(null)}>
                         Revoke all

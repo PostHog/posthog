@@ -23,7 +23,7 @@ export const getAiGatewayDevTokensCreateUrl = () => {
 }
 
 /**
- * @summary Mint a developer mode token pinned to you
+ * @summary Create a developer mode token attributed to you
  */
 export const aiGatewayDevTokensCreate = async (options?: RequestInit): Promise<MintedDevTokenApi> => {
     return apiMutator<MintedDevTokenApi>(getAiGatewayDevTokensCreateUrl(), {
