@@ -168,6 +168,7 @@ class TestQualityGateBranching:
 
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == ("failed" if shadow_error else "completed", "managed_warehouse")
+        assert finished.call_args.kwargs.get("error_class", "none") == ("other" if shadow_error else "none")
         assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
 
     async def test_a_clickhouse_run_does_not_wait_for_a_slow_trino_shadow(self) -> None:
