@@ -358,6 +358,7 @@ def _prepare_slack_gallery(
             }
         )
     if insight_links:
+        blocks.append({"type": "markdown", "text": "### Insights"})
         blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": insight_links}]})
     blocks.extend(_subscription_footer_blocks(subscription, resource_info, integration))
 
