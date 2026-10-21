@@ -5,12 +5,14 @@ import { useEffect } from 'react'
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
+    LemonCalendarSelectInput,
     LemonDialog,
     LemonInput,
     LemonLabel,
     LemonModal,
     LemonModalProps,
     LemonSelect,
+    LemonSelectOptions,
     LemonTableColumn,
     LemonTag,
     LemonTextArea,
@@ -19,16 +21,18 @@ import {
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
+import { detailedTime } from 'lib/utils/datetime'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
-import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { KeyExpirationOption, expiresAtForOption, personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
 interface EditKeyModalProps {
@@ -48,6 +52,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         filteredScopeGroups,
         searchTerm,
         isDescriptionFieldVisible,
+        keys,
     } = useValues(personalAPIKeysLogic)
     const {
         setEditingKeyId,
@@ -62,6 +67,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
+    const editingKeyExpiresAt = keys.find((key) => key.id === editingKeyId)?.expires_at
 
     const submitDisabledReason = !editingKeyChanged
         ? 'No changes to save'
@@ -75,7 +81,9 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                 ? 'Select at least one organization'
                 : editingKey.access_type === 'teams' && !editingKey.scoped_teams?.length
                   ? 'Select at least one project'
-                  : undefined
+                  : editingKey.expiration === 'custom' && !editingKey.custom_expires_at
+                    ? 'Pick an expiry date'
+                    : undefined
 
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
@@ -167,6 +175,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
+                    <KeyExpirationField currentExpiresAt={isNew ? null : (editingKeyExpiresAt ?? null)} />
                     <ScopeAccessSelector
                         accessType={editingKey.access_type}
                         organizations={allOrganizations}
@@ -244,6 +253,70 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                 </>
             </LemonModal>
         </Form>
+    )
+}
+
+function formatExpiryDate(date: string | dayjs.Dayjs): string {
+    return dayjs(date).format('MMMM D, YYYY')
+}
+
+function isKeyExpired(key: PersonalAPIKeyType): boolean {
+    return !!key.expires_at && !dayjs(key.expires_at).isAfter(dayjs())
+}
+
+function KeyExpirationField({ currentExpiresAt }: { currentExpiresAt: string | null }): JSX.Element {
+    const { editingKey } = useValues(personalAPIKeysLogic)
+
+    const options: LemonSelectOptions<KeyExpirationOption> = [
+        ...(currentExpiresAt
+            ? [
+                  {
+                      value: 'keep' as const,
+                      label: `${dayjs(currentExpiresAt).isBefore(dayjs()) ? 'Expired' : 'Expires'} ${formatExpiryDate(currentExpiresAt)}`,
+                  },
+              ]
+            : []),
+        { value: 'never', label: 'Never' },
+        { value: '7', label: '7 days' },
+        { value: '30', label: '30 days' },
+        { value: '60', label: '60 days' },
+        { value: '90', label: '90 days' },
+        { value: 'custom', label: 'Custom date' },
+    ]
+
+    const expiresAt = expiresAtForOption(editingKey.expiration, editingKey.custom_expires_at)
+
+    return (
+        <div className="mt-4">
+            <div className="flex items-end gap-2">
+                <LemonField name="expiration" label="Expiration">
+                    <LemonSelect options={options} data-attr="personal-api-key-expiration" />
+                </LemonField>
+                {editingKey.expiration === 'custom' && (
+                    <LemonField name="custom_expires_at">
+                        {({ value, onChange }) => (
+                            <LemonCalendarSelectInput
+                                value={value ? dayjs(value) : null}
+                                onChange={(date) => onChange(date ? date.toISOString() : null)}
+                                selectionPeriod="upcoming"
+                                granularity="day"
+                                format="MMMM D, YYYY"
+                                placeholder="Pick a date"
+                            />
+                        )}
+                    </LemonField>
+                )}
+            </div>
+            {editingKey.expiration !== 'keep' && (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    {editingKey.expiration === 'never'
+                        ? 'The key keeps working until you delete it.'
+                        : expiresAt
+                          ? `The key stops working on ${formatExpiryDate(expiresAt)}. Rolling the key restarts this period.`
+                          : null}
+                </p>
+            )}
+        </div>
     )
 }
 
@@ -329,7 +402,13 @@ function PersonalAPIKeysTable(): JSX.Element {
 
             let statusTag: JSX.Element | null = null
 
-            if (keyDisabled) {
+            if (isKeyExpired(key)) {
+                statusTag = (
+                    <Tooltip title="This key has expired and no longer works. Edit it to set a new expiry, or delete it.">
+                        <LemonTag type="danger">Expired</LemonTag>
+                    </Tooltip>
+                )
+            } else if (keyDisabled) {
                 const orgNames = restrictedOrgs.map((org: any) => org.name)
 
                 statusTag = (
@@ -455,6 +534,28 @@ function PersonalAPIKeysTable(): JSX.Element {
         },
     }
 
+    const expiresColumn: LemonTableColumn<PersonalAPIKeyType, any> = {
+        title: 'Expires',
+        key: 'expiresAt',
+        dataIndex: 'expires_at',
+        sorter: (a, b) => {
+            if (!a.expires_at || !b.expires_at) {
+                return Number(!a.expires_at) - Number(!b.expires_at)
+            }
+            return dayjs(a.expires_at).valueOf() - dayjs(b.expires_at).valueOf()
+        },
+        render: function RenderExpiresAt(_, key) {
+            if (!key.expires_at) {
+                return <span className="text-secondary">Never</span>
+            }
+            return (
+                <Tooltip title={detailedTime(key.expires_at)}>
+                    <span>{formatExpiryDate(key.expires_at)}</span>
+                </Tooltip>
+            )
+        },
+    }
+
     return (
         <>
             {keys.some((key) => key.is_legacy_hashing) && (
@@ -470,7 +571,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                 onRoll={rollKey}
                 onDelete={deleteKey}
                 showActions
-                rowClassName={(key) => (isPersonalApiKeyIdDisabled(key.id) ? 'opacity-50' : '')}
+                rowClassName={(key) => (isPersonalApiKeyIdDisabled(key.id) || isKeyExpired(key) ? 'opacity-50' : '')}
                 deleteDescription="This action cannot be undone. Make sure to have removed the key from any live integrations first."
                 renderLabel={(key) => (
                     <div className="flex flex-col">
@@ -519,7 +620,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                     )
                 }
                 extraColumnsAfterLabel={[statusColumn]}
-                extraColumnsAfterScopes={[accessColumn]}
+                extraColumnsAfterScopes={[accessColumn, expiresColumn]}
             />
         </>
     )

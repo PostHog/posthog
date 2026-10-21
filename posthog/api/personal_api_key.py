@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import cast
 
 from django.utils import timezone
@@ -74,6 +75,14 @@ def validate_personal_api_key_scopes(
                     )
 
 
+def restarted_expiry(personal_api_key: PersonalAPIKey, now: datetime) -> datetime | None:
+    """Expiry for a rolled key: the same period the current secret had, counted from `now`."""
+    if personal_api_key.expires_at is None:
+        return None
+    period_start = personal_api_key.last_rolled_at or personal_api_key.created_at
+    return now + (personal_api_key.expires_at - period_start)
+
+
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
@@ -96,6 +105,14 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         max_length=1000,
         help_text="Optional description of what the key is used for and where",
     )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the key stops working. Null means the key never expires. "
+            "Rolling the key restarts the same expiry period from the time of the roll."
+        ),
+    )
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
@@ -117,6 +134,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scoped_teams",
             "scoped_organizations",
             "last_rolled_at",
+            "expires_at",
         ]
         read_only_fields = [
             "id",
@@ -144,6 +162,14 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def validate_description(self, description: str | None) -> str | None:
         # Normalize "" to None so an absent description has a single canonical representation
         return description or None
+
+    def validate_expires_at(self, expires_at: datetime | None) -> datetime | None:
+        # Leaving an already-expired value untouched on edit must not block saving other fields
+        if expires_at is None or (self.instance is not None and expires_at == self.instance.expires_at):
+            return expires_at
+        if expires_at <= timezone.now():
+            raise serializers.ValidationError("Expiry date must be in the future.")
+        return expires_at
 
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
@@ -194,6 +220,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 scopes=validated_data["scopes"],
                 teams=AccessibleTeams.for_request(request, validated_data.get("scoped_teams") or None),
                 organization_ids=validated_data.get("scoped_organizations") or [],
+                expires_at=validated_data.get("expires_at"),
             )
         except CredentialScopeDenied:
             raise serializers.ValidationError(SCOPE_ACCESS_ERROR) from None
@@ -226,13 +253,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         value = generate_random_token_personal()
         mask_value = mask_key_value(value)
         secure_value = hash_key_value(value)
+        now = timezone.now()
 
         personal_api_key = super().update(
             personal_api_key,
             {
                 "secure_value": secure_value,
                 "mask_value": mask_value,
-                "last_rolled_at": timezone.now(),
+                "last_rolled_at": now,
+                "expires_at": restarted_expiry(personal_api_key, now),
             },
         )
         personal_api_key._value = value  # type: ignore

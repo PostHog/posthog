@@ -9,6 +9,7 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -39,6 +40,30 @@ export type EditingKeyFormValues = Pick<
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
+    expiration?: KeyExpirationOption
+    custom_expires_at?: string | null
+}
+
+/** `keep` leaves an edited key's expiry as it is. The day counts start when the form is saved. */
+export type KeyExpirationOption = 'keep' | 'never' | '7' | '30' | '60' | '90' | 'custom'
+
+/** The `expires_at` to send for the chosen option, or undefined to leave it unchanged. */
+export function expiresAtForOption(
+    expiration: KeyExpirationOption | undefined,
+    customExpiresAt: string | null | undefined,
+    now: dayjs.Dayjs = dayjs()
+): string | null | undefined {
+    switch (expiration) {
+        case undefined:
+        case 'keep':
+            return undefined
+        case 'never':
+            return null
+        case 'custom':
+            return customExpiresAt ? dayjs(customExpiresAt).endOf('day').toISOString() : undefined
+        default:
+            return now.add(Number(expiration), 'day').toISOString()
+    }
 }
 
 /** A picker row for a personal API key, with the scope it stands for so the search can match it. */
@@ -407,8 +432,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scoped_organizations: [],
                 scoped_teams: [],
                 access_type: undefined,
+                expiration: 'never',
+                custom_expires_at: null,
             } as EditingKeyFormValues,
-            errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
+            errors: ({
+                label,
+                access_type,
+                scopes,
+                scoped_organizations,
+                scoped_teams,
+                expiration,
+                custom_expires_at,
+            }) => ({
                 label: !label ? 'Your personal API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
                 access_type: !access_type ? ('Select access mode' as any) : undefined,
@@ -420,6 +455,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     access_type === 'teams' && !scoped_teams?.length
                         ? ('Select at least one project' as any)
                         : undefined,
+                custom_expires_at: expiration === 'custom' && !custom_expires_at ? 'Pick an expiry date' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 if (!values.editingKeyId) {
@@ -439,7 +475,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         const [object] = scope.split(':')
                         return !!object && allowed.has(object)
                     }) ?? []
-                const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
+                const { expiration, custom_expires_at, ...rest } = payload
+                const expiresAt = expiresAtForOption(expiration, custom_expires_at)
+                const sanitizedPayload = {
+                    ...rest,
+                    scopes: sanitizedScopes,
+                    ...(expiresAt !== undefined ? { expires_at: expiresAt } : {}),
+                }
 
                 const key =
                     values.editingKeyId === 'new'
@@ -758,6 +800,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                           : id !== 'new'
                             ? 'all'
                             : undefined,
+                    expiration: key?.expires_at ? 'keep' : 'never',
+                    custom_expires_at: null,
                 }
 
                 actions.resetEditingKey(formValues)

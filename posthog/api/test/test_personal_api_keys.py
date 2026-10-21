@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -58,6 +59,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,
+            "expires_at": None,
             "user_id": self.user.id,
             "is_legacy_hashing": False,
             "scopes": ["insight:read"],
@@ -288,6 +290,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "description": None,
             "last_used_at": None,
             "last_rolled_at": None,
+            "expires_at": None,
             "user_id": self.user.id,
             "is_legacy_hashing": False,
             "scopes": ["*"],
@@ -401,8 +404,42 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["last_rolled_at"] is not None
         assert data["mask_value"] != original_key.mask_value
 
+    @parameterized.expand([("with_expiry", timedelta(days=30)), ("without_expiry", None)])
+    def test_roll_restarts_expiry_period(self, _, period):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+            key = PersonalAPIKey.objects.create(
+                label="Test roll expiry",
+                user=self.user,
+                secure_value=hash_key_value(generate_random_token_personal()),
+                scopes=["insight:read"],
+                expires_at=timezone.now() + period if period else None,
+            )
+
+        with time_machine.travel("2026-01-21T00:00:00Z", tick=False):
+            response = self.client.post(f"/api/personal_api_keys/{key.id}/roll", {})
+            assert response.status_code == 200
+            key.refresh_from_db()
+            assert key.expires_at == (timezone.now() + period if period else None)
+
 
 class TestPersonalAPIKeysAPIValidation(APIBaseTest):
+    @parameterized.expand([("past", timedelta(days=-1), 400), ("future", timedelta(days=7), 201)])
+    def test_create_key_with_expiry(self, _, offset, expected_status):
+        expires_at = timezone.now() + offset
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "expiring",
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 201:
+            assert PersonalAPIKey.objects.get(id=response.json()["id"]).expires_at == expires_at
+
     def test_cannot_create_key_with_empty_scopes(self):
         response = self.client.post(
             "/api/personal_api_keys/",
@@ -541,6 +578,17 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             {"personal_api_key": self.value},
         )
         assert response.status_code == 200
+
+    @parameterized.expand([("expired", timedelta(minutes=-1), 401), ("not_yet_expired", timedelta(days=1), 200)])
+    def test_key_expiry(self, _, offset, expected_status):
+        self.key.expires_at = timezone.now() + offset
+        self.key.save()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
+        )
+        assert response.status_code == expected_status
+        if expected_status == 401:
+            assert response.json()["detail"] == "Personal API key found in request Authorization header has expired."
 
     def test_user_not_active(self):
         self.user.is_active = False
