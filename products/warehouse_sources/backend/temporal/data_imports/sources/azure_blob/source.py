@@ -10,17 +10,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     DiscoveryOptions,
-    normalize_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    folder_fields,
     secret_field,
     source_caption,
-    text_field,
+    url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    AZURE_EXAMPLE_URL,
+    parse_azure_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
@@ -51,16 +53,11 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The account and container pick where the stored key is sent, so changing either must re-require it.
-        return ["account_name", "container"]
+        # The URL picks the account and container the stored key is sent to, so changing it must re-require the key.
+        return ["url_pattern"]
 
     def object_store_config(self, config: AzureBlobSourceConfig) -> AzureBlobConfig:
-        return AzureBlobConfig(
-            account_name=config.account_name.strip().lower(),
-            account_key=config.account_key.strip(),
-            container=config.container.strip(),
-            prefix=normalize_prefix(config.path),
-        )
+        return AzureBlobConfig.from_url(parse_azure_url(config.url_pattern), account_key=config.account_key.strip())
 
     def discovery_options(self, config: AzureBlobSourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
@@ -79,9 +76,7 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    text_field("account_name", "Storage account name", "mycompanystorage"),
-                    text_field("container", "Container", "exports"),
-                    *folder_fields("container"),
+                    url_field(AZURE_EXAMPLE_URL),
                     secret_field(
                         "account_key",
                         "Account key",

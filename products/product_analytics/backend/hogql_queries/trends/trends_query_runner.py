@@ -368,8 +368,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     workload=self.workload,
                     ch_user=self.ch_user,
                     settings=self.hogql_settings,
+                    modifiers=self.modifiers,
                     # timings=timings,
-                    # modifiers=modifiers,
                 )
 
                 breakdown_values = [

@@ -54,17 +54,20 @@ class _LocalAmazonS3Source(AmazonS3Source):
 
     def open_store(self, store_config: StoreConfig) -> ObjectStore:
         assert isinstance(store_config, ObjectStoreConfig)
+        assert (store_config.bucket, store_config.region) == ("customer-data", "us-east-1")
         folder = self.root / store_config.bucket / store_config.prefix
         return ObjectStore(fs=self.fs, root=str(folder).rstrip("/"), delta_uri_prefix="", delta_storage_options={})
 
 
+def url(key: str) -> str:
+    return f"https://customer-data.s3.us-east-1.amazonaws.com/{key}"
+
+
 def make_config(**overrides: Any) -> AmazonS3SourceConfig:
     values: dict[str, Any] = {
-        "bucket": "customer-data",
-        "region": "us-east-1",
+        "url_pattern": url("exports/"),
         "access_key_id": "AKIAEXAMPLE",
         "secret_access_key": "secret",
-        "path": "exports",
         **overrides,
     }
     return AmazonS3SourceConfig.from_dict(values)
@@ -102,6 +105,65 @@ def test_sync_reads_the_table_discovery_offered(tmp_path: Path, with_metadata: b
     assert [(row["id"], row["_file_name"]) for row in rows] == [("1", "orders/a.csv"), ("2", "orders/b.csv")]
 
 
+@pytest.mark.parametrize(
+    "key, expected",
+    [
+        # Hive partition folders under the URL's folder fold into one table named after that folder.
+        ("exports/orders/**/*.parquet", {"orders": ("files", "", "**/*.parquet")}),
+        ("exports/*.csv", {"a": ("files", "a.csv", "*.csv")}),
+        ("exports/**.csv", {"a": ("files", "a.csv", "**.csv"), "daily": ("files", "daily", "**.csv")}),
+        ("exports/orders", {"orders": ("files", "orders", None)}),
+        ("exports/a.csv", {"a": ("files", "a.csv", None)}),
+        ("exports/sales/", {"sales": ("delta", "", None)}),
+        ("exports/sales", {"sales": ("delta", "sales", None)}),
+        (
+            "exports/",
+            {
+                "a": ("files", "a.csv", None),
+                "daily": ("files", "daily", None),
+                "orders": ("files", "orders", None),
+                "sales": ("delta", "sales", None),
+            },
+        ),
+    ],
+)
+def test_the_url_selects_the_tables(tmp_path: Path, key: str, expected: dict[str, tuple[str, str, str | None]]) -> None:
+    for relative in (
+        "exports/a.csv",
+        "exports/daily/b.csv",
+        "exports/orders/_part_key=2024-w10/part-0.parquet",
+        "exports/orders/_part_key=2024-w11/part-0.parquet",
+        "exports/orders/_part_key=2024-w11/_SUCCESS",
+        "exports/sales/_delta_log/00000000000000000000.json",
+        "exports/sales/part-0.parquet",
+    ):
+        write(tmp_path, relative, b"")
+
+    schemas = _LocalAmazonS3Source(tmp_path).get_schemas(make_config(url_pattern=url(key)), team_id=1)
+
+    assert {
+        schema.name: (
+            schema.schema_metadata["kind"],
+            schema.schema_metadata["path"],
+            schema.schema_metadata["pattern"],
+        )
+        for schema in schemas
+        if schema.schema_metadata is not None
+    } == expected
+
+
+def test_sync_reads_only_the_files_the_url_matches(tmp_path: Path) -> None:
+    write(tmp_path, "exports/orders/a-1.csv", b"id\n1\n")
+    write(tmp_path, "exports/orders/a-2.csv", b"id\n2\n")
+    source = _LocalAmazonS3Source(tmp_path)
+    config = make_config(url_pattern=url("exports/**-1.csv"))
+    [schema] = source.get_schemas(config, team_id=1)
+
+    rows = read_rows(source, config, schema.name, schema.schema_metadata)
+
+    assert [(row["id"], row["_file_name"]) for row in rows] == [("1", "orders/a-1.csv")]
+
+
 def test_sync_keeps_the_settings_the_table_was_discovered_with(tmp_path: Path) -> None:
     write(tmp_path, "exports/raw/a.txt", b"1,2\n")
     source = _LocalAmazonS3Source(tmp_path)
@@ -117,7 +179,8 @@ def test_sync_keeps_the_settings_the_table_was_discovered_with(tmp_path: Path) -
     [
         ({"exports/a.csv": b"id\n1\n"}, {}, None, None),
         ({"exports/notes.md": b"# hi"}, {}, None, NO_IMPORTABLE_FILES_ERROR),
-        ({}, {"bucket": "Not A Bucket"}, None, INVALID_CONFIG_ERROR),
+        ({}, {"url_pattern": "https://s3.us-east-1.amazonaws.com/Not_A_Bucket/exports/"}, None, INVALID_CONFIG_ERROR),
+        ({}, {"url_pattern": "https://customer-data.s3.amazonaws.com/exports/"}, None, INVALID_CONFIG_ERROR),
         ({}, {}, PermissionError("Access Denied"), ACCESS_DENIED_ERROR),
         ({}, {}, FileNotFoundError("NoSuchBucket"), NO_SUCH_BUCKET_ERROR),
     ],
