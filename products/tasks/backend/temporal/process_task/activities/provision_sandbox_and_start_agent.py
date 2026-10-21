@@ -1,11 +1,11 @@
 import logging
 import threading
-from dataclasses import dataclass
 from functools import partial
 
 import posthoganalytics
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -29,14 +29,14 @@ from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, s
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@frozen
 class ProvisionSandboxAndStartAgentInput:
     context: TaskProcessingContext
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     workflow_start_at: str | None = None
 
 
-@dataclass
+@frozen
 class ProvisionSandboxAndStartAgentOutput:
     created: CreateSandboxForRepositoryOutput
     agent_server: StartAgentServerOutput
