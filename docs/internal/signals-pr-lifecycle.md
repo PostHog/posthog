@@ -167,6 +167,7 @@ Existing suggestions remain suggestions when a person keeps them in the list.
 A successful empty selection clears automatic assignments but preserves human overrides.
 A failed lookup preserves valid assignments and records a reason for reassessment.
 Every application checks current project access and resolves linked GitHub identities from the member record.
+Access rules, role memberships, and GitHub identities are loaded in batches for the proposed members.
 Loss of access removes an assignment even when a person selected it earlier.
 The generic artefact API cannot edit or delete decisions or their reviewer projections.
 The development-only `cleanup_signals` command deletes assignment revisions before their artefacts.

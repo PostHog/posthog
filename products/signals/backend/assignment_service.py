@@ -11,10 +11,8 @@ from django.db.models import QuerySet
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.dataclasses import frozen
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
-from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     AssignedPerson,
@@ -230,19 +228,7 @@ class ReportAssignmentService:
         wanted.update(str(member) for member in selection.pr_reviewers)
         if selection.pr_owner:
             wanted.add(str(selection.pr_owner))
-        memberships = OrganizationMembership.objects.filter(
-            organization_id=self.team.organization_id, user__uuid__in=wanted, user__is_active=True
-        ).select_related("user", "organization")
-        eligible = {
-            str(membership.user.uuid)
-            for membership in memberships
-            if SubjectAccessControl(
-                user=membership.user,
-                team=self.team,
-                org_membership=membership,
-                member=membership,
-            ).has_project_access
-        }
+        eligible = {str(member.uuid) for member in self.team.all_users_with_access(user_uuids=wanted)}
         ineligible = wanted - eligible
         previous = {person.user_uuid for person in snapshot.selection.people}
         previous.update(str(member) for member in snapshot.selection.pr_reviewers)
