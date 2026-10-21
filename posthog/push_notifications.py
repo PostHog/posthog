@@ -59,6 +59,9 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
             "posthog-code-mobile-push", user.distinct_id or f"user_{user.id}", send_feature_flag_events=False
         ):
             return False
+        from products.access_control.backend.facade.user_access_control import (
+            UserAccessControl,  # noqa: PLC0415 — keep access control off the startup path
+        )
         from products.signals.backend.models import SignalReport  # noqa: PLC0415 — keep signals off the startup path
         from products.signals.backend.report_access import may_read_reports  # noqa: PLC0415
         from products.signals.backend.scout_authorship import report_is_hidden_from_inbox  # noqa: PLC0415
@@ -81,7 +84,12 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
         return bool(
             report
             and not report_is_hidden_from_inbox(report.team_id, str(report.id))
-            and report.team.all_users_with_access().filter(id=user.id).exists()
+            and User.objects.filter(
+                id=user.id,
+                is_active=True,
+                organization_membership__organization_id=report.team.organization_id,
+            ).exists()
+            and UserAccessControl(user=user, team=report.team).has_project_access
             and may_read_reports(user=user, team=report.team)
         )
 

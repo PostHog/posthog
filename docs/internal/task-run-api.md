@@ -125,13 +125,17 @@ This choice persists when the person returns to the web app.
 
 After pickup, that person's automatic Slack mentions and proactive private-thread updates move
 to mobile. Shared Slack discussions remain available without pinging the picked-up person,
-and a direct Slack request still receives its answer. Other participants' notifications are unchanged.
+and a direct Slack request still receives its answer. Agent-design turns use an ordinary thread reply
+when their recipient has moved to mobile, preserving the answer and attachments without starting
+a targeted Slack stream. Other participants' notifications are unchanged.
 Existing Slack streams stop proactively delivering to a private thread when their recipient picks up on mobile.
 
 Mobile task notifications cover completion, failure, cancellation, waiting for input, thread replies,
 handoffs, and verified pull-request merges or closes. Recipients must still have access to the task;
 active task presence suppresses device fanout. PR outcomes are deduplicated per person, task, PR, and outcome,
-independently of whether Slack announced the PR.
+independently of whether Slack announced the PR. Deduplication starts after the triggering transaction
+commits. If enqueueing fails, the PR outcome claim and cooldown are released so replaying the event
+can retry the push.
 
 Report notifications are independent of task origin: suggested reviewers receive new reports;
 reviewers, claimants, task initiators, and picked-up participants can receive meaningful research or

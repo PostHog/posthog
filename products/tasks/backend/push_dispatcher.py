@@ -33,7 +33,11 @@ from posthog.push_notifications import mobile_push_preference_enabled
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
-from products.tasks.backend.mobile_push import claim_mobile_pr_outcome, mobile_push_user_ids, task_mobile_push_eligible
+from products.tasks.backend.mobile_push import (
+    enqueue_mobile_pr_outcome,
+    mobile_push_user_ids,
+    task_mobile_push_eligible,
+)
 from products.tasks.backend.models import Task, TaskPresence, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
@@ -336,17 +340,7 @@ def _enqueue_user(
     ):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
         return
-    if pull_request_url is not None and not claim_mobile_pr_outcome(
-        task_id=task.id, team_id=task.team_id, user_id=user.id, pr_url=pull_request_url, kind=kind
-    ):
-        return
-
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
-    if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
-        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
-        logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
-        return
-
     suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
     data["type"] = "task"
     data["notificationKind"] = kind
@@ -355,9 +349,38 @@ def _enqueue_user(
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.
     def dispatch() -> None:
-        outcome = "presence_suppressed" if suppressed else "enqueued"
-        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome=outcome).inc()
-        send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed)
+        try:
+            if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+                PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
+                return
+            try:
+
+                def enqueue() -> None:
+                    send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed)
+
+                if pull_request_url is not None:
+                    enqueued = enqueue_mobile_pr_outcome(
+                        task_id=task.id,
+                        team_id=task.team_id,
+                        user_id=user.id,
+                        pr_url=pull_request_url,
+                        kind=kind,
+                        enqueue=enqueue,
+                    )
+                else:
+                    enqueue()
+                    enqueued = True
+                if enqueued:
+                    outcome = "presence_suppressed" if suppressed else "enqueued"
+                    PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome=outcome).inc()
+            except Exception:
+                get_tasks_cache().delete(cooldown_key)
+                raise
+        except Exception as exc:
+            PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason=_failure_reason(exc)).inc()
+            logger.warning(
+                "push_dispatcher.enqueue_failed", task_id=str(task.id), user_id=user.id, kind=kind, exc_info=True
+            )
 
     transaction.on_commit(dispatch)
 

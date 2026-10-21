@@ -4,8 +4,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
-from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -44,6 +43,7 @@ from products.tasks.backend.push_dispatcher import (
     notify_task_run_failed,
     notify_task_run_turn_completed,
 )
+from products.tasks.backend.redis import get_tasks_cache
 
 PR_URL = "https://github.com/posthog/posthog/pull/123"
 VISIBLE_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -52,7 +52,7 @@ VISIBLE_AT = datetime(2026, 1, 1, tzinfo=UTC)
 class TestInboxPushNotifications(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        cache.clear()
+        get_tasks_cache().clear()
         self.reviewer = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
         send_patch = patch("products.signals.backend.inbox_push_notifications.send_user_push.delay")
         flag_patch = patch(
@@ -234,7 +234,7 @@ class TestInboxPushNotifications(BaseTest):
         expected_users = sorted([self.user.id, self.reviewer.id, login_reviewer.id]) if has_project_access else []
         assert first_pushed == expected_users
         self.send_push.reset_mock()
-        cache.clear()
+        get_tasks_cache().clear()
 
         for index in range(1, 5):
             add_linked_report(index)
@@ -259,6 +259,7 @@ class TestInboxPushNotifications(BaseTest):
     @parameterized.expand(
         [
             ("web_implementation", "implementation", False, True, notify_task_run_completed),
+            ("cross_team_implementation", "implementation", False, False, notify_task_run_completed),
             ("slack_implementation", "implementation", False, True, notify_task_run_failed),
             ("web_research", "research", False, True, notify_task_run_awaiting_input),
             ("web_discussion", "discussion", False, False, notify_task_run_cancelled),
@@ -276,7 +277,7 @@ class TestInboxPushNotifications(BaseTest):
             title="Internal task",
             created_by=self.user,
             origin_product=Task.OriginProduct.SLACK if name.startswith("slack") else Task.OriginProduct.SIGNAL_REPORT,
-            signal_report=report,
+            signal_report=None if name == "cross_team_implementation" else report,
             state={"created_on_mobile": mobile},
         )
         if name == "picked_up_implementation":
@@ -284,7 +285,7 @@ class TestInboxPushNotifications(BaseTest):
             task.state = {**(task.state or {}), "mobile_push_user_ids": [picked.id]}
             task.save(update_fields=["state"])
         run = TaskRun.objects.create(task=task, team=self.team)
-        append_task_run_artefact(
+        artefact = append_task_run_artefact(
             team_id=self.team.id,
             report_id=str(report.id),
             product="signals",
@@ -292,6 +293,9 @@ class TestInboxPushNotifications(BaseTest):
             task_id=str(task.id),
             run_id=str(run.id),
         )
+        if name == "cross_team_implementation":
+            other_team = Team.objects.create(organization=self.organization)
+            SignalReportArtefact.objects.filter(team_id=self.team.id, id=artefact.id).update(team_id=other_team.id)
         with (
             self.captureOnCommitCallbacks(execute=True),
             patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True),
@@ -305,8 +309,14 @@ class TestInboxPushNotifications(BaseTest):
             self.assertIn(report.title, self.send_push.call_args.args[2])
             self.assertNotIn(task.title, self.send_push.call_args.args[2])
 
-    @parameterized.expand([("merged", True), ("closed", False)])
-    def test_report_pr_outcomes_use_report_preferences_and_pr_identity(self, outcome, merged):
+    @parameterized.expand(
+        [
+            (outcome, merged, failure)
+            for outcome, merged in [("merged", True), ("closed", False)]
+            for failure in (None, "redis", "broker", "rollback")
+        ]
+    )
+    def test_report_pr_outcomes_use_report_preferences_and_pr_identity(self, outcome, merged, failure):
         self.user.partial_notification_settings = {"mobile_push_tasks_enabled": False}
         self.user.save(update_fields=["partial_notification_settings"])
         report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
@@ -326,8 +336,36 @@ class TestInboxPushNotifications(BaseTest):
             task_id=str(task.id),
             run_id=str(run.id),
         )
+        if failure is not None:
+
+            def notify() -> None:
+                notify_task_pull_request_outcome(
+                    task_id=str(task.id),
+                    run_id=str(run.id),
+                    team_id=self.team.id,
+                    pr_url="https://github.com/example/project/pull/1",
+                    merged=merged,
+                )
+
+            if failure == "rollback":
+                with self.captureOnCommitCallbacks(execute=True):
+                    with self.assertRaises(RuntimeError), transaction.atomic():
+                        notify()
+                        raise RuntimeError("rollback")
+            else:
+                boundary = (
+                    patch.object(get_tasks_cache(), "add", side_effect=RuntimeError("redis unavailable"))
+                    if failure == "redis"
+                    else patch.object(self.send_push, "side_effect", RuntimeError("broker unavailable"))
+                )
+                with boundary, self.captureOnCommitCallbacks(execute=True):
+                    notify()
+            task.refresh_from_db()
+            self.assertEqual(task.state.get("mobile_push_pr_outcomes", []), [])
+            self.send_push.reset_mock(side_effect=True)
         for number in (1, 1, 2):
-            cache.clear()
+            if number == 2 or self.send_push.call_count:
+                get_tasks_cache().clear()
             with self.captureOnCommitCallbacks(execute=True):
                 notify_task_pull_request_outcome(
                     task_id=str(task.id),

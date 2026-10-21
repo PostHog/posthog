@@ -2,8 +2,7 @@ from uuid import uuid4
 
 from unittest.mock import patch
 
-from django.core.cache import cache
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, OperationalError, transaction
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -23,6 +22,7 @@ from products.tasks.backend.push_dispatcher import (
     notify_task_run_failed,
     notify_task_run_turn_completed,
 )
+from products.tasks.backend.redis import get_tasks_cache
 
 
 # The Celery dispatch is deferred via transaction.on_commit, which never fires
@@ -31,7 +31,7 @@ from products.tasks.backend.push_dispatcher import (
 # none was registered) without TransactionTestCase's per-test full-DB flush.
 class TestPushDispatcher(TestCase):
     def setUp(self) -> None:
-        cache.clear()
+        get_tasks_cache().clear()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="push@example.com", first_name="Push", password="password")
@@ -250,14 +250,47 @@ class TestPushDispatcher(TestCase):
         self.assertEqual({call.args[0] for call in mock_delay.call_args_list}, {user.id for user in picked})
         self.assertEqual(mock_delay.call_count, 2)
 
-    @parameterized.expand([("merged", True), ("closed", False)])
+    @parameterized.expand(
+        [
+            (outcome, merged, failure)
+            for outcome, merged in [("merged", True), ("closed", False)]
+            for failure in (None, "redis", "broker", "rollback")
+        ]
+    )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_pr_outcomes_are_durable_per_user_and_pr(self, outcome, merged, mock_delay, _flag):
+    def test_pr_outcomes_are_durable_per_user_and_pr(self, outcome, merged, failure, mock_delay, _flag):
         self.task.origin_product = Task.OriginProduct.SLACK
         self.task.state = {"mobile_push_user_ids": [self.user.id]}
         self.task.save(update_fields=["origin_product", "state"])
         pr_url = "https://github.com/example/project/pull/1"
+        if failure is not None:
+
+            def notify() -> None:
+                notify_task_pull_request_outcome(
+                    task_id=str(self.task.id),
+                    run_id=str(self.task_run.id),
+                    team_id=self.team.id,
+                    pr_url=pr_url,
+                    merged=merged,
+                )
+
+            if failure == "rollback":
+                with self.captureOnCommitCallbacks(execute=True):
+                    with self.assertRaises(RuntimeError), transaction.atomic():
+                        notify()
+                        raise RuntimeError("rollback")
+            else:
+                boundary = (
+                    patch.object(get_tasks_cache(), "add", side_effect=RuntimeError("redis unavailable"))
+                    if failure == "redis"
+                    else patch.object(mock_delay, "side_effect", RuntimeError("broker unavailable"))
+                )
+                with boundary, self.captureOnCommitCallbacks(execute=True):
+                    notify()
+            self.task.refresh_from_db()
+            self.assertEqual(self.task.state.get("mobile_push_pr_outcomes", []), [])
+            mock_delay.reset_mock(side_effect=True)
         for _ in range(2):
             with self.captureOnCommitCallbacks(execute=True):
                 notify_task_pull_request_outcome(
@@ -267,7 +300,7 @@ class TestPushDispatcher(TestCase):
                     pr_url=pr_url,
                     merged=merged,
                 )
-            cache.clear()
+            get_tasks_cache().clear()
         mock_delay.assert_called_once()
         self.assertEqual(mock_delay.call_args.args[1:3], ("PostHog", f'"My Task" pull request was {outcome}'))
         self.assertEqual(mock_delay.call_args.args[3]["pullRequestUrl"], pr_url)

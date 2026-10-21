@@ -547,7 +547,7 @@ class SlackThreadHandler:
 
     def stop_status_stream(
         self,
-        ts: str,
+        ts: str | None,
         complete_task_id: str | None = None,
         complete_task_title: str | None = None,
         final_markdown: str | None = None,
@@ -564,8 +564,17 @@ class SlackThreadHandler:
         chart cards sit under the text that describes them. The provenance footer is a `blocks`
         chunk because a `context` block is the only way to get muted text.
 
-        When Slack already closed the stream, the answer goes out as a plain thread reply,
+        With no stream timestamp, the answer goes out as an ordinary thread reply.
+        When Slack already closed the stream, the answer also goes out as a plain thread reply,
         and nothing else is sent to the closed stream."""
+        if ts is None:
+            self.stream_ended = True
+            if final_markdown:
+                delivered = self._post_answer_outside_stream(final_markdown)
+                if delivered:
+                    self.offer_reply_suggestions(reply_suggestions_for)
+                self.capture_reply_posted(ReplyKind.ANSWER, delivered=delivered)
+            return
         answer_chunks: list[dict[str, Any]] = []
         if plan_title:
             answer_chunks.append(_plan_update_chunk(plan_title))

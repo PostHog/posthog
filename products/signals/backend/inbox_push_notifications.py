@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Collection
-from functools import partial
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -38,7 +37,7 @@ from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_claims import get_active_claims, responsible_user
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_inbox_notifications import resolve_org_suggested_reviewer_user_ids
-from products.tasks.backend.mobile_push import claim_mobile_pr_outcome, mobile_push_user_ids
+from products.tasks.backend.mobile_push import enqueue_mobile_pr_outcome, mobile_push_user_ids
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -181,7 +180,7 @@ def notify_report_task_update(*, task_run: TaskRun, kind: str, pull_request_url:
     task = task_run.task
     reports = list(
         SignalReport.objects.filter(team_id=task.team_id)
-        .filter(Q(id=task.signal_report_id) | SignalReport.reports_for_task_filter(task.id))
+        .filter(Q(id=task.signal_report_id) | SignalReport.reports_for_task_ids_filter([task.id], team_id=task.team_id))
         .select_related("team")
         .order_by("created_at", "id")
     )
@@ -284,21 +283,49 @@ def _push_report(
                 continue
             if not may_read_reports(user=user, team=report.team):
                 continue
-            if (
-                pull_request_url is not None
-                and task_id is not None
-                and not claim_mobile_pr_outcome(
-                    task_id=task_id, team_id=report.team_id, user_id=user.id, pr_url=pull_request_url, kind=kind
-                )
-            ):
-                continue
             subject = dedupe_subject or f"{report.id}:{kind}"
-            if not get_tasks_cache().add(f"report_push:{subject}:{user.id}", True, timeout=cooldown_seconds):
-                continue
+            cooldown_key = f"report_push:{subject}:{user.id}"
+
+            def dispatch(user: User = user, cooldown_key: str = cooldown_key) -> bool:
+                try:
+                    if not get_tasks_cache().add(cooldown_key, True, timeout=cooldown_seconds):
+                        return False
+                    try:
+
+                        def enqueue() -> None:
+                            send_user_push.delay(user.id, title, body, data)
+
+                        if pull_request_url is not None and task_id is not None:
+                            return enqueue_mobile_pr_outcome(
+                                task_id=task_id,
+                                team_id=report.team_id,
+                                user_id=user.id,
+                                pr_url=pull_request_url,
+                                kind=kind,
+                                enqueue=enqueue,
+                            )
+                        else:
+                            enqueue()
+                            return True
+                    except Exception:
+                        get_tasks_cache().delete(cooldown_key)
+                        raise
+                except Exception:
+                    logger.warning(
+                        "signals.inbox_push.enqueue_failed",
+                        team_id=report.team_id,
+                        report_id=str(report.id),
+                        user_id=user.id,
+                        kind=kind,
+                        exc_info=True,
+                    )
+                    return False
+
             if kind in {"report_visible", "pull_request_ready"}:
-                send_user_push.delay(user.id, title, body, data)
+                if not dispatch():
+                    continue
             else:
-                transaction.on_commit(partial(send_user_push.delay, user.id, title, body, data), robust=True)
+                transaction.on_commit(dispatch, robust=True)
             pushed.append(user.id)
         except Exception:
             logger.warning(

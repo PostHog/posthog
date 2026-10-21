@@ -15,8 +15,10 @@ from posthog.models.user import User
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
+    AppendSlackAgentDesignStepsInput,
     StartSlackAgentDesignStreamInput,
     StopSlackAgentDesignStreamInput,
+    append_slack_agent_design_steps,
     start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
@@ -218,3 +220,55 @@ class TestSlackAgentDesignStream(TestCase):
 
         assert mock_start.call_args.args[0].actor_slack_user_id == expected_target
         assert stream is not None and stream.actor_slack_user_id == expected_target
+
+    @parameterized.expand(
+        [
+            ("shared_channel", "C1", False),
+            ("direct_request", "D1", False),
+            ("answer_at_start", "C1", True),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts.deliver_pending_slack_file_artifacts")
+    @patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_mobile_pickup_keeps_the_answer_without_a_targeted_stream(
+        self, _name, channel, answer_at_start, mock_get_client, mock_muted, mock_deliver
+    ) -> None:
+        mock_muted.side_effect = lambda **kwargs: not kwargs.get("private_only", False)
+        client = mock_get_client.return_value
+        client.chat_postMessage.return_value = {"ts": "2.0"}
+        context = {
+            "integration_id": self.integration.id,
+            "channel": channel,
+            "thread_ts": "1.0",
+            "mentioning_slack_user_id": "U123",
+        }
+        answer = "<@U456> Signups grew."
+        stream = start_slack_agent_design_stream(
+            StartSlackAgentDesignStreamInput(
+                slack_thread_context=context,
+                run_id=str(self.task_run.id),
+                first_markdown_text=answer if answer_at_start else None,
+            )
+        )
+        assert stream is not None
+        assert append_slack_agent_design_steps(
+            AppendSlackAgentDesignStepsInput(slack_thread_context=context, ts=stream.ts)
+        )
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context=context,
+                ts=stream.ts,
+                run_id=str(self.task_run.id),
+                actor_slack_user_id=stream.actor_slack_user_id,
+                final_markdown=None if answer_at_start else answer,
+                answer_markdown=answer,
+                mention_sent=answer_at_start,
+            )
+        )
+
+        client.chat_startStream.assert_not_called()
+        client.chat_appendStream.assert_not_called()
+        client.chat_stopStream.assert_not_called()
+        assert client.chat_postMessage.call_args.kwargs["text"] == "Signups grew."
+        mock_deliver.assert_called_once_with(self.task_run)

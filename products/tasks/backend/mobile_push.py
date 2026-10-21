@@ -1,4 +1,5 @@
 import hashlib
+from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
@@ -48,4 +49,23 @@ def claim_mobile_pr_outcome(*, task_id: str | UUID, team_id: int, user_id: int, 
             return False
         task.state = {**state, "mobile_push_pr_outcomes": [*outcomes, event_id]}
         task.save(update_fields=["state", "updated_at"])
+    return True
+
+
+def enqueue_mobile_pr_outcome(
+    *, task_id: str | UUID, team_id: int, user_id: int, pr_url: str, kind: str, enqueue: Callable[[], None]
+) -> bool:
+    if not claim_mobile_pr_outcome(task_id=task_id, team_id=team_id, user_id=user_id, pr_url=pr_url, kind=kind):
+        return False
+    try:
+        enqueue()
+    except Exception:
+        event_id = f"{user_id}:{kind.removeprefix('report_')}:{hashlib.sha256(pr_url.encode()).hexdigest()}"
+        with transaction.atomic():
+            task = Task.objects.select_for_update(no_key=True).only("id", "state").get(id=task_id, team_id=team_id)
+            state = dict(task.state or {})
+            outcomes = state.get("mobile_push_pr_outcomes", [])
+            task.state = {**state, "mobile_push_pr_outcomes": [value for value in outcomes if value != event_id]}
+            task.save(update_fields=["state", "updated_at"])
+        raise
     return True
