@@ -1357,12 +1357,14 @@ describe('sourceWizardLogic', () => {
             }) as ExternalDataSourceSyncSchema
 
         const mountRequiredTablesWizard = (
-            requiredTables: string[]
+            requiredTables: string[],
+            requiredTableSyncType?: 'full_refresh'
         ): { logic: ReturnType<typeof sourceWizardLogic>; onComplete: jest.Mock; unmount: () => void } => {
             const onComplete = jest.fn()
             const logic = sourceWizardLogic({
                 availableSources: { Github: githubSource },
                 requiredTables,
+                requiredTableSyncType,
                 onComplete,
             })
             const unmount = logic.mount()
@@ -1374,38 +1376,49 @@ describe('sourceWizardLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('syncs every repo-qualified row the credentials can read', async () => {
-            // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
-            // for `issues` finds nothing and the wizard bails before creating the source. The
-            // payload forces should_sync on, so an unreadable row must not reach it.
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
-                apiSchema('posthog/posthog.issues'),
-                apiSchema('posthog/posthog-js.issues'),
-                apiSchema('posthog/posthog.commits'),
-                apiSchema('posthog/private.issues', { permission_error: 'Requires the "Issues" permission' }),
-            ] as ExternalDataSourceSyncSchema[])
-            const create = jest
-                .spyOn(api.externalDataSources, 'create')
-                .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
-            const createWebhook = jest.spyOn(api.externalDataSources, 'createWebhook')
+        it.each([undefined, 'full_refresh'] as const)(
+            'syncs readable repo-qualified rows with sync override %s',
+            async (requiredTableSyncType) => {
+                // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
+                // for `issues` finds nothing and the wizard bails before creating the source. The
+                // payload forces should_sync on, so an unreadable row must not reach it.
+                jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                    apiSchema('posthog/posthog.issues', { sync_type: 'incremental' }),
+                    apiSchema('posthog/posthog-js.issues', { sync_type: 'incremental' }),
+                    apiSchema('posthog/posthog.commits'),
+                    apiSchema('posthog/private.issues', { permission_error: 'Requires the "Issues" permission' }),
+                ] as ExternalDataSourceSyncSchema[])
+                const create = jest
+                    .spyOn(api.externalDataSources, 'create')
+                    .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+                const createWebhook = jest.spyOn(api.externalDataSources, 'createWebhook')
 
-            const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'])
+                const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'], requiredTableSyncType)
 
-            try {
-                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                try {
+                    await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
 
-                expect(create).toHaveBeenCalledTimes(1)
-                expect(create.mock.calls[0][0].payload?.schemas).toEqual([
-                    expect.objectContaining({ name: 'posthog/posthog.issues', should_sync: true }),
-                    expect.objectContaining({ name: 'posthog/posthog-js.issues', should_sync: true }),
-                ])
-                // Poll-synced tables need no webhook, so completion must not wait on one.
-                expect(createWebhook).not.toHaveBeenCalled()
-                expect(onComplete).toHaveBeenCalled()
-            } finally {
-                unmount()
+                    expect(create).toHaveBeenCalledTimes(1)
+                    expect(create.mock.calls[0][0].payload?.schemas).toEqual([
+                        expect.objectContaining({
+                            name: 'posthog/posthog.issues',
+                            should_sync: true,
+                            sync_type: requiredTableSyncType ?? 'incremental',
+                        }),
+                        expect.objectContaining({
+                            name: 'posthog/posthog-js.issues',
+                            should_sync: true,
+                            sync_type: requiredTableSyncType ?? 'incremental',
+                        }),
+                    ])
+                    // Poll-synced tables need no webhook, so completion must not wait on one.
+                    expect(createWebhook).not.toHaveBeenCalled()
+                    expect(onComplete).toHaveBeenCalled()
+                } finally {
+                    unmount()
+                }
             }
-        })
+        )
 
         // Both leave the required table unsatisfied, so neither may create a source that reports
         // setup as complete: the first would sync nothing, the second would queue a 403 sync.

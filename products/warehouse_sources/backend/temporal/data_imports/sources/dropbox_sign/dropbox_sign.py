@@ -134,11 +134,13 @@ def get_rows(
         path = path.format(team_id=team_id)
     url = f"{DROPBOX_SIGN_BASE_URL}{path}"
 
-    if config.is_single_object:
+    if config.is_single_object or not config.is_paginated:
         data = _fetch_page(session, url, headers, {}, logger, empty_on_404=config.empty_on_404)
-        obj = data.get(config.data_key) if data else None
-        if obj:
-            batcher.batch(_redact(obj, config.redact_paths))
+        records = data.get(config.data_key) if data else None
+        if config.is_single_object:
+            records = [records] if records else []
+        for record in records or []:
+            batcher.batch(_redact(record, config.redact_paths))
         while batcher.should_yield(include_incomplete_chunk=True):
             yield batcher.get_table()
         return

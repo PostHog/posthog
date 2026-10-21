@@ -43,6 +43,9 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
@@ -165,6 +168,28 @@ class TestExternalDataSchema(APIBaseTest):
             "detected_primary_keys": None,
             "primary_key_detection_supported": False,
         }
+
+    def test_incremental_fields_handles_a_probe_that_raises(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        with mock.patch.object(StripeSource, "validate_credentials", side_effect=RuntimeError("probe exploded")):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
     @parameterized.expand(
         [

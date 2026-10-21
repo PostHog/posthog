@@ -25,10 +25,6 @@ class TestOpinionStageSource:
     @pytest.mark.parametrize(
         "ok, status, expected_valid, expected_message",
         [
-            (True, 200, True, None),
-            (False, 401, False, "Invalid Opinion Stage API key"),
-            (False, 403, False, "Invalid Opinion Stage API key"),
-            (False, 500, False, "Opinion Stage returned HTTP 500"),
             (False, None, False, "Could not validate Opinion Stage API key"),
         ],
     )

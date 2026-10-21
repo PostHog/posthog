@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,13 +15,7 @@ import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/ap
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
-import {
-    BROADCASTS_PAGE_SIZE,
-    BroadcastsStatusFilter,
-    broadcastsLogic,
-    getBroadcastStatus,
-    isEligibleWorkflow,
-} from './broadcastsLogic'
+import { BROADCASTS_PAGE_SIZE, BroadcastsStatusFilter, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 
 const METRIC_COLUMNS: { title: string; metricName: string }[] = [
@@ -59,15 +53,6 @@ export function BroadcastsTable(): JSX.Element {
                             title={item.name || 'Untitled broadcast'}
                             description={item.description}
                         />
-                    )}
-                    {isEligibleWorkflow(item) && (
-                        <LemonTag
-                            type="muted"
-                            data-attr="broadcast-workflow-tag"
-                            title="A workflow with a batch trigger and one email, shown here as a broadcast."
-                        >
-                            Workflow
-                        </LemonTag>
                     )}
                 </div>
             ),

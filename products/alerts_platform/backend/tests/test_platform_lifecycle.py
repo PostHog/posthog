@@ -49,6 +49,7 @@ from products.alerts_platform.backend.facade.grouping import (
 )
 from products.alerts_platform.backend.facade.lifecycle import LOGS_ALERT_POLICY, AlertSnapshot, AlertState
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
+from products.alerts_platform.backend.logic.platform_alert_events import announcement
 from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
@@ -175,6 +176,35 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert taken is expected_taken
         assert (self.configuration.owner, alert.state, alert.firing_started_at is not None) == expected
 
+    def test_a_grouped_copy_taken_over_leaves_its_one_slot_to_the_first_group(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id,
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=1).to_stored(),
+            )
+        take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff - timedelta(minutes=1),
+                at=self.cutoff - timedelta(minutes=5),
+            )
+        )
+
+        self._record(
+            groups=(GroupOutcome(grouping_key="api", kind=AlertEventKind.FIRING, new_state="firing", notified=True),)
+        )
+
+        with team_scope(self.team.id):
+            instances = list(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", "state")
+            )
+        assert instances == [("api", "firing")]
+
     @parameterized.expand(
         [
             ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),
@@ -204,6 +234,12 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 HandbackRefusal.NOT_PORTABLE,
             ),
             ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.NOT_PORTABLE),
+            (
+                "grouped_with_no_group_open",
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                {},
+                HandbackRefusal.NOT_PORTABLE,
+            ),
         ]
     )
     def test_the_platform_keeps_an_alert_its_source_cannot_take_back(
@@ -400,6 +436,69 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.cutoff,
             self.cutoff,
         )
+
+    @parameterized.expand([("group_snooze", True), ("alert_snooze", False)])
+    def test_a_snooze_set_while_a_check_runs_holds_what_the_check_announces(
+        self, _name: str, group_snooze: bool
+    ) -> None:
+        self._record(
+            groups=(
+                GroupOutcome(
+                    grouping_key="api",
+                    kind=AlertEventKind.FIRING,
+                    new_state="firing",
+                    notified=True,
+                    firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
+                ),
+                self._group("web"),
+            )
+        )
+        due = self._next_due()
+        # Straight to the rows, as the snooze lands after the check read them. An alert snooze set
+        # this way stands for a source's copied snooze, which leaves the schedule where it was.
+        with team_scope(self.team.id):
+            if group_snooze:
+                PlatformAlert.objects.filter(configuration=self.configuration).update(
+                    snooze_until=due + timedelta(hours=1)
+                )
+            else:
+                PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                    snooze_until=due + timedelta(hours=1)
+                )
+
+        self._record(
+            at=due,
+            groups=(
+                GroupOutcome(
+                    grouping_key="api",
+                    kind=AlertEventKind.RESOLVED,
+                    new_state="not_firing",
+                    notified=True,
+                    firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+                ),
+                GroupOutcome(
+                    grouping_key="web",
+                    kind=AlertEventKind.FIRING,
+                    new_state="firing",
+                    notified=True,
+                    firing_episode=FiringEpisode(started_at=due, ended=False),
+                ),
+            ),
+        )
+
+        evaluation_key = f"window:{due.isoformat()}"
+        recorded = sync_execute(
+            "SELECT grouping_key, kind, state, muted_notification FROM platform_alert_events "
+            "WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s "
+            "AND evaluation_key = %(evaluation_key)s ORDER BY grouping_key",
+            {"team_id": self.team.id, "configuration_id": self.configuration.id, "evaluation_key": evaluation_key},
+        )
+        assert recorded == [("api", "check", "not_firing", "resolve"), ("web", "check", "firing", "fire")]
+        assert announcement(self.team.id, str(self.configuration.id), evaluation_key, source=SourceKind.LOGS) is None
+        api, web = self._alert("api"), self._alert("web")
+        assert (api.state, api.firing_started_at, api.last_notified_at) == ("not_firing", None, self.cutoff)
+        # A notification behind the firing's start is what makes the next unmuted check announce it.
+        assert (web.state, web.firing_started_at, web.last_notified_at) == ("firing", due, None)
 
     def _group(self, key: str, *, state: str = "not_firing") -> GroupOutcome:
         return GroupOutcome(grouping_key=key, kind=AlertEventKind.CHECK, new_state=state, notified=False)

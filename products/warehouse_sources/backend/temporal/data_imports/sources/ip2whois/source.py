@@ -57,7 +57,7 @@ class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
             name=ExternalDataSourceType.IP2WHOIS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IP2WHOIS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your IP2WHOIS API key and the domains you want to look up to pull WHOIS registration data into the PostHog Data warehouse.
 
 IP2WHOIS (by IP2Location) is a domain WHOIS lookup API. Create an API key in your [IP2WHOIS dashboard](https://www.ip2whois.com/) — the free tier includes 500 lookups per month.

@@ -1,4 +1,6 @@
+import os
 import json
+import random
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,9 +9,12 @@ from typing import Any, Literal, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 from parameterized import parameterized
 from pytest_mock import MockerFixture
 
@@ -56,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
 _CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 _WRITER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer"
+_OPS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops"
 
 
 _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
@@ -886,6 +892,66 @@ class TestCheckpointIntervalProperty:
         assert result is False
 
 
+def _rows(ids: list[int], payload_chars: int) -> pa.Table:
+    # Random hex does not compress much, so the stored bytes per row stay near the payload size.
+    return pa.table({"id": ids, "blob": [os.urandom(payload_chars).hex()[:payload_chars] for _ in ids]})
+
+
+class TestWideRowTargetFileSize:
+    @pytest.mark.parametrize(
+        "write_type,primary_keys,payload_chars,existing_target,expected_target",
+        [
+            ("incremental", ["id"], 4000, None, str(16 * 1024 * 1024)),
+            ("incremental", ["id"], 1, None, None),
+            ("append", None, 4000, None, None),
+            ("full_refresh", None, 4000, None, None),
+            ("incremental", ["id"], 4000, str(64 * 1024 * 1024), str(64 * 1024 * 1024)),
+        ],
+        ids=[
+            "wide_merge_table_gets_a_smaller_target",
+            "narrow_merge_table_keeps_the_default",
+            "wide_append_table_keeps_the_default",
+            "wide_full_refresh_table_keeps_the_default",
+            "hand_set_target_is_kept",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_target_after_writes(
+        self,
+        write_type: Literal["incremental", "append", "full_refresh"],
+        primary_keys: list[str] | None,
+        payload_chars: int,
+        existing_target: str | None,
+        expected_target: str | None,
+        tmp_path: Path,
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(
+            delta_path,
+            _rows(list(range(20)), payload_chars),
+            configuration={"delta.targetFileSize": existing_target} if existing_target else None,
+        )
+        table_ref = make_local_table_ref(delta_path)
+
+        # Local tables are far below the production size gates, so only those gates are lowered.
+        with (
+            patch(f"{_OPS_MODULE}.WIDE_ROW_MIN_TABLE_BYTES", 0),
+            patch(f"{_OPS_MODULE}.WIDE_ROW_MIN_STORED_BYTES_PER_ROW", 1024),
+        ):
+            for ids in ([1, 2], [3, 4]):
+                await DeltaWriter(table_ref).write(
+                    data=_rows(ids, payload_chars),
+                    write_type=write_type,
+                    should_overwrite_table=False,
+                    primary_keys=primary_keys,
+                )
+
+        configuration = deltalake.DeltaTable(delta_path).metadata().configuration
+        assert configuration.get("delta.targetFileSize") == expected_target
+        # The checkpoint property and the target land in one commit, and the second write adds none.
+        assert _commit_operations(delta_path).count("SET TBLPROPERTIES") == 1
+
+
 class TestCreateRaceWithExistingTable:
     """DeltaTable.create() defaults to mode="error", raising "table already exists at that
     location" whenever the destination is non-empty. get_delta_table() can report "no table
@@ -1225,8 +1291,17 @@ class TestDeltaliteWritePath:
         assert _committed_version(stats) is None
         assert _committed_file_count_change(stats) is None
 
+    @parameterized.expand(
+        [
+            ("row_group_cap_on", 16 * 1024 * 1024, 16 * 1024 * 1024),
+            ("row_group_cap_off", 0, None),
+            ("negative_cap_is_off", -1, None),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_writes_via_deltalite_when_enabled(self):
+    async def test_writes_via_deltalite_when_enabled(
+        self, _name: str, row_group_cap: int, expected_max_row_group_bytes: int | None
+    ):
         logger = make_logger()  # captured so we can inspect the structured log without hitting the typed attr
         helper = DeltaTableRef(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
         existing = MagicMock()
@@ -1243,6 +1318,7 @@ class TestDeltaliteWritePath:
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
+            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
         ):
             wrote = await DeltaWriter(helper)._write_via_deltalite(
                 existing_delta_table=existing,
@@ -1254,6 +1330,8 @@ class TestDeltaliteWritePath:
         assert wrote is True
         fake_deltalite.DeltaLiteTable.open.assert_called_once_with("s3://b/t", {"AWS_REGION": "us-east-1"})
         fake_table.upsert.assert_called_once()
+        assert fake_table.upsert.call_args.kwargs["max_row_group_bytes"] == expected_max_row_group_bytes
+        assert "isolate_source_rows" not in fake_table.upsert.call_args.kwargs
         # PARTITION_KEY is passed as the partition arg when the table is partitioned.
         assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
         # The delta-rs handle is not refreshed on the write path (a log listing per batch); the ref
@@ -1267,6 +1345,49 @@ class TestDeltaliteWritePath:
         assert log_kwargs["rows_inserted"] == 3
         assert log_kwargs["partitions_touched"] == 1
         assert "duration_ms" in log_kwargs
+
+    @pytest.mark.parametrize("row_group_cap", [256 * 1024, 0], ids=["row_group_cap_on", "row_group_cap_off"])
+    @pytest.mark.asyncio
+    async def test_row_group_cap_reaches_the_real_upsert_and_compaction(
+        self, row_group_cap: int, tmp_path: Path
+    ) -> None:
+        payload = random.Random(0).randbytes
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": pa.array([0], pa.int64()), "v": [payload(32 * 1024)]}))
+        helper = make_local_table_ref(delta_path)
+        batch = pa.table({"id": pa.array(range(1, 49), pa.int64()), "v": [payload(32 * 1024) for _ in range(48)]})
+
+        def row_group_sizes() -> list[int]:
+            sizes = []
+            for uri in deltalake.DeltaTable(delta_path).file_uris():
+                metadata = pq.ParquetFile(uri).metadata
+                for index in range(metadata.num_row_groups):
+                    row_group = metadata.row_group(index)
+                    sizes.append(sum(row_group.column(c).total_compressed_size for c in range(row_group.num_columns)))
+            return sizes
+
+        with override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap):
+            wrote = await DeltaWriter(helper)._write_via_deltalite(
+                existing_delta_table=deltalake.DeltaTable(delta_path),
+                data=batch,
+                normalized_primary_keys=["id"],
+                use_partitioning=False,
+                commit_metadata=None,
+            )
+            assert wrote is True
+            after_upsert = row_group_sizes()
+            compacted = await DeltaMaintenance(helper)._compact_with_deltalite(deltalake.DeltaTable(delta_path))
+            assert compacted is True
+            after_compaction = row_group_sizes()
+
+        batch_bytes = 48 * 32 * 1024
+        if row_group_cap:
+            # The cap is checked between written batches, so a row group passes it by at most one batch.
+            for sizes in (after_upsert, after_compaction):
+                assert len(sizes) > 2 and max(sizes) <= 2 * row_group_cap
+        else:
+            assert max(after_upsert) >= batch_bytes and len(after_compaction) == 1
+        assert deltalake.DeltaTable(delta_path).to_pyarrow_table().num_rows == 49
 
     @pytest.mark.asyncio
     async def test_sizes_the_upsert_by_the_files_it_rewrites(self, tmp_path: Path):
