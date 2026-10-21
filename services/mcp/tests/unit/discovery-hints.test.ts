@@ -75,6 +75,16 @@ describe('getDiscoveryHint', () => {
         expect(hint?.kind).not.toBe('empty_state')
     })
 
+    it.each(['query-llm-traces-list', 'query-llm-trace'])(
+        'points %s at online evaluations when it has results',
+        (toolName) => {
+            const hint = getDiscoveryHint({ toolName, handlerResult: { results: [{ id: 'trace-1' }] } })
+
+            expect(hint?.kind).toBe('related_capability')
+            expect(hint?.text).toContain('creating-online-evaluations')
+        }
+    )
+
     it('cross-sells subscriptions and dashboards after insight creation', () => {
         const hint = getDiscoveryHint({ toolName: 'insight-create', handlerResult: { id: 1, short_id: 'abc' } })
 

@@ -43,6 +43,9 @@ const EMPTY_STATE_HINTS: Record<string, string> = {
         'No LLM cost data found. If AI observability is not capturing `$ai_generation` events yet, load the `instrument-llm-analytics` skill to wire it up. Otherwise widen the date range.',
 }
 
+const ONLINE_EVALUATIONS_HINT =
+    'Related: online evaluations can score new traces like these automatically (pass/fail, scores, labels, or sentiment). If the project has none yet (`llma-evaluation-list`), load the `creating-online-evaluations` skill to propose one.'
+
 /** Fired when the tool result is non-empty: the adjacent capability to reach for next. */
 const RELATED_CAPABILITY_HINTS: Record<string, string> = {
     'query-error-tracking-issues-list':
@@ -51,6 +54,8 @@ const RELATED_CAPABILITY_HINTS: Record<string, string> = {
         'Related: a check like this can run continuously as a log alert — load the `authoring-log-alerts` skill to author a low-noise one.',
     'get-llm-total-costs-for-project':
         'Related: to explain who or what drives this spend, load the `analyzing-expensive-users` skill.',
+    'query-llm-traces-list': ONLINE_EVALUATIONS_HINT,
+    'query-llm-trace': ONLINE_EVALUATIONS_HINT,
     'insight-create':
         'Related: this insight can go on a dashboard (`building-a-dashboard` skill) or be delivered to email/Slack on a schedule (`managing-subscriptions` skill).',
 }
