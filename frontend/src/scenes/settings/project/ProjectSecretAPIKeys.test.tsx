@@ -86,6 +86,20 @@ describe('<ProjectSecretAPIKeys />', () => {
     )
 
     it.each([
+        { dialog: 'created', show: (key: ProjectSecretAPIKeyApi) => logic.actions.createKeySuccess(key) },
+        { dialog: 'rolled', show: (key: ProjectSecretAPIKeyApi) => logic.actions.showRollKeySuccessDialog(key) },
+    ])('hides the $dialog key value from session replay and autocapture', ({ show }) => {
+        const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const key = { ...createKeys(1)[0], value: 'phs_fixture_key_value' }
+
+        show(key)
+
+        expect(dialog).toHaveBeenCalledTimes(1)
+        render(<>{dialog.mock.calls[0][0].content}</>)
+        expect(screen.getByText(key.value).closest('.ph-no-capture')).not.toBeNull()
+    })
+
+    it.each([
         {
             description: 'below the backend limit',
             keyCount: MAX_PROJECT_API_KEYS_PER_PROJECT - 1,

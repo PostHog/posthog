@@ -524,7 +524,9 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 content: (
                     <>
                         <p>Your new key for "{key.label}":</p>
-                        <CodeSnippet thing="project secret API key">{key.value}</CodeSnippet>
+                        <CodeSnippet className="ph-no-capture" thing="project secret API key">
+                            {key.value}
+                        </CodeSnippet>
                         <p className="text-warning mt-4">
                             <strong>Warning:</strong> The previous key is no longer valid. This key will never be shown
                             again. Copy it now.
