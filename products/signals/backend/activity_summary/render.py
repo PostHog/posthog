@@ -276,10 +276,6 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str]) -> list[Unit]:
 ObjectKey = tuple[str, str, str]
 
 
-def _rank(created: bool, rows: int, at: datetime.datetime) -> tuple[bool, int, float]:
-    return (not created, -rows, -at.timestamp())
-
-
 def _intent_suffix(rows: Iterable[ActivityItem]) -> str:
     intents = [row for row in rows if row.intent and row.intent.strip()]
     if not intents:
@@ -341,7 +337,9 @@ def _group_line(
     ranked_children = sorted(
         children,
         key=lambda key: (
-            *_rank(key[1] == "created", len(collapsed[key]), max(row.at for row in collapsed[key])),
+            key[1] != "created",
+            -len(collapsed[key]),
+            -max(row.at for row in collapsed[key]).timestamp(),
             key[2],
         ),
     )
@@ -457,7 +455,7 @@ def activity_units(
         else:
             collapsed.setdefault((item.scope, item.activity, name), []).append(item)
     lines = _lines_with_parents(collapsed, parents or {}, drops)
-    ranked = sorted(lines, key=lambda line: (*_rank(line.created, line.rows, line.at), line.text))
+    ranked = sorted(lines, key=lambda line: (not line.created, -line.rows, -line.at.timestamp(), line.text))
     kept = _spread_across_days(ranked, drops)
     return sorted((Unit(at=line.at, text=line.text) for line in kept), key=lambda unit: (unit.at, unit.text))
 
