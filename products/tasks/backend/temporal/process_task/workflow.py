@@ -155,6 +155,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
+_PATCH_ID_NONBLOCKING_PRE_PROVISION = "tasks-nonblocking-pre-provision"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -1684,36 +1685,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
         server. Returns (sandbox_id, sandbox_url, connect_token). Skipped on continue_as_new."""
-        if self._slack_thread_context:
-            self._is_agent_design_enabled = await self._resolve_agent_design_flag()
-        await self._update_task_run_status("in_progress")
-
-        # Announce the first progress step immediately so the desktop card
-        # shows up before any provisioning log lines arrive.
-        sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
-        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
-
-        await self._track_workflow_event(
-            "task_run_started",
-            {
-                "run_id": run_id,
-                "task_id": self.context.task_id,
-                "repository": self.context.repository,
-                "team_id": self.context.team_id,
-            },
-        )
-
-        # Agent-design path owns this surface via per-turn relay children.
-        if not self._is_agent_design_enabled:
-            await self._post_slack_update()
-        elif self._slack_thread_context:
-            # The first turn's relay starts now, so the plan shows while the sandbox provisions.
-            await self._start_slack_agent_design_relay(
-                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
-            )
-            self._early_slack_relay_open = True
-
-        sandbox_output = await self._get_sandbox_for_repository()
+        if workflow.patched(_PATCH_ID_NONBLOCKING_PRE_PROVISION):
+            pre_provision_steps = await self._start_pre_provision_steps(run_id)
+            sandbox_output = await self._get_sandbox_after_pre_provision_steps(pre_provision_steps)
+        else:
+            await self._run_pre_provision_steps(run_id)
+            sandbox_output = await self._get_sandbox_for_repository()
         sandbox_id = sandbox_output.sandbox_id
         self._boot_path = sandbox_output.boot_path
         self._image_source = sandbox_output.image_source
@@ -1783,6 +1760,73 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
+
+    async def _run_pre_provision_steps(self, run_id: str) -> None:
+        if self._slack_thread_context:
+            self._is_agent_design_enabled = await self._resolve_agent_design_flag()
+        await self._update_task_run_status("in_progress")
+
+        # Announce the first progress step immediately so the desktop card
+        # shows up before any provisioning log lines arrive.
+        sandbox_label = self._sandbox_setup_label()
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
+
+        await self._track_workflow_event("task_run_started", self._task_run_started_properties(run_id))
+
+        # Agent-design path owns this surface via per-turn relay children.
+        if not self._is_agent_design_enabled:
+            await self._post_slack_update()
+        elif self._slack_thread_context:
+            # The first turn's relay starts now, so the plan shows while the sandbox provisions.
+            await self._start_slack_agent_design_relay(
+                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
+            )
+            self._early_slack_relay_open = True
+
+    async def _start_pre_provision_steps(self, run_id: str) -> list["asyncio.Task[None]"]:
+        if self._slack_thread_context:
+            self._is_agent_design_enabled = self.context.slack_agent_design_enabled
+        sandbox_label = self._sandbox_setup_label()
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
+        announce = asyncio.create_task(self._announce_run_started(sandbox_label))
+        if self._is_agent_design_enabled and self._slack_thread_context:
+            self._slack_setup_chain = announce
+            self._early_slack_relay_open = True
+        track = asyncio.create_task(
+            self._track_workflow_event("task_run_started", self._task_run_started_properties(run_id))
+        )
+        return [announce, track]
+
+    async def _announce_run_started(self, sandbox_label: str) -> None:
+        await self._update_task_run_status("in_progress")
+        if not self._is_agent_design_enabled:
+            await self._post_slack_update()
+        elif self._slack_thread_context:
+            await self._start_slack_agent_design_relay(
+                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
+            )
+
+    async def _get_sandbox_after_pre_provision_steps(
+        self, pre_provision_steps: list["asyncio.Task[None]"]
+    ) -> GetSandboxForRepositoryOutput:
+        try:
+            sandbox_output = await self._get_sandbox_for_repository()
+        except BaseException:
+            await asyncio.gather(*pre_provision_steps, return_exceptions=True)
+            raise
+        await asyncio.gather(*pre_provision_steps)
+        return sandbox_output
+
+    def _sandbox_setup_label(self) -> str:
+        return "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+
+    def _task_run_started_properties(self, run_id: str) -> dict[str, Any]:
+        return {
+            "run_id": run_id,
+            "task_id": self.context.task_id,
+            "repository": self.context.repository,
+            "team_id": self.context.team_id,
+        }
 
     async def _collect_agent_shadow_result(self, sandbox_id: str) -> None:
         try:
@@ -1944,6 +1988,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
                 resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
                 stream_generation=self._stream_generation,
+                slack_integration_id=self._slack_integration_id() if input.resumed_sandbox is None else None,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -3386,6 +3431,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+
+    def _slack_integration_id(self) -> int | None:
+        integration_id = (self._slack_thread_context or {}).get("integration_id")
+        try:
+            return int(integration_id) if integration_id else None
+        except (TypeError, ValueError):
+            return None
 
     async def _resolve_agent_design_flag(self) -> bool:
         if not self._slack_thread_context:

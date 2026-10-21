@@ -75,6 +75,7 @@ from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
+from products.tasks.backend.temporal.process_task.activities.feature_flags import resolve_slack_app_agent_design_enabled
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
@@ -92,6 +93,7 @@ class GetTaskProcessingContextInput:
     resumed_sandbox_id: str | None = None
     resumed_sandbox_backend: str | None = None
     stream_generation: str | None = None
+    slack_integration_id: int | None = None
 
 
 @dataclass(frozen=False)
@@ -179,6 +181,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    slack_agent_design_enabled: bool = False
 
     @property
     def model_access(self) -> ModelAccess:
@@ -852,6 +855,17 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
+@StepTimer("flag_slack_agent_design")
+def _is_slack_agent_design_enabled(*, slack_integration_id: int | None, run_id: str) -> bool:
+    if slack_integration_id is None:
+        return False
+    try:
+        return resolve_slack_app_agent_design_enabled(slack_integration_id, run_id)
+    except Exception as e:
+        log_with_activity_context("slack_agent_design_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+
 @StepTimer("flag_dev_stack_preview")
 def _is_dev_stack_preview_enabled(
     *,
@@ -1460,6 +1474,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
+        slack_agent_design_enabled=_is_slack_agent_design_enabled(
+            slack_integration_id=input.slack_integration_id, run_id=run_id
+        ),
         # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI

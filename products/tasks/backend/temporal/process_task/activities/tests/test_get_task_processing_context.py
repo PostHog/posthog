@@ -421,6 +421,30 @@ class TestGetTaskProcessingContextActivity:
         assert isinstance(result, TaskProcessingContext)
         assert result.create_pr is False
 
+    @pytest.mark.parametrize(
+        ("slack_integration_id", "flag_outcome", "expected"),
+        [
+            (None, True, False),
+            (7, True, True),
+            (7, RuntimeError("flag service down"), False),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_resolves_slack_agent_design_flag(
+        self, activity_environment, test_task, slack_integration_id, flag_outcome, expected
+    ):
+        task_run = test_task.create_run()
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.resolve_slack_app_agent_design_enabled",
+            side_effect=[flag_outcome],
+        ):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id), slack_integration_id=slack_integration_id),
+            )
+
+        assert result.slack_agent_design_enabled is expected
+
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_resolves_user_github_integration_without_repository(
         self, activity_environment, team, user
