@@ -10,3 +10,8 @@ export const eventFiltersRefreshErrors = new Counter({
     name: 'ingestion_filters_refresh_errors',
     help: 'Number of failed background reloads of event filter config',
 })
+
+export const eventFiltersOverrideLoadErrors = new Counter({
+    name: 'ingestion_filters_override_load_errors',
+    help: 'Number of event filter pipeline override lookups that failed and let the event through',
+})

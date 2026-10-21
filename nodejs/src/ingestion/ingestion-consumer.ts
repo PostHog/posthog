@@ -185,7 +185,7 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres, { pipeline: 'analytics' })
         // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
         // failure can surface as an unhandled rejection and restart the worker.
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres, {

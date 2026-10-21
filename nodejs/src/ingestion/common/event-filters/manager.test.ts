@@ -6,7 +6,7 @@ describe('EventFilterManager', () => {
     }
 
     async function buildManager(): Promise<{ manager: EventFilterManager; stop: () => Promise<void> }> {
-        const scope = new EventFilterManagerComponent(mockPostgres as any)
+        const scope = new EventFilterManagerComponent(mockPostgres as any, { pipeline: 'errortracking' })
         const started = await scope.start()
         return { manager: started.value, stop: started.stop }
     }
@@ -178,6 +178,16 @@ describe('EventFilterManager', () => {
             jest.restoreAllMocks()
             await stop()
         }
+    })
+
+    it('lets events through when the pipeline override cannot load', async () => {
+        mockPostgres.query.mockResolvedValueOnce({ rows: [] })
+        const { manager, stop } = await buildManager()
+        mockPostgres.query.mockRejectedValue(new Error('connection refused'))
+
+        expect(await manager.dropsAllEvents(1)).toBe(false)
+
+        await stop()
     })
 
     it('handles multiple teams', async () => {
