@@ -1,4 +1,5 @@
-"""How often each of the project's events fired in the last week, sampled for large teams."""
+"""How often each of the project's events fired in the last week, sampled for large teams, and the values its person
+properties take."""
 
 import math
 from collections.abc import Iterable
@@ -22,6 +23,7 @@ _COUNT_TIMEOUT_SECONDS = 30
 # result, which still ranks the events and clears the minimum weekly count.
 _COUNT_MAX_BYTES = 2_000_000_000
 MAX_EVENTS = 5000
+_MAX_BRANCH_VALUES = 6
 # PostHog's own events that mark a real moment, unlike the generic `$` events the planner must skip.
 ALLOWED_POSTHOG_EVENTS = frozenset({"$conversation_ticket_created"})
 
@@ -73,6 +75,34 @@ def _count_events(team: Team, sample_denominator: int, *, skip: frozenset[str]) 
         query.select_from.sample = _sample(sample_denominator)
     response = _run_count(team, query, "workflows_data_suggestions_counts")
     return {str(row[0]): int(row[1]) * sample_denominator for row in response.results or [] if int(row[1]) > 0}
+
+
+def person_property_values(team: Team, names: Iterable[str]) -> dict[str, tuple[str, ...]]:
+    """The values seen on recent events for each person property in `names`. Only properties with a few values, like a
+    plan or a status, are kept: a branch splits on one of them, and a property with many values is an id or free text."""
+    keys = list(names)
+    if not keys:
+        return {}
+    query = parse_select("SELECT 1 FROM events WHERE timestamp >= now() - INTERVAL 1 DAY")
+    if not isinstance(query, ast.SelectQuery) or query.select_from is None:
+        return {}
+    query.select = [
+        ast.Call(
+            name="groupUniqArray",
+            params=[ast.Constant(value=_MAX_BRANCH_VALUES + 1)],
+            args=[ast.Call(name="toString", args=[ast.Field(chain=["person", "properties", key])])],
+        )
+        for key in keys
+    ]
+    query.select_from.sample = _sample(_ESTIMATE_SAMPLE_DENOMINATOR)
+    response = _run_count(team, query, "workflows_data_suggestions_person_properties")
+    row = (response.results or [[]])[0]
+    values: dict[str, tuple[str, ...]] = {}
+    for key, seen in zip(keys, row):
+        kept = tuple(sorted(value for value in seen or [] if value not in ("", "null")))
+        if 0 < len(kept) <= _MAX_BRANCH_VALUES:
+            values[key] = kept
+    return values
 
 
 def _strings(values: Iterable[str]) -> ast.Tuple:
