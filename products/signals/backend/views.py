@@ -103,7 +103,6 @@ from products.signals.backend.assignment_flags import assignment_side_effects_al
 from products.signals.backend.assignment_service import (
     AssignmentClaimConflict,
     AssignmentOperationConflict,
-    AssignmentProposal,
     AssignmentWriteError as ReviewerWriteError,
     ReportAssignmentService,
     StaleAssignmentProposal,
@@ -244,7 +243,6 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
-    ResumeReviewersSerializer,
     ReviewerControlResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -2896,29 +2894,6 @@ class SignalReportViewSet(
     def reviewer_state(self, request: Request, **kwargs) -> Response:
         report = self.get_object()
         service = ReportAssignmentService(team=self.team, report_id=str(report.id))
-        return Response(ReviewerControlResponseSerializer(service).data)
-
-    @extend_schema(request=ResumeReviewersSerializer, responses={200: ReviewerControlResponseSerializer})
-    @action(detail=True, methods=["post"], url_path="reviewers/resume", required_scopes=["task:write"])
-    def resume_reviewers(self, request: Request, **kwargs) -> Response:
-        report = self.get_object()
-        body = ResumeReviewersSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        service = ReportAssignmentService(team=self.team, report_id=str(report.id))
-        try:
-            service.apply(
-                AssignmentProposal(
-                    operation_id=body.validated_data["operation_id"],
-                    expected_state=ReviewerState.model_validate(body.validated_data["expected_reviewers"]),
-                    source="reviewer_api",
-                    action="resume",
-                ),
-                actor=ArtefactAttribution.from_user(cast(User, request.user).id),
-            )
-        except (StaleAssignmentProposal, AssignmentOperationConflict) as error:
-            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
-        except ReviewerWriteError as error:
-            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ReviewerControlResponseSerializer(service).data)
 
     def destroy(self, request, *args, **kwargs):

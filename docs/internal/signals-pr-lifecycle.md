@@ -163,9 +163,8 @@ The current row is the greatest `(created_at, id)` pair in both readers.
 
 A human edit saves the complete chosen list and a `reviewer_control` status with mode `human` in one transaction under the report lock.
 An empty human choice is also protected. Automatic proposals cannot replace it.
-On first use, the writer checks the existing human-edit history before it initializes control.
-**Use automatic selection** changes control to `automatic` and keeps the current valid reviewers until a fresh selection arrives.
-This operation is also available at `POST /signals/reports/{id}/reviewers/resume/`.
+The writer always checks the existing human-edit history. A later control record cannot cancel a human correction.
+Only another human edit can replace the chosen list. There is no action to return it to automatic selection.
 
 Automatic callers must read `GET /signals/reports/{id}/reviewer_state/` before selection.
 The report detail response also includes this state as `reviewer_assignment`.
@@ -187,7 +186,7 @@ Generic artefact PATCH and DELETE cannot change protected reviewer history.
 
 | Control                                 | Allows                                                                                                     |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `signals-assignment-writer`             | Shared rules for all reviewer writers and the return-to-automatic control.                                 |
+| `signals-assignment-writer`             | Shared rules for all reviewer writers, including permanent protection for human corrections.               |
 | `signals-assignment-side-effects`       | Existing Slack delivery and automatic task start for reports enrolled in the writer.                       |
 | `signals-assignment-github-application` | Existing GitHub owner, review-request, and ready-state operations. Also requires the side-effects control. |
 
@@ -200,7 +199,7 @@ A flag change cannot retract a sent message or stop an external call that alread
 After-commit scheduling remains best effort. Suppressed actions are not stored for later delivery.
 
 This flag changes the real Inbox list and index. It does not write a shadow copy.
-Test human edit → scout update → human edit, stale proposals, retries, access loss, return to automatic, and failed lookups before expanding the trial.
+Test human edit → scout update → human edit, empty human choices, stale proposals, retries, access loss, and failed lookups before expanding the trial.
 Run recipient-reviewed selection comparisons separately; write protection does not prove that the selected owner is suitable.
 Team assignments, separate PR roles, and durable delivery are later changes in [the system design](https://github.com/PostHog/posthog/issues/120572).
 The development-only `cleanup_signals` command deletes assignment revisions before their artefacts.

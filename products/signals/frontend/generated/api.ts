@@ -55,7 +55,6 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
-    ResumeReviewersApi,
     ReviewerControlResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
@@ -981,24 +980,6 @@ export const signalsReportsReviewersMeDestroy = async (
     return apiMutator<void>(getSignalsReportsReviewersMeDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getSignalsReportsReviewersResumeCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/resume/`
-}
-
-export const signalsReportsReviewersResumeCreate = async (
-    projectId: string,
-    id: string,
-    resumeReviewersApi: ResumeReviewersApi,
-    options?: RequestInit
-): Promise<ReviewerControlResponseApi> => {
-    return apiMutator<ReviewerControlResponseApi>(getSignalsReportsReviewersResumeCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(resumeReviewersApi),
     })
 }
 

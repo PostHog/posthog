@@ -53,7 +53,7 @@ class AssignmentProposal(BaseModel):
     operation_id: UUID
     expected_state: ReviewerState
     source: str = Field(min_length=1, max_length=100)
-    action: Literal["automatic", "replace", "remove", "resume", "cleanup"] = "automatic"
+    action: Literal["automatic", "replace", "remove", "cleanup"] = "automatic"
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
     reviewers: tuple[SuggestedReviewerEntry, ...] = ()
     retry_reason: str | None = Field(default=None, max_length=500)
@@ -66,7 +66,7 @@ class AssignmentProposal(BaseModel):
             raise ValueError("An unsuccessful selection cannot propose reviewers.")
         if self.action != "automatic" and self.outcome != "selected":
             raise ValueError("Only an automatic proposal can report a failed or empty selection.")
-        if self.action in {"resume", "cleanup"} and self.reviewers:
+        if self.action == "cleanup" and self.reviewers:
             raise ValueError("This operation cannot supply reviewers.")
         return self
 
@@ -145,7 +145,7 @@ class ReportAssignmentService:
             .first()
         )
         mode: Literal["human", "automatic"] = (
-            ReviewerControl.model_validate_json(control.content).mode if control else "human" if human else "automatic"
+            "human" if human else ReviewerControl.model_validate_json(control.content).mode if control else "automatic"
         )
         return AssignmentSnapshot(
             state=ReviewerState(
@@ -229,7 +229,7 @@ class ReportAssignmentService:
                 raise StaleAssignmentProposal(
                     "Reviewers or their control changed. Read the report again before selecting reviewers."
                 )
-            if proposal.action in {"replace", "remove", "resume"} and actor.kind != "user":
+            if proposal.action in {"replace", "remove"} and actor.kind != "user":
                 raise AssignmentWriteError("Only a person can change reviewer control.")
             if not self.enabled and (snapshot.state.control_id is None or proposal.action == "automatic"):
                 raise AssignmentWriteError("Automatic reviewer writes are paused.")
@@ -238,8 +238,6 @@ class ReportAssignmentService:
             proposed = proposal.reviewers
             if proposal.action in {"replace", "remove"}:
                 control = "human"
-            elif proposal.action == "resume":
-                control, proposed = "automatic", snapshot.reviewers
             elif proposal.action == "cleanup" or snapshot.control == "human" or proposal.outcome == "lookup_failed":
                 proposed = snapshot.reviewers
             if proposal.action in {"replace", "remove"}:
@@ -312,7 +310,7 @@ class ReportAssignmentService:
                 changed
                 and reevaluate_autostart
                 and self.effects_enabled
-                and proposal.action not in {"remove", "resume", "cleanup"}
+                and proposal.action not in {"remove", "cleanup"}
             ):
                 SignalReportArtefact._schedule_autostart_reevaluation(team_id=self.team.id, report_id=self.report_id)
             return AssignmentWrite(reviewers_artefact=current, changed=changed, decision=decision)

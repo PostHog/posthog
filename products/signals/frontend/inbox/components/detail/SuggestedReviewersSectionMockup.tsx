@@ -20,7 +20,6 @@ export function SuggestedReviewersSectionMockup({
             reviewers={suggestions}
             disabled={false}
             humanControlled={humanControlled}
-            onResumeAutomatic={() => undefined}
             onRemove={onRemove}
             addControl={
                 <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={onAdd}>

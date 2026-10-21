@@ -2477,13 +2477,6 @@ export interface SignalReportSuggestedReviewersArtefactApi {
     readonly task_id: string | null
 }
 
-export interface ResumeReviewersApi {
-    /** Reviewer state read before requesting automatic control. */
-    expected_reviewers: ReviewerStateApi
-    /** Stable ID for this request. Reuse it on retry. */
-    operation_id: string
-}
-
 /**
  * * `session_replay` - session_replay
  * * `llm_analytics` - llm_analytics

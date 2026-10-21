@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { v4 as uuid } from 'uuid'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -41,7 +40,6 @@ import {
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
     signalsReportsReviewerStateRetrieve,
-    signalsReportsReviewersResumeCreate,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
@@ -357,7 +355,6 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
-    resumingReviewers: boolean
     reviewerControl: ReviewerControlResponseApi | null
     reviewerControlLoading: boolean
     savedFeedback: SignalReportFeedbackStateApi | null
@@ -615,9 +612,6 @@ export interface inboxReportDetailLogicActions {
         sentiment: InboxReportFeedbackSentiment | null
         surface: InboxReportActionSurface
     }
-    resumeAutomaticReviewers: () => {
-        value: true
-    }
     searchAvailableReviewers: (query: string) => {
         query: string
     }
@@ -647,9 +641,6 @@ export interface inboxReportDetailLogicActions {
     }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
-    }
-    setResumingReviewers: (saving: boolean) => {
-        saving: boolean
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
@@ -771,8 +762,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     actions({
-        resumeAutomaticReviewers: true,
-        setResumingReviewers: (saving: boolean) => ({ saving }),
         expandEvidence: true,
         collapseEvidence: true,
         // Open a not-yet-posted comment thread on a diff line (one draft at a time).
@@ -1068,7 +1057,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
-        resumingReviewers: [false, { setResumingReviewers: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,
             {
@@ -1671,35 +1659,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
-        },
-        resumeAutomaticReviewers: async () => {
-            const control = values.reviewerControl
-            if (
-                !control?.enabled ||
-                control.control !== 'human' ||
-                values.resumingReviewers ||
-                values.isUpdatingReviewers
-            ) {
-                return
-            }
-            actions.setResumingReviewers(true)
-            try {
-                const next = await signalsReportsReviewersResumeCreate(
-                    String(teamLogic.values.currentTeamId),
-                    props.reportId,
-                    {
-                        operation_id: uuid(),
-                        expected_reviewers: control.state,
-                    }
-                )
-                actions.loadReviewerControlSuccess(next)
-                await asyncActions.loadReportArtefacts()
-            } catch (error: unknown) {
-                lemonToast.error(error instanceof Error ? error.message : 'Could not resume automatic selection')
-                actions.loadReviewerControl()
-            } finally {
-                actions.setResumingReviewers(false)
-            }
         },
         updateReviewers: async ({ content, optimistic }) => {
             let saved = false

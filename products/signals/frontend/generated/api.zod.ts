@@ -917,22 +917,6 @@ export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
         "PUT body for replacing a `suggested_reviewers` artefact's content.\n\nOnly `suggested_reviewers` artefacts may be modified via this endpoint;\nthe viewset enforces the type check before validation runs."
     )
 
-export const SignalsReportsReviewersResumeCreateBody = /* @__PURE__ */ zod.object({
-    expected_reviewers: zod
-        .object({
-            reviewers_id: zod
-                .uuid()
-                .nullable()
-                .describe('Current reviewer artefact ID, or null before the first list.'),
-            control_id: zod
-                .uuid()
-                .nullable()
-                .describe('Current reviewer control artefact ID, or null before migration.'),
-        })
-        .describe('Reviewer state read before requesting automatic control.'),
-    operation_id: zod.uuid().describe('Stable ID for this request. Reuse it on retry.'),
-})
-
 /**
  * Transition a report to a new state. The model validates allowed transitions, except that a
  * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
