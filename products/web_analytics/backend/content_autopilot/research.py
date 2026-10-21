@@ -276,6 +276,8 @@ def _fetch_html_document(url: str, origin: DocumentOrigin) -> SourceDocument | N
 def _fetch_rendered_document(url: str, origin: DocumentOrigin) -> SourceDocument | None:
     try:
         scraped = scrape(url, source=FIRECRAWL_SOURCE, formats=("markdown",), priority=Priority.BATCH)
+        if origin == "site" and not (scraped.final_url and has_same_public_site(scraped.final_url, url)):
+            return _fetch_html_document(url, origin)
         if scraped.markdown:
             return SourceDocument(url=url, title=scraped.title or "", text=_clean(scraped.markdown), origin=origin)
     except (FirecrawlNotConfigured, FirecrawlScrapeFailed, FirecrawlEgressBudgetExhausted, requests.RequestException):

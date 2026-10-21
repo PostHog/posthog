@@ -572,7 +572,8 @@ export interface contentAutopilotLogicMeta {
         readyDraftCount: (siteProposals: ContentAutopilotProposalListApi[]) => number
         draftRows: (
             siteProposals: ContentAutopilotProposalListApi[],
-            opportunities: ContentAutopilotOpportunityApi[] | null
+            opportunities: ContentAutopilotOpportunityApi[] | null,
+            siteRuns: ContentAutopilotRunApi[]
         ) => ContentAutopilotDraftRow[]
         latestRunErrors: (siteRuns: ContentAutopilotRunApi[], activeRun: ContentAutopilotRunApi | null) => string[]
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
@@ -1068,10 +1069,11 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 proposals.filter(({ lifecycle_status }) => lifecycle_status === 'ready_for_review').length,
         ],
         draftRows: [
-            (selectors) => [selectors.siteProposals, selectors.opportunities],
+            (selectors) => [selectors.siteProposals, selectors.opportunities, selectors.siteRuns],
             (
                 proposals: ContentAutopilotProposalListApi[],
-                opportunities: ContentAutopilotOpportunityApi[] | null
+                opportunities: ContentAutopilotOpportunityApi[] | null,
+                runs: ContentAutopilotRunApi[]
             ): ContentAutopilotDraftRow[] => [
                 ...[...proposals]
                     .sort((a, b) => REVIEW_ORDER[a.lifecycle_status] - REVIEW_ORDER[b.lifecycle_status])
@@ -1090,6 +1092,10 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     .filter(
                         ({ status, proposal_id, run_id }) =>
                             status === 'queued' &&
+                            !runs.some(
+                                ({ id, run_status }) =>
+                                    id === run_id && run_status !== 'pending' && run_status !== 'generating'
+                            ) &&
                             !proposals.some(
                                 ({ id, run_id: proposalRunId }) => id === proposal_id && proposalRunId === run_id
                             )
@@ -1329,6 +1335,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         cancelRunSuccess: () => {
             lemonToast.success('Content run canceled')
             actions.loadRuns()
+            actions.loadOpportunities()
         },
         cancelRunFailure: ({ errorObject }) => {
             toastClientError(errorObject)

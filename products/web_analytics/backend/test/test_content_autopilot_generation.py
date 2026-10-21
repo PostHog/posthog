@@ -849,9 +849,19 @@ class TestFetchSitePage(SimpleTestCase):
                 "firecrawl_markdown",
                 FirecrawlScrape(
                     url="https://example.com/docs/session-replay",
+                    final_url="https://www.example.com/docs/session-replay/",
                     markdown="# Session replay\n\n```js\nposthog.init('phc_example')\n```",
                 ),
                 "# Session replay\n\n```js\nposthog.init('phc_example')\n```",
+            ),
+            (
+                "firecrawl_redirect_off_site_falls_back_to_html",
+                FirecrawlScrape(
+                    url="https://example.com/docs/session-replay",
+                    final_url="https://elsewhere.example/session-replay",
+                    markdown="# Someone else's page",
+                ),
+                "Session replay",
             ),
             ("firecrawl_timeout_falls_back_to_html", requests.Timeout("read timed out"), "Session replay"),
         ]

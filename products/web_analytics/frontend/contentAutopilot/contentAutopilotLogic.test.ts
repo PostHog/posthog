@@ -362,7 +362,7 @@ describe('contentAutopilotLogic', () => {
         expect(mountedLogic.values.workspaceTab).toBe('opportunities')
     })
 
-    it('lists ready drafts first and queued pages last, and keeps only run-level errors', async () => {
+    it('lists queued pages last only while their run is active, and keeps only run-level errors', async () => {
         const rejected: ContentAutopilotProposalListApi = {
             ...EXAMPLE_PROPOSAL_LIST,
             id: '00000000-0000-4000-8000-000000000202',
@@ -387,6 +387,7 @@ describe('contentAutopilotLogic', () => {
             ...EXAMPLE_OPPORTUNITIES[0],
             id: '00000000-0000-4000-8000-000000000301',
             status: 'queued',
+            run_id: EXAMPLE_RUN.id,
             proposal_id: null,
         }
         const redraftedFromAnOlderRun: ContentAutopilotOpportunityApi = {
@@ -407,6 +408,19 @@ describe('contentAutopilotLogic', () => {
         jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
             paginated([queued, redraftedFromAnOlderRun, startedInThisRun])
         )
+        mockRunsList.mockResolvedValue(paginated([{ ...EXAMPLE_RUN, run_status: 'generating' }]))
+
+        const mountedLogic = await mountWorkspace()
+
+        expect(mountedLogic.values.draftRows.map(({ id }) => id)).toEqual([
+            ready.id,
+            failed.id,
+            failedInAnOlderRun.id,
+            rejected.id,
+            queued.id,
+            redraftedFromAnOlderRun.id,
+        ])
+
         mockRunsList.mockResolvedValue(
             paginated([
                 {
@@ -425,16 +439,14 @@ describe('contentAutopilotLogic', () => {
                 },
             ])
         )
-
-        const mountedLogic = await mountWorkspace()
+        mountedLogic.actions.loadRuns()
+        await expectLogic(mountedLogic).toFinishAllListeners()
 
         expect(mountedLogic.values.draftRows.map(({ id }) => id)).toEqual([
             ready.id,
             failed.id,
             failedInAnOlderRun.id,
             rejected.id,
-            queued.id,
-            redraftedFromAnOlderRun.id,
         ])
         expect(mountedLogic.values.readyDraftCount).toBe(1)
         expect(mountedLogic.values.latestRunErrors).toEqual([

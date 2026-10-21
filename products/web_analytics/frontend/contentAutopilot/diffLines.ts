@@ -6,12 +6,7 @@ type ContentAutopilotDiffSegment =
 
 const MAX_DIFF_CELLS = 4_000_000
 
-function diffMiddle(
-    beforeLines: string[],
-    afterLines: string[],
-    beforeKeys: string[],
-    afterKeys: string[]
-): ContentAutopilotDiffLine[] {
+function diffMiddle(beforeLines: string[], afterLines: string[]): ContentAutopilotDiffLine[] {
     if (beforeLines.length * afterLines.length > MAX_DIFF_CELLS) {
         return [
             ...beforeLines.map((text): ContentAutopilotDiffLine => ({ kind: 'removed', text })),
@@ -24,7 +19,7 @@ function diffMiddle(
     for (let i = beforeLines.length - 1; i >= 0; i--) {
         for (let j = afterLines.length - 1; j >= 0; j--) {
             common[i * width + j] =
-                beforeKeys[i] === afterKeys[j]
+                beforeLines[i] === afterLines[j]
                     ? common[(i + 1) * width + j + 1] + 1
                     : Math.max(common[(i + 1) * width + j], common[i * width + j + 1])
         }
@@ -34,7 +29,7 @@ function diffMiddle(
     let i = 0
     let j = 0
     while (i < beforeLines.length || j < afterLines.length) {
-        if (i < beforeLines.length && j < afterLines.length && beforeKeys[i] === afterKeys[j]) {
+        if (i < beforeLines.length && j < afterLines.length && beforeLines[i] === afterLines[j]) {
             lines.push({ kind: 'same', text: afterLines[j] })
             i += 1
             j += 1
@@ -55,18 +50,16 @@ function diffMiddle(
 export function diffLines(before: string, after: string): ContentAutopilotDiffLine[] {
     const beforeLines = before.split('\n')
     const afterLines = after.split('\n')
-    const beforeKeys = beforeLines.map((line) => line.trimEnd())
-    const afterKeys = afterLines.map((line) => line.trimEnd())
 
     let prefix = 0
-    while (prefix < beforeLines.length && prefix < afterLines.length && beforeKeys[prefix] === afterKeys[prefix]) {
+    while (prefix < beforeLines.length && prefix < afterLines.length && beforeLines[prefix] === afterLines[prefix]) {
         prefix += 1
     }
     let suffix = 0
     while (
         suffix < beforeLines.length - prefix &&
         suffix < afterLines.length - prefix &&
-        beforeKeys[beforeLines.length - 1 - suffix] === afterKeys[afterLines.length - 1 - suffix]
+        beforeLines[beforeLines.length - 1 - suffix] === afterLines[afterLines.length - 1 - suffix]
     ) {
         suffix += 1
     }
@@ -76,9 +69,7 @@ export function diffLines(before: string, after: string): ContentAutopilotDiffLi
         ...afterLines.slice(0, prefix).map(same),
         ...diffMiddle(
             beforeLines.slice(prefix, beforeLines.length - suffix),
-            afterLines.slice(prefix, afterLines.length - suffix),
-            beforeKeys.slice(prefix, beforeKeys.length - suffix),
-            afterKeys.slice(prefix, afterKeys.length - suffix)
+            afterLines.slice(prefix, afterLines.length - suffix)
         ),
         ...afterLines.slice(afterLines.length - suffix).map(same),
     ]

@@ -30,12 +30,14 @@ describe('diffLines', () => {
             ],
         },
         {
-            name: 'trailing whitespace is not a change',
-            before: page(['# Title  ', 'Body']),
-            after: page(['# Title', 'Body']),
+            name: 'removing a markdown hard break is a change',
+            before: page(['# Title', 'Line one  ', 'Line two']),
+            after: page(['# Title', 'Line one', 'Line two']),
             expected: [
                 ['same', '# Title'],
-                ['same', 'Body'],
+                ['removed', 'Line one  '],
+                ['added', 'Line one'],
+                ['same', 'Line two'],
             ],
         },
     ])('$name', ({ before, after, expected }) => {
