@@ -239,6 +239,12 @@ class TestTrinoShadowMaterialization(BaseTest):
                 ("'hello'",),
             ),
             (
+                "tuple_constant",
+                "SELECT event, (1, 2), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("(1, 2)",),
+            ),
+            (
                 "question_mark_full_build",
                 "SELECT event, countIf(match(event, 'sign.?up')), max(timestamp) AS ts FROM events GROUP BY event",
                 None,

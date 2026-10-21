@@ -1341,7 +1341,11 @@ class ClickHousePrinter(BasePrinter):
                 names.append(column.alias)
                 continue
 
-            rendered = self.visit(column)
+            rendered = (
+                f"({', '.join(self.visit(expression) for expression in column.exprs)})"
+                if isinstance(column, ast.Tuple)
+                else self.visit(column)
+            )
             if re.search(r"%\([^)]*_sensitive\)s", rendered):
                 raise QueryError("An expression that reads sensitive source data needs an explicit alias")
             names.append(substitute_params(rendered, self.context.values))
