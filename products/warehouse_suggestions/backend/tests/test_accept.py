@@ -434,7 +434,6 @@ class TestAcceptSuggestion(APIBaseTest):
                 "keep_materialized_on_a_materialize_suggestion",
                 MATERIALIZE_PAYLOAD,
                 {"keep_materialized": True},
-                True,
                 status.HTTP_400_BAD_REQUEST,
                 "keep_materialized",
             ),

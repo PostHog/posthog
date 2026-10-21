@@ -3,6 +3,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
