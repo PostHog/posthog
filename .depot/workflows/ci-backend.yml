@@ -3251,21 +3251,18 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # A single `npm ci` on an empty npm cache intermittently fails with EEXIST or ENOENT on a
-            # `_cacache/tmp` file, with no other process using the cache. A hit here skips `npm ci`.
+            # `_cacache/tmp` file, with no other process using the cache.
             - name: Restore canvas builder node_modules
               id: canvas-node-modules
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package-lock.json') != '' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: products/canvas/packages/canvas_builder/node_modules
-                  key: canvas-builder-node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('products/canvas/packages/canvas_builder/package-lock.json') }}
+                  key: canvas-builder-node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/canvas/packages/canvas_builder/package.json', 'products/canvas/packages/canvas_builder/package-lock.json') }}
             - name: Install canvas builder dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && steps.canvas-node-modules.outputs.cache-hit != 'true' }}
+              if: ${{ steps.canvas-node-modules.outcome == 'success' && steps.canvas-node-modules.outputs.cache-hit != 'true' }}
               shell: bash
-              run: |
-                  if [[ -f products/canvas/packages/canvas_builder/package.json ]]; then
-                      npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
-                  fi
+              run: npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
             - name: Save canvas builder node_modules
               if: ${{ env.IS_MASTER == 'true' && steps.canvas-node-modules.outcome == 'success' && steps.canvas-node-modules.outputs.cache-hit != 'true' }}
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
