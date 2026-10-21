@@ -9,6 +9,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { CommandBar } from './CommandBar'
 import { PathChip } from './PathChip'
 import { PathFrame } from './PathFrame'
+import { PathTrail } from './PathTrail'
 import { PlacementHint } from './PlacementHint'
 import { TileCanvasControls } from './TileCanvasControls'
 import { TileCanvasLayoutError } from './TileCanvasLayoutError'
@@ -123,7 +124,7 @@ export function TileCanvasContent(): JSX.Element {
             <div
                 ref={wrapperRef}
                 onKeyDown={onKeyDown}
-                className="TileCanvas__flow @container/tile-canvas relative flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
+                className="TileCanvas__flow @container/tile-canvas relative flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-48"
             >
                 <ReactFlow<TileCanvasNode, TileEdgeType>
                     className="grow"
@@ -145,7 +146,14 @@ export function TileCanvasContent(): JSX.Element {
                     proOptions={{ hideAttribution: true }}
                 >
                     <Background gap={36} variant={BackgroundVariant.Dots} />
-                    <Panel position="bottom-center" className="!mb-5">
+                    <Panel position="top-left" className="!m-2 max-w-[calc(100%-1rem)]">
+                        <PathTrail />
+                    </Panel>
+                    {/* A narrow editor stacks the panel under the canvas, which leaves no room for the bar over it. */}
+                    <Panel
+                        position="bottom-center"
+                        className={cn('!mb-5', isPanelOpen && '@max-[48rem]/workflow-editor:hidden')}
+                    >
                         <div className="flex flex-col items-center gap-2">
                             {commandPaletteQuery === null && <PlacementHint />}
                             <CommandBar />
