@@ -213,6 +213,8 @@ export const addTrackingToEmail = (
 
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
     'Content-Type': 'text/html; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
     // The page runs no script, and blocking frames stops another site from overlaying the link.
     'Content-Security-Policy':
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -220,9 +222,15 @@ const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
     'Referrer-Policy': 'no-referrer',
 }
 
-// The redirect mode wrapped every href except `javascript:`, so legacy links include mailto: and tel:.
-// Any other scheme stays off the page, because a `javascript:` href would run in this origin.
+// The redirect mode wrapped every href except `javascript:`, so a legacy link can carry any other
+// scheme or a relative href. Only web, email and phone links get the page. Every other target returns
+// 404, so the page never renders a link that runs script in this origin or opens an arbitrary app.
 const CONFIRMABLE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+// Only the local maildev path still wraps links, and it signs them, so every unsigned link in a real
+// inbox predates the signature. After this instant an unsigned link returns 404, which closes the
+// window in which anyone can make this endpoint show a destination of their choice.
+export const UNSIGNED_REDIRECT_SUNSET = Date.parse('2027-02-11T00:00:00Z')
 
 // Emails sent before redirect targets were signed still sit in inboxes, so an unsigned link gets a
 // page that names the destination instead of a 404. The recipient then decides whether to continue,
@@ -237,6 +245,10 @@ const renderRedirectConfirmationPage = (target: string): string | null => {
     if (!CONFIRMABLE_PROTOCOLS.has(url.protocol)) {
         return null
     }
+    // `https://posthog.com@evil.example/` goes to evil.example, but a reader trusts the prefix.
+    if (url.username || url.password) {
+        return null
+    }
     const href = escapeHtml(url.href)
     // A mailto: or tel: URL has no host, so the page names the whole target instead.
     const destination = escapeHtml(url.host || url.href)
@@ -245,12 +257,12 @@ const renderRedirectConfirmationPage = (target: string): string | null => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Leaving PostHog</title>
+<title>Confirm the link</title>
 <style>body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:560px;margin:4rem auto;padding:0 1rem;line-height:1.5;color:#111}.url{word-break:break-all;color:#555}</style>
 </head>
 <body>
-<h1>You are leaving PostHog</h1>
-<p>This link goes to <strong>${destination}</strong>. Continue only if you trust this link.</p>
+<h1>Confirm the link</h1>
+<p>This link goes to <strong>${destination}</strong>. Continue only if you trust it.</p>
 <p class="url">${href}</p>
 <p><a href="${href}" rel="noreferrer">Continue to ${destination}</a></p>
 </body>
@@ -632,17 +644,16 @@ export class EmailTrackingService {
             typeof ph_sig === 'string' &&
             this.trackingCodeSigner.verifyRedirectTarget(ph_id, target, ph_sig)
 
-        if (!isSignedTarget) {
-            const page = renderRedirectConfirmationPage(target)
+        if (isSignedTarget) {
+            res.redirect(target)
+        } else {
+            const page = Date.now() < UNSIGNED_REDIRECT_SUNSET ? renderRedirectConfirmationPage(target) : null
             if (!page) {
                 res.status(404).send('Not found')
                 return
             }
             res.status(200).set(REDIRECT_CONFIRMATION_PAGE_HEADERS).send(page)
-            return
         }
-
-        res.redirect(target)
 
         if (isDevEnv() || isTestEnv()) {
             const params = this.parseTrackingParams(req.query as Record<string, any>)

@@ -25,6 +25,7 @@ import { Hub, Team } from '../../../types'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
+    UNSIGNED_REDIRECT_SUNSET,
     addTrackingToEmail,
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
@@ -269,20 +270,44 @@ describe('EmailTrackingService', () => {
                 return `${link.pathname}${link.search}`
             }
 
-            it('should redirect to the target url and record an email_link_clicked metric', async () => {
+            const realNow = Date.now
+            let clock: jest.SpyInstance
+            // Shifts the clock instead of freezing it, because waitForExpect reads Date.now for its timeout.
+            const setClock = (at: number): void => {
+                const offset = at - realNow()
+                clock.mockImplementation(() => realNow() + offset)
+            }
+
+            beforeEach(() => {
+                clock = jest.spyOn(Date, 'now')
+                setClock(UNSIGNED_REDIRECT_SUNSET - 60_000)
+            })
+
+            afterEach(() => {
+                clock.mockRestore()
+            })
+
+            const expectLinkClickedMetrics = async (count: number): Promise<void> => {
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(count)
+                    for (const message of messages) {
+                        expect(message.value).toMatchObject({
+                            team_id: team.id,
+                            metric_name: 'email_link_clicked',
+                            metric_kind: 'email',
+                        })
+                    }
+                })
+            }
+
+            it('should redirect a signed link after the unsigned link sunset and record an email_link_clicked metric', async () => {
+                setClock(UNSIGNED_REDIRECT_SUNSET)
                 const res = await supertest(app).get(mintedLinkPath('https://example.com/?a=1&b=2'))
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe('https://example.com/?a=1&b=2')
 
-                await waitForExpect(() => {
-                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    expect(messages).toHaveLength(1)
-                    expect(messages[0].value).toMatchObject({
-                        team_id: team.id,
-                        metric_name: 'email_link_clicked',
-                        metric_kind: 'email',
-                    })
-                })
+                await expectLinkClickedMetrics(1)
             })
 
             it.each([
@@ -290,45 +315,69 @@ describe('EmailTrackingService', () => {
                     'has no tracking code',
                     () => '/public/m/redirect?target=https://other.example/',
                     'https://other.example/',
+                    0,
                 ],
                 [
                     'has no target signature',
                     () => `/public/m/redirect?ph_id=${trackingCode()}&target=https://other.example/`,
                     'https://other.example/',
+                    1,
                 ],
                 [
                     'has its target swapped after signing',
                     () =>
                         mintedLinkPath('https://example.com/').replace(/target=[^&]+/, 'target=https://other.example/'),
                     'https://other.example/',
+                    1,
                 ],
                 [
                     'carries markup in its target',
+                    // The URL parser percent-encodes markup in a query or a hierarchical path, but keeps it raw in
+                    // the opaque path of a mailto: URL, so only this target depends on the page escaping it.
                     () =>
-                        `/public/m/redirect?target=${encodeURIComponent('https://other.example/"><script>alert(1)</script>')}`,
-                    'https://other.example/%22%3E%3Cscript%3Ealert(1)%3C/script%3E',
+                        `/public/m/redirect?target=${encodeURIComponent('mailto:"><script>alert(1)</script>@example.com')}`,
+                    'mailto:&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;@example.com',
+                    0,
                 ],
                 [
                     'points at an email address',
                     () => '/public/m/redirect?target=mailto:someone@example.com',
                     'mailto:someone@example.com',
+                    0,
                 ],
             ])(
                 'should show a confirmation page instead of redirecting when the link %s',
-                async (_name, path, expectedHref) => {
+                async (_name, path, expectedHref, expectedMetrics) => {
                     const res = await supertest(app).get(path())
                     expect(res.status).toBe(200)
                     expect(res.headers.location).toBeUndefined()
-                    expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
+                    expect(res.headers).toMatchObject({
+                        'content-type': 'text/html; charset=utf-8',
+                        'x-content-type-options': 'nosniff',
+                        'cache-control': 'no-store',
+                    })
                     expect(res.headers['content-security-policy']).toContain("default-src 'none'")
                     expect(res.text).toContain(`href="${expectedHref}"`)
                     expect(res.text).not.toContain('<script')
+
+                    await expectLinkClickedMetrics(expectedMetrics)
                 }
             )
+
+            it('should return 404 for an unsigned link after the unsigned link sunset', async () => {
+                setClock(UNSIGNED_REDIRECT_SUNSET)
+                const res = await supertest(app).get('/public/m/redirect?target=https://other.example/')
+                expect(res.status).toBe(404)
+            })
 
             it.each([
                 ['the target is not provided', () => `/public/m/redirect?ph_id=${trackingCode()}`],
                 ['an unsigned target has a script scheme', () => '/public/m/redirect?target=javascript:alert(1)'],
+                ['an unsigned target opens an app', () => '/public/m/redirect?target=sms:5555550100'],
+                [
+                    'an unsigned target puts a username before its host',
+                    () => '/public/m/redirect?target=https://posthog.com@evil.example/',
+                ],
                 [
                     'the target is repeated',
                     () => '/public/m/redirect?target=https://a.example/&target=https://b.example/',
