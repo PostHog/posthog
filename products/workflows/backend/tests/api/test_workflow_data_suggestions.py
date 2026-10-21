@@ -63,7 +63,6 @@ from products.workflows.backend.tests.api.test_hog_flow_action_email import _ema
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
-FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
 
 
 def _idea(trigger_event: str) -> WorkflowIdea:
@@ -109,13 +108,11 @@ def _email_step(step_id: str, subject: str, **overrides: object) -> PlannedStep:
     )
 
 
-@patch(FLAG, return_value=True)
 class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.delete(_cache_key(self.team))
         self.jev_configured = patch(f"{SERVICE}.system_one_configured", return_value=True).start()
-        # FLAG patches the shared feature_enabled, which the privacy mode check reads too.
         self.privacy_mode = patch(f"{SERVICE}.is_privacy_mode_enabled", return_value=False).start()
         patch(f"{SERVICE}.classify_event_stages", return_value={}).start()
         self.addCleanup(patch.stopall)
@@ -142,7 +139,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         return response.json()
 
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_suggests_only_busy_events_and_caches_the_answer(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_suggests_only_busy_events_and_caches_the_answer(self, suggest_ideas: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started"), _idea("made_up_event")]
         for index in range(3):
             _create_event(team=self.team, event='clicked "buy"', distinct_id=f"person-{index}")
@@ -164,9 +161,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_ranks_welcome_flows_above_busier_events(
-        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
-    ) -> None:
+    def test_ranks_welcome_flows_above_busier_events(self, suggest_ideas: MagicMock, classify: MagicMock) -> None:
         classify.return_value = {"query executed": "other", "trial_started": "trial", "user_registered": "signup"}
         suggest_ideas.return_value = [
             _idea("query executed"),
@@ -184,7 +179,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_keeps_only_the_best_idea_per_stage(self, suggest_ideas: MagicMock, classify: MagicMock, _flag) -> None:
+    def test_keeps_the_models_first_idea_per_stage(self, suggest_ideas: MagicMock, classify: MagicMock) -> None:
         classify.return_value = {"user_registered": "signup", "query executed": "signup", "trial_started": "trial"}
         suggest_ideas.return_value = [
             _idea("user_registered"),
@@ -195,14 +190,14 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         body = self._list()
 
         assert [(s["trigger_event"], s["stage"]) for s in body["suggestions"]] == [
-            ("query executed", "signup"),
+            ("user_registered", "signup"),
             ("trial_started", "trial"),
         ]
 
     @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_jev_stages_override_the_llm_label_and_reach_the_prompt(
-        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
+        self, suggest_ideas: MagicMock, classify: MagicMock
     ) -> None:
         classify.return_value = {"query executed": "onboarding", "trial_started": "other"}
         suggest_ideas.return_value = [_idea("trial_started"), _idea("query executed")]
@@ -230,7 +225,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         ideas: list,
         suggest_ideas: MagicMock,
         classify: MagicMock,
-        _flag,
     ) -> None:
         classify.side_effect = classify_error
         classify.return_value = {}
@@ -241,7 +235,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert classify.call_count == 1
 
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_an_empty_answer_is_retried_soon(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_an_empty_answer_is_retried_soon(self, suggest_ideas: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("made_up_event")]
 
         with time_machine.travel(timezone.now(), tick=False) as clock:
@@ -252,13 +246,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert suggest_ideas.call_count == 2
 
     @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=2 * FULL_SCAN_MAX_WEEKLY_EVENTS)
-    def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock, _flag) -> None:
+    def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock) -> None:
         counts = weekly_counts(self.team)
 
         assert counts["query executed"] % 2 == 0
 
     @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=10**9 * FULL_SCAN_MAX_WEEKLY_EVENTS)
-    def test_events_a_sample_misses_are_counted_exactly(self, _estimate: MagicMock, _flag) -> None:
+    def test_events_a_sample_misses_are_counted_exactly(self, _estimate: MagicMock) -> None:
         assert weekly_counts(self.team) == {
             "trial_started": 3,
             "signed_up": 2,
@@ -266,7 +260,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             "query executed": 30,
         }
 
-    def test_counts_every_event_past_the_default_row_limit(self, _flag) -> None:
+    def test_counts_every_event_past_the_default_row_limit(self) -> None:
         names = [f"quiet_{index}" for index in range(150)]
         for name in names:
             _create_event(team=self.team, event=name, distinct_id="person-1")
@@ -275,7 +269,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert set(names) <= set(weekly_counts(self.team))
 
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         suggestion_id = self._list()["suggestions"][0]["id"]
         cache.set(_build_key(self.team.id, suggestion_id, "web"), {"status": "failed"}, 60)
@@ -290,7 +284,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert retry.status == poll.status == "building"
 
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
-    def test_events_a_workflow_already_triggers_on_are_not_offered(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_events_a_workflow_already_triggers_on_are_not_offered(self, suggest_ideas: MagicMock) -> None:
         HogFlow.objects.create(
             team=self.team,
             name="Existing trial flow",
@@ -313,7 +307,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     )
     @patch(f"{EVENT_VOLUME}.execute_hogql_query")
     def test_a_failed_count_query_shows_nothing_and_is_not_retried_on_every_visit(
-        self, _name: str, error: Exception, execute: MagicMock, _flag
+        self, _name: str, error: Exception, execute: MagicMock
     ) -> None:
         execute.side_effect = error
 
@@ -346,7 +340,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         _suggest_ideas: MagicMock,
         _allow: MagicMock,
         _wait: MagicMock,
-        _flag,
     ) -> None:
         if state == "cached":
             cache.set(_cache_key(self.team), _to_cache(DataSuggestionsResult(status="ready", suggestions=())), 60)
@@ -370,7 +363,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     )
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
     def test_a_key_needs_workflow_and_query_scopes(
-        self, _name: str, scopes: list[str], method: str, endpoint: str, status: int, suggest_ideas: MagicMock, _flag
+        self, _name: str, scopes: list[str], method: str, endpoint: str, status: int, suggest_ideas: MagicMock
     ) -> None:
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="key", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
@@ -400,7 +393,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         privacy_mode: bool,
         status: str,
         suggest_ideas: MagicMock,
-        _flag,
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
@@ -413,7 +405,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_failed_refresh_keeps_the_working_suggestions(
-        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
+        self, suggest_ideas: MagicMock, classify: MagicMock
     ) -> None:
         classify.return_value = {}
         suggest_ideas.return_value = [_idea("trial_started")]
@@ -426,7 +418,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_build_returns_a_draft_the_create_endpoint_accepts(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(
@@ -480,7 +472,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
 
-    def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self, _flag) -> None:
+    def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self) -> None:
         built = build_workflow(
             _idea("trial_started"),
             PlannedWorkflow(
@@ -512,7 +504,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert [item.field for item in missing_inputs(built.workflow, {})] == ["Condition: Is on a paid plan"]
 
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         assert self._list()["status"] == "ready"
         cache.add(_generation_lock_key(self.team), "another-run", 60)
@@ -542,7 +534,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         lock_left: bool,
         cached: bool,
         suggest_ideas: MagicMock,
-        _flag,
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
@@ -556,7 +547,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert (cache.get(_cache_key(self.team)) is not None) is cached
 
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_run_that_loses_its_lease_does_not_replace_the_newer_cards(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_a_run_that_loses_its_lease_does_not_replace_the_newer_cards(self, suggest_ideas: MagicMock) -> None:
         def newer_run_takes_over(**_kwargs: object) -> list:
             cache.set(_generation_lock_key(self.team), "newer-run", 60)
             return [_idea("trial_started")]
@@ -588,7 +579,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         planner_calls: int,
         suggest_ideas: MagicMock,
         plan_steps: MagicMock,
-        _flag,
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.side_effect = planner_error
@@ -610,7 +600,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_saved_template_offers_its_subject_and_copies_only_the_fields_it_has(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         saved_id = create_message_template_for_test(
             team_id=self.team.id,
@@ -641,7 +631,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_second_build_of_the_same_suggestion_waits_for_the_first(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         suggestion_id = self._list()["suggestions"][0]["id"]
@@ -665,7 +655,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_an_api_key_only_gets_drafts_its_own_create_call_accepts(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(
@@ -698,7 +688,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_worker_saves_a_built_draft_outside_any_request(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
@@ -716,9 +706,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_worker_that_lost_its_lock_saves_no_draft(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
-    ) -> None:
+    def test_a_worker_that_lost_its_lock_saves_no_draft(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         suggestion_id = self._list()["suggestions"][0]["id"]
@@ -732,9 +720,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_another_editor_gets_their_own_saved_draft(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
-    ) -> None:
+    def test_another_editor_gets_their_own_saved_draft(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         suggestion_id = self._list()["suggestions"][0]["id"]
@@ -748,7 +734,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         # A saved draft can carry access restrictions, so one editor never receives another editor's draft.
         assert theirs["workflow_id"] != mine["workflow_id"]
 
-    def test_a_filled_secret_counts_as_set_without_returning_its_value(self, _flag) -> None:
+    def test_a_filled_secret_counts_as_set_without_returning_its_value(self) -> None:
         flow = HogFlow.objects.create(
             team=self.team,
             name="Draft",
@@ -767,7 +753,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_plan_that_links_to_a_missing_step_is_planned_again(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.side_effect = [
@@ -787,9 +773,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_saved_build_is_read_again_from_its_draft(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
-    ) -> None:
+    def test_a_saved_build_is_read_again_from_its_draft(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         suggestion_id = self._list()["suggestions"][0]["id"]
@@ -818,9 +802,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_drafts_send_from(
-        # Without a method-level patch, parameterized passes the class-level flag mock before the case values.
         self,
-        _flag: MagicMock,
         _name: str,
         senders: list[str],
         default: str | None,
@@ -843,18 +825,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert (sender.email if sender else None) == expected
         assert has_verified_email_sender(self.team) is bool(senders)
 
-    def test_build_with_an_unknown_suggestion_is_not_found(self, _flag) -> None:
+    def test_build_with_an_unknown_suggestion_is_not_found(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
             {"suggestion_id": "missing"},
             format="json",
         )
         assert response.status_code == 404
-
-    def test_endpoints_are_off_without_the_feature_flag(self, flag: MagicMock) -> None:
-        flag.return_value = False
-        response = self.client.get(f"/api/projects/{self.team.id}/workflow_data_suggestions/current/")
-        assert response.status_code == 403
 
     @parameterized.expand(
         [
@@ -872,7 +849,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas: MagicMock,
         plan_steps: MagicMock,
         capture: MagicMock,
-        flag: MagicMock,
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
@@ -888,7 +864,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(CommandError):
             call_command("prepare_workflow_ideas")
-        flag.return_value = True
         assert prepare() == missing + f"team {self.team.id}: stored Follow up on trial_started, 0 failed to build\n"
         assert prepare() == missing + f"team {self.team.id}: skipped, 1 ideas already waiting\n"
         suggest_ideas.reset_mock()

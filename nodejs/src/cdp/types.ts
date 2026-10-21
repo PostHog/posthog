@@ -468,6 +468,9 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Stamped at run start and persisted with the state, so a recovery path that holds only the
+    // workflow id still keeps a sensitive run's message data out of its snapshot.
+    sensitive?: boolean
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1

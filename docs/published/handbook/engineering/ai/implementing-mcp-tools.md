@@ -632,11 +632,13 @@ Product teams own their definitions and control which operations are exposed as 
    The module default-exports an object with any of these functions, written `export default { beforeRequest } satisfies ToolHooks<Params>` so a misspelled name fails typecheck:
 
    - `beforeRequest(context, params)` returns the params the request should use.
+   - `transformBody(context, params, body)` returns the body to send after the handler selects its declared fields. Use it when a read must supply fields the caller does not pass, such as an experiment's stored parameters and concurrency version.
    - `afterResponse(context, params, result)` returns the result to send to the client.
    - `onError(context, params, error)` returns a result that handles the error, or rethrows it.
 
    Codegen wraps the generated handler with them, so the name, schema and metadata stay generated.
    A `beforeRequest` that throws stops the request, and `onError` does not see that error.
+   A `transformBody` that throws stops the request and reaches `onError`. When merging stored state, send the version read with that state and surface a conflict instead of retrying a stale body.
    `hooks` cannot be combined with `confirmed_action`.
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.

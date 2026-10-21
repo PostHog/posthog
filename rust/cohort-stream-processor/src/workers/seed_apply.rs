@@ -1157,6 +1157,7 @@ pub(crate) async fn handle_seed_groups(
 /// Apply one group of a collection: its mark lands in `marks`, a hold publishes at once. The
 /// caller publishes `marks` only after the collection's last group (see [`BatchMarks`]), which is
 /// what lets the partition worker apply the groups one per round with live batches in between.
+#[hotpath::measure]
 pub(crate) async fn apply_seed_group(
     deps: ApplyDeps<'_>,
     queue: &mut EvictionQueue<BehavioralKey>,
