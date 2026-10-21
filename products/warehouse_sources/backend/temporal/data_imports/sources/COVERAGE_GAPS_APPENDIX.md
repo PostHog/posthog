@@ -5185,13 +5185,13 @@ Today (5): `calls`, `conversations`, `participants`, `queues`, `users`
 
 Diffed against: <https://api.mypurecloud.com/api/v2/docs/swagger>
 
-- [ ] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
-- [ ] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
-- [ ] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
+- [x] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
+- [x] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
+- [x] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
 - [ ] `Get Team listing (GET /api/v2/teams)` — resolve participant teamId values for agent team reporting (high)
 - [ ] `Get a group list (GET /api/v2/groups)` — resolve groupId and agentGroups references in conversation routing data (high)
 - [ ] `Get external contacts (GET /api/v2/externalcontacts/contacts)` — resolve externalContactId on participants into customer identities (high)
-- [ ] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
+- [x] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
 - [ ] `Query for user details (POST /api/v2/analytics/users/details/query)` — measure agent presence and routing-state history, including time available and offline (high)
 - [ ] `Queries Evaluations (GET /api/v2/quality/evaluations/query)` — analyze detailed quality evaluations beyond evaluation summaries embedded in conversations (medium)
 - [ ] `Get the members of this queue (GET /api/v2/routing/queues/{queueId}/members)` — connect agents to queues and report queue staffing and membership (medium)
