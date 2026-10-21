@@ -193,6 +193,7 @@ class TestManagedViewSetProviders(BaseTest):
         view = next(v for v in self._views(viewset) if v.name == fake_view.name)
         self.assertEqual(view.sync_frequency_interval, timedelta(minutes=15))
         self.assertEqual(view.incremental_config, INCREMENTAL_CONFIG)
+        self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.MAT_VIEW)
         mock_schedule.assert_called_once()
 
     @patch(SCHEDULE_MATERIALIZATION, side_effect=UnsatisfiableFrequencyError("sources sync every 6 hours"))
@@ -207,6 +208,7 @@ class TestManagedViewSetProviders(BaseTest):
         view = next(v for v in self._views(viewset) if v.name == fake_view.name)
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
+        self.assertEqual(Node.objects.get(saved_query=view).type, NodeType.VIEW)
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_an_incremental_key_the_query_does_not_output_is_not_stored(self, _):
