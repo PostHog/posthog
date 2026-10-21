@@ -875,7 +875,10 @@ impl IngestionConsumer {
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
     ) -> Result<(), Failure> {
-        let mut heartbeat = tokio::time::interval(self.commit_tick);
+        let mut heartbeat = tokio::time::interval_at(
+            tokio::time::Instant::now() + self.commit_tick,
+            self.commit_tick,
+        );
         loop {
             // A rebalance can drop the front poll (its partitions were
             // revoked and its purged messages will never complete), so
@@ -911,7 +914,10 @@ impl IngestionConsumer {
                 },
                 _ = heartbeat.tick() => {
                     self.handle.report_healthy();
-                    if self.commit_due().map_err(Failure::Commit)? {
+                    if self.commit_due().map_err(Failure::Commit)?
+                        || (in_flight_polls.len() < self.max_in_flight_batches
+                            && !self.every_partition_paused())
+                    {
                         return Ok(());
                     }
                 }
