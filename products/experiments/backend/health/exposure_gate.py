@@ -304,11 +304,13 @@ class _ExposureGate:
         launched_at: datetime,
         *,
         group_type_index: int | None,
+        denied_event_properties: frozenset[str],
         prefetch: Sequence[_Window | _UnitsWindow],
     ) -> None:
         self._experiment = experiment
         self._launched_at = launched_at
         self._group_type_index = group_type_index
+        self._denied_event_properties = denied_event_properties
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
         self._prefetched_keys = {
@@ -342,8 +344,9 @@ class _ExposureGate:
 
     def exposed_units(self, window: _UnitsWindow | None) -> int | None:
         """The persons or groups exposed in the window, up to MIN_EXPOSED_UNITS_TO_WARN. None when unknown, as for
-        `exposed`, or without a window, because the flag served no variants for a while."""
-        if window is None:
+        `exposed`, or without a window, because the flag served no variants for a while, or for a reader denied a
+        property that the count reads."""
+        if window is None or self._reads_denied_property(window):
             return None
         return self._answer(
             self._units_cache_key(window),
@@ -360,6 +363,20 @@ class _ExposureGate:
             # Late events can only add units, so a count at the cap can't change.
             final=lambda count: count >= MIN_EXPOSED_UNITS_TO_WARN,
         )
+
+    def _reads_denied_property(self, window: _UnitsWindow) -> bool:
+        # Every reader gets the cached count, so a reader denied a property it reads gets none, as the condition set
+        # traffic scan does.
+        read = {
+            "$feature_flag",
+            *(
+                get_exposure_event_and_property(
+                    flag_key, self._experiment.exposure_criteria, default_exposure_event=self._default_exposure_event
+                )[1]
+                for flag_key, _ in window.served
+            ),
+        }
+        return not self._denied_event_properties.isdisjoint(read)
 
     def _answer[A: (bool, int)](
         self,
@@ -523,6 +540,7 @@ def _load_flag_history(
         experiment,
         launched_at,
         group_type_index=flag.aggregation_group_type_index,
+        denied_event_properties=reader_access.denied_event_properties,
         prefetch=[*walk, *(window for window in units_windows.values() if window is not None)],
     )
     for window in walk:

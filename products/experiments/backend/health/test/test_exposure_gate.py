@@ -260,6 +260,30 @@ class TestLoadFlagHistory(BaseTest):
         self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
         self.assertEqual((cache_spy.get_many.call_count, cache_spy.get.call_count), (1, 0))
 
+    @parameterized.expand(
+        [
+            ("variant_property", "$feature_flag_response", None),
+            ("flag_key_property", "$feature_flag", None),
+            ("another_property", "$browser", 3),
+        ]
+    )
+    def test_a_reader_denied_a_property_the_count_reads_gets_no_count(
+        self, _name: str, denied_property: str, expected_units: int | None
+    ) -> None:
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+        self._load([True], units=[3])
+
+        history, _ = self._load(
+            [],
+            reader_access=ExperimentHealthReaderAccess(
+                can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset({denied_property})
+            ),
+        )
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: expected_units})
+        self.assertEqual(self.units_query.call_count, 0)
+
     def test_no_exposure_before_any_change(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40), _split(70, 30)])
 
