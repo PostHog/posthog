@@ -19,11 +19,10 @@
 # Modal / Dockerfile.sandbox-base is deliberately untouched: this bakes the same
 # contents into a hogland snapshot, it does not change the container image path.
 #
-# Reachability + auth (mirrors hogbox-preview-env.yml, which already reaches
-# hogland from this repo):
+# Reachability + auth:
 #   * both hogland APIs are tailnet-only, served by tag:hogplane devices. We join
-#     as tag:hogland-ci — the tag the ACL grants reach to those devices, and the
-#     same join hogbox-preview-env.yml uses. One join covers dev and prod-us.
+#     as tag:hogland-ci — the tag the ACL grants reach to those devices. One
+#     join covers every cluster.
 #   * hogplane authenticates the caller by bearer: GitHub OIDC end-to-end, no
 #     stored token. It verifies the Actions OIDC token and resolves the
 #     (repo, workflow) claim to a service-account Principal via a github_oidc
@@ -395,15 +394,9 @@ jobs:
                       hog_host: https://hogland-dev.hedgehog-kitefin.ts.net
                       hog_oidc_audience: hogland.dev.posthog.dev
                       rollout_workflow: deploy.yml
-                    - cluster: prod-us
-                      hog_host: https://hogland.hedgehog-kitefin.ts.net
-                      hog_oidc_audience: hogland.prod-us.posthog.dev
-                      rollout_workflow: promote-to-prod.yml
-                    # prod-eu is deferred to the EU rollout. To add it, append a
-                    # matrix entry (host https://hogland-eu... + audience
-                    # hogland.prod-eu.posthog.dev + the EU rollout workflow file)
-                    # once its svc-ci principal + TrustMapping exist, and extend
-                    # the prod arming gate below.
+                    # To add a prod cluster, append a matrix entry (hog_host + hog_oidc_audience + that
+                    # cluster's rollout workflow file) once its svc-ci principal +
+                    # TrustMapping exist. The prod arming gate below covers it.
 
         env:
             HOG_HOST: ${{ matrix.hog_host }}
@@ -528,8 +521,7 @@ jobs:
                   echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
             # Join the tailnet as tag:hogland-ci — the tag whose ACL reaches the
-            # tag:hogplane device serving the API. WIF, no stored secret; the
-            # client-id + audience are shared with hogbox-preview-env.yml.
+            # tag:hogplane device serving the API. WIF, no stored secret.
             - name: Connect to Tailscale (tag:hogland-ci)
               if: env.skip != 'true'
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
@@ -567,7 +559,7 @@ jobs:
             # do not bake while a hogd rollout is queued or in flight, or within
             # 900s of the last one — a rollout racing the bake orphans the seed box
             # and wastes the run. The rollout workflow differs per cluster
-            # (dev: deploy.yml, prod-us: promote-to-prod.yml), so it comes from the
+            # (dev: deploy.yml), so it comes from the
             # matrix, not a single shared var. Reads PostHog/hogland's Actions with
             # the hogland App token (actions:read); an API error fails OPEN (a
             # racing rollout only wastes a run, it cannot corrupt the alias).

@@ -65,15 +65,14 @@ in-progress hogd rollout and >=900s since the last one (up to 30 min), mirroring
 hogland's `golden-snapshots.yml`. The rollout workflow is per cluster (see "Repo
 config").
 
-The matrix covers **dev** and **prod-us**. **prod-eu is deferred** to the EU
-rollout — see "Adding prod-eu" below.
+The matrix covers **dev** only. No prod cluster runs task sandboxes on hogland, so prod-us is out of the matrix and **prod-eu is deferred** — see "Adding prod-eu" below for how to add a prod cluster.
 
 ## Per-cluster prerequisites (hogland team, out-of-band)
 
 These are hogland runtime-cluster data, not repo config. They mirror the
 `preview` persona's provisioning in hogland's `docs/BUILD_TEST_DEPLOY.md`.
 
-For **each** cluster the workflow targets (dev, then prod-us):
+For **each** cluster the workflow targets:
 
 1. **Service-account principal.** Create a `svc-ci-tasks-golden` principal via
    `POST /v1/service-accounts` on that cluster's hogplane. This endpoint is
@@ -100,10 +99,8 @@ For **each** cluster the workflow targets (dev, then prod-us):
    | prod-us | `https://hogland.hedgehog-kitefin.ts.net`     | `hogland.prod-us.posthog.dev`  |
 
 4. **Tailnet admittance.** The workflow joins as `tag:hogland-ci`, reusing the
-   `TS_HOGLAND_CI_CLIENT_ID` + `TS_HOGLAND_CI_AUDIENCE` repo variables that
-   `hogbox-preview-env.yml` already uses. One join reaches the `tag:hogplane`
-   device serving each cluster's API, so if preview is already provisioned no
-   extra tailnet onboarding is needed for the API calls.
+   `TS_HOGLAND_CI_CLIENT_ID` + `TS_HOGLAND_CI_AUDIENCE` repo variables. One join reaches the `tag:hogplane`
+   device serving each cluster's API.
 5. **Tailnet route to the box VPC (required for `--access-type ssh-private`).**
    The bake and smoke reach the seed/smoke box over its VPC IP, not the public
    internet. `tag:hogland-ci` reaches `tag:hogplane` today, but **not** a box's
@@ -125,21 +122,20 @@ For **each** cluster the workflow targets (dev, then prod-us):
   - `HOG_TASKS_GOLDEN_ENABLED=true` — master arm. Until set, the whole job is a
     no-op. Set it once the dev prerequisites (steps 1–5, including the tailnet route to the box VPC) exist.
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
-    clusters. The prod-us leg stays a no-op until this is set, so it does not
+    clusters. A prod leg stays a no-op until this is set, so it does not
     fail nightly before its own principal + TrustMapping exist.
   - No `HOGLAND_CLI_REF` needed — the workflow resolves the newest released
     `vX.Y.Z-cli` tag from `PostHog/hogland` at runtime (immutable and reviewed,
     never `main`), guarding a `v1.5.0-cli` minimum.
   - The quiet-window guard's rollout workflow is **per cluster**, hardcoded in the
-    bake matrix (dev: `deploy.yml`, prod-us: `promote-to-prod.yml`) — not a shared
-    var, because the two clusters roll out through different workflows. The guard
+    bake matrix (dev: `deploy.yml`) — not a shared
+    var, because each cluster rolls out through its own workflow. The guard
     counts `queued` + `in_progress` runs and waits up to 30 min for a quiet window.
     It reads `PostHog/hogland` Actions with the hogland App token, so that App
     installation needs `actions:read` on hogland; without it the guard fails open
     (a racing rollout only wastes a run, it cannot corrupt the alias). Adding a
     cluster means adding its rollout workflow file to the matrix.
-  - `TS_HOGLAND_CI_CLIENT_ID`, `TS_HOGLAND_CI_AUDIENCE` — shared with
-    `hogbox-preview-env.yml`; already present if preview is provisioned.
+  - `TS_HOGLAND_CI_CLIENT_ID`, `TS_HOGLAND_CI_AUDIENCE` — the tailnet join for `tag:hogland-ci`.
 - **Secrets** — the workflow checks out `PostHog/hogland` to build the CLI with
   the existing `GH_APP_HOGLAND_DEPLOYER` GitHub App (org secrets
   `GH_APP_HOGLAND_DEPLOYER_APP_ID` + `GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY`),
@@ -150,7 +146,7 @@ For **each** cluster the workflow targets (dev, then prod-us):
 ## Running it
 
 - Manual: Actions → "Tasks Golden Snapshot CD" → Run workflow. Leave `cluster`
-  blank to bake every armed cluster, or set it to `dev` / `prod-us` to bake one.
+  blank to bake every armed cluster, or set it to `dev` to bake one.
   Leave `ref` blank to render from `master`, or set it to a full commit SHA that
   is already merged into `master`. `validate_ref` enforces this: a blank ref
   resolves to `master`, a non-blank value must be a full 40-char SHA that is an
