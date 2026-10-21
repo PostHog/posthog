@@ -56,17 +56,17 @@ export function HomepageThread(): JSX.Element {
         <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0" scrollRef={scrollRef}>
-                    <ThreadAutoScroller>
-                        <Suspense
-                            fallback={
-                                <SceneContentFallback>
-                                    <LemonSkeleton className="h-24 w-full" />
-                                </SceneContentFallback>
-                            }
-                        >
+                    <Suspense
+                        fallback={
+                            <SceneContentFallback>
+                                <LemonSkeleton className="h-24 w-full" />
+                            </SceneContentFallback>
+                        }
+                    >
+                        <ThreadAutoScroller>
                             <Thread className="p-3" />
-                        </Suspense>
-                    </ThreadAutoScroller>
+                        </ThreadAutoScroller>
+                    </Suspense>
                 </ScrollableShadows>
             </BindLogic>
         </BindLogic>

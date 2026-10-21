@@ -3,7 +3,7 @@ import { Provider } from 'kea'
 import { Suspense } from 'react'
 
 import { maxLogic } from 'scenes/max/maxLogic'
-import { maxMocks } from 'scenes/max/testUtils'
+import { MOCK_CONVERSATION, maxMocks } from 'scenes/max/testUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,7 +13,8 @@ import { HOMEPAGE_TAB_ID } from './constants'
 import { HomepageThread } from './HomepageThread'
 
 let mockThreadLoading = false
-const mockPendingThread = new Promise<void>(() => {})
+let mockPendingThread: Promise<void>
+let resolveThread: () => void
 
 jest.mock('scenes/max/Thread', () => ({
     Thread: () => {
@@ -32,6 +33,9 @@ describe('HomepageThread', () => {
 
     beforeEach(() => {
         mockThreadLoading = false
+        mockPendingThread = new Promise<void>((resolve) => {
+            resolveThread = resolve
+        })
         useMocks({
             ...maxMocks,
             get: {
@@ -87,5 +91,36 @@ describe('HomepageThread', () => {
         })
 
         expect(askMax).toHaveBeenCalledTimes(expectedCalls)
+    })
+
+    it.each([0, 200])('scrolls a restored conversation after the thread UI loads in %i ms', async (loadDelay) => {
+        mockThreadLoading = true
+        homepageLogic.actions.setQuery('')
+        maxLogicInstance.actions.prependOrReplaceConversation({ ...MOCK_CONVERSATION, messages: [] })
+        maxLogicInstance.actions.setConversationId(MOCK_CONVERSATION.id)
+
+        const { container } = render(
+            <Provider>
+                <HomepageThread />
+            </Provider>
+        )
+        const scrollable = container.querySelector<HTMLElement>('[data-attr="max-scrollable"]')!
+        const scrollTo = jest.fn()
+        scrollable.scrollTo = scrollTo
+        Object.defineProperty(scrollable, 'scrollHeight', { get: () => (mockThreadLoading ? 0 : 1000) })
+
+        act(() => {
+            jest.advanceTimersByTime(loadDelay)
+        })
+        scrollTo.mockClear()
+        await act(async () => {
+            mockThreadLoading = false
+            resolveThread()
+        })
+        act(() => {
+            jest.advanceTimersByTime(100)
+        })
+
+        expect(scrollTo).toHaveBeenCalledWith({ top: 1000 })
     })
 })
