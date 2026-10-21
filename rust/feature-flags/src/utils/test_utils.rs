@@ -106,8 +106,16 @@ pub async fn insert_new_team_in_redis(
     Ok(team)
 }
 
-/// A cached flag that the serving read cannot deserialize. Its property filter has no
-/// `"type"` key, and `PropertyFilter` requires one.
+/// v1 filters that the typed decoder rejects and Python's builder reads. The property filter
+/// has no `"type"` key. `PropertyFilter` requires one.
+pub fn unparseable_v1_filters() -> Value {
+    json!({"groups": [{
+        "properties": [{"key": "email", "value": "a@example.com"}],
+        "rollout_percentage": 100
+    }]})
+}
+
+/// A cached flag that the serving read cannot deserialize, because of its filters.
 pub fn unparseable_flag_json(id: i32, key: &str, team_id: i32) -> Value {
     json!({
         "id": id,
@@ -115,10 +123,7 @@ pub fn unparseable_flag_json(id: i32, key: &str, team_id: i32) -> Value {
         "team_id": team_id,
         "active": true,
         "deleted": false,
-        "filters": {"groups": [{
-            "properties": [{"key": "email", "value": "a@example.com"}],
-            "rollout_percentage": 100
-        }]}
+        "filters": unparseable_v1_filters()
     })
 }
 

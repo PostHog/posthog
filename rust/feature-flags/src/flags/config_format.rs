@@ -8,6 +8,7 @@ use crate::flags::config_v2;
 use crate::flags::feature_flag_list::UndecodableDocument;
 use crate::flags::flag_models::FlagFilters;
 use crate::metrics::consts::FLAG_V2_PARSE_COUNTER;
+use crate::utils::python_truthiness::is_falsy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConfigFormat {
@@ -145,7 +146,7 @@ pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, Filt
             .and_then(|document| serde_json::from_value(Value::Object(document)))
             .map_err(|error| FilterDecodeError {
                 error,
-                document: UndecodableDocument::UnreadableV1Object,
+                document: classify_undecodable_v1(&raw),
             })
     } else {
         let parsed_v2 = (format == ConfigFormat::V2).then(|| {
@@ -169,6 +170,44 @@ pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, Filt
             })),
             ..Default::default()
         })
+    }
+}
+
+fn classify_undecodable_v1(raw: &RawValue) -> UndecodableDocument {
+    // This read fails on a number that serde cannot represent, or on nesting deeper than
+    // serde's recursion limit. Python's JSON reader accepts both, so the document counts
+    // as one that Python's builder can read.
+    let Ok(document) = serde_json::from_str::<Value>(raw.get()) else {
+        return UndecodableDocument::UnreadableV1Object;
+    };
+    match python_reads_conditions(&document) {
+        Some(()) => UndecodableDocument::UnreadableV1Object,
+        None => UndecodableDocument::MalformedV1Groups,
+    }
+}
+
+/// Python's builder reads only the conditions of a v1 document, as `references()` in
+/// `products/feature_flags/backend/facade/references.py` does. It iterates `groups or []`
+/// and each group's `properties or []`, and calls `.get` on every element. Returns `None`
+/// where that read raises.
+fn python_reads_conditions(document: &Value) -> Option<()> {
+    for group in python_list(document.get("groups"))? {
+        let properties = python_list(group.as_object()?.get("properties"))?;
+        if !properties.iter().all(Value::is_object) {
+            return None;
+        }
+    }
+    Some(())
+}
+
+/// The elements Python iterates in `value or []`. Returns `None` for a truthy value that is
+/// not an array, because Python either cannot iterate it or yields elements that are not
+/// objects.
+fn python_list(value: Option<&Value>) -> Option<&[Value]> {
+    match value {
+        Some(Value::Array(items)) => Some(items),
+        Some(value) if !is_falsy(value) => None,
+        _ => Some(&[]),
     }
 }
 

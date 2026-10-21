@@ -51,7 +51,7 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let mut flags = load_supported_flags(pg_reader.clone(), team_id).await?;
+    let (mut flags, _) = load_supported_flags(pg_reader.clone(), team_id).await?;
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -76,25 +76,31 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
 }
 
 /// The team's rows minus those this cache cannot carry; the PostgreSQL fallback loads here too.
+/// The `bool` is true when it omitted a row that Python's builder can read, as
+/// `omit_unsupported_flags` describes.
 pub(crate) async fn load_supported_flags(
     pg_reader: PostgresReader,
     team_id: TeamId,
-) -> Result<Vec<FeatureFlag>, FlagError> {
+) -> Result<(Vec<FeatureFlag>, bool), FlagError> {
     let (mut flags, undecodable) =
         FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
-    omit_unsupported_flags(team_id, &mut flags, &undecodable);
-    Ok(flags)
+    let omitted_unreadable_v1 = omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    Ok((flags, omitted_unreadable_v1))
 }
 
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
 /// non-v1 documents unless active and their v2 parse succeeded, non-object documents
 /// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
 /// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
+///
+/// Returns true when it omitted an evaluable `UnreadableV1Object` row. Python's builder
+/// publishes such a row unless the row depends on a row that Python also rejects. When it
+/// returns false, Python's builder omits the same rows as this function.
 fn omit_unsupported_flags(
     team_id: TeamId,
     flags: &mut Vec<FeatureFlag>,
     undecodable: &UndecodableFlags,
-) {
+) -> bool {
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
@@ -103,15 +109,21 @@ fn omit_unsupported_flags(
             }
             match undecodable.get(&flag.id) {
                 Some(UndecodableDocument::NotAnObject) => true,
-                Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
+                Some(
+                    UndecodableDocument::MalformedV1Groups
+                    | UndecodableDocument::UnreadableV1Object,
+                ) => is_evaluable(flag),
                 None => false,
             }
         })
         .map(|flag| flag.id)
         .collect();
     if unsupported.is_empty() {
-        return;
+        return false;
     }
+    let omitted_unreadable_v1 = unsupported
+        .iter()
+        .any(|id| undecodable.get(id) == Some(&UndecodableDocument::UnreadableV1Object));
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
     for flag in flags.iter() {
         for dependency_id in extract_direct_flag_dependency_ids(flag) {
@@ -138,6 +150,7 @@ fn omit_unsupported_flags(
         "Omitted flags the service cache cannot carry"
     );
     flags.retain(|flag| !excluded.contains(&flag.id));
+    omitted_unreadable_v1
 }
 
 /// Keep the flags worth caching: evaluable ones, plus unevaluable ones that another
@@ -924,6 +937,29 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // omit_unsupported_flags tests
+    // -------------------------------------------------------------------------
+
+    #[test_case(true, true ; "active unreadable row is omitted and reported")]
+    #[test_case(false, false ; "inactive unreadable row is kept and not reported")]
+    fn test_omit_reports_an_omitted_row_python_publishes(active: bool, expect_reported: bool) {
+        let mut flags = vec![
+            make_flag(1, "unreadable", active, vec![]),
+            make_flag(2, "healthy", true, vec![group_with_properties(vec![])]),
+            make_flag(3, "not-an-object", true, vec![]),
+        ];
+        let undecodable = UndecodableFlags::from([
+            (1, UndecodableDocument::UnreadableV1Object),
+            (3, UndecodableDocument::NotAnObject),
+        ]);
+
+        let reported = omit_unsupported_flags(1, &mut flags, &undecodable);
+
+        assert_eq!(reported, expect_reported);
+        assert_eq!(flags.iter().any(|f| f.id == 1), !expect_reported);
+    }
+
+    // -------------------------------------------------------------------------
     // retain_evaluable_and_referenced_flags tests
     // -------------------------------------------------------------------------
 
@@ -1201,6 +1237,11 @@ mod tests {
         let wrapper = build_flags_cache(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to build flags cache");
+        let (_, omitted_unreadable_v1) =
+            load_supported_flags(context.non_persons_reader.clone(), team.id)
+                .await
+                .expect("Failed to load flags");
+        assert!(!omitted_unreadable_v1);
 
         let rows = fixture["flags"].as_array().unwrap();
         let published: HashMap<i32, &FeatureFlag> =
