@@ -41,8 +41,9 @@ export type RecipientManagerRecipient = {
     updated_at: string
 }
 
-// Longer than replication lag normally gets, and short enough that few lookups move off the replica.
-const PRIMARY_READ_WINDOW_MS = 60_000
+// Longer than the cache keeps an entry (5 minutes plus up to 1 minute of jitter). A lookup that was in flight when the
+// recipient changed can cache the old preferences, so lookups bypass the cache until that entry has expired.
+const PRIMARY_READ_WINDOW_MS = 7 * 60 * 1000
 
 export class RecipientsManagerService {
     private lazyLoader: LazyLoader<RecipientManagerRecipient>
@@ -57,43 +58,56 @@ export class RecipientsManagerService {
 
     public clear(): void {
         this.lazyLoader.clear()
+        this.primaryReadsUntil.clear()
     }
 
     /**
-     * Make the next lookups of this recipient read the primary database, right after their preferences change.
-     * A replica can lag behind that write, and a lookup through it would cache the old preferences again.
+     * Read this recipient from the primary database, bypassing the cache, right after their preferences change.
+     * A replica can lag behind that write, and a cached or in-flight lookup can hold the old preferences.
      */
     public markForRefresh(args: RecipientGetArgs): void {
         const key = toKey(args)
+        this.pruneExpiredPrimaryReads()
+        // Re-inserting moves the key to the end, so the map stays in expiry order.
+        this.primaryReadsUntil.delete(key)
         this.primaryReadsUntil.set(key, Date.now() + PRIMARY_READ_WINDOW_MS)
         this.lazyLoader.markForRefresh(key)
     }
 
-    private readsFromPrimary(ids: string[]): boolean {
+    private pruneExpiredPrimaryReads(): void {
         const now = Date.now()
-        let primary = false
-        for (const id of ids) {
-            const until = this.primaryReadsUntil.get(id)
-            if (until === undefined) {
-                continue
-            }
+        for (const [key, until] of this.primaryReadsUntil) {
             if (until > now) {
-                primary = true
-            } else {
-                this.primaryReadsUntil.delete(id)
+                return
             }
+            this.primaryReadsUntil.delete(key)
         }
-        return primary
+    }
+
+    private readsFromPrimary(key: string): boolean {
+        return (this.primaryReadsUntil.get(key) ?? 0) > Date.now()
     }
 
     public async get(args: RecipientGetArgs): Promise<RecipientManagerRecipient | null> {
-        const key = toKey(args)
-        return (await this.lazyLoader.get(key)) ?? null
+        return (await this.getMany([args]))[toKey(args)] ?? null
     }
 
     public async getMany(args: RecipientGetArgs[]): Promise<Record<string, RecipientManagerRecipient | null>> {
         const keys = args.map(toKey)
-        return await this.lazyLoader.getMany(keys)
+        const primaryKeys = keys.filter((key) => this.readsFromPrimary(key))
+        if (primaryKeys.length === 0) {
+            return await this.lazyLoader.getMany(keys)
+        }
+        const cachedKeys = keys.filter((key) => !this.readsFromPrimary(key))
+        const [cached, primary] = await Promise.all([
+            cachedKeys.length > 0 ? this.lazyLoader.getMany(cachedKeys) : Promise.resolve({}),
+            this.fetchRecipients(primaryKeys, PostgresUse.COMMON_WRITE),
+        ])
+        const results: Record<string, RecipientManagerRecipient | null> = { ...cached }
+        for (const key of primaryKeys) {
+            results[key] = primary[key] ?? null
+        }
+        return results
     }
 
     /**
@@ -151,7 +165,10 @@ export class RecipientsManagerService {
         this.lazyLoader.clear()
     }
 
-    private async fetchRecipients(ids: string[]): Promise<Record<string, RecipientManagerRecipient | undefined>> {
+    private async fetchRecipients(
+        ids: string[],
+        use: PostgresUse = PostgresUse.COMMON_READ
+    ): Promise<Record<string, RecipientManagerRecipient | undefined>> {
         const recipientArgs = ids.map(fromKey)
 
         logger.debug('[RecipientsManager]', 'Fetching recipients', { recipientArgs })
@@ -181,7 +198,7 @@ export class RecipientsManagerService {
         const params = recipientArgs.flatMap((recipient) => [recipient.teamId, recipient.identifier])
 
         const response = await this.postgres.query<MessageRecipientPreferenceRow>(
-            this.readsFromPrimary(ids) ? PostgresUse.COMMON_WRITE : PostgresUse.COMMON_READ,
+            use,
             queryString,
             params,
             'fetchCDPRecipients'

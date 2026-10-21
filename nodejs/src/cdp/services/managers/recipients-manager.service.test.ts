@@ -276,6 +276,41 @@ describe('RecipientsManager', () => {
             querySpy.mockRestore()
         })
 
+        it('a lookup in flight when the recipient is marked does not hide the change', async () => {
+            const id = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
+            const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
+            const realQuery = hub.postgres.query.bind(hub.postgres)
+            let release!: () => void
+            const held = new Promise<void>((resolve) => (release = resolve))
+            let started!: () => void
+            const lookupStarted = new Promise<void>((resolve) => (started = resolve))
+            let heldOne = false
+            const querySpy = jest.spyOn(hub.postgres, 'query').mockImplementation(async (...queryArgs) => {
+                const response = await realQuery(...(queryArgs as Parameters<typeof realQuery>))
+                if (!heldOne && String(queryArgs[1]).trimStart().startsWith('SELECT')) {
+                    heldOne = true
+                    started()
+                    await held
+                }
+                return response
+            })
+
+            const inFlight = manager.get(args)
+            await lookupStarted
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_messagerecipientpreference SET preferences = $1 WHERE id = $2`,
+                [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), id],
+                'testOptOutRecipient'
+            )
+            manager.markForRefresh(args)
+            release()
+            await inFlight
+
+            expect((await manager.get(args))?.preferences['cat-1']).toBe('OPTED_OUT')
+            querySpy.mockRestore()
+        })
+
         it('should clear cache', async () => {
             const id = await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
