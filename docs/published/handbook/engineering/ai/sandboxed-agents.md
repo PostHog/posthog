@@ -109,6 +109,15 @@ or state updates. The run PATCH endpoint silently ignores attempts to replace, r
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
 only to the task-bound sandbox, so it can initialize the agent session.
 
+### Pi project resources
+
+Cloud Pi sessions treat checked-out projects as untrusted, including when resuming a session.
+Project extensions, settings, prompt templates, system prompt overrides, and `.pi/mcp.json` are not loaded.
+Project skills in `.pi/skills` and `.agents/skills` are not automatically discovered.
+Repository `AGENTS.md` instructions continue to load.
+Bundled extensions and MCP servers supplied by the task runtime remain available.
+Local Desktop Pi sessions retain their existing project-resource behavior.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:
