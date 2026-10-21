@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fmt;
 
 use serde::de::{self, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
@@ -8,6 +9,7 @@ use super::types::{
     deserialize_lenient_flag, deserialize_lenient_flag_or_false, empty_raw_object, trim_owned,
     Batch, Event, RawOptions,
 };
+use crate::v1::error::ParseFailure;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonKind {
@@ -122,7 +124,7 @@ impl<'de> Visitor<'de> for JsonStrVisitor {
 
 /// Lenient mirror of [`Event`] so a wrong type gets a 400 naming the field; keep `Event`'s field order (serde also reads the array form).
 #[derive(Deserialize)]
-pub struct LenientEvent {
+struct LenientEvent {
     #[serde(default)]
     event: JsonStr,
     #[serde(default)]
@@ -142,14 +144,61 @@ pub struct LenientEvent {
 
 /// Lenient mirror of [`Batch`] so a wrong-typed `created_at` gets a 400 naming the field.
 #[derive(Deserialize)]
-pub struct LenientBatch {
+struct LenientBatch {
     #[serde(default)]
     created_at: JsonStr,
     #[serde(default, deserialize_with = "deserialize_lenient_flag_or_false")]
     historical_migration: bool,
     #[serde(default, deserialize_with = "deserialize_lenient_flag")]
     capture_internal: Option<bool>,
-    batch: Vec<LenientEvent>,
+    #[serde(deserialize_with = "deserialize_events")]
+    batch: Vec<Event>,
+}
+
+thread_local! {
+    // serde returns only its own error type, so the field error travels beside it.
+    static FIELD_ERROR: Cell<Option<FieldTypeError>> = const { Cell::new(None) };
+}
+
+/// Builds the [`Batch`] the strict types build, or names the first non-string field; event errors win over `created_at` whatever the key order.
+pub fn parse_batch(body: &[u8]) -> Result<Batch, ParseFailure> {
+    // Clear a value a panicked parse on this thread left behind.
+    FIELD_ERROR.set(None);
+    let lenient = serde_json::from_slice::<LenientBatch>(body).map_err(|err| {
+        FIELD_ERROR
+            .take()
+            .map_or_else(|| err.into(), ParseFailure::Field)
+    })?;
+    lenient.into_batch().map_err(ParseFailure::Field)
+}
+
+/// Converts each event as serde reads it and aborts at the first bad field, so a bad body holds no more than the strict parse would.
+fn deserialize_events<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Event>, D::Error> {
+    deserializer.deserialize_seq(EventsVisitor)
+}
+
+struct EventsVisitor;
+
+impl<'de> Visitor<'de> for EventsVisitor {
+    type Value = Vec<Event>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a sequence")
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Event>, A::Error> {
+        let mut events = Vec::new();
+        while let Some(event) = seq.next_element::<LenientEvent>()? {
+            match event.into_event(events.len()) {
+                Ok(event) => events.push(event),
+                Err(field) => {
+                    FIELD_ERROR.set(Some(field));
+                    return Err(de::Error::custom("field type error"));
+                }
+            }
+        }
+        Ok(events)
+    }
 }
 
 fn required(
@@ -206,20 +255,12 @@ impl LenientEvent {
 }
 
 impl LenientBatch {
-    /// Returns the [`Batch`] the strict parse would build, or the first non-string field (`created_at`, then events in order).
-    pub fn into_batch(self) -> Result<Batch, FieldTypeError> {
-        let created_at = required(self.created_at, None, "created_at")?;
-        let batch = self
-            .batch
-            .into_iter()
-            .enumerate()
-            .map(|(index, event)| event.into_event(index))
-            .collect::<Result<Vec<_>, _>>()?;
+    fn into_batch(self) -> Result<Batch, FieldTypeError> {
         Ok(Batch {
-            created_at,
+            created_at: required(self.created_at, None, "created_at")?,
             historical_migration: self.historical_migration,
             capture_internal: self.capture_internal,
-            batch,
+            batch: self.batch,
         })
     }
 }
@@ -233,8 +274,11 @@ mod tests {
     const PII: &str = "alice@example.com";
     const BIG: u64 = 12345678901234567890;
 
-    fn lenient_parse(body: &[u8]) -> Result<Result<Batch, FieldTypeError>, serde_json::Error> {
-        serde_json::from_slice::<LenientBatch>(body).map(LenientBatch::into_batch)
+    fn field_error(body: &[u8]) -> FieldTypeError {
+        match parse_batch(body) {
+            Err(ParseFailure::Field(field)) => field,
+            other => panic!("expected a field error, got {:?}", other.map(|_| ())),
+        }
     }
 
     fn valid_event() -> Value {
@@ -301,7 +345,7 @@ mod tests {
             (Some(0), body_with(&[], &[(field, kind_value(kind))]))
         };
 
-        let err = lenient_parse(&body).unwrap().unwrap_err();
+        let err = field_error(&body);
 
         let text = err.to_string();
         assert!(
@@ -325,7 +369,7 @@ mod tests {
     ) {
         let body = body_with(&[], &[(field, kind_value(kind))]);
 
-        let err = lenient_parse(&body).unwrap().unwrap_err();
+        let err = field_error(&body);
 
         assert_eq!(
             err,
@@ -342,22 +386,50 @@ mod tests {
     }
 
     #[rstest]
-    #[case::created_at_before_events(
-        &[("created_at", Some(json!(1)))], &[("distinct_id", Some(json!(1)))], None, "created_at"
+    #[case::created_at_key_first(
+        r#"{"created_at":1,"batch":[{"event":"e","uuid":"u","distinct_id":1,"timestamp":"t"}]}"#,
+        "batch[0].distinct_id"
+    )]
+    #[case::batch_key_first(
+        r#"{"batch":[{"event":"e","uuid":"u","distinct_id":1,"timestamp":"t"}],"created_at":1}"#,
+        "batch[0].distinct_id"
     )]
     #[case::field_order_within_an_event(
-        &[], &[("timestamp", Some(json!(1))), ("distinct_id", Some(json!(1)))], Some(0), "distinct_id"
+        r#"{"created_at":"c","batch":[{"timestamp":1,"distinct_id":1,"event":"e","uuid":"u"}]}"#,
+        "batch[0].distinct_id"
     )]
-    fn first_problem_wins(
-        #[case] batch_fields: &[(&str, Option<Value>)],
-        #[case] event_fields: &[(&str, Option<Value>)],
-        #[case] index: Option<usize>,
-        #[case] field: &'static str,
-    ) {
-        let err = lenient_parse(&body_with(batch_fields, event_fields))
-            .unwrap()
-            .unwrap_err();
-        assert_eq!((err.index, err.field), (index, field));
+    fn first_problem_wins(#[case] body: &str, #[case] path: &str) {
+        let err = field_error(body.as_bytes()).to_string();
+        assert!(err.starts_with(path), "{err}");
+    }
+
+    #[rstest]
+    #[case::empty_event("{}", "batch[0].event is missing")]
+    #[case::wrong_typed_array_event(
+        "[0,0,0,0,null,null]",
+        "batch[0].event must be a string, got number"
+    )]
+    #[case::bad_event_after_good_ones(
+        &format!(r#"{{{EVENT}}},{{{EVENT}}},{{"event":"e","uuid":"u","distinct_id":{{}},"timestamp":"t"}}"#),
+        "batch[2].distinct_id must be a string, got object"
+    )]
+    fn parse_stops_at_the_first_bad_event(#[case] events: &str, #[case] expected: &str) {
+        // Trailing garbage proves serde never reads past the bad event, so a huge bad body costs no more memory than the strict parse.
+        let body = format!(r#"{{"created_at":"c","batch":[{events},{{]]]"#);
+        assert_eq!(field_error(body.as_bytes()).to_string(), expected);
+    }
+
+    #[test]
+    fn stale_field_error_from_a_panicked_parse_is_ignored() {
+        FIELD_ERROR.set(Some(FieldTypeError {
+            index: Some(0),
+            field: "event",
+            kind: JsonKind::Missing,
+        }));
+        assert!(matches!(
+            parse_batch(br#"{"created_at":"c","batch":[{]}"#),
+            Err(ParseFailure::Json { .. })
+        ));
     }
 
     #[test]
@@ -368,9 +440,7 @@ mod tests {
             "created_at": "2026-10-21T00:00:01.000Z",
             "batch": [valid_event(), bad.clone(), valid_event(), bad],
         });
-        let err = lenient_parse(&serde_json::to_vec(&body).unwrap())
-            .unwrap()
-            .unwrap_err();
+        let err = field_error(&serde_json::to_vec(&body).unwrap());
         assert_eq!(
             err.to_string(),
             "batch[1].distinct_id must be a string, got number"
@@ -444,16 +514,16 @@ mod tests {
         #[case] body: String,
     ) {
         let strict = serde_json::from_slice::<Batch>(body.as_bytes());
-        let lenient = lenient_parse(body.as_bytes());
+        let lenient = parse_batch(body.as_bytes());
         assert_eq!(strict.is_ok(), accepted, "strict parse of {body}");
 
         match (strict, lenient) {
-            (Ok(strict), Ok(Ok(lenient))) => assert_same_batch(&strict, &lenient, &body),
-            (Err(_), Err(_)) | (Err(_), Ok(Err(_))) => {}
+            (Ok(strict), Ok(lenient)) => assert_same_batch(&strict, &lenient, &body),
+            (Err(_), Err(_)) => {}
             (strict, lenient) => panic!(
                 "strict ok={} but lenient ok={} for {body}",
                 strict.is_ok(),
-                matches!(lenient, Ok(Ok(_)))
+                lenient.is_ok()
             ),
         }
     }

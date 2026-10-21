@@ -64,7 +64,7 @@ pub enum EventResult {
     Retry,
 }
 
-/// Keep fields in sync with [`super::lenient::LenientBatch`].
+/// Keep fields in sync with `LenientBatch` in `super::lenient`.
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
@@ -305,7 +305,7 @@ fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
     }
 }
 
-/// Keep fields in sync with [`super::lenient::LenientEvent`].
+/// Keep fields in sync with `LenientEvent` in `super::lenient`.
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,

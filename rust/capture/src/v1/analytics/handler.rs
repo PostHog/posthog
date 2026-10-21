@@ -6,7 +6,7 @@ use axum_client_ip::InsecureClientIp;
 
 use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATHS};
 use super::context::Context;
-use super::lenient::LenientBatch;
+use super::lenient::parse_batch;
 use super::types::Batch;
 use tracing::Level;
 
@@ -87,17 +87,11 @@ pub async fn handle_request(
     metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
         .record(payload.len() as f64);
 
-    let batch: Batch = serde_json::from_slice::<LenientBatch>(&payload)
-        .map_err(v1::Error::from)
-        .and_then(|lenient| {
-            lenient
-                .into_batch()
-                .map_err(|e| v1::Error::RequestParsingError(e.into()))
-        })
-        .map_err(|err| {
-            log_stat_error!(err, &context);
-            err
-        })?;
+    let batch: Batch = parse_batch(&payload).map_err(|failure| {
+        let err = v1::Error::RequestParsingError(failure);
+        log_stat_error!(err, &context);
+        err
+    })?;
 
     metrics::histogram!(CAPTURE_V1_EVENT_BATCH_SIZE).record(batch.batch.len() as f64);
 
