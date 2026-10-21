@@ -5899,7 +5899,7 @@ Today (8): `account`, `avatar_groups`, `avatar_looks`, `templates`, `video_agent
 
 Diffed against: <https://developers.heygen.com/openapi/external-api.json>
 
-- [ ] `Lipsyncs (GET /v3/lipsyncs)` — track dubbing jobs, completion status, failures, and output duration alongside generated videos (high)
+- [x] `Lipsyncs (GET /v3/lipsyncs)` — track dubbing jobs, completion status, failures, and output duration alongside generated videos (high)
 - [ ] `Workflow runs (GET /v3/workflow-runs)` — measure automated video workflows by run status, creation time, and failure rate (medium)
 - [ ] `Workflow run nodes (GET /v3/workflow-runs/{run_id}/nodes)` — identify slow or failed workflow steps from node status and timestamps (medium)
 - [ ] `AI Clipping (GET /v3/ai-clipping)` — analyze clipping job outcomes and the clips produced from each source video (medium)
@@ -5907,7 +5907,7 @@ Diffed against: <https://developers.heygen.com/openapi/external-api.json>
 - [ ] `Proofread sessions (GET /v3/video-translations/proofreads)` — track subtitle review status before translated videos reach final generation (medium)
 - [ ] `Podcasts (GET /v3/podcasts)` — analyze podcast generation outcomes and output across the workspace (medium)
 - [ ] `Background removals (GET /v3/background-removals)` — measure background removal job volume, outcomes, and failures (medium)
-- [ ] `Audio voices (GET /v3/models/audio/voices)` — inventory professional and instant voice clones with their training status and creation dates (medium)
+- [x] `Audio voices (GET /v3/models/audio/voices)` — inventory professional and instant voice clones with their training status and creation dates (medium)
 
 Note: Parsed every GET operation in the official external API specification and compared paths with the v3 catalog. Avatar and voice tables currently select private resources. Workflow runs require workflow IDs from GET /v3/workflows, and node history needs run fan-out. Uploads and webhook configuration are excluded.
 
