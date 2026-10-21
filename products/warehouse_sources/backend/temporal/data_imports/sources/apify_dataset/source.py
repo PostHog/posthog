@@ -67,7 +67,7 @@ class ApifyDatasetSource(ResumableSource[ApifyDatasetSourceConfig, ApifyResumeCo
             name=ExternalDataSourceType.APIFYDATASET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Apify Dataset",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Apify API token and the ID of the dataset you want to import into the PostHog Data warehouse.
 
 You can create an API token in your [Apify account settings](https://console.apify.com/settings/integrations), and find a dataset ID in the [Apify Console](https://console.apify.com/storage/datasets) (or use the `username~dataset-name` shorthand).

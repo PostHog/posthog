@@ -3907,6 +3907,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3927,6 +3928,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3954,6 +3956,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.output_destinations["slack"]["thread_reports"] is False
+
+    def test_partial_update_inbox_opt_out_survives_a_write_that_omits_it(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": False}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"]["inbox"] is False
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"webhook": None}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": False}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": True}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [

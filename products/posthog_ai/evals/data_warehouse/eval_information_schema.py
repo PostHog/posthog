@@ -58,6 +58,7 @@ from products.posthog_ai.evals.data_warehouse.synthesizer import (
     TYPE_NEEDLE_TABLE,
     VIEW_NEEDLE_NAME,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_dw_discovery(ctx: EvalContext) -> None:
@@ -110,6 +111,10 @@ async def eval_dw_discovery(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-warehouse-discovery-cli",
+        offline_suite=offline_suite(
+            "data_warehouse/eval_information_schema::eval_dw_discovery",
+            metrics=["information_schema_queried", "agentic_search_used", "needle_table_identified"],
+        ),
         cases=cases,
         scorers=[
             InformationSchemaQueried(),
@@ -172,6 +177,16 @@ async def eval_dw_value_retrieval(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-warehouse-retrieval-cli",
+        offline_suite=offline_suite(
+            "data_warehouse/eval_information_schema::eval_dw_value_retrieval",
+            metrics=[
+                "information_schema_queried",
+                "information_schema_before_answer",
+                "needle_value_retrieved",
+                "answer_query_ran",
+                "warehouse_answer_correctness",
+            ],
+        ),
         cases=cases,
         scorers=[
             InformationSchemaQueried(),
@@ -228,6 +243,15 @@ async def eval_dw_relationships(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-warehouse-relationships-cli",
+        offline_suite=offline_suite(
+            "data_warehouse/eval_information_schema::eval_dw_relationships",
+            metrics=[
+                "information_schema_queried",
+                "relationship_discovery",
+                "join_path_traversed",
+                "warehouse_answer_correctness",
+            ],
+        ),
         cases=cases,
         scorers=[
             InformationSchemaQueried(),
@@ -271,6 +295,16 @@ async def eval_dw_table_relevancy(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-warehouse-relevancy-cli",
+        offline_suite=offline_suite(
+            "data_warehouse/eval_information_schema::eval_dw_table_relevancy",
+            metrics=[
+                "information_schema_queried",
+                "agentic_search_used",
+                "needle_table_identified",
+                "stale_table_avoided",
+                "warehouse_answer_correctness",
+            ],
+        ),
         cases=cases,
         scorers=[
             InformationSchemaQueried(),

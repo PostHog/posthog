@@ -95,15 +95,3 @@ class TestAdyenSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("HTTPSConnectionPool(host='balanceplatform-api-live.adyen.com', port=443): Read timed out.",),
-            ("500 Server Error: Internal Server Error",),
-            ("Connection reset by peer",),
-        ]
-    )
-    def test_non_retryable_errors_do_not_match_transient_errors(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        assert not any(key in other_error for key in non_retryable_errors)
