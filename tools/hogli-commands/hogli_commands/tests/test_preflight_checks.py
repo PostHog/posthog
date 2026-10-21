@@ -47,10 +47,7 @@ class TestStackDepth:
         "stdout,returncode,expected",
         [(json.dumps({"status": "fail", "detail": "six open layers"}), 1, "fail"), ("not json", 1, "skipped")],
     )
-    def test_uses_the_shared_checker_verdict(
-        self, monkeypatch: pytest.MonkeyPatch, stdout: str, returncode: int, expected: str
-    ) -> None:
-        monkeypatch.delenv("HOGLI_GIT_HOOK", raising=False)
+    def test_uses_the_shared_checker_verdict(self, stdout: str, returncode: int, expected: str) -> None:
         result = subprocess.CompletedProcess([], returncode, stdout=stdout)
         with (
             patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node"),
@@ -58,13 +55,6 @@ class TestStackDepth:
         ):
             status, _ = check_stack_depth()
         assert status == expected
-
-    def test_push_hooks_do_not_query_or_block_the_stack(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("HOGLI_GIT_HOOK", "pre-push")
-        with patch("hogli_commands.preflight_checks.subprocess.run") as run:
-            status, _ = check_stack_depth()
-        assert status == "skipped"
-        run.assert_not_called()
 
 
 def _git_show(blobs: dict[str, bytes]) -> Callable[..., bytes | None]:

@@ -31,7 +31,6 @@ hogli ci:preflight --fix
 
 ## Notes
 
-- **Stack depth is checked before a stack publication.** Run `hogli ci:preflight --strict` explicitly before `gh stack submit`, `push`, or `sync`. It runs the same stack-depth checker as CI. The per-branch pre-push hook skips this check so an existing deep stack can still receive repairs and be split. Follow `/stacking-prs` when it reports too many open layers.
 - **Strict = failures only.** `--strict` (what the hook runs) exits non-zero only on `✗ fail` — advisories are unverifiable-locally classes, so they warn without blocking. A clean exit means "nothing left to fix", not "CI will pass" — CI stays the authoritative gate. Non-blocking is a mechanism limit, not permission to skip.
 - **`type-check` is a nudge, not a run.** Only a repo-wide mypy run matches CI (mypy follows imports, so a changed-file subset misses reverse-dependency breakage), and that costs minutes cold — too much to tax every push with. So preflight names the command instead of running it: judge whether your change is type-risky and run it yourself. CI blocks on the same command, so a type error you skip here comes back as a full re-run.
 - **`complexity` warns only.** Cyclomatic complexity above 10 in a changed file shows as `⚠ warning` and never blocks; CI annotates the same warning and posts it to the CI report comment. Simplify the function when you next touch it rather than gaming the number.

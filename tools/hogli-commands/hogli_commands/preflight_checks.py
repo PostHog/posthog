@@ -463,9 +463,6 @@ CROSS_LANE_LABEL = "cross-lane-change"
 
 
 def check_stack_depth() -> Outcome:
-    # gh-stack publishes one branch at a time; a stack-wide block here prevents repair pushes too.
-    if os.environ.get("HOGLI_GIT_HOOK") == "pre-push":
-        return "skipped", "run `hogli ci:preflight --strict` before publishing the stack"
     if shutil.which("node") is None:
         return "skipped", "node not found"
     try:
@@ -474,7 +471,7 @@ def check_stack_depth() -> Outcome:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=25,
             cwd=REPO_ROOT,
         )
         verdict: object = json.loads(result.stdout)

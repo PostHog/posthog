@@ -12,7 +12,7 @@ import {
 
 const SECTION_ID = 'stack-depth'
 const MAX_OPEN_DEPTH = 5
-const EXEMPT_THROUGH_PR = 120291
+export const EXEMPT_THROUGH_PR = 121285
 
 export function checkStackDepth(pullRequests) {
     const open = pullRequests.filter((pr) => pr.state === 'open')
@@ -32,17 +32,21 @@ function checkLocalStack() {
             execFileSync('gh', ['stack', 'view', '--json'], {
                 encoding: 'utf-8',
                 stdio: ['ignore', 'pipe', 'pipe'],
-                timeout: 10_000,
+                timeout: 20_000,
             })
         )
-        if (!Array.isArray(branches) || branches.some((branch) => typeof branch?.isMerged !== 'boolean')) {
-            throw new Error('Unrecognized gh stack output')
+        // On the trunk, gh stack view reports some stack with no current branch.
+        const current = branches.findIndex((branch) => branch.isCurrent === true)
+        if (current === -1 || branches.some((branch) => typeof branch?.isMerged !== 'boolean')) {
+            throw new Error('Current branch is not in a recognized stack')
         }
         return checkStackDepth(
-            branches.map((branch) => ({ number: branch.pr?.number, state: branch.isMerged ? 'closed' : 'open' }))
+            branches
+                .slice(0, current + 1)
+                .map((branch) => ({ number: branch.pr?.number, state: branch.isMerged ? 'closed' : 'open' }))
         )
     } catch {
-        return { status: 'skipped', detail: 'No local stack available from gh stack view --json.' }
+        return { status: 'skipped', detail: 'The current branch is not in a gh stack.' }
     }
 }
 

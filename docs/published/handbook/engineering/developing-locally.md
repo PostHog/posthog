@@ -70,11 +70,6 @@ Signing is required: an org-wide ruleset rejects unsigned commits in every PostH
 
 PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
-Before publishing a stack with `gh stack submit`, `push`, or `sync`, run `hogli ci:preflight --strict` explicitly.
-It checks the five-open-layer limit using the same policy as CI, with existing pull requests exempt.
-The per-branch pre-push hook skips the stack-depth check so repairs and stack splitting remain possible.
-The repository's [stacking guide](https://github.com/PostHog/posthog/blob/master/.agents/skills/stacking-prs/SKILL.md) covers splitting a stack.
-
 #### macOS
 
 1. Install Xcode Command Line Tools if you haven't already: `xcode-select --install`.

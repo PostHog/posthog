@@ -6,9 +6,11 @@ import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { checkStackDepth } from './check-stack-depth.mjs'
+import { EXEMPT_THROUGH_PR, checkStackDepth } from './check-stack-depth.mjs'
 
-const layers = (...states) => states.map((state, i) => ({ number: 120300 + i, state }))
+const layers = (...states) => states.map((state, i) => ({ number: EXEMPT_THROUGH_PR + 1 + i, state }))
+const existingLayers = (count) =>
+    Array.from({ length: count }, (_, i) => ({ number: EXEMPT_THROUGH_PR - count + 1 + i, state: 'open' }))
 
 describe('checkStackDepth', () => {
     for (const { name, stack, expectedDepth, expectedStatus } of [
@@ -32,16 +34,13 @@ describe('checkStackDepth', () => {
         },
         {
             name: 'keeps existing pull requests exempt',
-            stack: layers('open', 'open', 'open', 'open', 'open', 'open').map((pr, i) => ({
-                ...pr,
-                number: 120286 + i,
-            })),
+            stack: existingLayers(6),
             expectedDepth: 6,
             expectedStatus: 'pass',
         },
         {
             name: 'rejects adding an unpublished layer to an exempt stack',
-            stack: [...Array.from({ length: 6 }, (_, i) => ({ number: 120286 + i, state: 'open' })), { state: 'open' }],
+            stack: [...existingLayers(6), { state: 'open' }],
             expectedDepth: 7,
             expectedStatus: 'fail',
         },
@@ -55,32 +54,41 @@ describe('checkStackDepth', () => {
 })
 
 describe('local stack adapter', () => {
-    it('checks unpublished branches through the same evaluator', (t) => {
-        const directory = mkdtempSync(join(tmpdir(), 'stack-depth-local-'))
-        t.after(() => rmSync(directory, { recursive: true, force: true }))
-        writeFileSync(
-            join(directory, 'gh'),
-            '#!/bin/sh\nprintf \'%s\' \'{"branches":[{"isMerged":false},{"isMerged":false},{"isMerged":false},{"isMerged":false},{"isMerged":false},{"isMerged":false}]}\'\n',
-            { mode: 0o755 }
-        )
-        const result = spawnSync(
-            process.execPath,
-            [fileURLToPath(new URL('./check-stack-depth.mjs', import.meta.url)), '--local'],
-            {
-                env: { PATH: directory },
-                encoding: 'utf-8',
-                timeout: 5000,
-            }
-        )
-        assert.equal(result.status, 1, result.stderr)
-        assert.equal(JSON.parse(result.stdout).status, 'fail')
-    })
+    for (const { name, current, expectedStatus } of [
+        { name: 'fails pushing the sixth unpublished layer', current: 5, expectedStatus: 'fail' },
+        { name: 'allows pushing a lower layer of a deep stack', current: 1, expectedStatus: 'pass' },
+        {
+            name: 'skips the trunk, which gh stack reports with no current branch',
+            current: -1,
+            expectedStatus: 'skipped',
+        },
+    ]) {
+        it(name, (t) => {
+            const directory = mkdtempSync(join(tmpdir(), 'stack-depth-local-'))
+            t.after(() => rmSync(directory, { recursive: true, force: true }))
+            const branches = Array.from({ length: 6 }, (_, i) => ({ isMerged: false, isCurrent: i === current }))
+            writeFileSync(join(directory, 'gh'), `#!/bin/sh\nprintf '%s' '${JSON.stringify({ branches })}'\n`, {
+                mode: 0o755,
+            })
+            const result = spawnSync(
+                process.execPath,
+                [fileURLToPath(new URL('./check-stack-depth.mjs', import.meta.url)), '--local'],
+                {
+                    env: { PATH: directory },
+                    encoding: 'utf-8',
+                    timeout: 5000,
+                }
+            )
+            assert.equal(JSON.parse(result.stdout).status, expectedStatus, result.stderr)
+            assert.equal(result.status, expectedStatus === 'fail' ? 1 : 0)
+        })
+    }
 })
 
 describe('stack depth check', () => {
-    for (const { name, prNumber = 120292, unavailable = false, expected } of [
+    for (const { name, prNumber = EXEMPT_THROUGH_PR + 1, unavailable = false, expected } of [
         { name: 'fails a sixth open layer', expected: 1 },
-        { name: 'keeps existing pull requests exempt', prNumber: 120291, unavailable: true, expected: 0 },
+        { name: 'keeps existing pull requests exempt', prNumber: EXEMPT_THROUGH_PR, unavailable: true, expected: 0 },
         { name: 'fails when GitHub cannot verify the stack', unavailable: true, expected: 1 },
     ]) {
         it(name, (t) => {
