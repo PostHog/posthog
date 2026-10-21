@@ -61,7 +61,6 @@ class HighlightMetricReason(LabeledStrEnum):
 
 class HighlightPinStatus(LabeledStrEnum):
     READY = "ready", "Ready"
-    COMPUTING = "computing", "Computing"
     UNAVAILABLE = "unavailable", "Unavailable"
 
 

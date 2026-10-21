@@ -164,14 +164,14 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
 
 
 def dashboard_tile_metric(
-    context: Context, dashboard_id: int, short_id: str, *, raise_if_pending: bool = False
+    context: Context, dashboard_id: int, short_id: str, *, blocking: bool = False
 ) -> contracts.HighlightMetric | None:
     dashboard = dashboard_insight_tile(
         team=context.team, user=context.user, dashboard_id=dashboard_id, short_id=short_id
     )
     if dashboard is None:
         return None
-    return _tile_metric(context, dashboard, dashboard.tiles[0], raise_if_pending=raise_if_pending)
+    return _tile_metric(context, dashboard, dashboard.tiles[0], blocking=blocking)
 
 
 def _tile_metric(
@@ -180,7 +180,7 @@ def _tile_metric(
     tile: DashboardInsightTile,
     *,
     viewed: ViewedItem | None = None,
-    raise_if_pending: bool = False,
+    blocking: bool = False,
 ) -> contracts.HighlightMetric | None:
     return insight_metric(
         context,
@@ -192,7 +192,7 @@ def _tile_metric(
         url=f"/dashboard/{dashboard.dashboard_id}",
         dashboard_name=dashboard.name,
         dashboard_id=dashboard.dashboard_id,
-        raise_if_pending=raise_if_pending,
+        blocking=blocking,
     )
 
 
@@ -205,14 +205,10 @@ def insight_metric(
     url: str | None = None,
     dashboard_name: str | None = None,
     dashboard_id: int | None = None,
-    raise_if_pending: bool = False,
+    blocking: bool = False,
 ) -> contracts.HighlightMetric | None:
     insight = get_insight_series(
-        team=context.team,
-        user=context.user,
-        short_id=short_id,
-        dashboard=dashboard,
-        raise_if_pending=raise_if_pending,
+        team=context.team, user=context.user, short_id=short_id, dashboard=dashboard, blocking=blocking
     )
     if insight is None:
         return None

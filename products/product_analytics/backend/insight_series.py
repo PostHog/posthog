@@ -4,19 +4,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from posthog.schema import CacheMissResponse
-
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.week_start_day import WeekStartDay
 
-from products.product_analytics.backend.chart_rules import LOOKBACK, is_chartable, series_interval
-from products.product_analytics.backend.facade.contracts import (
-    InsightDashboardContext,
-    InsightSeries,
-    InsightSeriesPending,
-)
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 
 ADDITIVE_MATH = {
     "total",
@@ -26,9 +19,21 @@ ADDITIVE_MATH = {
     "first_time_for_group",
     "first_matching_event_for_group",
 }
+UNCHARTED_DISPLAYS = {
+    "ActionsTable",
+    "ActionsPie",
+    "BoldNumber",
+    "WorldMap",
+    "ActionsBarValue",
+    "ActionsLineGraphCumulative",
+    "SlopeGraph",
+}
+CHARTED_SQL_DISPLAYS = {"ActionsLineGraph", "ActionsBar", "ActionsStackedBar", "ActionsAreaGraph"}
 NO_BREAKDOWN_VALUE = "[No value]"
+LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
 DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+BLOCKING_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 def _run(
@@ -37,7 +42,7 @@ def _run(
     source: dict[str, Any],
     filters: dict[str, Any] | None,
     variables: dict[str, Any] | None,
-    raise_if_pending: bool = False,
+    blocking: bool = False,
 ) -> dict[str, Any]:
     from posthog.api.services.query import process_query_dict  # noqa: PLC0415
 
@@ -46,11 +51,9 @@ def _run(
         source,
         dashboard_filters_json=filters,
         variables_override_json=variables,
-        execution_mode=EXECUTION_MODE,
+        execution_mode=BLOCKING_EXECUTION_MODE if blocking else EXECUTION_MODE,
         user=user,
     )
-    if raise_if_pending and isinstance(response, CacheMissResponse):
-        raise InsightSeriesPending()
     return response.model_dump() if isinstance(response, BaseModel) else response
 
 
@@ -113,12 +116,14 @@ def _sql_series(
     query: dict[str, Any],
     filters: dict[str, Any],
     variables: dict[str, Any] | None,
-    raise_if_pending: bool = False,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
-    response = _run(team, user, query["source"], filters, variables, raise_if_pending)
+    if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
+        return None
+    response = _run(team, user, query["source"], filters, variables, blocking)
     if response.get("hasMore"):
         return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
@@ -186,7 +191,7 @@ def insight_series(
     name: str | None,
     query: dict[str, Any],
     dashboard: InsightDashboardContext | None,
-    raise_if_pending: bool = False,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     dashboard_filters: dict[str, Any] = {}
     variables: dict[str, Any] | None = None
@@ -197,8 +202,6 @@ def insight_series(
         variables = dashboard.variables
     filters = {key: value for key, value in dashboard_filters.items() if key not in DATE_FILTERS}
     source = query.get("source", query)
-    if not is_chartable(query, dashboard_filters.get("interval")):
-        return None
     if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
         return _sql_series(
             team,
@@ -208,11 +211,17 @@ def insight_series(
             query=query,
             filters=filters,
             variables=variables,
-            raise_if_pending=raise_if_pending,
+            blocking=blocking,
         )
     trends = source.get("trendsFilter") or {}
-    interval = series_interval(source, dashboard_filters.get("interval"))
+    if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
+        return None
+    interval = dashboard_filters.get("interval") or source.get("interval") or "day"
+    if interval not in LOOKBACK:
+        interval = "day"
     date_range = source.get("dateRange") or {}
+    if interval == "day" and date_range.get("daysOfWeek"):
+        return None
     kept = {key: value for key, value in date_range.items() if key not in DATE_FILTERS}
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}
     bounded.update(
@@ -220,7 +229,7 @@ def insight_series(
         dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
         trendsFilter={**{k: v for k, v in trends.items() if k != "smoothingIntervals"}, "metricShowChange": False},
     )
-    response = _run(team, user, bounded, filters, variables, raise_if_pending)
+    response = _run(team, user, bounded, filters, variables, blocking)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
     series: dict[str, list[tuple[date, float]]] = {}

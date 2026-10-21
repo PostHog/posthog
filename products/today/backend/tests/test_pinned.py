@@ -11,7 +11,7 @@ from posthog.models import Team
 
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
-from products.product_analytics.backend.facade.contracts import InsightSeries, InsightSeriesPending
+from products.product_analytics.backend.facade.contracts import InsightSeries
 from products.today.backend.facade import contracts
 from products.today.backend.facade.contracts import PulsePin
 from products.today.backend.logic import pinned, pulse_pins
@@ -44,44 +44,69 @@ class TestPinnedNumbers(BaseTest):
         for key in ("insight:first", "insight:second"):
             pulse_pins.set_pins(team=child, user_id=self.user.id, pins=[PulsePin(key=key, name=key)])
 
-        self.assertEqual([pin.key for pin in pulse_pins.get_pins(team=child, user_id=self.user.id)], ["insight:second"])
+        self.assertEqual(
+            [pin.key for pin in pulse_pins.get_pins(team=child, user_id=self.user.id, scopes=None)], ["insight:second"]
+        )
 
     @parameterized.expand(
         [
-            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)], []),
-            ("an insight whose query still runs", [PinnedNumber("insight:slow")], None, [], [], ["insight:slow"]),
-            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], [], []),
+            ("a session", None, ["insight:a", "insight:b", "revenue"]),
+            ("a key with only today", ["today:read"], []),
+            ("a key with insights", ["today:read", "insight:read"], ["insight:a"]),
+            (
+                "a key with insights and dashboards",
+                ["today:read", "insight:read", "dashboard:read"],
+                ["insight:a", "insight:b"],
+            ),
+            ("a key with key metrics", ["today:read", "customer_analytics:read"], ["revenue"]),
+        ]
+    )
+    def test_reading_pins_returns_only_the_ones_the_scopes_cover(
+        self, _name: str, scopes: list[str] | None, expected: list[str]
+    ) -> None:
+        pulse_pins.set_pins(
+            team=self.team,
+            user_id=self.user.id,
+            pins=[
+                PulsePin("insight:a", "A"),
+                PulsePin("insight:b", "B", dashboard_id=7),
+                PulsePin("revenue", "Revenue"),
+            ],
+        )
+
+        found = pulse_pins.get_pins(
+            team=self.team, user_id=self.user.id, scopes=None if scopes is None else frozenset(scopes)
+        )
+
+        self.assertEqual([pin.key for pin in found], expected)
+
+    @parameterized.expand(
+        [
+            ("a cached insight", [PinnedNumber("insight:ready")], None, [], [("insight:ready", None)]),
+            ("an insight with no cached result", [PinnedNumber("insight:cold")], None, [], [("insight:cold", None)]),
+            ("an insight whose query fails", [PinnedNumber("insight:broken")], None, [], []),
             (
                 "a tile pinned from a dashboard",
                 [PinnedNumber("insight:ready", dashboard_id=7)],
                 None,
                 [],
                 [("insight:ready", "/dashboard/7")],
-                [],
             ),
-            (
-                "a tile removed from its dashboard",
-                [PinnedNumber("insight:ready", dashboard_id=8)],
-                None,
-                [],
-                [],
-                [],
-            ),
+            ("a tile removed from its dashboard", [PinnedNumber("insight:ready", dashboard_id=8)], None, [], []),
             (
                 "a key metric with no events in either week",
                 [PinnedNumber("quiet")],
                 None,
                 [key_metric("quiet", 0, 0)],
                 [("quiet", None)],
-                [],
             ),
-            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, [], ["quiet"]),
-            ("key metrics that fail to load", [PinnedNumber("quiet")], None, ValueError("down"), [], []),
+            ("key metrics still being calculated", [PinnedNumber("quiet")], None, None, []),
+            ("key metrics that fail to load", [PinnedNumber("quiet")], None, ValueError("down"), []),
+            ("a key without insight access", [PinnedNumber("insight:ready")], ["customer_analytics:read"], [], []),
             (
-                "a key without insight access",
-                [PinnedNumber("insight:ready")],
-                ["customer_analytics:read"],
-                [],
+                "a dashboard tile without dashboard access",
+                [PinnedNumber("insight:ready", dashboard_id=7)],
+                ["insight:read"],
                 [],
                 [],
             ),
@@ -94,11 +119,10 @@ class TestPinnedNumbers(BaseTest):
         scopes: list[str] | None,
         key_metrics: list[KeyMetric] | Exception | None,
         resolved: list[tuple[str, str | None]],
-        pending: list[str],
     ) -> None:
         def series(**kwargs: Any) -> InsightSeries:
-            if kwargs["short_id"] == "slow":
-                raise InsightSeriesPending()
+            if kwargs["short_id"] == "cold" and not kwargs.get("blocking"):
+                return None
             if kwargs["short_id"] == "broken":
                 raise ValueError("query failed")
             return InsightSeries(
@@ -142,12 +166,9 @@ class TestPinnedNumbers(BaseTest):
             )
 
         self.assertEqual(
-            (
-                [
-                    (metric.key, metric.url if metric.dashboard_id else None)
-                    for metric in METRICS.validate_json(result.found)
-                ],
-                result.pending,
-            ),
-            (resolved, pending),
+            [
+                (metric.key, metric.url if metric.dashboard_id else None)
+                for metric in METRICS.validate_json(result.found)
+            ],
+            resolved,
         )

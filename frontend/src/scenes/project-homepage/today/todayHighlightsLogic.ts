@@ -8,9 +8,9 @@ import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { insightsList } from 'products/product_analytics/frontend/generated/api'
 import {
     todayHighlightsRetrieve,
-    todayPinCandidatesRetrieve,
     todayPulsePinsRetrieve,
     todayPulsePinsUpdate,
 } from 'products/today/frontend/generated/api'
@@ -24,10 +24,10 @@ import type {
 export const HIGHLIGHTS_POLL_MS = 2_000
 const HIGHLIGHTS_WAIT_MS = 2_000
 const PULSE_SEARCH_DEBOUNCE_MS = 200
-const PENDING_PINS_RETRY_MS = 10_000
-const PENDING_PINS_RETRIES = 60
 const PINS_LOAD_RETRY_MS = 5_000
 const PINS_LOAD_RETRIES = 3
+const PIN_SEARCH_RESULTS = 20
+const PINNABLE_DISPLAYS = 'ActionsLineGraph,ActionsBar,ActionsStackedBar,ActionsAreaGraph'
 export const PULSE_TILES = 4
 
 export interface PulsePlaceholderTile extends PulsePinApi {
@@ -129,10 +129,18 @@ export interface todayHighlightsLogicActions {
         errorObject?: any
     }
     loadPulseInsightResultsSuccess: (
-        pulseInsightResults: PulsePinApi[],
+        pulseInsightResults: {
+            dashboard_id: null
+            key: string
+            name: string
+        }[],
         payload?: string
     ) => {
-        pulseInsightResults: PulsePinApi[]
+        pulseInsightResults: {
+            dashboard_id: null
+            key: string
+            name: string
+        }[]
         payload?: string
     }
     loadPulsePins: () => any
@@ -176,9 +184,6 @@ export interface todayHighlightsLogicActions {
     releasePulseOrder: (owner: string) => {
         owner: string
     }
-    retryComputingPins: () => {
-        value: true
-    }
     setHiddenHighlights: (hidden: Record<string, string>) => {
         hidden: Record<string, string>
     }
@@ -209,7 +214,7 @@ export interface todayHighlightsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pulsePinsUnavailableReason: (
             pulsePinsLoaded: boolean,
-            pulsePinsLoadFailed: any,
+            pulsePinsLoadFailed: boolean,
             pulsePinsSaving: boolean
         ) => string | null
         pulseTiles: (
@@ -262,7 +267,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         togglePulsePin: (pin: PulsePinApi, source: PulsePinSource) => ({ pin, source }),
         holdPulseOrder: (owner: string, keys: string[]) => ({ owner, keys }),
         releasePulseOrder: (owner: string) => ({ owner }),
-        retryComputingPins: true,
         pulsePinsLoadGaveUp: true,
     }),
     loaders(({ values, cache }) => ({
@@ -271,9 +275,20 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             {
                 loadPulseInsightResults: async (search: string, breakpoint) => {
                     await breakpoint(PULSE_SEARCH_DEBOUNCE_MS)
-                    const found = await todayPinCandidatesRetrieve(String(values.currentProjectId), { search })
+                    const { results } = await insightsList(String(values.currentProjectId), {
+                        basic: true,
+                        saved: true,
+                        display: PINNABLE_DISPLAYS,
+                        search,
+                        order: '-last_viewed_at',
+                        limit: PIN_SEARCH_RESULTS,
+                    })
                     breakpoint()
-                    return found.results
+                    return results.map((insight) => ({
+                        key: `insight:${insight.short_id}`,
+                        name: insight.name || insight.derived_name || 'Untitled insight',
+                        dashboard_id: null,
+                    }))
                 },
             },
         ],
@@ -361,10 +376,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             (pulsePinsLoaded: boolean, pulsePinsLoadFailed: boolean, pulsePinsSaving: boolean): string | null =>
                 pulsePinsSaving
                     ? 'Saving your pins…'
-                    : pulsePinsLoaded
-                      ? null
-                      : pulsePinsLoadFailed
-                        ? "Couldn't load your pins. Reload the page to try again."
+                    : pulsePinsLoadFailed
+                      ? "Couldn't load your pins. Reload the page to try again."
+                      : pulsePinsLoaded
+                        ? null
                         : 'Loading your pins…',
         ],
         pulseTiles: [
@@ -433,7 +448,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setPinnedPulseKeys: async ({ metrics }, breakpoint) => {
-            cache.pendingPinRetries = 0
             cache.pinEdits = (cache.pinEdits ?? 0) + 1
             const previous: Promise<unknown> = cache.pinsSave ?? Promise.resolve()
             const save = (cache.pinsSave = previous
@@ -531,6 +545,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
+        loadPulsePinsSuccess: () => {
+            cache.pinsLoadRetries = 0
+        },
         loadPulsePinsFailure: () => {
             if ((cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES) {
                 actions.pulsePinsLoadGaveUp()
@@ -541,25 +558,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 const retry = window.setTimeout(() => actions.loadPulsePins(), PINS_LOAD_RETRY_MS)
                 return () => clearTimeout(retry)
             }, 'pulsePinsLoadRetry')
-        },
-        loadPulsePinsSuccess: () => {
-            actions.retryComputingPins()
-        },
-        retryComputingPins: () => {
-            if (values.highlights?.status === 'computing') {
-                return
-            }
-            const pinStillComputing = values.pulseTiles.some(
-                (tile) => isPlaceholderTile(tile) && tile.placeholder === 'computing'
-            )
-            if (!pinStillComputing || (cache.pendingPinRetries ?? 0) >= PENDING_PINS_RETRIES) {
-                return
-            }
-            cache.pendingPinRetries = (cache.pendingPinRetries ?? 0) + 1
-            cache.disposables.add(() => {
-                const retry = window.setTimeout(() => actions.loadHighlights(), PENDING_PINS_RETRY_MS)
-                return () => clearTimeout(retry)
-            }, 'pendingPinsRetry')
         },
         loadHighlightsSuccess: ({ highlights }) => {
             if (!highlights) {
@@ -572,7 +570,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 }, 'highlightsPoll')
                 return
             }
-            actions.retryComputingPins()
             if (cache.highlightsLoadedCaptured) {
                 return
             }

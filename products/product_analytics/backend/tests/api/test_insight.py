@@ -1262,6 +1262,47 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response.json()["results"]), 2)
 
+    @parameterized.expand(
+        [
+            ("line graphs", "ActionsLineGraph", ["no display", "line", "sql line"]),
+            ("several chart types", "ActionsBar,ActionsPie", ["bar", "pie"]),
+            ("a chart type no insight uses", "WorldMap", []),
+        ]
+    )
+    def test_listing_insights_by_chart_type(self, _name: str, display: str, expected: list[str]) -> None:
+        def trends(display: str | None) -> dict:
+            query = InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump()
+            if display:
+                query["source"]["trendsFilter"] = {"display": display}
+            return query
+
+        for name, query in [
+            ("no display", trends(None)),
+            ("line", trends("ActionsLineGraph")),
+            ("bar", trends("ActionsBar")),
+            ("pie", trends("ActionsPie")),
+            (
+                "sql line",
+                {
+                    "kind": "DataVisualizationNode",
+                    "display": "ActionsLineGraph",
+                    "source": {"kind": "HogQLQuery", "query": "select 1"},
+                },
+            ),
+            ("sql table", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("funnel", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}}),
+        ]:
+            self.dashboard_api.create_insight(data={"name": name, "query": query})
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?display={display}")
+
+        assert sorted(insight["name"] for insight in response.json()["results"]) == sorted(expected)
+
+    def test_listing_insights_by_an_unknown_chart_type_is_rejected(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?display=ActionsLineGraph,Sparkles")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_listing_insights_by_journeys_type(self) -> None:
         journeys_insight_id, _ = self.dashboard_api.create_insight(
             data={"query": {"kind": "InsightVizNode", "source": {"kind": "PathsV2Query"}}}

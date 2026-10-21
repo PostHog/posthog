@@ -277,14 +277,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("pins with today read", "get", "pulse_pins", ["today:read"], status.HTTP_200_OK),
             ("saving pins with today read", "put", "pulse_pins", ["today:read"], status.HTTP_403_FORBIDDEN),
             ("saving pins with today write", "put", "pulse_pins", ["today:write"], status.HTTP_200_OK),
-            ("insights to pin with only today", "get", "pin_candidates", ["today:read"], status.HTTP_403_FORBIDDEN),
-            (
-                "insights to pin with insight access",
-                "get",
-                "pin_candidates",
-                ["today:read", "insight:read"],
-                status.HTTP_200_OK,
-            ),
         ]
     )
     def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
@@ -390,20 +382,18 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                     )
                     for name in inputs.source_names
                 ]
-                pin_results = (
-                    [
-                        pinned.resolve_pins(
-                            ResolvePinsInputs(
-                                team_id=inputs.team_id,
-                                user_id=inputs.user_id,
-                                local_day=inputs.local_day,
-                                scopes=inputs.scopes,
-                                pins=inputs.pins,
-                            )
+                found_pins = (
+                    pinned.resolve_pins(
+                        ResolvePinsInputs(
+                            team_id=inputs.team_id,
+                            user_id=inputs.user_id,
+                            local_day=inputs.local_day,
+                            scopes=inputs.scopes,
+                            pins=inputs.pins,
                         )
-                    ]
+                    ).found
                     if inputs.pins
-                    else []
+                    else "[]"
                 )
                 highlights.finalize(
                     FinalizeHighlightsInputs(
@@ -411,7 +401,7 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                         highlights_id=inputs.highlights_id,
                         results=results,
                         pins=inputs.pins,
-                        pin_results=pin_results,
+                        pinned=found_pins,
                     )
                 )
         return response

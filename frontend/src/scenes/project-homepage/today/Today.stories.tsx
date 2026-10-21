@@ -847,12 +847,10 @@ const meta: Meta = {
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
                 '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
-                '/api/projects/:team_id/today/pin_candidates/': ({ request }) => {
+                '/api/projects/:team_id/insights/': ({ request }) => {
                     const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
-                    const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search)).map(
-                        (insight) => ({ key: `insight:${insight.short_id}`, name: insight.name, dashboard_id: null })
-                    )
-                    return [200, { results }]
+                    const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
+                    return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [

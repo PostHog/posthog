@@ -37,14 +37,11 @@ from products.today.backend.facade.enums import (
 from products.today.backend.logic import highlight_registry, highlight_types, highlights
 from products.today.backend.logic.highlight_types import Context
 from products.today.backend.logic.highlights import MAX_ITEMS, rank
-from products.today.backend.logic.pinned import PINNED_METRICS
 from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
-    PinnedNumber,
-    ResolvePinsResult,
 )
 
 DAY = date(2026, 10, 13)
@@ -181,7 +178,6 @@ class TestBuildHighlights(SimpleTestCase):
             DAY,
             pins=["insight:pinned", "offered", "insight:slow", "insight:gone"],
             pinned={"insight:pinned": metric("insight:pinned")},
-            computing={"insight:slow"},
         )
 
         self.assertEqual(
@@ -191,7 +187,7 @@ class TestBuildHighlights(SimpleTestCase):
                 [
                     ("insight:pinned", "ready"),
                     ("offered", "ready"),
-                    ("insight:slow", "computing"),
+                    ("insight:slow", "unavailable"),
                     ("insight:gone", "unavailable"),
                 ],
             ),
@@ -289,14 +285,6 @@ class TestRunSource(BaseTest):
         self.assertEqual((result.failed, FOUND.validate_json(result.found or "")), (True, HighlightFindings()))
 
 
-PIN_READY = ResolvePinsResult(
-    keys=["insight:a"], found=PINNED_METRICS.dump_json([metric("insight:a")]).decode(), pending=[]
-)
-PIN_MISSING = ResolvePinsResult(keys=["insight:a"], found="[]", pending=[])
-PIN_PENDING = ResolvePinsResult(keys=["insight:a"], found="[]", pending=["insight:a"])
-PIN_NOT_ATTEMPTED = ResolvePinsResult(keys=[], found="[]", pending=["insight:a"])
-
-
 class TestFinalizeHighlights(BaseTest):
     @parameterized.expand(
         [
@@ -333,76 +321,6 @@ class TestFinalizeHighlights(BaseTest):
             ),
             (status, True, items, keeps_older),
         )
-
-    @parameterized.expand(
-        [
-            ("every pin is ready", [ALERT_RESULT], [PIN_READY], True, False, "ready"),
-            ("a pin with no number", [ALERT_RESULT], [PIN_MISSING], True, False, "unavailable"),
-            (
-                "a retry resolved a pin that was not attempted",
-                [ALERT_RESULT],
-                [PIN_NOT_ATTEMPTED, PIN_READY],
-                True,
-                False,
-                "ready",
-            ),
-            ("a pin still computing with retries to come", [ALERT_RESULT], [PIN_PENDING], False, False, "computing"),
-            ("a source failed while pins still retry", [FAILED_RESULT], [PIN_PENDING], False, True, "computing"),
-            ("a pin still computing after the last retry", [ALERT_RESULT], [PIN_PENDING], True, False, "unavailable"),
-        ]
-    )
-    def test_pins_show_as_computing_only_while_retries_remain_and_only_sources_refresh_the_row_soon(
-        self,
-        _name: str,
-        results: list[HighlightSourceResult],
-        pin_results: list[ResolvePinsResult],
-        final: bool,
-        refreshes_soon: bool,
-        status: str,
-    ) -> None:
-        computing = TodayHighlights.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="k"
-        )
-
-        highlights.finalize(
-            FinalizeHighlightsInputs(
-                team_id=self.team.id,
-                highlights_id=str(computing.id),
-                results=results,
-                pins=[PinnedNumber("insight:a")],
-                pin_results=pin_results,
-                final=final,
-            )
-        )
-
-        computing.refresh_from_db()
-        content = HIGHLIGHTS.validate_python(computing.content)
-        self.assertEqual((computing.failed_sources, [pin.status for pin in content.pins]), (refreshes_soon, [status]))
-
-    def test_the_last_write_after_pin_retries_keeps_the_time_the_sources_were_ready(self) -> None:
-        computing = TodayHighlights.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="k"
-        )
-        first_write = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
-
-        for written_at, pin_results, final in (
-            (first_write, [PIN_PENDING], False),
-            (first_write + timedelta(minutes=2), [PIN_PENDING, PIN_READY], True),
-        ):
-            with time_machine.travel(written_at, tick=False):
-                highlights.finalize(
-                    FinalizeHighlightsInputs(
-                        team_id=self.team.id,
-                        highlights_id=str(computing.id),
-                        results=[ALERT_RESULT],
-                        pins=[PinnedNumber("insight:a")],
-                        pin_results=pin_results,
-                        final=final,
-                    )
-                )
-
-        computing.refresh_from_db()
-        self.assertEqual(computing.ready_at, first_write)
 
 
 @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)

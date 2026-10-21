@@ -17,22 +17,20 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, OuterRef, Q, QuerySet, Subquery
+from django.db.models import QuerySet
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.chart_rules import CHARTED_SQL_DISPLAYS, UNCHARTED_DISPLAYS, is_chartable
 from products.product_analytics.backend.facade.contracts import (
-    ChartableInsight,
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
     SavedInsightDefinition,
 )
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
@@ -237,56 +235,13 @@ def save_saved_insight_query(
     return None
 
 
-CHARTABLE_INSIGHTS_SCANNED = 200
-
-
-def chartable_insights(*, team: Team, user: User, search: str, limit: int) -> list[ChartableInsight]:
-    insights = Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True).filter(
-        (
-            Q(query__source__kind="TrendsQuery")
-            & (
-                Q(query__source__trendsFilter__display__isnull=True)
-                | ~Q(query__source__trendsFilter__display__in=UNCHARTED_DISPLAYS)
-            )
-        )
-        | (Q(query__kind="DataVisualizationNode") & Q(query__display__in=CHARTED_SQL_DISPLAYS))
-    )
-    if search.strip():
-        insights = insights.filter(Q(name__icontains=search.strip()) | Q(derived_name__icontains=search.strip()))
-    else:
-        insights = insights.filter(pk__in=InsightViewed.objects.filter(user_id=user.id).values("insight_id"))
-    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    insights = access.filter_queryset_by_access_level(insights, resource="insight")
-    found: list[ChartableInsight] = []
-    viewed = (
-        InsightViewed.objects.filter(insight=OuterRef("pk"), user_id=user.id)
-        .order_by("-last_viewed_at")
-        .values("last_viewed_at")[:1]
-    )
-    newest_first = (
-        insights.annotate(viewed_at=Subquery(viewed))
-        .only("short_id", "name", "derived_name", "query")
-        .order_by(F("viewed_at").desc(nulls_last=True), "-id")
-    )
-    for insight in newest_first[:CHARTABLE_INSIGHTS_SCANNED]:
-        if insight.short_id and is_chartable(insight.query or {}):
-            found.append(
-                ChartableInsight(
-                    short_id=insight.short_id, name=insight.name or insight.derived_name or "Untitled insight"
-                )
-            )
-            if len(found) == limit:
-                break
-    return found
-
-
 def get_insight_series(
     *,
     team: Team,
     user: User,
     short_id: str,
     dashboard: InsightDashboardContext | None = None,
-    raise_if_pending: bool = False,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -305,5 +260,5 @@ def get_insight_series(
         name=insight.name,
         query=insight.query or {},
         dashboard=dashboard,
-        raise_if_pending=raise_if_pending,
+        blocking=blocking,
     )

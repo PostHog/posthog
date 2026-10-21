@@ -13,11 +13,9 @@ import type {
     ExcerptChoiceRequestApi,
     FigureMarksApi,
     HighlightsApi,
-    PinCandidatesApi,
     PulsePinsApi,
     ReportKeyClausesApi,
     ReportPageApi,
-    TodayPinCandidatesRetrieveParams,
     TodayReportsKeyClausesRetrieveParams,
 } from './api.schemas'
 
@@ -52,37 +50,6 @@ export const getTodayHighlightsRetrieveUrl = (projectId: string) => {
  */
 export const todayHighlightsRetrieve = async (projectId: string, options?: RequestInit): Promise<HighlightsApi> => {
     return apiMutator<HighlightsApi>(getTodayHighlightsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTodayPinCandidatesRetrieveUrl = (projectId: string, params?: TodayPinCandidatesRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/today/pin_candidates/?${stringifiedParams}`
-        : `/api/projects/${projectId}/today/pin_candidates/`
-}
-
-/**
- * Saved insights the person can view whose number the home can show, matching `search`, most recently viewed first. 404 when the person does not have the new navigation. A scoped key needs insight:read as well, because the results name insights.
- * @summary Find insights to pin
- */
-export const todayPinCandidatesRetrieve = async (
-    projectId: string,
-    params?: TodayPinCandidatesRetrieveParams,
-    options?: RequestInit
-): Promise<PinCandidatesApi> => {
-    return apiMutator<PinCandidatesApi>(getTodayPinCandidatesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

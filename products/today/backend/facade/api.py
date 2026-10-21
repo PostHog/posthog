@@ -2,7 +2,6 @@
 
 from posthog.models import Team, User
 
-from products.product_analytics.backend.facade.api import chartable_insights
 from products.signals.backend.facade import api as signals
 
 from ..feature_flags import (
@@ -57,21 +56,9 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     return highlights.get_highlights(team=team, user=user, scopes=scopes)
 
 
-def get_pulse_pins(*, team: Team, user: User) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.get_pins(team=team, user_id=user.id))
+def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.PulsePins:
+    return contracts.PulsePins(pins=pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes))
 
 
 def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
     return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))
-
-
-PIN_CANDIDATES = 20
-
-
-def pin_candidates(*, team: Team, user: User, search: str) -> contracts.PinCandidates:
-    return contracts.PinCandidates(
-        results=[
-            contracts.PulsePin(key=f"insight:{insight.short_id}", name=insight.name)
-            for insight in chartable_insights(team=team, user=user, search=search, limit=PIN_CANDIDATES)
-        ]
-    )

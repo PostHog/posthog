@@ -19,7 +19,6 @@ from ..facade.contracts import (
     ImpactWorking,
     KeyClause,
     PageLink,
-    PinCandidates,
     PreviewLine,
     PullRequestLink,
     PulsePin,
@@ -330,22 +329,6 @@ class PulsePinsSerializer(DataclassSerializer):
         return super().to_internal_value(data)
 
 
-class PinCandidatesQuerySerializer(serializers.Serializer):
-    search = serializers.CharField(
-        required=False, allow_blank=True, default="", max_length=200, help_text="Text to find in insight names."
-    )
-
-
-class PinCandidatesSerializer(DataclassSerializer):
-    results = PulsePinSerializer(
-        many=True,
-        help_text="Saved insights the person can view that show as a number over time, most recently viewed first. Up to 20.",
-    )
-
-    class Meta:
-        dataclass = PinCandidates
-
-
 class HighlightMetricSerializer(DataclassSerializer):
     key = serializers.CharField(
         help_text="Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>."
@@ -446,7 +429,7 @@ class HighlightPinSerializer(DataclassSerializer):
     key = serializers.CharField(help_text="Key of a number the person keeps on their home.")
     status = serializers.ChoiceField(
         choices=HighlightPinStatus.choices,
-        help_text="`ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. The highlights are computed again within 15 minutes.",
+        help_text="`ready` when the number is in `pulse`. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. A pin missing from this list was added after these highlights were computed.",
     )
 
     class Meta:

@@ -1,6 +1,5 @@
 import uuid
 from collections.abc import AsyncIterator
-from datetime import timedelta
 
 import pytest
 
@@ -31,11 +30,23 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
         yield env
 
 
+PINS = [PinnedNumber("insight:a"), PinnedNumber("insight:b", dashboard_id=7)]
+
+
 @pytest.mark.asyncio
-async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_others(
-    environment: WorkflowEnvironment,
+@pytest.mark.parametrize(
+    "pins,pins_fail,asked,pinned",
+    [
+        ([], False, [], "[]"),
+        (PINS, False, [["insight:a", "insight:b"]], "found"),
+        (PINS, True, [["insight:a", "insight:b"]], "[]"),
+    ],
+)
+async def test_sources_and_pins_are_resolved_once_and_finalized_together(
+    environment: WorkflowEnvironment, pins: list[PinnedNumber], pins_fail: bool, asked: list[list[str]], pinned: str
 ) -> None:
     finalized: list[FinalizeHighlightsInputs] = []
+    resolved: list[list[str]] = []
 
     @activity.defn(name="run_highlight_source_activity")
     async def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
@@ -45,7 +56,10 @@ async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_other
 
     @activity.defn(name="resolve_pins_activity")
     async def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
-        raise AssertionError("A person without pins resolves no pins.")
+        resolved.append([pin.key for pin in inputs.pins])
+        if pins_fail:
+            raise ApplicationError("The pinned query failed.")
+        return ResolvePinsResult(found="found")
 
     @activity.defn(name="finalize_highlights_activity")
     async def finalize(inputs: FinalizeHighlightsInputs) -> None:
@@ -67,70 +81,22 @@ async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_other
                 local_day="2026-10-13",
                 scopes=None,
                 source_names=["alerts", "broken"],
+                pins=pins,
             ),
             id=str(uuid.uuid4()),
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
-    assert [(inputs.results, inputs.pin_results) for inputs in finalized] == [
-        (
-            [
-                HighlightSourceResult(source_name="alerts", found="{}", failed=False),
-                HighlightSourceResult(source_name="broken", found=None, failed=True),
-            ],
-            [],
-        )
-    ]
-
-
-@pytest.mark.asyncio
-async def test_pins_still_computing_are_retried_on_a_timer_and_finalized_again(
-    environment: WorkflowEnvironment,
-) -> None:
-    finalized: list[FinalizeHighlightsInputs] = []
-    asked: list[list[str]] = []
-
-    @activity.defn(name="run_highlight_source_activity")
-    async def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
-        return HighlightSourceResult(source_name=inputs.source_name, found="{}", failed=False)
-
-    @activity.defn(name="resolve_pins_activity")
-    async def resolve_pins(inputs: ResolvePinsInputs) -> ResolvePinsResult:
-        keys = [pin.key for pin in inputs.pins]
-        asked.append(keys)
-        return ResolvePinsResult(keys=keys, found="[]", pending=["insight:slow"] if len(keys) > 1 else [])
-
-    @activity.defn(name="finalize_highlights_activity")
-    async def finalize(inputs: FinalizeHighlightsInputs) -> None:
-        finalized.append(inputs)
-
-    async with Worker(
-        environment.client,
-        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-        workflows=[ComputeTodayHighlightsWorkflow],
-        activities=[run_source, resolve_pins, finalize],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        await environment.client.execute_workflow(
-            HIGHLIGHTS_WORKFLOW_NAME,
-            ComputeHighlightsInputs(
-                team_id=1,
-                user_id=2,
-                highlights_id="h-1",
-                local_day="2026-10-13",
-                scopes=None,
-                source_names=["alerts"],
-                pins=[PinnedNumber("insight:a"), PinnedNumber("insight:slow", dashboard_id=7)],
-            ),
-            id=str(uuid.uuid4()),
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            execution_timeout=timedelta(minutes=5),
-        )
-
-    assert (
+    assert (resolved, [(inputs.results, inputs.pins, inputs.pinned) for inputs in finalized]) == (
         asked,
-        [([result.pending for result in inputs.pin_results], inputs.final) for inputs in finalized],
-    ) == (
-        [["insight:a", "insight:slow"], ["insight:slow"]],
-        [([["insight:slow"]], False), ([["insight:slow"], []], True)],
+        [
+            (
+                [
+                    HighlightSourceResult(source_name="alerts", found="{}", failed=False),
+                    HighlightSourceResult(source_name="broken", found=None, failed=True),
+                ],
+                pins,
+                pinned,
+            )
+        ],
     )

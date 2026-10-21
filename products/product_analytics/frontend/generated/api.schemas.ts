@@ -9730,6 +9730,10 @@ export type InsightsListParams = {
      */
     date_to?: string
     /**
+     * Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL insights shown as one of them. A trends insight with no chart type set counts as `ActionsLineGraph`.
+     */
+    display?: string
+    /**
      * Exclude Business intelligence worksheets from the insight list.
      */
     exclude_bi?: boolean

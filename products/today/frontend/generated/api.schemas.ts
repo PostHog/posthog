@@ -251,24 +251,21 @@ export interface HighlightItemApi {
 
 /**
  * * `ready` - Ready
- * * `computing` - Computing
  * * `unavailable` - Unavailable
  */
 export type HighlightPinStatusEnumApi = (typeof HighlightPinStatusEnumApi)[keyof typeof HighlightPinStatusEnumApi]
 
 export const HighlightPinStatusEnumApi = {
     Ready: 'ready',
-    Computing: 'computing',
     Unavailable: 'unavailable',
 } as const
 
 export interface HighlightPinApi {
     /** Key of a number the person keeps on their home. */
     key: string
-    /** `ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. The highlights are computed again within 15 minutes.
+    /** `ready` when the number is in `pulse`. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. A pin missing from this list was added after these highlights were computed.
      *
      * * `ready` - Ready
-     * * `computing` - Computing
      * * `unavailable` - Unavailable */
     status: HighlightPinStatusEnumApi
 }
@@ -313,11 +310,6 @@ export interface PulsePinApi {
      * @nullable
      */
     dashboard_id?: number | null
-}
-
-export interface PinCandidatesApi {
-    /** Saved insights the person can view that show as a number over time, most recently viewed first. Up to 20. */
-    results: PulsePinApi[]
 }
 
 export interface PulsePinsApi {
@@ -599,14 +591,6 @@ export interface ReportPageApi {
      * @nullable
      */
     last_seen: string | null
-}
-
-export type TodayPinCandidatesRetrieveParams = {
-    /**
-     * Text to find in insight names.
-     * @maxLength 200
-     */
-    search?: string
 }
 
 export type TodayReportsKeyClausesRetrieveParams = {

@@ -1,6 +1,6 @@
 import asyncio
 import hashlib
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
@@ -62,7 +62,7 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     day = now.astimezone(team.timezone_info).date()
     pins = [
         PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
-        for pin in pulse_pins.get_pins(team=team, user_id=user.id)
+        for pin in pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes)
     ]
     key = _key(team, user, scopes)
     pins_key = _pins_key(pins)
@@ -173,19 +173,13 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
-    pins = [pin.key for pin in inputs.pins]
-    attempted = {key for result in inputs.pin_results for key in result.keys}
-    still_pending = set(inputs.pin_results[-1].pending) if inputs.pin_results else set()
     highlights = build_highlights(
         load_sources(),
         found,
         Team.objects.get(id=inputs.team_id),
         row.local_day,
-        pins=pins,
-        pinned={
-            metric.key: metric for result in inputs.pin_results for metric in PINNED_METRICS.validate_json(result.found)
-        },
-        computing=set() if inputs.final else {key for key in pins if key in still_pending or key not in attempted},
+        pins=[pin.key for pin in inputs.pins],
+        pinned={metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
     )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
@@ -196,7 +190,7 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
     row.failed_sources = bool(failed)
-    row.ready_at = row.ready_at or timezone.now()
+    row.ready_at = timezone.now()
     row.save(update_fields=["status", "content", "failed_sources", "ready_at"])
     if row.status == HighlightsStatus.READY:
         TodayHighlights.objects.for_team(inputs.team_id).filter(
@@ -216,7 +210,6 @@ def build_highlights(
     day: date,
     pins: Sequence[str] = (),
     pinned: Mapping[str, contracts.HighlightMetric] | None = None,
-    computing: Collection[str] = (),
 ) -> contracts.Highlights:
     offered: dict[str, contracts.HighlightMetric] = {}
     for source in sorted(sources, key=lambda source: source.pulse_order):
@@ -238,12 +231,7 @@ def build_highlights(
         items=sorted((_item(c) for c in ranked), key=lambda item: item.priority),
         pins=[
             contracts.HighlightPin(
-                key=key,
-                status=HighlightPinStatus.READY
-                if key in resolved
-                else HighlightPinStatus.COMPUTING
-                if key in computing
-                else HighlightPinStatus.UNAVAILABLE,
+                key=key, status=HighlightPinStatus.READY if key in resolved else HighlightPinStatus.UNAVAILABLE
             )
             for key in pins
         ],

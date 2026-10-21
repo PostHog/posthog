@@ -17,14 +17,11 @@ with temporalio.workflow.unsafe.imports_passed_through():
         FinalizeHighlightsInputs,
         HighlightSourceInputs,
         HighlightSourceResult,
-        PinnedNumber,
         ResolvePinsInputs,
-        ResolvePinsResult,
     )
 
 HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=60)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
-PIN_RETRY_DELAYS_SECONDS = (5, 10, 15, 30, 60)
 PINNED_NUMBERS_PATCH = "today-pinned-numbers"
 
 
@@ -35,42 +32,22 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
-        if not (temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins):
-            await _finalize(inputs, list(await sources), [], final=True)
-            return
-        results, first = await asyncio.gather(sources, _resolve_pins(inputs, inputs.pins))
-        pin_results = [first]
-        await _finalize(inputs, list(results), pin_results, final=not first.pending)
-        for delay in PIN_RETRY_DELAYS_SECONDS:
-            last = pin_results[-1]
-            if not last.pending:
-                break
-            await asyncio.sleep(delay)
-            pin_results.append(await _resolve_pins(inputs, [pin for pin in inputs.pins if pin.key in last.pending]))
-        if len(pin_results) > 1:
-            await _finalize(inputs, list(results), pin_results, final=True)
-
-
-async def _finalize(
-    inputs: ComputeHighlightsInputs,
-    results: list[HighlightSourceResult],
-    pin_results: list[ResolvePinsResult],
-    *,
-    final: bool,
-) -> None:
-    await temporalio.workflow.execute_activity(
-        finalize_highlights_activity,
-        FinalizeHighlightsInputs(
-            team_id=inputs.team_id,
-            highlights_id=inputs.highlights_id,
-            results=results,
-            pins=inputs.pins,
-            pin_results=pin_results,
-            final=final,
-        ),
-        start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
-        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-    )
+        if temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins:
+            results, pinned = await asyncio.gather(sources, _resolve_pins(inputs))
+        else:
+            results, pinned = await sources, "[]"
+        await temporalio.workflow.execute_activity(
+            finalize_highlights_activity,
+            FinalizeHighlightsInputs(
+                team_id=inputs.team_id,
+                highlights_id=inputs.highlights_id,
+                results=list(results),
+                pins=inputs.pins,
+                pinned=pinned,
+            ),
+            start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
 
 
 async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> HighlightSourceResult:
@@ -92,19 +69,20 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
         return HighlightSourceResult(source_name=source_name, found=None, failed=True)
 
 
-async def _resolve_pins(inputs: ComputeHighlightsInputs, pins: list[PinnedNumber]) -> ResolvePinsResult:
+async def _resolve_pins(inputs: ComputeHighlightsInputs) -> str:
     try:
-        return await temporalio.workflow.execute_activity(
+        result = await temporalio.workflow.execute_activity(
             resolve_pins_activity,
             ResolvePinsInputs(
                 team_id=inputs.team_id,
                 user_id=inputs.user_id,
                 local_day=inputs.local_day,
                 scopes=inputs.scopes,
-                pins=pins,
+                pins=inputs.pins,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
         )
     except ActivityError:
-        return ResolvePinsResult(keys=[], found="[]", pending=[pin.key for pin in pins])
+        return "[]"
+    return result.found

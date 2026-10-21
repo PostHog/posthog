@@ -4,23 +4,34 @@ from django.utils import timezone
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.models import Team
+from posthog.scopes import scopes_not_covered
 
 from ..facade import contracts
 from ..models import TodayPulsePins
 
 MAX_PULSE_PINS = 4
+INSIGHT_PREFIX = "insight:"
 
 _PINS = TypeAdapter(list[contracts.PulsePin])
 
 
-def get_pins(*, team: Team, user_id: int) -> list[contracts.PulsePin]:
+def required_scopes(key: str, dashboard_id: int | None) -> tuple[str, ...]:
+    if not key.startswith(INSIGHT_PREFIX):
+        return ("customer_analytics:read",)
+    return ("insight:read",) if dashboard_id is None else ("insight:read", "dashboard:read")
+
+
+def get_pins(*, team: Team, user_id: int, scopes: frozenset[str] | None) -> list[contracts.PulsePin]:
     row = TodayPulsePins.objects.for_team(_canonical(team), canonical=True).filter(user_id=user_id).first()
     if row is None:
         return []
     try:
-        return _PINS.validate_python(row.pins)
+        pins = _PINS.validate_python(row.pins)
     except ValidationError:
         return []
+    if scopes is None or "*" in scopes:
+        return pins
+    return [pin for pin in pins if not scopes_not_covered(scopes, required_scopes(pin.key, pin.dashboard_id))]
 
 
 def set_pins(*, team: Team, user_id: int, pins: list[contracts.PulsePin]) -> list[contracts.PulsePin]:

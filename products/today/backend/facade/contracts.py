@@ -220,11 +220,6 @@ class PulsePins:
 
 
 @dataclass(frozen=True)
-class PinCandidates:
-    results: list[PulsePin]
-
-
-@dataclass(frozen=True)
 class HighlightPin:
     key: str
     status: HighlightPinStatus
