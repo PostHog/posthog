@@ -15,7 +15,7 @@ before this runs, and it carries the unsuffixed idempotency key it has always ha
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     mark_batch_as_processed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
 logger = structlog.get_logger(__name__)
 
@@ -175,6 +176,76 @@ def _fail_for_unresolved_destinations(
 
     names = ", ".join(sorted(d.name for d in unresolved))
     raise DestinationDeliveryError(names, LookupError("destination deleted after the run started"))
+
+
+def finalize_empty_run_to_destinations(
+    export_signal: ExportSignalMessage, verify_ownership: Callable[[], None] | None = None
+) -> int:
+    """Prepare and finalize every external destination for a run with no batches.
+
+    A final marker has no parquet file to stream, but destinations still need their run lifecycle
+    completed. In particular, object stores publish an empty run by writing its manifest. The
+    destination marker is written only after finalization so a partial failure retries safely.
+    """
+    pending = external_destinations_for(export_signal)
+    _fail_for_unresolved_destinations(export_signal, pending)
+
+    finalized = 0
+    for destination in pending:
+        destination_id = str(destination.id)
+        if is_batch_already_processed(
+            export_signal.team_id,
+            export_signal.schema_id,
+            export_signal.run_uuid,
+            export_signal.batch_index,
+            destination_id=destination_id,
+        ):
+            continue
+
+        run_ctx = _run_context(export_signal, destination)
+        try:
+            ensure_builtin_destination_writers_registered()
+            writer = resolve_destination_writer(run_ctx)
+            if verify_ownership is not None:
+                verify_ownership()
+            async_to_sync(writer.prepare_run)(run_ctx)
+            if verify_ownership is not None:
+                verify_ownership()
+            async_to_sync(writer.finalize_run)(run_ctx)
+            mark_batch_as_processed(
+                export_signal.team_id,
+                export_signal.schema_id,
+                export_signal.run_uuid,
+                export_signal.batch_index,
+                destination_id=destination_id,
+            )
+            finalized += 1
+            logger.info(
+                "destination_empty_run_published",
+                destination_name=destination.name,
+                destination_type=destination.type,
+                table_name=run_ctx.table_name,
+            )
+        except OwnershipLostError:
+            # Fencing, not a delivery failure: the engine decides what a lost lease means, and
+            # neither a retry nor the destination's health should be charged for it.
+            raise
+        except Exception as e:
+            logger.warning(
+                "destination_empty_run_failed",
+                destination_name=destination.name,
+                destination_type=destination.type,
+                table_name=run_ctx.table_name,
+                error=str(e),
+            )
+            record_delivery_failure(destination, e)
+            if isinstance(e, DestinationConfigurationError):
+                raise
+            raise DestinationDeliveryError(destination.name, e) from e
+
+        record_delivery_success(destination)
+
+    return finalized
 
 
 def deliver_batch_to_destinations(

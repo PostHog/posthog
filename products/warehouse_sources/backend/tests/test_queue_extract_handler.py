@@ -84,7 +84,8 @@ FIRE_AT = dt.datetime(2026, 9, 1, 12, 0, tzinfo=dt.UTC)
 Extraction = Callable[[ImportDataActivityInputs, Any, RunControl], Awaitable[PipelineResult]]
 
 WITH_BATCHES: PipelineResult = {"should_trigger_cdp_producer": False, "consumer_manages_job_status": True}
-NO_BATCHES: PipelineResult = {"should_trigger_cdp_producer": False, "consumer_manages_job_status": False}
+# What `run_extraction` returns when it stops before the pipeline, which sends every other run to the loader.
+BEFORE_PIPELINE: PipelineResult = {"should_trigger_cdp_producer": False, "consumer_manages_job_status": False}
 
 
 class _FakeExtraction:
@@ -344,14 +345,18 @@ def _loader_finishes_first(inputs: ImportDataActivityInputs, logger: Any, contro
             _loader_finishes_first, ExternalDataJob.Status.COMPLETED, "loading", False, id="loader_finishes_first"
         ),
         pytest.param(
-            _returns(NO_BATCHES), ExternalDataJob.Status.COMPLETED, "extracting", True, id="no_batch_completes_here"
+            _returns(BEFORE_PIPELINE),
+            ExternalDataJob.Status.COMPLETED,
+            "extracting",
+            True,
+            id="repartition_hold_completes_here",
         ),
         pytest.param(
-            _returns({**NO_BATCHES, "skip_post_import_activities": True}),
+            _returns({**BEFORE_PIPELINE, "skip_post_import_activities": True, "fast_returned": True}),
             ExternalDataJob.Status.COMPLETED,
             "extracting",
             False,
-            id="no_batch_without_post_import",
+            id="fast_return_completes_here_without_post_import",
         ),
     ],
 )
@@ -382,12 +387,13 @@ async def test_first_attempt_creates_the_job_and_hands_it_on(
         ExternalDataJob.PipelineVersion.V3,
     )
     [control] = extraction.controls
-    assert (control.workflow_id, control.workflow_run_id, control.attempt, control.verify_v3_lock) == (
-        payload.workflow_id,
-        job.id,
-        1,
-        False,
-    )
+    assert (
+        control.workflow_id,
+        control.workflow_run_id,
+        control.attempt,
+        control.verify_v3_lock,
+        control.always_final_marker,
+    ) == (payload.workflow_id, job.id, 1, False, True)
     assert extraction.inputs[0].run_id == str(row.id)
     assert (build_post_import_workflow_id(str(row.id)) in _started_workflow_ids(temporal)) is expect_post_import
 
@@ -937,7 +943,7 @@ async def test_terminal_retry_resumes_unfinished_post_import(
 
     with patch(f"{HANDLER}.start_post_import", AsyncMock(side_effect=BaseException("process died"))):
         with pytest.raises(BaseException, match="process died"):
-            await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_returns(NO_BATCHES)))
+            await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_returns(BEFORE_PIPELINE)))
 
     [row] = await sync_to_async(_jobs)(schema)
     assert row.status == ExternalDataJob.Status.COMPLETED
@@ -945,7 +951,7 @@ async def test_terminal_retry_resumes_unfinished_post_import(
 
     start_post_import = AsyncMock()
     with patch(f"{HANDLER}.start_post_import", start_post_import):
-        outcome = await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_returns(NO_BATCHES)))
+        outcome = await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_returns(BEFORE_PIPELINE)))
 
     assert outcome == Success()
     start_post_import.assert_awaited_once()
