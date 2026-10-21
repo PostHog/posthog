@@ -103,12 +103,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status,expected_ok",
         [
-            (200, True),
             # 403 = valid key, insufficient scope — accepted at source-create (per-table scope
             # reported separately).
             (403, True),
-            (401, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:

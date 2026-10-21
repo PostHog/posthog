@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch, IconTrends } from '@posthog/icons'
-import {
-    Button,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    InputGroupText,
-    ToggleGroup,
-    ToggleGroupItem,
-} from '@posthog/quill'
+import { IconTrends } from '@posthog/icons'
+import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -20,6 +12,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { AnalyticsFilterOption, AnalyticsFilterPicker } from './AnalyticsFilterPicker'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
+import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 
@@ -41,21 +34,13 @@ export function AnalyticsListFilters(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <InputGroup className="h-8 w-56 max-w-full">
-                <InputGroupAddon align="inline-start">
-                    <InputGroupText>
-                        <IconSearch />
-                    </InputGroupText>
-                </InputGroupAddon>
-                <InputGroupInput
-                    type="search"
-                    aria-label="Search analytics"
-                    placeholder="Search"
-                    value={searchInput}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
-                    data-attr="analytics-list-search"
-                />
-            </InputGroup>
+            <AnalyticsSearchInput
+                value={searchInput}
+                onChange={setSearchInput}
+                label="Search analytics"
+                placeholder="Search"
+                dataAttr="analytics-list-search"
+            />
             <ToggleGroup
                 size="lg"
                 variant="default"

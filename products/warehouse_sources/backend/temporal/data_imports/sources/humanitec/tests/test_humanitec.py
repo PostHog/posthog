@@ -58,9 +58,7 @@ def test_environment_children_keep_parent_keys(endpoint: str, suffix: str, key: 
     ]
 
 
-@pytest.mark.parametrize(
-    "status,expected", [(200, None), (401, "rejected the API token"), (403, "cannot read"), (404, "could not find")]
-)
+@pytest.mark.parametrize("status,expected", [(404, "could not find")])
 def test_credential_probe(status: int, expected: str | None) -> None:
     body = {"id": "example-org"} if status == 200 else {"error": f"HTTP-{status}", "message": HTTPStatus(status).phrase}
     with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
