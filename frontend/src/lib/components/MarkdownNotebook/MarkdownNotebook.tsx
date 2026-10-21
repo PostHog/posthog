@@ -27,6 +27,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { findMountedCodeEditorWithin } from 'lib/monaco/mountedCodeEditors'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile, isMac, uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -3518,6 +3519,12 @@ function MarkdownNotebookEditor({
     const copyMarkdownToNotebookClipboard = (markdown: string): void => {
         notebookClipboardMarkdownRef.current = markdown
         writeSystemClipboardText(markdown)
+    }
+
+    const copyComponentNode = (componentNode: NotebookComponentBlockNode): void => {
+        const markdown = serializeNotebookNodes([componentNode])
+        notebookClipboardMarkdownRef.current = markdown
+        void copyToClipboard(markdown, 'block')
     }
 
     const pasteNotebookClipboardAfterNode = (nodeId: string): void => {
@@ -7034,6 +7041,8 @@ function MarkdownNotebookEditor({
                         ? () => openBtw(serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] }))
                         : undefined,
                     askAIDisabledReason,
+                    // Shared renders have no editor to paste into, matching the legacy notebook's `!isShared` gate.
+                    copyNode: hideResourceLinks ? undefined : copyComponentNode,
                     deleteNode: () => deleteNodeWithRefCleanup(node.id),
                     deleteNodeAndFocusAdjacent: () => {
                         requestFocusAfterRemovingNode(node.id)

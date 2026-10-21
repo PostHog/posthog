@@ -224,8 +224,8 @@ const PatternsCompareControls = ({ id }: { id: string }): JSX.Element => {
                     value={baselineMode}
                     onChange={setBaselineMode}
                     options={[
-                        { value: 'lastWeek' as const, label: 'vs. same time last week' },
                         { value: 'preceding' as const, label: 'vs. preceding period' },
+                        { value: 'lastWeek' as const, label: 'vs. same time last week' },
                     ]}
                     data-attr="logs-patterns-baseline-mode"
                 />

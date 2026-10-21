@@ -5,6 +5,7 @@ from django.dispatch import receiver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.cohorts.backend.facade.ready_signals import connect_realtime_cohort_ready
 from products.workflows.backend.models import HogFlow, HogFlowOptimization
 
 
@@ -39,3 +40,14 @@ def workflow_saved(sender: type, instance: HogFlow, **kwargs: object) -> None:
         and HogFlowOptimization.objects.unscoped().filter(hog_flow_id=instance.id, enabled=True).exists()
     ):
         _sync_after_commit(instance.team_id)
+
+
+def _resume_runs_waiting_for_cohort(sender: object, *, team_id: int, cohort_id: int, **kwargs: object) -> None:
+    from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports the models this module loads
+        resume_batch_jobs_waiting_for_realtime_cohort,
+    )
+
+    resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id)
+
+
+connect_realtime_cohort_ready(_resume_runs_waiting_for_cohort, dispatch_uid="workflows_resume_runs_waiting_for_cohort")

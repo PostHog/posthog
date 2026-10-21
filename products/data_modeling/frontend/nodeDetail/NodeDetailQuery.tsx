@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
@@ -33,7 +33,8 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
                 {queryString ? (
                     <CodeSnippet
                         language={Language.SQL}
-                        className="[&_pre]:max-h-96 [&_pre]:overflow-auto"
+                        // Scales with the viewport so the query gets the space the collapsed columns free up.
+                        className="[&_pre]:max-h-[70vh] [&_pre]:overflow-auto"
                         thing="query"
                     >
                         {queryString}
@@ -43,32 +44,41 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
                 )}
             </div>
 
-            <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Columns</h3>
-                <LemonTable
-                    size="small"
-                    key={id}
-                    pagination={{ pageSize: 10, useUrl: false }}
-                    dataSource={columns}
-                    rowKey="name"
-                    nouns={['column', 'columns']}
-                    emptyState="Columns appear after the view runs."
-                    columns={[
-                        {
-                            title: 'Name',
-                            key: 'name',
-                            render: (_, column: DatabaseSchemaField) => (
-                                <span className="font-mono">{column.name}</span>
-                            ),
-                        },
-                        {
-                            title: 'Type',
-                            key: 'type',
-                            render: (_, column: DatabaseSchemaField) => column.type,
-                        },
-                    ]}
-                />
-            </div>
+            <LemonCollapse
+                key={id}
+                size="small"
+                panels={[
+                    {
+                        key: 'columns',
+                        header: `Columns (${columns.length})`,
+                        dataAttr: 'node-detail-query-columns',
+                        content: (
+                            <LemonTable
+                                size="small"
+                                pagination={{ pageSize: 10, useUrl: false }}
+                                dataSource={columns}
+                                rowKey="name"
+                                nouns={['column', 'columns']}
+                                emptyState="Columns appear after the view runs."
+                                columns={[
+                                    {
+                                        title: 'Name',
+                                        key: 'name',
+                                        render: (_, column: DatabaseSchemaField) => (
+                                            <span className="font-mono">{column.name}</span>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Type',
+                                        key: 'type',
+                                        render: (_, column: DatabaseSchemaField) => column.type,
+                                    },
+                                ]}
+                            />
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }

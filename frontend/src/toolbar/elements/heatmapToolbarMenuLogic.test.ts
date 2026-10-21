@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -99,6 +101,13 @@ describe('heatmapToolbarMenuLogic', () => {
                         type: 'event',
                     },
                 ],
+            ],
+            [
+                'an exact url filter on the normalized url when the wildcard href is a url without a wildcard',
+                'https://example.com/page',
+                'https://example.com',
+                null,
+                [{ key: '$current_url', value: 'https://example.com/', operator: 'exact', type: 'event' }],
             ],
             [
                 'an element selector filter when an area is chosen',
@@ -344,6 +353,77 @@ describe('heatmapToolbarMenuLogic', () => {
                 'getElementStats',
             ])
         })
+
+        it.each([
+            [
+                'setHref',
+                'https://example.com/other?filter=[a-b]&count={2,1}',
+                'exact',
+                'https://example.com/other?filter=[a-b]&count={2,1}',
+            ],
+            [
+                'setWildcardHref',
+                'https://example.com/other?filter=[a-b]&count={2,1}',
+                'exact',
+                'https://example.com/other?filter=[a-b]&count={2,1}',
+            ],
+            ['setHref', 'https://example.com/search?q=*', 'exact', 'https://example.com/search?q=*'],
+            [
+                'setWildcardHref',
+                'https://example.com/products/*?filter=[a-b]',
+                'pattern',
+                String.raw`https\:\/\/example\.com\/products\/*\?filter\=\[a-b\]`,
+            ],
+            ['setWildcardHref', 'not a URL', 'exact', ''],
+        ] as const)('normalizes %s input %s for heatmap data', async (action, input, matchType, href) => {
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsSuccess'])
+            await expectLogic(heatmapDataLogic({ context: 'toolbar' }), () =>
+                logic.actions[action](input)
+            ).toMatchValues({
+                href,
+                hrefMatchType: matchType,
+            })
+            expect(currentPageLogic.values.wildcardHref).toEqual(input)
+        })
+
+        it.each([
+            [
+                'setWildcardHref',
+                'https://example.com/products/*',
+                false,
+                'pattern',
+                String.raw`https\:\/\/example\.com\/products\/*`,
+            ],
+            [
+                'setWildcardHref',
+                'https://example.com/products/123?lang=en',
+                true,
+                'pattern',
+                String.raw`https\:\/\/example\.com\/products\/*\?lang\=en`,
+            ],
+            [
+                'setWildcardHref',
+                'https://example.com/products/latest?lang=en',
+                true,
+                'exact',
+                'https://example.com/products/latest?lang=en',
+            ],
+            ['setHref', 'https://example.com/search?q=*', false, 'exact', 'https://example.com/search?q=*'],
+        ] as const)(
+            'preserves matching for %s %s when reopening the menu',
+            async (action, input, automatic, matchType, href) => {
+                logic.actions[action](input)
+                if (automatic) {
+                    currentPageLogic.actions.autoWildcardHref()
+                }
+                await expectLogic(heatmapDataLogic({ context: 'toolbar' }), () =>
+                    logic.actions.enableHeatmap()
+                ).toMatchValues({
+                    href,
+                    hrefMatchType: matchType,
+                })
+            }
+        )
 
         it('does not fetch element stats when clickmaps are toggled off while the request is debouncing', async () => {
             await expectLogic(logic, () => {

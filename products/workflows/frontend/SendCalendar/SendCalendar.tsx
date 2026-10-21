@@ -61,6 +61,7 @@ export function SendCalendar(): JSX.Element {
                         data-attr="send-calendar-next"
                     />
                     <h3 className="mb-0 ml-1 text-base font-semibold">{periodLabel}</h3>
+                    {scheduledFlowsLoading && scheduledFlows ? <Spinner className="ml-1" /> : null}
                 </div>
                 <div className="flex items-center gap-2">
                     <LemonSegmentedButton<CalendarView>
@@ -88,7 +89,8 @@ export function SendCalendar(): JSX.Element {
                 </div>
             </div>
             <div className="text-xs text-secondary">
-                Times use the project time zone ({timezone}). Drafts and event-triggered workflows do not show.{' '}
+                Times use the project time zone ({timezone}). Drafts, transactional emails, and event-triggered
+                workflows do not show.{' '}
                 <span className="hidden @min-[40rem]:inline">Drag a scheduled send to another day to move it.</span>
             </div>
             <SendCalendarLegend />
@@ -102,7 +104,8 @@ export function SendCalendar(): JSX.Element {
                 </div>
             ) : !scheduledFlows?.length ? (
                 <div className="rounded border bg-surface-primary p-8 text-center text-secondary">
-                    Nothing is scheduled yet. Active broadcasts, and scheduled workflows with an email step, show here.
+                    Nothing is scheduled in this period. Active broadcasts, and scheduled workflows with an email step,
+                    show here.
                 </div>
             ) : (
                 <DndContext

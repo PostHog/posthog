@@ -16,6 +16,7 @@ from uuid import UUID
 from posthog.kafka_client.client import ProduceResult
 
 from products.alerts_platform.backend.facade.contracts import (
+    ALERT_TRANSITION_EVENT,
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
@@ -26,6 +27,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EventKindSpec,
     OwnedAlertDestination,
     SourceKind,
+    TransitionEvent,
 )
 
 from ..logic import (
@@ -37,9 +39,18 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
 )
-from .contracts import AlertInternalEvent, DeliveryPathChoice, DestinationBucket, DestinationEligibility
+from .contracts import (
+    AlertInternalEvent,
+    DeliveryPathChoice,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
+
+# Below the emitting activity's own timeout, which a flush must not use up.
+TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
 # Each destination is another message every time the alert fires, so a caller in a loop is capped.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
@@ -151,6 +162,14 @@ def list_alert_destination_groups(
     )
 
 
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return destinations.owned_alert_destination_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, hog_function_ids=hog_function_ids
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
@@ -234,6 +253,24 @@ def emit_alert_internal_events(
     )
 
 
+def emit_alert_transition_events(*, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None:
+    """The platform's `$alert_transition` events. Raises `AlertInternalEventsNotDelivered` when the broker took not all of them."""
+    destinations.emit_alert_internal_events(
+        team_id=team_id,
+        alert_id=configuration_id,
+        events=[
+            AlertInternalEvent(
+                event_name=ALERT_TRANSITION_EVENT,
+                properties=event.properties,
+                timestamp=event.timestamp,
+                uuid=event.uuid,
+            )
+            for event in events
+        ],
+        flush_timeout_seconds=TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS,
+    )
+
+
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
@@ -250,6 +287,22 @@ def classify_alert_destinations(
     """Every destination function of one alert, with what native delivery cannot carry for each."""
     return destination_eligibility.classify_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customized_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[UUID]:
+    """The destination functions of one alert that send something other than the stock message.
+
+    A refused address is not an edit: such a function still sends the stock message.
+    """
+    return frozenset(
+        eligibility.hog_function_id
+        for eligibility in destination_eligibility.classify_alert_destinations(
+            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        )
+        if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
     )
 
 

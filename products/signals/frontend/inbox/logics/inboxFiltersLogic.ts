@@ -24,7 +24,6 @@ import {
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import { parseTeammateInboxScope } from '../inboxMembership'
 import {
-    INBOX_LEGACY_TAB_KEYS,
     INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_FOR_YOU,
     INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
@@ -33,7 +32,6 @@ import {
     InboxScope,
     SignalReportPriority,
 } from '../types'
-import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
 export interface InboxReviewerOption {
@@ -187,18 +185,16 @@ export function parseFilterSearchParams(
 
 /**
  * The inbox page tab the filters apply to, for the `tab` analytics property: the tab segment from
- * the URL (`reports`, `scouts`, or `settings` under the redesign, or a legacy tab key), or null off
- * a tab route (the scout panels, or a bare `/inbox`). The redesigned Reports tab is one flat list
- * with no sub-view, so it reports `reports` and stays consistent with the `tab` that
+ * the URL (`reports`, `scouts`, or `settings`), or null off a tab route (the scout panels, or a
+ * bare `/inbox`). The Reports tab is one flat list with no sub-view, so it reports `reports` and stays consistent with the `tab` that
  * `captureInboxViewed` sends for the same visit. Read from the router rather than connected from
  * `inboxSceneLogic`, which already connects this logic, because the reverse edge would be a cycle.
  */
-function currentInboxTab(redesign: boolean): string | null {
+function currentInboxTab(): string | null {
     const segments = router.values.location.pathname.split('/').filter(Boolean)
     const inboxIndex = segments.indexOf('inbox')
     const candidate = inboxIndex === -1 ? undefined : segments[inboxIndex + 1]
-    const tabKeys = (redesign ? INBOX_TAB_KEYS : INBOX_LEGACY_TAB_KEYS) as string[]
-    if (!candidate || !tabKeys.includes(candidate)) {
+    if (!candidate || !(INBOX_TAB_KEYS as string[]).includes(candidate)) {
         return null
     }
     return candidate
@@ -302,7 +298,6 @@ export interface inboxFiltersLogicValues {
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
     hasUserChosenSort: boolean
-    isRedesign: boolean
     isScopedToMe: boolean
     knownTeammate: {
         label: string
@@ -427,7 +422,7 @@ export interface inboxFiltersLogicMeta {
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
         isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
-        modelSortAvailable: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
+        modelSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSortField: (
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
@@ -443,7 +438,6 @@ export interface inboxFiltersLogicMeta {
             createdWindow: InboxCreatedWindow | null,
             timeWindowAvailable: boolean
         ) => InboxCreatedWindow | null
-        isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
             stateFilter: (
                 | 'dismissed'
@@ -545,7 +539,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         const captureQueryChange = (change: InboxQueryChange): void =>
             captureInboxQueryChanged({
                 change,
-                tab: currentInboxTab(values.isRedesign),
+                tab: currentInboxTab(),
                 scope: values.scope,
                 sortField: values.activeSortField,
                 sortDirection: values.activeSortDirection,
@@ -731,7 +725,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Whether any server-side list-narrowing filter is active. Scope and sort are excluded: they
         // don't hide reports the way search/source/priority/created window do, and `clearFilters` leaves them
         // untouched. The state filter is also excluded: it only narrows which states the flat
-        // Reports list renders (client-side, redesign only), so the surfaces that need it check
+        // Reports list renders (client-side), so the surfaces that need it check
         // `stateFilter` directly.
         hasActiveFilters: [
             (s) => [s.searchQuery, s.sourceProductFilter, s.scoutFilter, s.priorityFilter, s.activeCreatedWindow],
@@ -753,11 +747,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (scope: InboxScope, user: UserType | null): boolean =>
                 !!user?.uuid && (scope === INBOX_SCOPE_FOR_YOU || parseTeammateInboxScope(scope) === user.uuid),
         ],
-        // Staff only, the same rule as the `ranking` field the backend returns.
+        // The flag is the rollout. The backend also lets every staff user sort by the model, but the menu stays
+        // behind the flag so that staff on an instance with no scores do not get it.
         modelSortAvailable: [
-            (s) => [s.featureFlags, s.user],
-            (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
-                !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT] && !!user?.is_staff,
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT],
         ],
         // The sort the list requests and renders with. A persisted sort the menu no longer offers, or a
         // model sort persisted while it was available, falls back to the default.
@@ -789,10 +783,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (s) => [s.createdWindow, s.timeWindowAvailable],
             (createdWindow: InboxCreatedWindow | null, timeWindowAvailable: boolean): InboxCreatedWindow | null =>
                 timeWindowAvailable ? createdWindow : null,
-        ],
-        isRedesign: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
         ],
         // The stored state filter can name states the current user cannot see: a staff-only state
         // from a shared link, or one persisted before staff access changed. The list and the filter

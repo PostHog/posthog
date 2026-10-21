@@ -2,8 +2,11 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPullRequest, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -52,6 +55,7 @@ export function CIExplorerScene(): JSX.Element {
     } = useValues(ciExplorerLogic)
     const { repoOwner, repoName, number, sourceId } = useMountedLogic(ciExplorerLogic).props
     const { loadPrRuns, refresh } = useActions(ciExplorerLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const pullRequest = lifecycle?.pull_request
     const viewUrl = (target: CIExplorerView): string => locationUrl({ view: target, headSha: null, nodeId: null })
@@ -62,14 +66,24 @@ export function CIExplorerScene(): JSX.Element {
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={pullRequestUrl}
-                        data-attr="ci-explorer-open-pull-request"
-                    >
-                        Open pull request
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={<LinkPrimitive to={pullRequestUrl} />}
+                            data-attr="ci-explorer-open-pull-request"
+                        >
+                            Open pull request
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={pullRequestUrl}
+                            data-attr="ci-explorer-open-pull-request"
+                        >
+                            Open pull request
+                        </LemonButton>
+                    )
                 }
             />
 
