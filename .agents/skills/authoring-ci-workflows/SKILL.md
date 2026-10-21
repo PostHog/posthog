@@ -21,6 +21,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
   `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
 - Related skills — reach for these instead of duplicating them here:
   - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
+    Read its [ordered-image reference](../gating-production-deploys/references/ordered-image-releases.md) for new monorepo publishers and shared-build consumers.
   - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
   - `/depot-github-runners` — Depot runner labels and sizing.
   - `/debugging-ci-failures` — CI is red and you need to know why.
