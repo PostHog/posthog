@@ -1,8 +1,8 @@
 # A `/depot retry` comment on a pull request retries the failed and cancelled jobs of its newest Depot CI
 # run, without waiting for the rest of the run and without a push that reruns every workflow.
 #
-# This runs on GitHub Actions because Depot CI records a run for every comment that reaches an
-# issue_comment workflow, and neither a job `if:` nor a workflow-level `if:` prevents that record.
+# This runs on GitHub Actions because Depot CI records a run for every comment, even a skipped one. See
+# "Reruns" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 #
 # issue_comment workflows run from the default branch, so pull request code never runs here.
 name: Retry Depot CI from a comment
@@ -24,7 +24,7 @@ jobs:
         concurrency:
             group: ${{ github.workflow }}-pr-${{ github.event.issue.number }}
             cancel-in-progress: false
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
