@@ -25,6 +25,9 @@ export function CyclotronJobInputIntegration({
             integration={schema.integration}
             redirectUrl={buildRedirectUrl(schema.key)}
             beforeRedirect={() => persistForUnload?.()}
+            // An optional connection can change how a function authenticates, such as replacing its access keys,
+            // so it stays empty until the user picks one.
+            autoSelect={schema.required !== false}
         />
     )
 }
