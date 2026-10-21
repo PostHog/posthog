@@ -11,7 +11,11 @@ from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import (
+    SANDBOX_PROVISIONING_STARTED_STATE_KEY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    filter_user_sandbox_env_vars,
+)
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
@@ -341,6 +345,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             runtime=runtime,
             sandbox_backend=modal_sandbox_backend_label(),
         ) as sandbox_creation_timer:
+            if (ctx.state or {}).get(SANDBOX_PROVISIONING_STARTED_STATE_KEY) is False:
+                TaskRun.update_state_atomic(ctx.run_id, updates={SANDBOX_PROVISIONING_STARTED_STATE_KEY: True})
             sandbox = Sandbox.create(config)
             # The provider's TTL clock starts here — the usage ledger anchors its
             # kill deadline on this boundary, not on when the row is opened below.

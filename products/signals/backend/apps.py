@@ -23,6 +23,7 @@ class SignalsConfig(AppConfig):
         )
 
         receivers.connect_task_run_assignment_sync()
+        receivers.connect_task_run_spend_sync()
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()
         self._register_scout_skill_rename_hook()

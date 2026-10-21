@@ -88,6 +88,7 @@ from products.tasks.backend.constants import (
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SANDBOX_PROVISIONING_STARTED_STATE_KEY,
     SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
     SUBSCRIPTION_PLAN_NAMES,
@@ -1095,6 +1096,26 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def trial_research_has_started(*, team_id: int, report_pass_key: str) -> bool:
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        state__self_driving_funding__report_pass_key=report_pass_key,
+        state__self_driving_funding__stage="research",
+        state__sandbox_provisioning_started=True,
+    ).exists()
+
+
+def iter_trial_task_runs(*, team_id: int, grant_id: str) -> Iterator[contracts.TaskRunDTO]:
+    runs = TaskRun.objects.filter(
+        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+        state__self_driving_funding__funding="trial",
+        state__self_driving_funding__grant_id=grant_id,
+    ).select_related("task", "task__created_by")
+    for run in runs.iterator(chunk_size=500):
+        yield _task_run_to_dto(run)
 
 
 def find_signal_implementation_run(
@@ -2880,6 +2901,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "token_cost",
         "token_cost_incomplete",
         "compute_cost",
+        # Billing and trial admission use these server-owned stamps.
+        "self_driving_funding",
+        SANDBOX_PROVISIONING_STARTED_STATE_KEY,
         "failure_error_type",
         "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,

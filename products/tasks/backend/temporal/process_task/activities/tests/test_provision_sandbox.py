@@ -676,7 +676,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         github_integration_id=123,
         repository="posthog/posthog",
         distinct_id="distinct-id",
-        state={"await_user_message": True},
+        state={"await_user_message": True, "sandbox_provisioning_started": False},
     )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.image_fallback = None
@@ -713,9 +713,11 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
-    task_run.update_state_atomic.assert_called_once_with(
+    task_run.update_state_atomic.assert_any_call("run-id", updates={"sandbox_provisioning_started": True})
+    task_run.update_state_atomic.assert_any_call(
         "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[]
     )
+    assert task_run.update_state_atomic.call_count == 2
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
 
 

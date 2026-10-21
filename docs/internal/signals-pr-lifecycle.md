@@ -273,3 +273,5 @@ The shared usage counter combines those daily amounts with legacy report charges
 Free-trial organizations retain the legacy meter, where no PR means no charge. System-funded signals, canonical health-check scouts and private scout trials remain excluded. Usage-mode reports do not generate the flat PR charge, so the existing fixed-PR refund is only available for legacy reports. The flag remains disabled until rollout; this backend change does not convert the existing PR-based billing presentation.
 
 A Self-driving trial grant follows its canonical project and environments when the project moves to another organization. Its remaining allowance, reserved reports, and exhausted state stay in effect. The lifetime claim continues to count against the organization that issued it, so moving a project does not return a trial slot.
+
+Trial task receipts include raw token costs and compute across each sandbox's full recorded lifetime, including time before user attribution. Customer compute charges continue to use the user-attributed window.

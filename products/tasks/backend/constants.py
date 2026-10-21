@@ -27,6 +27,7 @@ def is_html_artifact(name: str, content_type: str) -> bool:
     return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
 
 
+SANDBOX_PROVISIONING_STARTED_STATE_KEY = "sandbox_provisioning_started"
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether
 # the MCP serves product skills through `learn` and whether a sandbox launches without bundled skills.
 MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
