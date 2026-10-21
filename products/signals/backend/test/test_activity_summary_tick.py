@@ -287,6 +287,30 @@ class TestActivitySummaryQueue(BaseTest):
         else:
             assert daily_usage(NOW) == DailyUsage(updates=0, cost_usd=0.0)
 
+    def test_an_exception_before_the_model_call_keeps_an_earlier_paid_update_in_the_daily_caps(self) -> None:
+        self._changes(self.user, 3)
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, status=UserActivitySummary.Status.FAILED, cost_usd=0.25
+        )
+
+        with patch(
+            "products.signals.backend.activity_summary.logic.gateway_client", side_effect=RuntimeError("no gateway")
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=True,
+                    capture_events=True,
+                )
+            )
+
+        assert (result.status, result.called_model) == ("failed", False)
+        assert self._select() == []
+        assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
+
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
         self._changes(self.user, 3)
         capture = MagicMock()

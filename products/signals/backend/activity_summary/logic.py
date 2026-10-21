@@ -4,6 +4,8 @@ import datetime
 from enum import StrEnum
 from typing import Any
 
+from django.db.models import Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -86,27 +88,50 @@ def record_update_exception(team_id: int, user_id: int, error: BaseException) ->
     """Store an update that raised as failed, keep the stored summary and watermark, and back the pair off.
 
     An update that raised after the model call keeps its cost. A missing cost counts at the bound.
+    An update that raised before the model call keeps the cost of the earlier update.
     """
+    next_eligible_at = timezone.now() + RETRY_BACKOFF
     if isinstance(error, UpdateAfterModelCallError):
         message = f"{EXCEPTION_AFTER_MODEL_CALL_ERROR_PREFIX}{type(error.__cause__).__name__}"
-        cost: float | None = error.cost_usd
-    else:
-        message = f"{EXCEPTION_ERROR_PREFIX}{type(error).__name__}"
-        cost = 0.0
-    UserActivitySummary.objects.for_team(team_id).update_or_create(
-        team_id=team_id,
-        user_id=user_id,
-        defaults={
-            "status": UserActivitySummary.Status.FAILED,
-            "error": message,
-            "tokens_in": None,
-            "tokens_out": None,
-            "cost_usd": cost,
-            "latency_ms": None,
-            "next_eligible_at": timezone.now() + RETRY_BACKOFF,
-        },
+        UserActivitySummary.objects.for_team(team_id).update_or_create(
+            team_id=team_id,
+            user_id=user_id,
+            defaults={
+                "status": UserActivitySummary.Status.FAILED,
+                "error": message,
+                "tokens_in": None,
+                "tokens_out": None,
+                "cost_usd": error.cost_usd,
+                "latency_ms": None,
+                "next_eligible_at": next_eligible_at,
+            },
+        )
+        return ActivitySummaryUpdate(status=UpdateStatus.FAILED, error=message, cost_usd=error.cost_usd)
+
+    message = f"{EXCEPTION_ERROR_PREFIX}{type(error).__name__}"
+    # `update()` leaves `updated_at` and a paid cost alone, so the daily caps still count an earlier update.
+    updated = (
+        UserActivitySummary.objects.for_team(team_id)
+        .filter(user_id=user_id)
+        .update(
+            status=UserActivitySummary.Status.FAILED,
+            error=message,
+            cost_usd=Coalesce("cost_usd", Value(0.0)),
+            next_eligible_at=next_eligible_at,
+        )
     )
-    return ActivitySummaryUpdate(status=UpdateStatus.FAILED, error=message, cost_usd=cost)
+    if not updated:
+        UserActivitySummary.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            user_id=user_id,
+            defaults={
+                "status": UserActivitySummary.Status.FAILED,
+                "error": message,
+                "cost_usd": 0.0,
+                "next_eligible_at": next_eligible_at,
+            },
+        )
+    return ActivitySummaryUpdate(status=UpdateStatus.FAILED, error=message, cost_usd=0.0)
 
 
 def update_activity_summary(
