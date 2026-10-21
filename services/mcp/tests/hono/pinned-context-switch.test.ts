@@ -1,10 +1,11 @@
 import { http, HttpResponse, type DefaultBodyType, type StrictRequest } from 'msw'
 import { setupServer } from 'msw/node'
 import { createHash } from 'node:crypto'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import { RedisCache, type RedisLike } from '@/hono/cache/RedisCache'
+import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { hash } from '@/lib/utils'
 import type { SessionScopedState, State } from '@/tools/types'
 
@@ -46,6 +47,10 @@ const mswServer = setupServer(
     http.post('*/api/environments/:projectId/mcp_tools/execute_sql/', ({ request }) => {
         recordApiPath(request)
         return HttpResponse.json({ success: true, content: 'ok' })
+    }),
+    http.post('*/api/projects/:projectId/feature_flags/', ({ request }) => {
+        recordApiPath(request)
+        return HttpResponse.json({ id: 123, key: 'batch-routing', active: true, filters: { groups: [] } })
     }),
     http.get('*/api/organizations/:orgId/billing/subscription/', ({ request }) => {
         recordApiPath(request)
@@ -174,6 +179,18 @@ async function callTool(
         throw new Error(`tools/call ${name} failed: ${error?.message ?? 'no result'}`)
     }
     return { isError: result.isError, text: result.content?.[0]?.text ?? '' }
+}
+
+async function postBatch(
+    calls: Array<{ name: string; arguments: Record<string, unknown> }>,
+    options: CallOptions
+): Promise<Array<Omit<ToolCallResponse, 'status'>>> {
+    const response = await app.request(`/mcp${options.query ?? ''}`, {
+        method: 'POST',
+        headers: requestHeaders(options),
+        body: JSON.stringify(calls.map((params, id) => ({ jsonrpc: '2.0', id, method: 'tools/call', params }))),
+    })
+    return (await response.json()) as Array<Omit<ToolCallResponse, 'status'>>
 }
 
 // The project the query tool and the org the billing tool really call, or null when the tool calls nothing.
@@ -314,14 +331,14 @@ describe('pinned project with switch-project (Hono)', () => {
                 expected: { project: null, org: OTHER_ORG },
             },
         ].flatMap((testCase) =>
-            ['', `?project_id=${PINNED_PROJECT}`].flatMap((query) =>
+            ['', `?project_id=${PINNED_PROJECT}`, '?sessionId=wrapper-context'].flatMap((query) =>
                 ['direct', 'exec'].map((mode) => ({ ...testCase, query, mode }))
             )
         )
     )(
         'requires a carried handle before $mode $tool with pin "$query"',
         async ({ tool, args, expected, query, mode }) => {
-            const token = `phx_require_handle_${tool}_${mode}_${query ? 'pin' : 'default'}`
+            const token = `phx_require_handle_${tool}_${mode}_${query}`
             const toolName = mode === 'exec' ? 'exec' : tool
             const toolArgs = mode === 'exec' ? { command: `call ${tool} ${JSON.stringify(args)}` } : args
             const first = await postToolCall(toolName, toolArgs, { token, query })
@@ -340,29 +357,146 @@ describe('pinned project with switch-project (Hono)', () => {
         }
     )
 
-    it('rejects every switch in a legacy batch without a carried handle', async () => {
-        const token = 'phx_batch_requires_handle'
-        const response = await app.request('/mcp', {
-            method: 'POST',
-            headers: requestHeaders({ token }),
-            body: JSON.stringify([
-                {
-                    jsonrpc: '2.0',
-                    id: 1,
-                    method: 'tools/call',
-                    params: { name: 'switch-project', arguments: { projectId: Number(OTHER_PROJECT) } },
+    it.each([undefined, 'conv-1'])(
+        'rejects batch handles %s and accepts retries with minted handles',
+        async (supplied) => {
+            const token = `phx_batch_requires_handle_${supplied}`
+            const calls = [
+                { name: 'switch-project', arguments: { projectId: Number(OTHER_PROJECT) } },
+                { name: 'switch-organization', arguments: { orgId: OTHER_ORG } },
+            ]
+            const results = await postBatch(
+                calls.map((call) => ({ ...call, arguments: { ...call.arguments, conversation_id: supplied } })),
+                { token }
+            )
+            expect(results.map(({ result }) => result?.isError)).toEqual([true, true])
+            const handles = results.map((result) => mintedConversationId({ status: 200, ...result }))
+            expect(handles).toEqual([
+                expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/),
+                expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/),
+            ])
+            expect(new Set(handles).size).toBe(2)
+            expect(await targets({ token, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+
+            const retries = await postBatch(
+                calls.map((call, index) => ({
+                    ...call,
+                    arguments: { ...call.arguments, conversation_id: handles[index] },
+                })),
+                { token }
+            )
+            expect(retries.map(({ result }) => Boolean(result?.isError))).toEqual([false, false])
+            expect(await targets({ token, query: '', conversationId: handles[0] })).toEqual({
+                project: OTHER_PROJECT,
+                org: OTHER_ORG,
+            })
+            expect(await targets({ token, query: '', conversationId: handles[1] })).toEqual({
+                project: null,
+                org: OTHER_ORG,
+            })
+            expect(await targets({ token, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+        }
+    )
+
+    it.each(['direct', 'exec'])('validates each handle independently in a mixed %s batch', async (mode) => {
+        const token = `phx_mixed_batch_${mode}`
+        const results = await postBatch(
+            [CONVERSATION_A, 'conv-1'].map((conversation_id) => ({
+                name: mode === 'exec' ? 'exec' : 'switch-project',
+                arguments: {
+                    ...(mode === 'exec'
+                        ? { command: `call switch-project {"projectId":${OTHER_PROJECT}}` }
+                        : { projectId: Number(OTHER_PROJECT) }),
+                    conversation_id,
                 },
-                {
-                    jsonrpc: '2.0',
-                    id: 2,
-                    method: 'tools/call',
-                    params: { name: 'switch-organization', arguments: { orgId: OTHER_ORG } },
-                },
-            ]),
+            })),
+            { token }
+        )
+        expect(results.map(({ result }) => Boolean(result?.isError))).toEqual([false, true])
+        expect(await targets({ token, query: '', conversationId: CONVERSATION_A })).toEqual({
+            project: OTHER_PROJECT,
+            org: OTHER_ORG,
         })
-        const results = (await response.json()) as Array<Omit<ToolCallResponse, 'status'>>
-        expect(results.map(({ result }) => result?.isError)).toEqual([true, true])
-        expect(await targets({ token, query: '' })).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
+    })
+
+    it.each(
+        [
+            {
+                operation: 'read',
+                name: 'execute-sql',
+                args: { query: 'SELECT 1' },
+                route: (project: string) => `/api/environments/${project}/mcp_tools/execute_sql/`,
+            },
+            {
+                operation: 'write through exec',
+                name: 'exec',
+                args: { command: 'call create-feature-flag {"key":"batch-routing","filters":{"groups":[]}}' },
+                route: (project: string) => `/api/projects/${project}/feature_flags/`,
+            },
+        ].flatMap((operation) => [false, true].map((differentHandles) => ({ ...operation, differentHandles })))
+    )(
+        'isolates batch $operation with different handles=$differentHandles',
+        async ({ name, args, route, operation, differentHandles }) => {
+            const token = `phx_batch_routing_${operation.replaceAll(' ', '_')}_${differentHandles}`
+            const conversations = [CONVERSATION_A, differentHandles ? CONVERSATION_B : CONVERSATION_A]
+            const projects = [OTHER_PROJECT, differentHandles ? '3' : OTHER_PROJECT]
+            for (const [conversationId, projectId] of new Map(
+                conversations.map((conversationId, index) => [conversationId, projects[index]!])
+            )) {
+                expect(
+                    (
+                        await callTool(
+                            'switch-project',
+                            { projectId: Number(projectId) },
+                            { token, query: '', conversationId }
+                        )
+                    ).isError
+                ).toBeFalsy()
+            }
+            apiPathsByIntent.clear()
+            const results = await postBatch(
+                conversations.map((conversation_id, index) => ({
+                    name,
+                    arguments: { ...args, conversation_id, context: `batch-item-${index}` },
+                })),
+                { token }
+            )
+            expect(results.map(({ result }) => Boolean(result?.isError))).toEqual([false, false])
+            expect(projects.map((_, index) => apiPathsByIntent.get(`batch-item-${index}`))).toEqual(
+                projects.map((project) => [route(project)])
+            )
+        }
+    )
+
+    it('returns an individual error when one batch context lookup fails', async () => {
+        const originalResolve = RequestStateResolver.prototype.resolve
+        const resolve = vi
+            .spyOn(RequestStateResolver.prototype, 'resolve')
+            .mockImplementation(function (this: RequestStateResolver, props) {
+                return props.mcpConversationId === CONVERSATION_A
+                    ? Promise.reject(new Error('Synthetic batch context failure'))
+                    : originalResolve.call(this, props)
+            })
+        apiPaths.length = 0
+        try {
+            const results = await postBatch(
+                [CONVERSATION_A, CONVERSATION_B].map((conversation_id) => ({
+                    name: 'execute-sql',
+                    arguments: { query: 'SELECT 1', conversation_id },
+                })),
+                { token: 'phx_batch_context_failure' }
+            )
+            expect(Array.isArray(results)).toBe(true)
+            expect({
+                responses: results.map(({ error, result }) => error?.code ?? Boolean(result?.isError)),
+                paths: apiPaths,
+            }).toEqual({
+                responses: [-32603, false],
+                paths: [`/api/environments/${PINNED_PROJECT}/mcp_tools/execute_sql/`],
+            })
+        } finally {
+            resolve.mockRestore()
+        }
     })
 
     it('keeps a conversation bound to its credential and separate from a transport session with the same id', async () => {

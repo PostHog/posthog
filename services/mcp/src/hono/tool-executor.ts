@@ -389,12 +389,12 @@ export class ToolExecutor {
         preparedCall: PreparedToolCall | undefined
     } {
         try {
+            const carriesContext = Boolean(requestContext.mcpSessionId || requestContext.mcpConversationId)
             const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, {
                 originalTool,
                 requestMeta,
-                // The SDK mints a handle only when nothing was carried, so a client that already
-                // has a session keeps it and never sees the prompt-back.
-                sessionId: resolveSessionKey(requestContext),
+                // Wrapper-only analytics hints cannot restore selections, so they must not suppress minting.
+                sessionId: carriesContext ? resolveSessionKey(requestContext) : undefined,
             })
             return {
                 analyticsMeta: {

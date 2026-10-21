@@ -414,6 +414,8 @@ Each MCP transport session keeps its own active organization and project, includ
 
 Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls. A switch without a carried session or conversation handle returns an error and a new handle; retry with that handle to apply the switch. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity start from the connection's pin or default selection. If your client cannot retain conversation handles, pin the project or organization in the connection URL.
 
+Legacy JSON-RPC batches restore each call's conversation handle independently. The wrapper's `sessionId` query parameter is an analytics hint and does not replace a conversation handle; wrapper-only calls still receive a new handle from the SDK.
+
 Session defaults are stored once, separately from explicit selections. A delayed lookup can resolve context for its own request without overwriting a completed switch.
 
 If default project discovery fails, later requests retry within the session's original organization. The first successful project discovery wins, and explicit switches still take precedence. An organization switch retains a selected project when the destination's team list confirms that it belongs there, even if the credential cannot read project metadata.

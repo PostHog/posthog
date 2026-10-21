@@ -81,6 +81,8 @@ The Hono runtime keeps per-user session state (active project/organization, regi
 
 Project and organization selections are scoped to the credential and transport session, or to the SDK's conversation handle for sessionless clients. Conversation and transport namespaces are separate. Echoed handles resolve before the state lookup; a newly minted handle binds state before tool execution. Both direct and exec-routed switches require the request to carry a session or conversation handle. A switch without one returns an error and the SDK's new handle for retrying. Switching does not update the shared credential selection.
 
+Each sessionless legacy batch item resolves its own request properties, state, and carried-handle guard. A wrapper-only `sessionId` cannot restore selections, so it does not suppress SDK conversation-handle minting.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:

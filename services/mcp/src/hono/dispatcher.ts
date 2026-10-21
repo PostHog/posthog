@@ -275,7 +275,8 @@ class McpDispatcher {
         }
 
         const carriedContextHandle = Boolean(props.mcpSessionId || props.mcpConversationId)
-        const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
+        const sessionlessBatch = wasArray && !props.mcpSessionId
+        const needsState = !sessionlessBatch && requests.some((r) => TRACKED_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
             state = needsState ? await this.stateResolver.resolve(props) : undefined
@@ -345,7 +346,34 @@ class McpDispatcher {
         }
 
         const results = await Promise.all(
-            requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin, carriedContextHandle))
+            requests.map(async (request) => {
+                if (!sessionlessBatch) {
+                    return this.dispatch(request, props, state, getPublicUrl(req).origin, carriedContextHandle)
+                }
+                const itemProps = { ...props }
+                if (request.method === Method.ToolsCall) {
+                    itemProps.mcpConversationId = echoedConversationId(request) ?? props.mcpConversationId
+                }
+                let itemState: ResolvedState | undefined
+                try {
+                    itemState = TRACKED_METHODS.has(request.method)
+                        ? await this.stateResolver.resolve(itemProps)
+                        : undefined
+                } catch (error) {
+                    if (mapErrorToAuthResponse(error)) {
+                        throw error
+                    }
+                    console.error('[McpDispatcher] Internal error:', error)
+                    return jsonRpcMethodError(request.id, ErrorCode.InternalError, 'Internal error')
+                }
+                return this.dispatch(
+                    request,
+                    itemProps,
+                    itemState,
+                    getPublicUrl(req).origin,
+                    Boolean(itemProps.mcpSessionId || itemProps.mcpConversationId)
+                )
+            })
         )
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
