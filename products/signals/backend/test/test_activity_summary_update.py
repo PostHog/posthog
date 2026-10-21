@@ -99,10 +99,11 @@ class TestUpdateActivitySummary(BaseTest):
         assert after.error == "malformed_output: response was truncated"
         assert (after.summary, after.input_watermark) == (before.summary, before.input_watermark)
         assert (after.tokens_in, after.tokens_out, after.cost_usd) == (None, None, None)
+        assert after.next_eligible_at == NOW + datetime.timedelta(hours=6)
 
     @parameterized.expand(
         [
-            ("too few units", 2, {}, UpdateStatus.SKIPPED_TOO_FEW_UNITS),
+            ("too few units in a dry run", 2, {"dry_run": True}, UpdateStatus.SKIPPED_TOO_FEW_UNITS),
             ("a dry run", 3, {"dry_run": True}, UpdateStatus.OK),
         ]
     )
@@ -112,6 +113,28 @@ class TestUpdateActivitySummary(BaseTest):
 
         assert self._update(FakeLLM([ANSWER]), **kwargs).status == status
         assert self._stored() is None
+
+    def test_too_few_units_backs_off_without_touching_the_stored_summary(self) -> None:
+        self._changes(2)
+        llm = FakeLLM([ANSWER])
+
+        assert self._update(llm).status == UpdateStatus.SKIPPED_TOO_FEW_UNITS
+        assert llm.requests == []
+        skipped = self._stored()
+        assert skipped is not None
+        assert (skipped.status, skipped.summary) == (UserActivitySummary.Status.SKIPPED, None)
+        assert skipped.next_eligible_at == NOW + datetime.timedelta(hours=6)
+
+        with time_machine.travel(NOW + datetime.timedelta(hours=7), tick=False):
+            assert self._update(FakeLLM([ANSWER]), min_units=2).status == UpdateStatus.OK
+        before = self._stored()
+        assert before is not None
+        with time_machine.travel(NOW + datetime.timedelta(days=2), tick=False):
+            assert self._update(FakeLLM([ANSWER])).status == UpdateStatus.SKIPPED_TOO_FEW_UNITS
+        after = self._stored()
+        assert after is not None
+        assert (after.status, after.summary, after.updated_at) == (before.status, before.summary, before.updated_at)
+        assert after.next_eligible_at == NOW + datetime.timedelta(days=2, hours=6)
 
     def test_skips_until_next_eligible_unless_forced(self) -> None:
         self._changes(3, days_ago=2)

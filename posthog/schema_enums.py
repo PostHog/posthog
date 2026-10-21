@@ -373,6 +373,11 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
+class AssistantMetricsNodeKind(StrEnum):
+    METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
+
+
 class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
@@ -1427,6 +1432,20 @@ class ManualMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN_COUNT = "mean_count"
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
+class ExperimentExposureHealthCheckKey(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+
+
+class ExperimentExposureHealthCheckStatus(StrEnum):
+    PASSED = "passed"
+    FINDING = "finding"
+    NOT_APPLICABLE = "not_applicable"
+    NOT_CHECKED = "not_checked"
 
 
 class ExperimentExposureHealthFindingActionKind(StrEnum):
