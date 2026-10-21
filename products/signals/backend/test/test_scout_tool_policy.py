@@ -189,6 +189,22 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         if expected_status == status.HTTP_403_FORBIDDEN:
             assert response.json()["code"] == "scout_tool_not_granted"
 
+    @parameterized.expand([("empty", []), ("custom", ["insight-query"]), ("unrestricted", None)])
+    def test_introspection_preserves_skill_bootstrap(self, _name: str, allowlist: list[str] | None) -> None:
+        task = self._scout_client(allowlist=allowlist)
+
+        response = self.client.post("/oauth/introspect/", {"token": "pha_synthetic_scout"}, format="json")
+
+        body = response.json()
+        assert body["active"] is True, body
+        assert body["sandbox_task_id"] == str(task.id)
+        if allowlist is None:
+            assert "mcp_allowed_tools" not in body
+        else:
+            assert {"skill-get", "skill-file-get", *allowlist} <= set(body["mcp_allowed_tools"])
+            assert "skill-update" not in body["mcp_allowed_tools"]
+            assert "conversations-tickets-reply-create" not in body["mcp_allowed_tools"]
+
 
 class TestScoutToolOperations(SimpleTestCase):
     @parameterized.expand([("notebooks-run",), ("notebooks-run-status",)])
