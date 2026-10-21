@@ -1,7 +1,7 @@
 """The warehouse views this product exposes, for data_modeling's managed-viewset sync.
 
 data_modeling calls ``get_expected_warehouse_views(team)`` and adapts the returned frozen
-contracts into its own ``ExpectedView`` rows (as non-materialized saved queries). Kept behind the
+contracts into its own ``ExpectedView`` rows. Kept behind the
 facade so data_modeling never imports this product's read layer directly — it depends only on the
 provider-neutral ``ExpectedWarehouseView`` contract.
 """
