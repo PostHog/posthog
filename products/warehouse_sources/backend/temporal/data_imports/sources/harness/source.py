@@ -110,7 +110,7 @@ class HarnessSource(ResumableSource[HarnessSourceConfig, HarnessResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Harness",
             iconPath="/static/services/harness.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Harness, open **My Profile > My API Keys** to create an API key and token. "
                 "Paste the token below. Give it view permission for pipelines, executions, services, and environments in your project. "

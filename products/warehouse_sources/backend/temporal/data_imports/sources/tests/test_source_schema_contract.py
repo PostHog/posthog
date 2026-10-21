@@ -49,10 +49,13 @@ PASS = "pass"
 # `config`: `get_schemas` rejects every placeholder config.
 # `empty`: `get_schemas` returns no schema for a placeholder config.
 SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
+    "AmazonS3": "network",
+    "AzureBlob": "network",
     "BigQuery": "driver",
     "Baserow": "network",
     "CheckoutCom": "network",
     "ClickHouse": "network",
+    "CloudflareR2": "config",
     "Convex": "config",
     "CosmosDB": "config",
     "Custom": "config",
@@ -62,6 +65,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "Elasticsearch": "network",
     "Firebase": "config",
     "GoogleAds": "driver",
+    "GoogleCloudStorage": "network",
     "GoogleSheets": "config",
     "Kafka": "driver",
     "MSSQL": "driver",
@@ -94,7 +98,9 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
 # `request`: the extraction sends a request before it checks the schema, or the vendor supplies the list.
 # `webhook`: the schemas are webhook-only, so the extraction accepts any name and yields no rows.
 UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
+    "AmazonS3": "request",
     "Attentive": "webhook",
+    "AzureBlob": "request",
     "Baserow": "request",
     "BigQuery": "driver",
     "BingAds": "database",
@@ -103,6 +109,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "Clay": "request",
     "ClickHouse": "database",
     "Cliniko": "request",
+    "CloudflareR2": "config",
     "Convex": "cursor",
     "CosmosDB": "config",
     "Custom": "config",
@@ -115,6 +122,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "FullStory": "request",
     "Github": "config",
     "GoogleAds": "driver",
+    "GoogleCloudStorage": "request",
     "GoogleSheets": "config",
     "Hatchet": "config",
     "HelpScout": "database",

@@ -94,8 +94,7 @@
             "type": "array"
         },
         "value": {
-            "description": "Search filter for attribute values",
-            "minLength": 1,
+            "description": "Search filter for attribute values. Omit it or pass an empty string to list all values.",
             "type": "string"
         }
     },
