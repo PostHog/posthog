@@ -218,6 +218,18 @@ def _run(
     return None
 
 
+def _run_in(
+    context: contextvars.Context,
+    team: Team,
+    query: dict[str, Any],
+    variables: Sequence[MetricsDashboardVariable],
+    *,
+    timeout: float,
+    start_by: float,
+) -> str | None:
+    return context.run(lambda: _run(team, query, variables, timeout=timeout, start_by=start_by))
+
+
 class ProjectChecks:
     """The checks for one generation. The profile comes from `attribute_profile`, or is None when it failed."""
 
@@ -259,8 +271,8 @@ class ProjectChecks:
             futures = {
                 # Each run keeps the query tags of the activity, in its own copy of the context.
                 key: executor.submit(
-                    contextvars.copy_context().run,
-                    _run,
+                    _run_in,
+                    contextvars.copy_context(),
                     self._team,
                     query,
                     definitions,
