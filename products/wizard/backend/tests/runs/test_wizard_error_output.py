@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine, stderr_to_wizard_error
@@ -21,6 +23,27 @@ from products.wizard.backend.logic.workers.wizard_error_output import WizardErro
         (
             'phw-error: {"code":"PHW_FUTURE_ERROR","message":{"nested":true}}',
             WizardErrorLine(code="PHW_FUTURE_ERROR", message=None),
+        ),
+        *(
+            (
+                'phw-error: {"code":"PHW_AGENT_API_ERROR","message":' + json.dumps(message) + "}",
+                WizardErrorLine(code="PHW_AGENT_API_ERROR", message=expected_message),
+            )
+            for message, expected_message in (
+                ("Gateway refused pha_FakeOAuthToken1234 for team 2", "Gateway refused [REDACTED] for team 2"),
+                ("clone failed: gho_FAKEFAKEFAKEFAKEFAKE1234", "clone failed: [REDACTED]"),
+                (
+                    "fetch https://x-access-token:fake-secret@github.com/org/repo.git failed",
+                    "fetch https://[REDACTED]@github.com/org/repo.git failed",
+                ),
+                ("401 with Authorization: Bearer fake.jwt.value-1234", "401 with Authorization: Bearer [REDACTED]"),
+                ('config {"apiKey": "fake-key-value"} rejected', 'config {"apiKey": "[REDACTED]"} rejected'),
+                (
+                    "OpenAI API error (400): 400 invalid request body",
+                    "OpenAI API error (400): 400 invalid request body",
+                ),
+                ("Headless mode requires --api-key (phx_xxx)", "Headless mode requires --api-key (phx_xxx)"),
+            )
         ),
         ('phw-error: {"code":"detect_no_framework"}', None),
         ('phw-error: {"message":"Missing code"}', None),
