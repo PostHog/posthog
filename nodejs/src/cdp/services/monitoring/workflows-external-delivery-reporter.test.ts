@@ -1,0 +1,88 @@
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import * as analytics from '~/common/utils/posthog'
+import { Team } from '~/types'
+
+import {
+    WorkflowsExternalDeliveryReporter,
+    workflowsExternalDeliveryReportsCounter,
+} from './workflows-external-delivery-reporter'
+
+const droppedReports = async (): Promise<number> =>
+    (await workflowsExternalDeliveryReportsCounter.get()).values.find(({ labels }) => labels.outcome === 'dropped_busy')
+        ?.value ?? 0
+
+describe('WorkflowsExternalDeliveryReporter', () => {
+    it('bounds pending Redis claims and resumes reporting when they finish', async () => {
+        const capture = jest.spyOn(analytics, 'captureTeamEvent').mockImplementation(() => {})
+        const claims: (() => void)[] = []
+        let ready: () => void = () => {}
+        const claimsStarted = new Promise<void>((resolve) => (ready = resolve))
+        const redis = {
+            useClient: jest.fn(
+                () =>
+                    new Promise<string>((resolve) => {
+                        claims.push(() => resolve('OK'))
+                        if (claims.length === 4) {
+                            ready()
+                        }
+                    })
+            ),
+        } as unknown as RedisV2
+        const postgres = {
+            query: jest.fn().mockResolvedValue({ rows: [{ email: 'member@example.com' }] }),
+        } as unknown as PostgresRouter
+        const reporter = new WorkflowsExternalDeliveryReporter(
+            { getTeam: (id) => Promise.resolve({ id, organization_id: 'org-id' } as Team) },
+            postgres,
+            redis
+        )
+        try {
+            const reports = [1, 2, 3, 4].map((id) => reporter.report(id, 'flow-id', ['reader@example.com']))
+            await claimsStarted
+            const droppedBefore = await droppedReports()
+            const overflow = reporter.report(5, 'flow-id', ['reader@example.com'])
+            await overflow
+            expect(redis.useClient).toHaveBeenCalledTimes(4)
+            expect((await droppedReports()) - droppedBefore).toBe(1)
+            for (const claim of claims) {
+                claim()
+            }
+            await Promise.all([...reports, overflow])
+            redis.useClient = jest.fn().mockResolvedValue('OK')
+            await reporter.report(5, 'flow-id', ['reader@example.com'])
+            expect(capture).toHaveBeenCalledTimes(5)
+            expect(capture).toHaveBeenLastCalledWith(
+                expect.objectContaining({ id: 5 }),
+                'workflows message delivered to external recipient',
+                { workflow_id: 'flow-id', channel: 'email' }
+            )
+        } finally {
+            capture.mockRestore()
+        }
+    })
+
+    it.each([
+        ['this worker claimed', 'OK'],
+        ['another worker claimed', null],
+    ])('skips Redis for a team whose hour %s', async (_name, claimResult) => {
+        const capture = jest.spyOn(analytics, 'captureTeamEvent').mockImplementation(() => {})
+        const redis = { useClient: jest.fn().mockResolvedValue(claimResult) } as unknown as RedisV2
+        const postgres = {
+            query: jest.fn().mockResolvedValue({ rows: [{ email: 'member@example.com' }] }),
+        } as unknown as PostgresRouter
+        const reporter = new WorkflowsExternalDeliveryReporter(
+            { getTeam: (id) => Promise.resolve({ id, organization_id: 'org-id' } as Team) },
+            postgres,
+            redis
+        )
+        try {
+            await reporter.report(1, 'flow-id', ['reader@example.com'])
+            await reporter.report(1, 'flow-id', ['reader@example.com'])
+            expect(redis.useClient).toHaveBeenCalledTimes(1)
+            expect(capture).toHaveBeenCalledTimes(claimResult === 'OK' ? 1 : 0)
+        } finally {
+            capture.mockRestore()
+        }
+    })
+})

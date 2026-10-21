@@ -157,6 +157,12 @@ const SesEventBatchSchema = z.array(SesEventRecordSchema)
 
 export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
+export type ConfirmedWorkflowDelivery = {
+    teamId: number
+    workflowId: string
+    recipients: string[]
+}
+
 // email_sent is recorded synchronously in email.service.ts when the email is sent,
 // so we don't record it again from SES Send webhooks to avoid double counting.
 const BOUNCE_TYPE_TO_METRIC_NAME: Record<'Permanent' | 'Transient' | 'Undetermined', MinimalAppMetric['metric_name']> =
@@ -612,6 +618,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[]
+        confirmedWorkflowDeliveries?: ConfirmedWorkflowDelivery[]
     }> {
         // Payloads carry recipients and clicked links, including reset links from sensitive emails,
         // so the logs keep identifiers only.
@@ -714,6 +721,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[] = []
+        const confirmedWorkflowDeliveries: ConfirmedWorkflowDelivery[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', {
@@ -926,6 +934,15 @@ export class SesWebhookHandler {
                     deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
                 }
             }
+
+            const confirmedRecipients = rec.eventType === 'Delivery' ? (rec.delivery.recipients ?? []) : []
+            if (suppressionAllowed && functionId && workflowVersion !== undefined && confirmedRecipients.length > 0) {
+                confirmedWorkflowDeliveries.push({
+                    teamId: Number(teamId),
+                    workflowId: functionId,
+                    recipients: confirmedRecipients,
+                })
+            }
         }
 
         return {
@@ -937,6 +954,7 @@ export class SesWebhookHandler {
             hardBounceRecipients,
             complainedRecipients,
             deliveredRecipients,
+            confirmedWorkflowDeliveries,
         }
     }
 }
