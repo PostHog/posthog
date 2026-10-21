@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { PostHogApiError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
@@ -164,6 +165,45 @@ describe('StateManager', () => {
     })
 
     describe('getUser', () => {
+        it.each(['user', 'credential'] as const)(
+            'shares a failed %s lookup and permits a later retry',
+            async (kind) => {
+                const load = vi
+                    .fn()
+                    .mockRejectedValueOnce(new Error('Synthetic lookup failure'))
+                    .mockResolvedValue({ success: true, data: kind === 'user' ? mockUser : mockApiKey })
+                const api = {
+                    config: { apiToken: 'phx_test' },
+                    users: () => ({ me: load }),
+                    apiKeys: () => ({ current: load }),
+                } as unknown as ApiClient
+                const lookups = new StateLookupCache()
+                const first = new StateManager(cache, api, undefined, undefined, lookups)
+                const second = new StateManager(cache, api, undefined, undefined, lookups)
+                const get = (manager: StateManager): Promise<unknown> =>
+                    kind === 'user' ? manager.getUser() : manager.getApiKey()
+                const failed = await Promise.allSettled([get(first), get(second)])
+                expect(failed.map(({ status }) => status)).toEqual(['rejected', 'rejected'])
+                expect(load).toHaveBeenCalledTimes(1)
+                expect(await get(second)).toMatchObject(kind === 'user' ? mockUser : mockApiKey)
+                expect(load).toHaveBeenCalledTimes(2)
+            }
+        )
+
+        it('keeps shared lookup results bound to their credential cache scope', async () => {
+            const lookups = new StateLookupCache()
+            const managers = ['first-credential', 'second-credential'].map((scope) => {
+                const scopedCache = new MemoryCache<State>(scope)
+                const api = {
+                    users: () => ({ me: async () => ({ success: true, data: { ...mockUser, distinct_id: scope } }) }),
+                } as unknown as ApiClient
+                return new StateManager(scopedCache, api, undefined, undefined, lookups)
+            })
+            expect(
+                (await Promise.all(managers.map((manager) => manager.getUser()))).map((user) => user.distinct_id)
+            ).toEqual(['first-credential', 'second-credential'])
+        })
+
         it('should fetch and cache user on first call', async () => {
             const fetchUserSpy = vi.spyOn(stateManager as any, '_fetchUser').mockResolvedValue(mockUser)
 
@@ -294,14 +334,15 @@ describe('StateManager', () => {
                             data: { ...mockApiKey, scopes: ['user:read', 'cdp:read'] },
                         })
                     const api = { config: { apiToken }, apiKeys: () => ({ current }) } as unknown as ApiClient
+                    const manager = new StateManager(cache, api)
 
-                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                    expect((await manager.getApiKey()).scopes).toEqual(mockApiKey.scopes)
 
                     vi.advanceTimersByTime(60 * 1000)
-                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                    expect((await manager.getApiKey()).scopes).toEqual(mockApiKey.scopes)
 
                     vi.advanceTimersByTime(2 * 60 * 1000)
-                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(expectedScopes)
+                    expect((await manager.getApiKey()).scopes).toEqual(expectedScopes)
                 } finally {
                     vi.useRealTimers()
                 }
@@ -374,11 +415,15 @@ describe('StateManager', () => {
             { label: 'no OAuth app name', clientName: null, expected: undefined },
         ])('stamps $label onto the live client so the same request forwards it', async ({ clientName, expected }) => {
             const api = oauthApi(clientName)
-            stateManager = new StateManager(cache, api)
+            const secondApi = oauthApi(clientName)
+            const lookups = new StateLookupCache()
+            stateManager = new StateManager(cache, api, undefined, undefined, lookups)
+            const second = new StateManager(cache, secondApi, undefined, undefined, lookups)
 
-            await stateManager.getApiKey()
+            await Promise.all([stateManager.getApiKey(), second.getApiKey()])
 
             expect(api.config.oauthClientName).toBe(expected)
+            expect(secondApi.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
         })
     })

@@ -3,6 +3,7 @@ import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
     MissingOrganizationContextError,
@@ -48,7 +49,6 @@ type OrgEntitlementFields = {
 export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
-    private _user?: ApiUser
     private _pinned: PinnedActiveContext | undefined
     private _pinnedOrgProject: Promise<string> | undefined
     private _sessionCache: ScopedCache<SessionScopedState> | undefined
@@ -56,7 +56,8 @@ export class StateManager {
         cache: ScopedCache<State>,
         api: ApiClient,
         pinned?: PinnedActiveContext,
-        sessionCache?: ScopedCache<SessionScopedState>
+        sessionCache?: ScopedCache<SessionScopedState>,
+        private readonly lookups = new StateLookupCache()
     ) {
         this._cache = cache
         this._api = api
@@ -115,11 +116,7 @@ export class StateManager {
     }
 
     async getUser(): Promise<ApiUser> {
-        if (!this._user) {
-            this._user = await this._fetchUser()
-        }
-
-        return this._user
+        return this.lookups.get(this._cache.scope, 'user', () => this._fetchUser())
     }
 
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
@@ -169,10 +166,6 @@ export class StateManager {
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
             await this._cache.set('clientName', sanitizedClientName)
-            // Introspection is the first point the OAuth app name is known, and the client was
-            // already built for this request — stamp it on so the rest of the request forwards
-            // `x-posthog-mcp-oauth-client-name` instead of waiting for the next cache hit.
-            this._api.config.oauthClientName = sanitizedClientName
         }
 
         return {
@@ -191,7 +184,7 @@ export class StateManager {
         }
     }
 
-    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
+    private async _getApiKey(): Promise<NonNullable<State['apiKey']>> {
         // An OAuth token gets a new value, and so a new cache entry, whenever its scopes change.
         const refreshable = classifyAuthMethod(this._api.config.apiToken) !== 'oauth'
         const [cached, fetchedAt] = await Promise.all([
@@ -204,7 +197,9 @@ export class StateManager {
         }
 
         try {
-            const apiKey = await this._fetchApiKey()
+            const apiKey = await this.lookups.get(this._cache.scope, JSON.stringify(['apiKey', fetchedAt]), () =>
+                this._fetchApiKey()
+            )
             await Promise.all([
                 this._cache.set('apiKey', apiKey),
                 refreshable ? this._cache.set('apiKeyFetchedAt', Date.now()) : undefined,
@@ -220,6 +215,15 @@ export class StateManager {
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
             return cached
         }
+    }
+
+    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
+        const apiKey = await this._getApiKey()
+        const clientName = await this._cache.get('clientName')
+        if (clientName) {
+            this._api.config.oauthClientName = sanitizeHeaderValue(clientName)
+        }
+        return apiKey
     }
 
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
@@ -308,33 +312,28 @@ export class StateManager {
 
     private async _fetchDefaultProjectInOrganization(organizationId: string): Promise<number | undefined> {
         try {
-            const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
-            if (projectsResult.success && projectsResult.data.length > 0) {
-                return Number(projectsResult.data[0]!.id)
-            }
-            if (!projectsResult.success) {
-                // A 404 here means the API key/OAuth token points at an org the
-                // requesting user can no longer access (or a deleted org): the
-                // org-nested projects endpoint is scoped to the user's
-                // memberships. That's a recoverable user-config state — the
-                // agent recovers via switch-project/switch-organization — so
-                // warn instead of capturing, mirroring the 403 permission_denied
-                // path in client.ts. Only genuine 5xx/unexpected failures reach
-                // error tracking.
-                if (this._isRecoverableNotFound(projectsResult.error)) {
-                    console.warn(
-                        `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
-                    )
-                } else {
-                    await this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
-                        organization_id: organizationId,
-                    })
+            const projects = await this.lookups.get<Schemas.ProjectBackwardCompat[]>(
+                this._cache.scope,
+                `organizationProjects:${organizationId}`,
+                async () => {
+                    const result = await this._api.organizations().projects({ orgId: organizationId }).list()
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return result.data
                 }
-            }
+            )
+            return projects.length > 0 ? Number(projects[0]!.id) : undefined
         } catch (error) {
-            await this._reportException(error, 'default_org_project_projects_list_threw', {
-                organization_id: organizationId,
-            })
+            if (this._isRecoverableNotFound(error)) {
+                console.warn(
+                    `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
+                )
+            } else {
+                await this._reportException(error, 'default_org_project_projects_list_failed', {
+                    organization_id: organizationId,
+                })
+            }
         }
 
         return undefined
@@ -527,7 +526,11 @@ export class StateManager {
         }
 
         try {
-            const data = await opts.fetcher()
+            const data = await this.lookups.get(
+                this._cache.scope,
+                JSON.stringify([opts.cacheKey, fetchedAt]),
+                opts.fetcher
+            )
             await Promise.all([
                 this._cache.set(opts.cacheKey, data as State[D]),
                 this._cache.set(opts.fetchedAtKey, Date.now() as State[F]),

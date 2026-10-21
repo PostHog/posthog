@@ -1,3 +1,4 @@
+import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
@@ -161,9 +162,9 @@ export class RequestStateResolver {
         this.env = env
     }
 
-    async resolve(props: RequestProperties): Promise<ResolvedState> {
+    async resolve(props: RequestProperties, lookups?: StateLookupCache): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
-        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
+        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })

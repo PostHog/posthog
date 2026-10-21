@@ -83,6 +83,8 @@ For sessionless clients, the server scopes selection to the SDK's echoed `conver
 
 Sessionless legacy batches resolve each call's handle and state independently before checking whether a switch is allowed. The wrapper's `sessionId` query parameter groups analytics but cannot restore selections; wrapper-only calls still receive SDK-minted conversation handles.
 
+State managers share credential, user, and entity lookups within one HTTP request, including when a new conversation handle requires another resolution. Lookup keys include the credential cache scope and entity ID. Each call retains its own state manager, selection, flags, and API client. Redis TTLs still govern freshness, and rejected lookup promises are removed so later attempts can retry.
+
 Session defaults are saved once with `SET NX` and kept separate from explicit selections. Lazy organization and project resolution updates only the request snapshot, so a delayed read cannot replace a newer switch in the same session.
 
 An org-only default does not freeze a failed project lookup. Project discovery retries within the saved organization and records the first successful result separately with `SET NX`. Organization-scoped discovery establishes project ownership without a second global metadata lookup. Organization switches can retain a selected project using the destination organization's team list when project metadata is unavailable.

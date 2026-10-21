@@ -83,6 +83,8 @@ Project and organization selections are scoped to the credential and transport s
 
 Each sessionless legacy batch item resolves its own request properties, state, and carried-handle guard. A wrapper-only `sessionId` cannot restore selections, so it does not suppress SDK conversation-handle minting.
 
+Credential, user, and entity lookup promises are shared within an HTTP request, keyed by credential cache scope and entity. Per-item state managers and active selections remain independent. Existing Redis TTLs control freshness; rejected promises are removed to permit retries. A newly minted conversation's state resolution uses the same request-local lookup cache.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:

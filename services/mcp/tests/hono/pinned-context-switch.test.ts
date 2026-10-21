@@ -75,7 +75,11 @@ function createInMemoryRedis(): RedisLike & {
             return 'OK'
         },
         del: async (...keys) => keys.filter((key) => store.delete(key)).length,
-        scan: async () => ['0', Array.from(store.keys())] as [string, string[]],
+        scan: async (_cursor, ...args) => {
+            const match = args.indexOf('MATCH')
+            const prefix = match === -1 ? '' : String(args[match + 1]).replace(/\*$/, '')
+            return ['0', Array.from(store.keys()).filter((key) => key.startsWith(prefix))] as [string, string[]]
+        },
         ...makeRedisRateLimitStubs(store),
         ping: async () => 'PONG',
     }
@@ -498,6 +502,88 @@ describe('pinned project with switch-project (Hono)', () => {
             resolve.mockRestore()
         }
     })
+
+    it.each([
+        {
+            handles: 'repeated',
+            conversations: [CONVERSATION_A, CONVERSATION_A],
+            projects: [OTHER_PROJECT, OTHER_PROJECT],
+            scopedOrg: false,
+        },
+        {
+            handles: 'different',
+            conversations: [CONVERSATION_A, CONVERSATION_B],
+            projects: [OTHER_PROJECT, PINNED_PROJECT],
+            scopedOrg: false,
+        },
+        { handles: 'missing', conversations: [], projects: [PINNED_PROJECT, PINNED_PROJECT], scopedOrg: false },
+        { handles: 'org-default', conversations: [], projects: [OTHER_PROJECT, OTHER_PROJECT], scopedOrg: true },
+    ])(
+        'shares cold batch lookups with $handles conversation handles while preserving routing',
+        async ({ handles, conversations, projects, scopedOrg }) => {
+            const token = `phx_cold_batch_${handles}`
+            if (scopedOrg) {
+                mswServer.use(
+                    http.get('*/api/personal_api_keys/@current', () =>
+                        HttpResponse.json({ scopes: ['*'], scoped_teams: [], scoped_organizations: [OTHER_ORG] })
+                    ),
+                    http.get(`*/api/organizations/${OTHER_ORG}/projects/`, () =>
+                        HttpResponse.json({ results: [{ id: Number(OTHER_PROJECT), organization: OTHER_ORG }] })
+                    )
+                )
+            }
+            for (const [conversationId, projectId] of new Map(
+                conversations.map((id, index) => [id, projects[index]!])
+            )) {
+                expect(
+                    (
+                        await callTool(
+                            'switch-project',
+                            { projectId: Number(projectId) },
+                            { token, query: '', conversationId }
+                        )
+                    ).isError
+                ).toBeFalsy()
+            }
+            await tokenCache(token).clear()
+            apiPathsByIntent.clear()
+            const counts = new Map<string, number>()
+            const record = ({ request }: { request: Request }): void => {
+                const path = new URL(request.url).pathname
+                counts.set(path, (counts.get(path) ?? 0) + 1)
+            }
+            mswServer.events.on('request:start', record)
+            try {
+                const results = await postBatch(
+                    Array.from({ length: 100 }, (_, index) => ({
+                        name: 'execute-sql',
+                        arguments: {
+                            query: 'SELECT 1',
+                            conversation_id: conversations[index % 2],
+                            context: `cold-item-${index}`,
+                        },
+                    })),
+                    { token }
+                )
+                expect(results.map(({ result }) => Boolean(result?.isError))).toEqual(Array(100).fill(false))
+                expect(counts.get('/api/personal_api_keys/@current')).toBe(1)
+                expect(counts.get('/api/users/@me/')).toBe(1)
+                expect(counts.get(`/api/organizations/${OTHER_ORG}/projects/`) ?? 0).toBe(scopedOrg ? 1 : 0)
+                for (const project of new Set(projects)) {
+                    const org = project === OTHER_PROJECT ? OTHER_ORG : PINNED_ORG
+                    expect(counts.get(`/api/projects/${project}/`)).toBe(1)
+                    expect(counts.get(`/api/organizations/${org}/`)).toBe(1)
+                }
+                expect(Array.from({ length: 100 }, (_, index) => apiPathsByIntent.get(`cold-item-${index}`))).toEqual(
+                    Array.from({ length: 100 }, (_, index) => [
+                        `/api/environments/${projects[index % 2]}/mcp_tools/execute_sql/`,
+                    ])
+                )
+            } finally {
+                mswServer.events.removeListener('request:start', record)
+            }
+        }
+    )
 
     it('keeps a conversation bound to its credential and separate from a transport session with the same id', async () => {
         const token = 'phx_conversation_namespace'

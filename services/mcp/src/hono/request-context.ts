@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 
 import { ApiClient } from '@/api/client'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
@@ -37,6 +37,7 @@ export class RequestContext {
     private legacySessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
+    private stateManagerInstance: StateManager | undefined
     private distinctIdPromise: Promise<string> | undefined
     private readonly sessionUuidPromises = new Map<string, Promise<string>>()
     private readonly redis: RedisLike
@@ -50,7 +51,8 @@ export class RequestContext {
         redis: RedisLike,
         env: Env,
         props: RequestProperties,
-        requestContext: MCPRequestContext = buildMCPRequestContext(props)
+        requestContext: MCPRequestContext = buildMCPRequestContext(props),
+        readonly lookups = new StateLookupCache()
     ) {
         this.redis = redis
         this.env = env
@@ -216,22 +218,18 @@ export class RequestContext {
     }
 
     private async resolveDistinctId(): Promise<string> {
-        const cached = await this.tokenCache.get('distinctId')
-        if (cached) {
-            return cached
-        }
-        const userResult = await (await this.api()).users().me()
-        if (!userResult.success) {
-            throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
-        }
-        const distinctId = userResult.data.distinct_id as string
-        await this.tokenCache.set('distinctId', distinctId)
-        return distinctId
+        return (await this.getContext()).stateManager.getDistinctId()
     }
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        const stateManager = new StateManager(this.tokenCache, api, this.pinnedContext, this.sessionScopedCache)
+        const stateManager = (this.stateManagerInstance ??= new StateManager(
+            this.tokenCache,
+            api,
+            this.pinnedContext,
+            this.sessionScopedCache,
+            this.lookups
+        ))
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.tokenCache,

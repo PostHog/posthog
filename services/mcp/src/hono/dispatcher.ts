@@ -21,6 +21,7 @@ import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
@@ -276,6 +277,7 @@ class McpDispatcher {
 
         const carriedContextHandle = Boolean(props.mcpSessionId || props.mcpConversationId)
         const sessionlessBatch = wasArray && !props.mcpSessionId
+        const lookups = sessionlessBatch ? new StateLookupCache() : undefined
         const needsState = !sessionlessBatch && requests.some((r) => TRACKED_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
@@ -357,7 +359,7 @@ class McpDispatcher {
                 let itemState: ResolvedState | undefined
                 try {
                     itemState = TRACKED_METHODS.has(request.method)
-                        ? await this.stateResolver.resolve(itemProps)
+                        ? await this.stateResolver.resolve(itemProps, lookups)
                         : undefined
                 } catch (error) {
                     if (mapErrorToAuthResponse(error)) {
@@ -450,7 +452,7 @@ class McpDispatcher {
                               carriedContextHandle,
                               resolveConversation: (conversationId) => {
                                   props.mcpConversationId = conversationId
-                                  return this.stateResolver.resolve(props)
+                                  return this.stateResolver.resolve(props, state!.reqCtx.lookups)
                               },
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(
