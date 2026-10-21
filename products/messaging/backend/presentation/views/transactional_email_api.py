@@ -16,12 +16,14 @@ from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.messaging.backend.facade.contracts import TEMPLATE_KEY_MAX_LENGTH, TEMPLATE_KEY_PATTERN, QueuedEmail
+from products.messaging.backend.facade.contracts import TEMPLATE_KEY_MAX_LENGTH, TEMPLATE_KEY_PATTERN
 from products.messaging.backend.facade.templates import MessageTemplateRow
 from products.messaging.backend.facade.transactional_email import (
-    DeliveryUnavailable,
-    TransactionalEmailError,
-    send_transactional_email,
+    EmailSendCommand,
+    Queued,
+    Rejected,
+    Unavailable,
+    send_email,
 )
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.workflows import get_workflow
@@ -150,9 +152,9 @@ class TransactionalEmailRejected(exceptions.APIException):
     # The caller has to change the request. Without this the error handler reports a server error.
     default_type = "invalid_request"
 
-    def __init__(self, error: TransactionalEmailError) -> None:
-        self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=str(error), code=error.code)
+    def __init__(self, code: str, detail: str) -> None:
+        self.status_code = self.STATUS_BY_CODE.get(code, status.HTTP_400_BAD_REQUEST)
+        super().__init__(detail=detail, code=code)
 
 
 class TransactionalEmailUnavailable(exceptions.APIException):
@@ -189,6 +191,16 @@ TRANSACTIONAL_EMAIL_THROTTLES = [
     TransactionalEmailTeamBurstThrottle,
     TransactionalEmailTeamSustainedThrottle,
 ]
+
+
+def _usage(outcome: Queued | Rejected | Unavailable) -> dict[str, str]:
+    match outcome:
+        case Queued(replayed=replayed):
+            return {"outcome": "replayed" if replayed else "queued"}
+        case Rejected(code=code):
+            return {"outcome": "rejected", "error_code": code}
+        case Unavailable():
+            return {"outcome": "unavailable"}
 
 
 class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
@@ -234,29 +246,36 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
         *,
         usage: dict[str, str],
         idempotency_key: str | None = None,
-    ) -> QueuedEmail:
+    ) -> Queued:
         if template.transactional_hog_flow_id:
             self._require_workflow_editor(template.transactional_hog_flow_id)
-        outcome: dict[str, Any] = {"outcome": "error", "has_idempotency_key": idempotency_key is not None}
+        report: dict[str, Any] = {
+            "template_id": str(template.id),
+            **usage,
+            "has_idempotency_key": idempotency_key is not None,
+        }
         try:
-            queued = send_transactional_email(
-                self.team,
-                template.id,
-                to=data["to"],
-                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
-                message_data=data["message_data"],
-                idempotency_key=idempotency_key,
+            outcome = send_email(
+                EmailSendCommand(
+                    team_id=self.team_id,
+                    template_id=template.id,
+                    to=data["to"],
+                    distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
+                    message_data=data["message_data"],
+                    idempotency_key=idempotency_key,
+                )
             )
-            outcome["outcome"] = "replayed" if queued.replayed else "queued"
-        except TransactionalEmailError as e:
-            outcome.update({"outcome": "rejected", "error_code": e.code})
-            raise TransactionalEmailRejected(e)
-        except DeliveryUnavailable:
-            outcome["outcome"] = "unavailable"
-            raise TransactionalEmailUnavailable() from None
-        finally:
-            self._report_transactional_email_send(request, {"template_id": str(template.id), **usage, **outcome})
-        return queued
+        except Exception:
+            self._report_transactional_email_send(request, {**report, "outcome": "error"})
+            raise
+        self._report_transactional_email_send(request, {**report, **_usage(outcome)})
+        match outcome:
+            case Queued():
+                return outcome
+            case Rejected(code=code, detail=detail):
+                raise TransactionalEmailRejected(code, detail)
+            case Unavailable():
+                raise TransactionalEmailUnavailable()
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         self._report_api_usage(request, "transactional email api send", properties)

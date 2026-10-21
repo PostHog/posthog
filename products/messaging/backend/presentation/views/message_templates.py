@@ -725,7 +725,7 @@ class MessageTemplatesViewSet(
                 require_workflow_editor=self._require_workflow_editor,
             )
         except TransactionalEmailError as e:
-            raise TransactionalEmailRejected(e) from None
+            raise TransactionalEmailRejected(e.code, str(e)) from None
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
 
@@ -833,7 +833,7 @@ class MessageTemplatesViewSet(
                 require_workflow_editor=self._require_workflow_editor,
             )
         except TransactionalEmailError as e:
-            raise TransactionalEmailRejected(e) from None
+            raise TransactionalEmailRejected(e.code, str(e)) from None
 
         self._emit_resource_edited(saved)
         return Response(self._serialize(saved))
@@ -924,7 +924,7 @@ class MessageTemplatesViewSet(
             )
         except TransactionalEmailError as e:
             self._report_template_upload(request, {"result": "rejected", "error_code": e.code})
-            raise TransactionalEmailRejected(e) from None
+            raise TransactionalEmailRejected(e.code, str(e)) from None
         except exceptions.PermissionDenied:
             self._report_template_upload(request, {"result": "rejected", "error_code": "permission_denied"})
             raise
@@ -1016,7 +1016,7 @@ class MessageTemplatesViewSet(
                 from_integration_id=request.validated_data.get("from_integration_id"),
             )
         except TransactionalEmailError as e:
-            raise TransactionalEmailRejected(e) from None
+            raise TransactionalEmailRejected(e.code, str(e)) from None
         updated = self.get_object()
         if not was_transactional:
             self._emit_resource_edited(updated)

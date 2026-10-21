@@ -17,6 +17,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.facade.contracts import EmailSendCommand, Queued, Rejected, Unavailable
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.presentation.views.message_templates import MessageTemplatesViewSet
@@ -397,6 +398,55 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status_code
         assert response.json()["code"] == code
+
+    @parameterized.expand(
+        [
+            (f"{name}_{addressed_by}", addressed_by, outcome, expected_status, expected_body)
+            for addressed_by in ("url_id", "key")
+            for name, outcome, expected_status, expected_body in [
+                ("queued", Queued(message_id="message-1"), status.HTTP_202_ACCEPTED, {"message_id": "message-1"}),
+                (
+                    "rejected",
+                    Rejected(code="invalid_recipient", detail="The recipient address can't contain { or }."),
+                    status.HTTP_400_BAD_REQUEST,
+                    {
+                        "type": "invalid_request",
+                        "code": "invalid_recipient",
+                        "detail": "The recipient address can't contain { or }.",
+                    },
+                ),
+                (
+                    "quota_limited",
+                    Rejected(code="quota_limited", detail="The project is over its email quota."),
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    {"code": "quota_limited", "detail": "The project is over its email quota."},
+                ),
+                ("unavailable", Unavailable(), status.HTTP_503_SERVICE_UNAVAILABLE, {"code": "delivery_unavailable"}),
+            ]
+        ]
+    )
+    def test_answers_each_send_outcome_on_both_routes(
+        self, mock_post, _flag, _capture, _name, addressed_by, outcome, expected_status, expected_body
+    ):
+        url, body = self._send_request(addressed_by, self.body)
+
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_api.send_email", return_value=outcome
+        ) as send_email:
+            response = self.client.post(url, body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert {key: response.json().get(key) for key in expected_body} == expected_body
+        send_email.assert_called_once_with(
+            EmailSendCommand(
+                team_id=self.team.id,
+                template_id=self.template.id,
+                to="user@example.com",
+                distinct_id="user-1",
+                message_data={"link": "https://example.com/reset", "nickname": None},
+            )
+        )
+        mock_post.assert_not_called()
 
     @parameterized.expand(
         [
