@@ -72,4 +72,27 @@ describe('prefetchRunStream', () => {
         expect(runStreamLogic.findMounted({ streamKey: 'run-b' })).toBeNull()
         expect(tasksRunsRetrieve).toHaveBeenCalledTimes(1)
     })
+
+    it('skips a Pi task while Pi runs are not shown on the web', () => {
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
+
+        prefetchRunStream('task-1', 'run-pi', 'pi')
+
+        expect(runStreamLogic.findMounted({ streamKey: 'run-pi' })).toBeNull()
+        expect(tasksRunsRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('keeps the most recently hovered row when a third row is hovered', async () => {
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
+
+        for (const runId of ['run-a', 'run-b', 'run-a', 'run-c']) {
+            prefetchRunStream('task-1', runId, null)
+            await expectLogic(runStreamLogic({ streamKey: runId })).toFinishAllListeners()
+        }
+
+        expect(runStreamLogic.findMounted({ streamKey: 'run-a' })).not.toBeNull()
+        expect(runStreamLogic.findMounted({ streamKey: 'run-b' })).toBeNull()
+    })
 })
