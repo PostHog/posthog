@@ -125,6 +125,22 @@ class TestSyncFeatureFlagLastCalled(PushGatewayTaskTestMixin, BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
+    def test_chunk_queries_refuse_stale_replicas(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        mock_sync_execute.return_value = []
+
+        with self.settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="flag_evaluations"):
+            sync_feature_flag_last_called()
+
+        assert mock_sync_execute.call_args_list
+        for call in mock_sync_execute.call_args_list:
+            assert call.kwargs["settings"]["fallback_to_stale_replicas_for_distributed_queries"] == 0
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
     def test_updates_null_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
         """Flags with null last_called_at should be updated"""
         redis_mock = mock_redis_client()
