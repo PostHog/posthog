@@ -152,29 +152,33 @@ export const ConversationsTicketsPartialUpdateParams = () => zod.object({
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneAskMax = 400
 
+export const conversationsTicketsPartialUpdateBodyTicketBriefOnePurposeMax = 300
+
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneAreaMax = 80
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsItemMax = 200
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsMax = 6
 
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneTriedItemMax = 160
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneTriedMax = 5
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneErrorMessageMax = 600
+
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemUrlMax = 2000
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemLabelMax = 120
-
-export const conversationsTicketsPartialUpdateBodyTicketBriefOneReplayUrlMax = 2000
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsItemMax = 2000
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsMax = 5
 
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneReplayUrlMax = 2000
+
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneFactsItemMax = 160
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneFactsMax = 5
-
-export const conversationsTicketsPartialUpdateBodyTicketBriefOneTriedItemMax = 160
-
-export const conversationsTicketsPartialUpdateBodyTicketBriefOneTriedMax = 5
 
 export const ConversationsTicketsPartialUpdateBody = () => zod
     .object({
@@ -230,6 +234,13 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
                         .describe(
                             'What the customer needs from PostHog, in one or two sentences. The line to read first.'
                         ),
+                    purpose: zod
+                        .string()
+                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOnePurposeMax)
+                        .nullish()
+                        .describe(
+                            'What the customer is trying to achieve behind the ask, in their own terms. Omitted when they did not say, because a guessed purpose sends the reply to the wrong problem.'
+                        ),
                     area: zod
                         .string()
                         .max(conversationsTicketsPartialUpdateBodyTicketBriefOneAreaMax)
@@ -239,6 +250,18 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
                         .max(conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsMax)
                         .describe(
                             'Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.'
+                        ),
+                    tried: zod
+                        .array(zod.string().max(conversationsTicketsPartialUpdateBodyTicketBriefOneTriedItemMax))
+                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOneTriedMax)
+                        .optional()
+                        .describe('The steps the customer says they already took to fix or diagnose the problem.'),
+                    error_message: zod
+                        .string()
+                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOneErrorMessageMax)
+                        .nullish()
+                        .describe(
+                            'The error the customer reported, copied exactly. Omitted when the ticket reports no error.'
                         ),
                     affected_items: zod
                         .array(
@@ -274,16 +297,16 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
                         )
                         .optional()
                         .describe('The PostHog items the ticket is about, with a link to each one.'),
-                    replay_url: zod
-                        .url()
-                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOneReplayUrlMax)
-                        .nullish()
-                        .describe('Replay of the session the ticket came from. Null when the ticket has no session.'),
                     screenshot_urls: zod
                         .array(zod.url().max(conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsItemMax))
                         .max(conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsMax)
                         .optional()
                         .describe('Images the customer attached, in the order they sent them.'),
+                    replay_url: zod
+                        .url()
+                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOneReplayUrlMax)
+                        .nullish()
+                        .describe('Replay of the session the ticket came from. Null when the ticket has no session.'),
                     facts: zod
                         .array(zod.string().max(conversationsTicketsPartialUpdateBodyTicketBriefOneFactsItemMax))
                         .max(conversationsTicketsPartialUpdateBodyTicketBriefOneFactsMax)
@@ -291,11 +314,6 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
                         .describe(
                             'Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.'
                         ),
-                    tried: zod
-                        .array(zod.string().max(conversationsTicketsPartialUpdateBodyTicketBriefOneTriedItemMax))
-                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOneTriedMax)
-                        .optional()
-                        .describe('What the customer says they already did to fix or diagnose the problem.'),
                 }),
                 zod.null(),
             ])
