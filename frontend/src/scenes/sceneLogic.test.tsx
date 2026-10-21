@@ -262,6 +262,13 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
     })
 
+    it('sends the /et-key short link to a new key with the source map upload preset', async () => {
+        router.actions.push('/et-key')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('user-api-keys'))
+        expect(router.values.searchParams).toEqual({ preset: 'source_map_upload' })
+    })
+
     it.each([
         ['/organization', urls.settings('organization'), Scene.Settings],
         ['/organization/projects', urls.settings('organization'), Scene.Settings],
