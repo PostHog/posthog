@@ -2594,12 +2594,14 @@ export interface runStreamLogicValues {
     hasGitArtifacts: boolean
     hasThreadItems: boolean
     historyComplete: boolean
+    historyTurnBase: number
     isBootstrapResumeRun: boolean
     isThinking: boolean
     latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
     olderHistoryState: OlderHistoryState
+    pagedHistory: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
     pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
@@ -2967,7 +2969,8 @@ export interface runStreamLogicMeta {
             turnSuggestionOutcomesHere: Record<number, string>,
             turnSuggestionAcceptedHere: number | null,
             turnSuggestionsMuted: boolean,
-            bootstrappedTaskId: string | null
+            bootstrappedTaskId: string | null,
+            historyTurnBase: number
         ) => TurnSuggestion | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
