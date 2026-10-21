@@ -12,7 +12,7 @@ from typing import Any, Final
 from posthog.dataclasses import frozen
 from posthog.utils import absolute_uri, pluralize
 
-from products.alerts_platform.backend.delivery.describers import describe
+from products.alerts_platform.backend.delivery.describers import describe, resolve_image
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
@@ -198,6 +198,6 @@ def build_message(
         transition=transition,
         context=description.context,
         data_link=description.data_link,
-        image=description.image,
+        image=resolve_image(announcement.source, team_id=team_id, transition=transition),
         incident_action=incident_action,
     )

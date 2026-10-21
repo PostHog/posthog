@@ -4,12 +4,14 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import RenderedInsightChart, trigger_alert_hog_functions
 
-from products.alerts.backend.platform_alert_legacy_events import emit_insight_legacy_events
+from products.alerts.backend.platform_alert_legacy_events import emit_insight_legacy_events, insight_chart_image
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -17,6 +19,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     LegacyEventEmission,
+    MessageImage,
     SourceKind,
 )
 
@@ -116,3 +119,43 @@ class TestInsightLegacyEvents(APIBaseTest):
         self, _name: str, kind: AlertEventKind, sends_message: bool, alert_id: str | None
     ) -> None:
         assert self._emit(self._emission(kind, sends_message=sends_message), alert_id=alert_id) == []
+
+
+class TestInsightChartImage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a_firing_with_a_chart",
+                AlertEventKind.FIRING,
+                {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3},
+                True,
+            ),
+            ("a_firing_without_one", AlertEventKind.FIRING, {}, False),
+            (
+                "an_error",
+                AlertEventKind.ERRORED,
+                {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3},
+                False,
+            ),
+        ]
+    )
+    def test_a_native_message_shows_the_chart_a_firing_rendered(
+        self, _name: str, kind: AlertEventKind, detail: dict[str, Any], shown: bool
+    ) -> None:
+        transition = AnnouncedTransition(
+            grouping_key="",
+            kind=kind,
+            episode_started_at=None,
+            value=150.0,
+            labels={},
+            condition={},
+            source_config={},
+            error_message=None,
+            occurred_at=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+            source_detail=detail,
+        )
+
+        with patch(f"{_EMITTER}.insight_chart_url", return_value=CHART_URL):
+            image = insight_chart_image(team_id=2, transition=transition)
+
+        assert image == (MessageImage(url=CHART_URL, alt_text="Insight chart") if shown else None)

@@ -12,16 +12,16 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     MessageDetail,
-    MessageImage,
     MessageLink,
     SourceDescription,
 )
 
-DETAIL = {
+DETAIL: dict[str, Any] = {
     "breaches": ["Signups (50) is less than lower threshold (100)"],
     "insight_name": "Signups",
     "insight_short_id": "abc123",
-    "insight_chart_url": "https://example.com/chart.png",
+    "insight_chart_asset_id": 7,
+    "insight_chart_render_user_id": 3,
 }
 LINK = MessageLink(label="View insight", url=absolute_uri("/project/7/insights/abc123"))
 
@@ -37,7 +37,6 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     details=(MessageDetail(label="Threshold breached", value=DETAIL["breaches"][0]),),
                     context=("Insight: Signups",),
                     data_link=LINK,
-                    image=MessageImage(url="https://example.com/chart.png", alt_text="Insight chart"),
                 ),
             ),
             (
@@ -50,7 +49,6 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     ),
                     context=("Insight: Signups",),
                     data_link=LINK,
-                    image=MessageImage(url="https://example.com/chart.png", alt_text="Insight chart"),
                 ),
             ),
             # The platform states a failure in its own words, so only the insight's name and link are added.

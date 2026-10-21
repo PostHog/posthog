@@ -15,7 +15,6 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     MessageDetail,
-    MessageImage,
     MessageLink,
     SourceDescription,
 )
@@ -26,7 +25,6 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
     breaches = (detail.get("breaches") or []) if transition.kind == AlertEventKind.FIRING else []
     insight_name = detail.get("insight_name")
     insight_short_id = detail.get("insight_short_id")
-    chart_url = detail.get("insight_chart_url") if transition.kind == AlertEventKind.FIRING else None
     return SourceDescription(
         # One detail for every breach, because a transport such as PagerDuty keys its details by label.
         details=(MessageDetail(label="Threshold breached", value="\n".join(breaches)),) if breaches else (),
@@ -34,7 +32,6 @@ def describe_insight_transition(*, project_id: int, transition: AnnouncedTransit
         data_link=MessageLink(label="View insight", url=insight_url(project_id, insight_short_id))
         if insight_short_id
         else None,
-        image=MessageImage(url=chart_url, alt_text="Insight chart") if chart_url else None,
     )
 
 

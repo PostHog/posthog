@@ -15,6 +15,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageImage,
     SourceDescriber,
     SourceDescription,
+    SourceImageResolver,
     SourceKind,
 )
 
@@ -33,6 +34,7 @@ MAX_IMAGE_ALT_TEXT_CHARS: Final = 2000
 logger = structlog.get_logger(__name__)
 
 _describers: dict[SourceKind, SourceDescriber] = {}
+_image_resolvers: dict[SourceKind, SourceImageResolver] = {}
 
 
 def register(source: SourceKind, describer: SourceDescriber) -> None:
@@ -76,15 +78,34 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
     if data_link is not None and len(data_link.url) > MAX_DATA_LINK_URL_CHARS:
         logger.warning("alerts_platform.data_link_too_long", source=source.value, length=len(data_link.url))
         data_link = None
-    image = description.image
-    if image is not None and len(image.url) > MAX_IMAGE_URL_CHARS:
-        logger.warning("alerts_platform.image_url_too_long", source=source.value, length=len(image.url))
-        image = None
-    elif image is not None:
-        image = MessageImage(url=image.url, alt_text=clip_text(image.alt_text, MAX_IMAGE_ALT_TEXT_CHARS))
     return SourceDescription(
         details=description.details,
         context=tuple(clip_text(line, MAX_CONTEXT_LINE_CHARS) for line in description.context[:MAX_CONTEXT_LINES]),
         data_link=data_link,
-        image=image,
     )
+
+
+def register_image_resolver(source: SourceKind, resolver: SourceImageResolver) -> None:
+    registered = _image_resolvers.get(source)
+    if registered is not None and registered is not resolver:
+        raise RuntimeError(f"A different image resolver is already registered for {source} alerts.")
+    _image_resolvers[source] = resolver
+
+
+def resolve_image(source: SourceKind, *, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
+    """The source's picture for a transition, or None. A picture is never worth a lost notification,
+    so a resolver that fails sends the message without one."""
+    resolver = _image_resolvers.get(source)
+    if resolver is None:
+        return None
+    try:
+        image = resolver(team_id=team_id, transition=transition)
+    except Exception:
+        logger.exception("alerts_platform.image_resolver_failed", source=source.value)
+        return None
+    if image is None:
+        return None
+    if len(image.url) > MAX_IMAGE_URL_CHARS:
+        logger.warning("alerts_platform.image_url_too_long", source=source.value, length=len(image.url))
+        return None
+    return MessageImage(url=image.url, alt_text=clip_text(image.alt_text, MAX_IMAGE_ALT_TEXT_CHARS))
