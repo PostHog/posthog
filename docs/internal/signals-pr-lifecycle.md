@@ -156,55 +156,73 @@ When an implementation pull request reaches the report, the worker requests revi
 
 ## Assignment decisions
 
-Research, scouts, custom agents, the generic artefact API, and the existing Inbox reviewer controls use `ReportAssignmentService`.
-The `signals-assignment-writer` flag enables the shared rules for an organization.
-The existing `suggested_reviewers` artefact remains the authoritative list. `SignalReportSuggestedReviewer` remains its derived read index.
-The current row is the greatest `(created_at, id)` pair in both readers.
+All reviewer producers use `SignalReportArtefact.append_status()` (directly or through `append()`).
+It applies `ReviewerRules` in the same transaction as the existing reviewer write, under the report lock.
+The latest `suggested_reviewers` artefact remains the recipient list; `SignalReportSuggestedReviewer` remains its derived index.
+Both use `(created_at, id)` to select the latest row.
+There is no separate assignment table, operation ledger, or writer service.
 
-Before the first human edit, background processes can update the reviewer list.
-A human edit permanently protects the complete list from background replacement.
-The writer saves that list and a `reviewer_control` record in one transaction under the report lock.
-An empty human choice is also protected. Automatic proposals cannot replace it.
-The writer always checks the existing human-edit history. A later control record cannot cancel a human correction.
-Only another human edit can replace the chosen list. There is no action to return it to automatic selection.
+### Human corrections
 
-Automatic callers must read `GET /signals/reports/{id}/reviewer_state/` before selection.
-The report detail response also includes this state as `reviewer_assignment`.
-Send the returned reviewer and control record IDs as `expected_reviewers`, with a stable `operation_id`.
-Reuse the same ID and payload on retries. The writer rejects stale state and conflicting reuse of an ID.
-These IDs protect assignment state; they do not cover the report's research evidence.
-An accepted request that leaves the list unchanged does not append a reviewer row or schedule delivery.
-`SignalReportAssignmentRevision` records operation IDs for retry handling. The decision log is not a second recipient store.
+An add pins that person. A removal excludes that person.
+Agents can still change people the user did not edit.
+Adding an excluded person reverses that exclusion; removing a pinned person reverses that pin.
+Only **Confirm list** protects the complete list, including an empty list.
+Removing the last person does not confirm an empty list.
+A person can still edit a confirmed list; agents cannot.
+Current project access always applies, including to pins and confirmed lists.
+A reviewer edit is not a work claim or permission to execute a task.
 
-Automatic adapters submit `selected`, `no_suitable_owner`, or `lookup_failed`.
-A deliberate empty result clears an automatic list. A failed lookup retains valid recipients and records a retry reason.
-Every applied recipient must resolve to an active member with current project access, including legacy login-only entries.
-Unresolved candidates remain in the decision log, outside the applied list. The state response exposes their exclusion reasons.
-Access cleanup removes ineligible recipients and retains human control. It does not select replacements.
-Task start reads the applied recipients, retains the human editor's permission check, and checks the state again under the report lock.
-Generic artefact PATCH and DELETE cannot change protected reviewer history.
+The same artefact table stores `reviewer_corrections`, with pins, exclusions, confirmation, and a history-review marker.
+Corrections and membership are saved atomically with the existing actor and process attribution.
+Old corrections are recovered only from reviewer deltas matched to activity records.
+A human-authored snapshot alone does not prove approval of the complete list.
+Incomplete history stops automatic changes until a person confirms the current list.
+
+### Write contract
+
+Automatic callers read `reviewer_assignment.state` before selection.
+The existing artefact-list response supplies it to the web app, without another request.
+`GET /signals/reports/{id}/reviewer_state/` remains available to other callers.
+Send both `reviewers_id` and `corrections_id` as `expected_reviewers`.
+The write rejects an old state under the report lock.
+These IDs cover assignment state, not changes to research evidence.
+
+Human add/remove requests name only the people changed.
+They apply to current membership so unrelated concurrent edits survive.
+Replacement and confirmation require the state the person saw.
+Clients can send explicit `targets` with an add/remove action while retaining a full `content` list for older servers.
+Protected reports reject full replacements without state; older Desktop/mobile clients must update before rollout.
+
+Automatic results distinguish `selected`, `no_suitable_owner`, and `lookup_failed`.
+A deliberate empty result clears automatic recipients but retains pins and confirmed lists.
+Failed lookup or wholly invalid selection retains valid current recipients.
+Accepted recipients must be active members with project access.
+An unchanged retry creates no reviewer row or delivery work. A retry with old state can return a conflict.
+Generic artefact PATCH and DELETE cannot change reviewer history, and clients cannot write correction records directly.
 
 ### Rollout and rollback
 
-| Control                           | Allows                                                                                                                                   |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `signals-assignment-writer`       | Shared rules for all reviewer writers, including permanent protection for human corrections.                                             |
-| `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for reports using the writer. |
+| Control                           | Allows                                                                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `signals-assignment-writer`       | Reviewer corrections and state checks on existing writes.                                                                        |
+| `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for enrolled reports. |
 
-Both flags require explicit enablement and support organization targeting.
-Enable the writer and keep side effects disabled to test real assignment changes without those delivery actions.
-With external effects disabled, local activity logs, scoped correction notes, and reviewer measurements remain active.
-The delivery checks use enrollment, so they still apply after the writer flag is disabled and when queued work runs.
-To stop the trial, disable delivery and the writer. Automatic writes stop on enrolled reports, while human corrections remain usable.
-Reports that never entered the writer keep their existing behavior. Rollback does not reactivate a legacy writer for protected reports.
+Both flags support organization targeting and require explicit enablement.
+They use local evaluation, so a report lock never waits for the flag service.
+Missing flag definitions keep the new behavior disabled.
+Enable the writer with side effects disabled to test real assignment changes without external delivery or task start.
+This changes the real Inbox list and index; it is not a shadow write.
+Local activity records, scoped correction notes, and existing measurements remain active.
+A corrections artefact marks enrollment, so delivery remains gated after writer rollback and for queued work.
+Disable side effects and the writer to stop a trial. Automatic replacement stops on enrolled reports; human corrections still work.
+Reports that never enrolled keep their existing behavior.
 A flag change cannot retract a sent message or stop an external call that already passed its check.
-After-commit scheduling remains best effort. Suppressed actions are not stored for later delivery.
+After-commit scheduling is best effort. Suppressed actions are not queued for later delivery.
 
-This flag changes the real Inbox list and index. It does not write a shadow copy.
-Test human edit → scout update → human edit, empty human choices, stale proposals, retries, access loss, and failed lookups before expanding the trial.
-Run recipient-reviewed selection comparisons separately; write protection does not prove that the selected owner is suitable.
-Team assignments, separate PR roles, and durable delivery are later changes in [the system design](https://github.com/PostHog/posthog/issues/120572).
-The development-only `cleanup_signals` command deletes assignment revisions before their artefacts.
+Before rollout, test self-removal, self-addition, concurrent edits, explicit empty confirmation, stale results, retries, access loss, and failed selection.
+Evaluate recipient suitability separately: preserving corrections does not establish selection quality.
+The [system design](https://github.com/PostHog/posthog/issues/120572) describes selection, later roles, and delivery work.
 
 ## Report links
 

@@ -303,27 +303,38 @@ class ReviewerState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     reviewers_id: UUID | None = None
-    control_id: UUID | None = None
+    corrections_id: UUID | None = None
 
 
-class ReviewerControl(BaseModel):
+class ReviewerCorrections(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    mode: Literal["human", "automatic"]
+    pinned: tuple[SuggestedReviewerEntry, ...] = ()
+    excluded: tuple[SuggestedReviewerEntry, ...] = ()
+    confirmed: bool = False
+    needs_review: bool = False
 
 
-class AssignmentDecision(BaseModel):
+class ReviewerProposal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    operation_id: UUID
-    revision: int = Field(ge=1)
-    source: str
-    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"]
-    control: Literal["human", "automatic"]
     expected_state: ReviewerState
-    retry_reason: str | None = None
-    ineligible_user_uuids: tuple[str, ...] = ()
-    unresolved_candidates: tuple[SuggestedReviewerEntry, ...] = ()
+    source: str = "automatic"
+    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
+    retry_reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> ReviewerProposal:
+        if self.outcome == "lookup_failed" and not self.retry_reason:
+            raise ValueError("A failed lookup needs a retry reason.")
+        return self
+
+
+class ReviewerEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["add", "remove", "replace", "confirm"]
+    expected_state: ReviewerState | None = None
 
 
 class ChannelAssignment(BaseModel):
@@ -1213,7 +1224,7 @@ StatusArtefactContent = (
     | PriorityAssessment
     | RepoSelectionResult
     | SuggestedReviewers
-    | ReviewerControl
+    | ReviewerCorrections
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
@@ -1222,7 +1233,6 @@ StatusArtefactContent = (
 )
 LogArtefactContent = (
     CodeReference
-    | AssignmentDecision
     | Commit
     | TaskRunArtefact
     | NoteArtefact
@@ -1256,8 +1266,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
-    "assignment_decision": AssignmentDecision,
-    "reviewer_control": ReviewerControl,
+    "reviewer_corrections": ReviewerCorrections,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1312,8 +1321,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
-        "assignment_decision",
-        "reviewer_control",
+        "reviewer_corrections",
         "task_run",
         "video_segment",
         "title_change",

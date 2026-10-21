@@ -71,7 +71,6 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import ReviewerState
-from products.signals.backend.assignment_service import AssignmentProposal, AssignmentWriteError
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -86,6 +85,7 @@ from products.signals.backend.presentation.scout_permissions import ScoutCanonic
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerWriteError
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.deprecation import deprecation_metadata_of
@@ -1422,10 +1422,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             proposal = None
             if data.get("expected_reviewers") is not None:
-                if not data.get("operation_id"):
-                    raise InvalidScoutReportError("An automatic reviewer proposal needs a stable operation_id.")
-                proposal = AssignmentProposal(
-                    operation_id=data["operation_id"],
+                proposal = ReviewerProposal(
                     expected_state=ReviewerState.model_validate(data["expected_reviewers"]),
                     source="scout_edit",
                     outcome=data["reviewer_outcome"],
@@ -1455,7 +1452,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
             )
-        except (InvalidScoutReportError, AssignmentWriteError, ValueError) as exc:
+        except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
         return Response(
             EditReportResponseSerializer(

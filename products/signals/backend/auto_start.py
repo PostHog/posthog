@@ -29,9 +29,9 @@ from products.signals.backend.artefact_schemas import (
     ImplementationDispatch,
     ImplementationReplacement,
     ReviewerState,
+    SuggestedReviewerEntry,
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.assignment_service import ReportAssignmentService
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -68,6 +68,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
@@ -802,8 +803,7 @@ def _create_implementation_task_if_absent(
             return False
         if (
             expected_reviewers is not None
-            and ReportAssignmentService.read_for_report(team_id=team_id, report_id=report_id).state
-            != expected_reviewers
+            and ReviewerRules.read_for_report(team_id=team_id, report_id=report_id).state != expected_reviewers
         ):
             raise ReportChangedDuringAutostart("Reviewers changed before task creation")
         if ImplementationReportContent.from_report(report) != expected_content:
@@ -1426,15 +1426,25 @@ async def maybe_autostart_implementation_task(
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
-    assignment = await database_sync_to_async(ReportAssignmentService.read_for_report)(
-        team_id=team_id, report_id=report_id
-    )
-    if assignment.state.control_id is not None:
+    assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
+    if assignment.state.corrections_id is not None:
         reviewers_content, triggering_user_id = await _latest_reviewers_content(report_id)
-        if assignment.control == "human":
-            if assignment.human_editor_id is None:
-                return AutostartOutcome(status="blocked", reason="The reviewer editor is no longer available")
-            triggering_user_id = assignment.human_editor_id
+        if triggering_user_id is None and (
+            assignment.corrections.pinned or assignment.corrections.excluded or assignment.corrections.needs_review
+        ):
+            # A pin records routing intent, not permission to run with that member's credentials.
+            reviewers_content = [
+                entry
+                for entry in reviewers_content
+                if not contains_reviewer(
+                    assignment.corrections.pinned,
+                    SuggestedReviewerEntry(user_uuid=entry.get("user_uuid"), github_login=entry.get("github_login")),
+                )
+            ]
+            if assignment.corrections.needs_review or not reviewers_content:
+                return AutostartOutcome(
+                    status="blocked", reason="No automatic reviewer remains after human corrections"
+                )
     expected_content = ImplementationReportContent.from_report(report)
     if title != expected_content.title or summary != expected_content.summary:
         if remaining_retries:

@@ -385,7 +385,6 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
-                              |SignalReportAssignmentRevision
                               |SignalReportCheck
                               |SignalReportGithubComment
                               |SignalReportPullRequest
@@ -852,7 +851,6 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
-                        |SignalReportAssignmentRevision
                         |SignalReportCheck
                         |SignalReportGithubComment
                         |SignalReportPullRequest

@@ -1813,8 +1813,8 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
             "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
             "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
             "autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An "
-            "empty list clears automatic reviewers when the shared writer is enabled. Human control is preserved. "
-            "Pass expected_reviewers from the report reviewer_assignment.state read before selection, and a stable operation_id."
+            "empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. "
+            "Pass expected_reviewers from the report reviewer_assignment.state read before selection."
         ),
     )
     repository = serializers.CharField(

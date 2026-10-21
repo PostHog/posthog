@@ -93,20 +93,16 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    ReviewerEdit,
+    ReviewerProposal,
     ReviewerState,
+    SuggestedReviewerEntry,
     SuggestedReviewers,
     SummaryChange,
     TitleChange,
     parse_artefact_content,
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.assignment_service import (
-    AssignmentClaimConflict,
-    AssignmentOperationConflict,
-    AssignmentWriteError as ReviewerWriteError,
-    ReportAssignmentService,
-    StaleAssignmentProposal,
-)
 from products.signals.backend.background_pilot import (
     BACKGROUND_REPORT_DISMISSED_EVENT,
     BACKGROUND_REPORT_RATED_EVENT,
@@ -228,6 +224,7 @@ from products.signals.backend.report_task_actions import (
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.scout_authorship import inbox_hidden_report_exists
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
@@ -244,6 +241,7 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
     ReviewerControlResponseSerializer,
+    SignalReportArtefactListResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -2841,15 +2839,12 @@ class SignalReportViewSet(
     )
     @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
     def reviewers(self, request, **kwargs):
-        """Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
-        has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
-        PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
-        can still be assigned one. App-only: agents append reviewers via the artefacts POST instead."""
+        """Apply a human reviewer edit, including on reports without a reviewer artefact."""
         report = cast(SignalReport, self.get_object())
 
         write_serializer = SignalReportArtefactWriteSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
-        entries = write_serializer.validated_data["content"]
+        entries = write_serializer.validated_data.get("targets", write_serializer.validated_data["content"])
 
         try:
             new_artefact = append_suggested_reviewers(
@@ -2857,12 +2852,20 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 entries=entries,
                 request=request,
+                edit=ReviewerEdit(
+                    action=write_serializer.validated_data["action"],
+                    expected_state=write_serializer.validated_data.get("expected_reviewers"),
+                ),
             )
+        except StaleReviewerProposal as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         except ReviewerWriteError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Return the read-shape (enriched) so the client sees the canonical result, matching the artefact PUT.
-        read_serializer = SignalReportArtefactSerializer(new_artefact, context=self.get_serializer_context())
+        read_serializer = SignalReportSuggestedReviewersArtefactSerializer(
+            new_artefact, context=self.get_serializer_context()
+        )
         return Response(read_serializer.data)
 
     @extend_schema(
@@ -2885,6 +2888,8 @@ class SignalReportViewSet(
             remove_suggested_reviewer(
                 team=self.team, report_id=str(report.id), user=cast(User, request.user), request=request
             )
+        except StaleReviewerProposal as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         except ReviewerWriteError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -2893,7 +2898,7 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="reviewer_state", required_scopes=["task:read"])
     def reviewer_state(self, request: Request, **kwargs) -> Response:
         report = self.get_object()
-        service = ReportAssignmentService(team=self.team, report_id=str(report.id))
+        service = ReviewerRules(team=self.team, report_id=str(report.id))
         return Response(ReviewerControlResponseSerializer(service).data)
 
     def destroy(self, request, *args, **kwargs):
@@ -4915,12 +4920,14 @@ def append_suggested_reviewers(
     report_id: str,
     entries: list[dict],
     request: Request,
+    edit: ReviewerEdit | None = None,
 ) -> SignalReportArtefact:
     """Append a new `suggested_reviewers` status row for a report, merging forward from the current
     (latest) reviewers. Works whether or not the report already has a reviewers artefact — the first
     write for a report with none simply creates the first row. Shared by the app-only reviewers PUT
     on both the report and artefact viewsets. Returns the new artefact.
     Raises `ReviewerWriteError` on unresolvable entries."""
+    edit = edit or ReviewerEdit(action="replace")
     # App/user-only write (agents append reviewers via the artefacts POST), so always attribute to
     # the requesting user — never the X-PostHog-Task-Id header. A task-attributed reviewers row has
     # no created_by_id, which makes auto-start treat the list as agent-authored and run the
@@ -4954,10 +4961,10 @@ def append_suggested_reviewers(
         user_uuid = entry.get("user_uuid")
         if user_uuid is not None:
             member = uuid_to_user.get(str(user_uuid))
-            if member is None:
+            if member is None and edit.action != "remove":
                 raise ReviewerWriteError(f"content[{idx}]: user_uuid '{user_uuid}' is not an org member of this team.")
-            uuid_str: str | None = str(member.uuid)
-            member_login = member.get_github_login()
+            uuid_str: str | None = str(member.uuid) if member else str(user_uuid)
+            member_login = member.get_github_login() if member else None
             login_lc = member_login.lower() if member_login else None
         else:
             raw_login = entry.get("github_login") or ""
@@ -4987,7 +4994,6 @@ def append_suggested_reviewers(
     # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
     # write reads the current (latest) reviewers and appends a new row, so without the lock two
     # simultaneous edits would both read the same row and one would be silently lost.
-    service = ReportAssignmentService(team=team, report_id=str(report_id))
     seen: set[str] = set()
     with transaction.atomic():
         report = (
@@ -5079,9 +5085,17 @@ def append_suggested_reviewers(
                 }
             )
 
-        new_artefact = service.edit_reviewers(
-            SuggestedReviewers.model_validate(new_content),
-            actor=attribution,
+        new_artefact = SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report_id),
+            content=SuggestedReviewers.model_validate(new_content),
+            attribution=attribution,
+            reviewer_edit=edit,
+            reevaluate_autostart=edit.action not in {"remove", "confirm"}
+            and any(
+                not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
+                for entry in new_content
+            ),
         )
         if current is not None and new_artefact.id == current.id:
             return new_artefact
@@ -5258,7 +5272,6 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
     github_login = user.get_github_login()
     github_login = github_login.lower() if github_login else None
 
-    service = ReportAssignmentService(team=team, report_id=str(report_id))
     with transaction.atomic():
         report = (
             SignalReport.objects.select_for_update()
@@ -5290,15 +5303,18 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
             for entry in prior
             if not _reviewer_entry_names(entry, user_uuid=str(user.uuid), github_login=github_login)
         ]
+        new_artefact = SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report_id),
+            content=SuggestedReviewers(
+                root=[SuggestedReviewerEntry(user_uuid=str(user.uuid), github_login=github_login)]
+            ),
+            attribution=attribution,
+            reviewer_edit=ReviewerEdit(action="remove"),
+            reevaluate_autostart=False,
+        )
         if len(kept) == len(prior):
             return False
-
-        new_content = [_stored_reviewer_entry(entry) for entry in kept]
-        new_artefact = service.edit_reviewers(
-            SuggestedReviewers.model_validate(new_content),
-            actor=attribution,
-            removal=True,
-        )
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
 
         log_activity(
@@ -5536,7 +5552,7 @@ class SignalReportCheckViewSet(
             "artefact by id for the full metadata."
         ),
         parameters=[_REPORT_ID_PARAMETER],
-        responses={200: SignalReportArtefactSerializer(many=True)},
+        responses={200: SignalReportArtefactListResponseSerializer},
         operation_id="signals_report_artefacts_list",
     ),
     retrieve=extend_schema(
@@ -5586,7 +5602,7 @@ class SignalReportArtefactViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     # select_related: the read serializer renders `created_by` inline.
-    queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at")
+    queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at", "-id")
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def _validated_report_id(self) -> str:
@@ -5640,7 +5656,12 @@ class SignalReportArtefactViewSet(
         # converted its gate rows. Merged into the materialized log (de-duplicated against the real
         # task_run artefacts) and re-sorted newest-first so each legacy row lands at its original
         # timestamp, then paginated as one list so `count` and ordering both account for them.
+        rules = ReviewerRules(team=self.team, report_id=str(self.parents_query_dict["report_id"]))
         real_artefacts = list(queryset)
+        reviewer_assignment = ReviewerControlResponseSerializer(rules).data
+        displayed_reviewers = next((row for row in real_artefacts if row.type == "suggested_reviewers"), None)
+        # A concurrent write must not give an older displayed list a newer state token.
+        reviewer_assignment["state"]["reviewers_id"] = str(displayed_reviewers.id) if displayed_reviewers else None
         synthetic = SignalReport.synthetic_legacy_task_run_artefacts(
             report_id=self.parents_query_dict["report_id"],
             team_id=self.team.id,
@@ -5651,7 +5672,7 @@ class SignalReportArtefactViewSet(
             if store is not None:
                 synthetic.extend(private_report_artefacts(store, str(self._validated_report_id())))
         log = (
-            sorted([*real_artefacts, *synthetic], key=lambda a: a.created_at, reverse=True)
+            sorted([*real_artefacts, *synthetic], key=lambda a: (a.created_at, str(a.id)), reverse=True)
             if synthetic
             else real_artefacts
         )
@@ -5687,9 +5708,20 @@ class SignalReportArtefactViewSet(
                 ],
             },
         )
-        if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
+        response = (
+            self.get_paginated_response(serializer.data)
+            if page is not None
+            else Response(
+                {
+                    "count": len(serializer.data),
+                    "next": None,
+                    "previous": None,
+                    "results": serializer.data,
+                }
+            )
+        )
+        response.data["reviewer_assignment"] = reviewer_assignment
+        return response
 
     def update(self, request, *args, **kwargs):
         artefact = cast(SignalReportArtefact, self.get_object())
@@ -5709,7 +5741,7 @@ class SignalReportArtefactViewSet(
 
         write_serializer = SignalReportArtefactWriteSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
-        entries = write_serializer.validated_data["content"]
+        entries = write_serializer.validated_data.get("targets", write_serializer.validated_data["content"])
 
         try:
             new_artefact = append_suggested_reviewers(
@@ -5717,12 +5749,20 @@ class SignalReportArtefactViewSet(
                 report_id=str(artefact.report_id),
                 entries=entries,
                 request=request,
+                edit=ReviewerEdit(
+                    action=write_serializer.validated_data["action"],
+                    expected_state=write_serializer.validated_data.get("expected_reviewers"),
+                ),
             )
+        except StaleReviewerProposal as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         except ReviewerWriteError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Return the read-shape (enriched) so the client sees the canonical result.
-        read_serializer = SignalReportArtefactSerializer(new_artefact, context=self.get_serializer_context())
+        read_serializer = SignalReportSuggestedReviewersArtefactSerializer(
+            new_artefact, context=self.get_serializer_context()
+        )
         return Response(read_serializer.data)
 
     @staticmethod
@@ -5832,25 +5872,38 @@ class SignalReportArtefactViewSet(
         if isinstance(parsed_content, SuggestedReviewers):
             try:
                 expected = request.validated_data.get("expected_reviewers")
-                result = ReportAssignmentService(team=self.team, report_id=report_id).apply_compatibility_reviewers(
-                    parsed_content,
-                    actor=attribution,
-                    expected_state=ReviewerState.model_validate(expected) if expected is not None else None,
-                    operation_id=request.validated_data.get("operation_id"),
-                    outcome=request.validated_data["reviewer_outcome"],
-                    retry_reason=request.validated_data.get("reviewer_retry_reason"),
-                    claim_id=str(claim_id) if claim_id else None,
-                )
-            except (AssignmentClaimConflict, AssignmentOperationConflict, StaleAssignmentProposal) as e:
+                with transaction.atomic():
+                    SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+                    previous = ReviewerRules.read_for_report(
+                        team_id=self.team.id, report_id=report_id
+                    ).state.reviewers_id
+                    artefact = SignalReportArtefact.append_status(
+                        team_id=self.team.id,
+                        report_id=report_id,
+                        content=parsed_content,
+                        attribution=attribution,
+                        reviewer_proposal=ReviewerProposal(
+                            expected_state=ReviewerState.model_validate(expected),
+                            outcome=request.validated_data["reviewer_outcome"],
+                            retry_reason=request.validated_data.get("reviewer_retry_reason"),
+                        )
+                        if expected is not None
+                        else None,
+                        reviewer_edit=ReviewerEdit(action="replace", expected_state=expected)
+                        if attribution.kind == "user" and request.validated_data["reviewer_outcome"] == "selected"
+                        else None,
+                        claim_id=str(claim_id) if claim_id else None,
+                    )
+                    if artefact.id != previous:
+                        self._schedule_suggested_reviewer_telemetry(
+                            content=SuggestedReviewers.model_validate_json(artefact.content),
+                            report_id=report_id,
+                        )
+            except StaleReviewerProposal as e:
                 return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
-            except (ReviewerWriteError, ValueError) as e:
+            except ValueError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-            if result.changed:
-                self._schedule_suggested_reviewer_telemetry(
-                    content=SuggestedReviewers.model_validate_json(result.reviewers_artefact.content),
-                    report_id=report_id,
-                )
-            return Response(self._write_response_data(result.reviewers_artefact), status=status.HTTP_201_CREATED)
+            return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
             import_report_pull_requests(report)
@@ -5947,12 +6000,6 @@ class SignalReportArtefactViewSet(
                 {"error": f"Artefact type '{artefact.type}' is read-only and cannot be edited through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
-            if ReportAssignmentService(team=self.team, report_id=str(artefact.report_id)).enabled:
-                return Response(
-                    {"error": "Use the report reviewer controls to change this list."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
         try:
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
             if isinstance(parsed_content, ChannelAssignment):
@@ -5990,6 +6037,7 @@ class SignalReportArtefactViewSet(
         artefact = cast(SignalReportArtefact, self.get_object())
         if artefact.type in {
             SignalReportArtefact.ArtefactType.TASK_RUN,
+            SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
             SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN,
             SignalReportArtefact.ArtefactType.WORK_CLAIM,
             SignalReportArtefact.ArtefactType.WORK_RELEASE,
@@ -6011,14 +6059,8 @@ class SignalReportArtefactViewSet(
             )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         report_id = str(artefact.report_id)
-        writer_enabled = was_reviewers and ReportAssignmentService(team=self.team, report_id=report_id).enabled
         with transaction.atomic():
             SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
-            if was_reviewers and (writer_enabled or artefact.report.assignment_revisions.exists()):
-                return Response(
-                    {"error": "Use the report reviewer controls to change this list."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
             artefact.delete()
         if was_reviewers:
             # Deleting the latest reviewers row reverts the canonical set to the previous row (or

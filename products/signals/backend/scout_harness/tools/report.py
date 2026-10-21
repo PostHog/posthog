@@ -59,11 +59,6 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.assignment_service import (
-    AssignmentProposal,
-    ReportAssignmentService,
-    StaleAssignmentProposal,
-)
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
@@ -93,6 +88,7 @@ from products.signals.backend.report_metrics import (
 )
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -2453,7 +2449,7 @@ def _do_edit_report(
     charts: list[ReportChart] | None,
     metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
-    reviewer_proposal: AssignmentProposal | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
     links: list[ReportLink] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -2515,7 +2511,7 @@ def _do_edit_report(
         if supersedes_implementation
         else NO_IMPLEMENTATION_CONTEXT
     )
-    assignment = ReportAssignmentService(team=team, report_id=report_id)
+    assignment = ReviewerRules(team=team, report_id=report_id)
     if reviewers is None and reviewer_proposal is not None and reviewer_proposal.outcome != "selected":
         reviewers = SuggestedReviewers(root=[])
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
@@ -2583,7 +2579,7 @@ def _do_edit_report(
                 if reviewers is not None
                 else False
             )
-        except StaleAssignmentProposal as error:
+        except StaleReviewerProposal as error:
             reviewers_set = False
             reviewer_warnings = (EditReportWarning(field="suggested_reviewers", message=str(error)),)
         # The other routing fix: a report that surfaced against the wrong codebase is repointed in
@@ -3045,7 +3041,7 @@ async def edit_report(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
-    reviewer_proposal: AssignmentProposal | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -3182,7 +3178,7 @@ def edit_report_sync(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
-    reviewer_proposal: AssignmentProposal | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,

@@ -2,19 +2,24 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from uuid import UUID, uuid4, uuid5
+from uuid import uuid4
 
 from django.db import transaction
 from django.utils import timezone
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.artefact_schemas import ArtefactContent, ReviewerState, SuggestedReviewers
-from products.signals.backend.assignment_service import ReportAssignmentService
+from products.signals.backend.artefact_schemas import (
+    ArtefactContent,
+    ReviewerProposal,
+    ReviewerState,
+    SuggestedReviewers,
+)
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 
@@ -41,7 +46,7 @@ def create_custom_agent_ready_report(
     order (status types route through their latest-wins append semantics).
     """
     report_id = str(uuid4())
-    assignment = ReportAssignmentService(team=Team.objects.get(id=team_id), report_id=report_id)
+    assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         report = SignalReport.objects.create(
             id=report_id,
@@ -100,15 +105,15 @@ def create_custom_agent_ready_report(
             )
         if reviewers is not None or assignment.enabled:
             reviewers = reviewers or SuggestedReviewers(root=[])
-            result = assignment.apply_compatibility_reviewers(
-                reviewers,
-                actor=attribution,
-                expected_state=ReviewerState(),
-                operation_id=uuid5(UUID(report_id), "custom-agent-reviewers"),
-                source="custom_agent",
+            artefact = SignalReportArtefact.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                content=reviewers,
+                attribution=attribution,
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="custom_agent"),
                 reevaluate_autostart=False,
             )
-            reviewers = SuggestedReviewers.model_validate_json(result.reviewers_artefact.content)
+            reviewers = SuggestedReviewers.model_validate_json(artefact.content)
 
         if task_id is not None:
             product, type = agent_identifier

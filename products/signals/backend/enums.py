@@ -33,14 +33,11 @@ class ReviewerSelectionOutcome(LabeledStrEnum):
     LOOKUP_FAILED = "lookup_failed", "Lookup failed"
 
 
-class ReviewerControlMode(LabeledStrEnum):
-    HUMAN = "human", "Human"
-    AUTOMATIC = "automatic", "Automatic"
-
-
-class ReviewerValidationIssue(LabeledStrEnum):
-    NO_PROJECT_ACCESS = "no_project_access", "No project access"
-    UNRESOLVED_IDENTITY = "unresolved_identity", "Unresolved identity"
+class ReviewerEditAction(LabeledStrEnum):
+    ADD = "add", "Add"
+    REMOVE = "remove", "Remove"
+    REPLACE = "replace", "Replace"
+    CONFIRM = "confirm", "Confirm"
 
 
 class ReportLinkKind(LabeledStrEnum):

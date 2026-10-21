@@ -3,7 +3,7 @@ import structlog
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
-from products.signals.backend.models import SignalReportAssignmentRevision
+from products.signals.backend.models import SignalReportArtefact
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +18,7 @@ def _enabled(key: str, team_id: int) -> bool:
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
                 send_feature_flag_events=False,
+                only_evaluate_locally=True,
             )
             is True
         )
@@ -36,7 +37,9 @@ def assignment_side_effects_enabled(team_id: int) -> bool:
 
 def assignment_side_effects_allowed(*, team_id: int, report_id: str) -> bool:
     # Keep the trial boundary after a writer flag is disabled, including for queued work.
-    if not SignalReportAssignmentRevision.objects.for_team(team_id).filter(report_id=report_id).exists():
+    if not SignalReportArtefact.objects.filter(
+        team_id=team_id, report_id=report_id, type="reviewer_corrections"
+    ).exists():
         return True
     allowed = assignment_side_effects_enabled(team_id)
     if not allowed:

@@ -670,19 +670,15 @@ export const SignalsReportArtefactsCreateBody = () => zod
                     .string()
                     .nullable()
                     .describe('Current reviewer artefact ID, or null before the first list.'),
-                control_id: zod
+                corrections_id: zod
                     .string()
                     .nullable()
-                    .describe('Current reviewer control artefact ID, or null before migration.'),
+                    .describe('Current corrections artefact ID, or null before corrections are stored.'),
             })
             .optional()
             .describe(
-                'State returned by reviewer_state before selection began. Required when the shared writer is enabled.'
+                'State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.'
             ),
-        operation_id: zod
-            .string()
-            .optional()
-            .describe('Stable ID for this selection. Reuse this ID and payload on retries.'),
         reviewer_outcome: zod
             .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
             .describe(
@@ -764,7 +760,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `assignment_decision`, `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_control`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -2673,19 +2669,15 @@ export const SignalsScoutEditReportBody = () => zod
                     .string()
                     .nullable()
                     .describe('Current reviewer artefact ID, or null before the first list.'),
-                control_id: zod
+                corrections_id: zod
                     .string()
                     .nullable()
-                    .describe('Current reviewer control artefact ID, or null before migration.'),
+                    .describe('Current corrections artefact ID, or null before corrections are stored.'),
             })
             .optional()
             .describe(
-                'State returned by reviewer_state before selection began. Required when the shared writer is enabled.'
+                'State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.'
             ),
-        operation_id: zod
-            .string()
-            .optional()
-            .describe('Stable ID for this selection. Reuse this ID and payload on retries.'),
         reviewer_outcome: zod
             .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
             .describe(
@@ -2781,7 +2773,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
             .optional()
             .describe(
-                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when the shared writer is enabled. Human control is preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection, and a stable operation_id.'
+                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.'
             ),
         repository: zod
             .string()

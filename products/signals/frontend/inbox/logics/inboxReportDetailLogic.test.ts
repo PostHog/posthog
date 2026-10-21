@@ -371,7 +371,7 @@ describe('inboxReportDetailLogic', () => {
             })
 
             expect(logic.values.displayReviewers).toEqual([reviewer])
-            logic.actions.updateReviewers([], [])
+            logic.actions.updateReviewers([{ github_login: reviewer.github_login! }], [], 'remove')
             expect(logic.values.displayReviewers).toEqual([])
 
             try {
@@ -394,7 +394,7 @@ describe('inboxReportDetailLogic', () => {
                 },
             })
 
-            logic.actions.updateReviewers([], [])
+            logic.actions.updateReviewers([{ github_login: reviewer.github_login! }], [], 'remove')
             expect(logic.values.displayReviewers).toEqual([])
             await expectLogic(logic).toFinishAllListeners()
 
