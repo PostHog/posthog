@@ -101,8 +101,11 @@ def set_check_status(configuration_id: UUID, check_status: str) -> None:
 
 
 def set_enabled(configuration_id: UUID, enabled: bool) -> None:
-    """Switch a configuration on or off, as a broken check the platform owns leaves it."""
-    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    """Switch a configuration on or off, as a broken check the platform owns leaves it.
+
+    A test door with no production caller. The caller holds the team scope.
+    """
+    # nosemgrep: idor-lookup-without-team, platform-alert-state-direct-mutation — test door, see the docstring
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(enabled=enabled)
 
 
