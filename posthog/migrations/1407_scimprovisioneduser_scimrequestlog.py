@@ -73,7 +73,7 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1405_user_onboarding_skipped_reason_connector"),
+        ("posthog", "1406_file_system_team_text_trgm_index"),
         ("ee", "0064_split_identity_provider_config_scopes"),
     ]
 
