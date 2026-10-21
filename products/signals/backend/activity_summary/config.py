@@ -4,6 +4,7 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
+import dataclasses
 from typing import Any
 
 import structlog
@@ -19,22 +20,6 @@ logger = structlog.get_logger(__name__)
 ACTIVITY_SUMMARY_FLAG = "activity-summary"
 # Not a person: the flag must serve its payload to this id.
 ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
-
-# The upper clamp of each render limit, so a payload typo cannot make one update slow or expensive.
-# The window cannot reach back past the rows that `inputs.py` reads per person anyway.
-RENDER_LIMIT_MAX: dict[str, int] = {
-    "window_days": 90,
-    "task_lines": 50,
-    "activity_lines": 50,
-    "max_units_per_day": 20,
-    "sections_max_chars": 32000,
-    "task_line_chars": 1000,
-    "task_goal_chars": 800,
-    "activity_line_chars": 1000,
-    "activity_intent_chars": 500,
-    "summary_max_words": 300,
-    "max_completion_tokens": 16000,
-}
 
 
 @frozen
@@ -83,13 +68,15 @@ def _organization_ids(value: Any) -> tuple[str, ...]:
 
 
 def parse_limits(payload: Any) -> RenderLimits:
-    """The `limits` object of the payload. An invalid field gets its default, a large one its clamp."""
+    """The `limits` object of the payload. An invalid field gets its default, a large one its `max_value`."""
     if not isinstance(payload, dict):
         return DEFAULT_LIMITS
     return RenderLimits(
         **{
-            name: min(_positive_int(payload.get(name), getattr(DEFAULT_LIMITS, name)), maximum)
-            for name, maximum in RENDER_LIMIT_MAX.items()
+            field.name: min(
+                _positive_int(payload.get(field.name), getattr(DEFAULT_LIMITS, field.name)), field.metadata["max_value"]
+            )
+            for field in dataclasses.fields(RenderLimits)
         }
     )
 

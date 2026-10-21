@@ -13,9 +13,11 @@ import math
 import random
 import hashlib
 import datetime
+import dataclasses
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from enum import StrEnum
+from typing import Any
 from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
@@ -89,21 +91,27 @@ _LETTER = re.compile(r"[A-Za-z]")
 _WHITESPACE = re.compile(r"\s+")
 
 
+def _limit(default: int, *, max_value: int) -> Any:
+    return dataclasses.field(default=default, metadata={"max_value": max_value})
+
+
 @frozen
 class RenderLimits:
-    """The limits that shape one summary. The `activity-summary` flag payload can override each one."""
+    """The limits that shape one summary. The `activity-summary` flag payload can override each one.
 
-    window_days: int = WINDOW_DAYS
-    task_lines: int = TASK_LINES
-    activity_lines: int = ACTIVITY_LINES
-    max_units_per_day: int = MAX_UNITS_PER_DAY
-    sections_max_chars: int = SECTIONS_MAX_CHARS
-    task_line_chars: int = TASK_LINE_CHARS
-    task_goal_chars: int = TASK_GOAL_CHARS
-    activity_line_chars: int = ACTIVITY_LINE_CHARS
-    activity_intent_chars: int = ACTIVITY_INTENT_CHARS
-    summary_max_words: int = SUMMARY_MAX_WORDS
-    max_completion_tokens: int = MAX_COMPLETION_TOKENS
+    `max_value` clamps a payload value, so a typo cannot make one update slow or expensive."""
+
+    window_days: int = _limit(WINDOW_DAYS, max_value=90)
+    task_lines: int = _limit(TASK_LINES, max_value=50)
+    activity_lines: int = _limit(ACTIVITY_LINES, max_value=50)
+    max_units_per_day: int = _limit(MAX_UNITS_PER_DAY, max_value=20)
+    sections_max_chars: int = _limit(SECTIONS_MAX_CHARS, max_value=32000)
+    task_line_chars: int = _limit(TASK_LINE_CHARS, max_value=1000)
+    task_goal_chars: int = _limit(TASK_GOAL_CHARS, max_value=800)
+    activity_line_chars: int = _limit(ACTIVITY_LINE_CHARS, max_value=1000)
+    activity_intent_chars: int = _limit(ACTIVITY_INTENT_CHARS, max_value=500)
+    summary_max_words: int = _limit(SUMMARY_MAX_WORDS, max_value=300)
+    max_completion_tokens: int = _limit(MAX_COMPLETION_TOKENS, max_value=16000)
 
 
 DEFAULT_LIMITS = RenderLimits()
