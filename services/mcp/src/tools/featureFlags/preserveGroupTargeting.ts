@@ -20,10 +20,11 @@
  * A set's aggregation then decides its property types. A group-aggregated set restores a
  * person-aggregated type that its source holds for the key. A group-aggregated set with no source
  * looks the key up in every stored set instead when the stored sets all aggregate the same way, or
- * when the set states or implies its own group type. When the stored filters it reads hold the key
- * under more than one person-aggregated type, and the incoming operator and value do not narrow them
- * to one, the property stays untyped. The API then rejects the write. It types every other untyped
- * property as `group` against the set's own group type index.
+ * when the set states or implies its own group type. A group-aggregated set types a property as
+ * `group` against its own group type index when the stored filters it reads hold the key as a group
+ * property or hold no person-aggregated type for it. Otherwise the person-aggregated filters decide
+ * the type. When they hold more than one type, and the incoming operator and value do not narrow
+ * them to one, the property stays untyped. The API then rejects the write.
  *
  * A person-aggregated set can filter on a group property. The flag evaluator reads each property
  * by its own type and group_type_index (see mixed_targeting_flag in
@@ -420,7 +421,8 @@ function mergeProperty(
             const fromSource = source
                 ? usableCandidates(candidates, source === 'person' ? isPresentType : isPersonAggregatedType)
                 : []
-            // The merge reads other sets only when the source holds no usable candidate.
+            // The merge reads other sets only when the source has no filter on the key whose type
+            // it can restore. Source filters that disagree on the type leave the property untyped.
             const others = source ? otherCandidates : unambiguousPersonCandidates(otherCandidates, out)
             const usable = fromSource.length > 0 ? fromSource : usableCandidates(others, isPersonAggregatedType)
             const restored = pickCandidate(usable, out)

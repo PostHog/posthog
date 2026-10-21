@@ -600,8 +600,26 @@ describe('preserveGroupTargetingFilters', () => {
             value: 43,
             expected: {},
         },
+        {
+            name: 'a person and a group candidate both match the operator and value',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+            ],
+            operator: 'exact',
+            expected: {},
+        },
+        {
+            name: 'two person candidates differ only in a null group_type_index',
+            stored: [
+                { key: 'name', type: 'person', group_type_index: null, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'person', operator: 'icontains', value: 'acme' },
+            ],
+            operator: 'regex',
+            expected: { type: 'person' },
+        },
     ])(
-        'picks a duplicate-key candidate by operator and value when $name',
+        'chooses a duplicate-key type, or none, by operator and value when $name',
         ({ stored = personAndCohortCandidates, aggregation, operator, value = 'acme', expected }) => {
             const existing = {
                 ...(aggregation === undefined ? {} : { aggregation_group_type_index: aggregation }),
