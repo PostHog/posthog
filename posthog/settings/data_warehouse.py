@@ -165,6 +165,14 @@ DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
 # `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
 # without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
 DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
+# Row-group cap for the files deltalite writes. A merge upsert closes a row group at this many encoded
+# bytes, and a deltalite compaction closes one at this many decoded bytes, so compaction does not join
+# the row groups again. A reader fetches one whole row group before it decodes it, so smaller row groups
+# lower upsert and query memory on tables with wide rows. 0 turns the cap off and keeps deltalite's
+# defaults.
+DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES", 16 * 1024 * 1024, type_cast=int
+)
 # A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
 # this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
 DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(

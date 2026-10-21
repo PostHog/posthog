@@ -324,6 +324,14 @@ function sanitizeFromName(name: string): string {
     return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
 }
 
+// A display name can come from Liquid output, so it may hold quotes, backslashes or line breaks.
+// Escape it as an RFC 5322 quoted string and drop control characters, which also stops a templated
+// name from injecting a header.
+export function formatMailbox(name: string | undefined, email: string): string {
+    const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
+    return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -1033,8 +1041,8 @@ export class EmailService {
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
-            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            from: formatMailbox(from.name, from.email),
+            to: formatMailbox(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
@@ -1108,9 +1116,9 @@ export class EmailService {
             : {}
 
         const sendEmailParams: SendEmailCommandInput = {
-            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            FromEmailAddress: formatMailbox(from.name, from.email),
             Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+                ToAddresses: [formatMailbox(params.to.name, params.to.email)],
             },
             Content: {
                 Simple: {
