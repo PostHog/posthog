@@ -484,12 +484,12 @@ class _SignalReportTaskThrottle(UserRateThrottle):
 
 class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
-    rate = "10/hour"
+    rate = "20/hour"
 
 
 class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
-    rate = "30/day"
+    rate = "50/day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):

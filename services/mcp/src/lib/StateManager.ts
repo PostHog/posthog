@@ -163,6 +163,12 @@ export class StateManager {
             is_impersonated: introspectionResult.data.is_impersonated === true,
             // Only server-minted sandbox tokens can carry this scope; request headers cannot opt out.
             suppress_analytics: (scope ?? '').split(' ').includes('scout_experiment_internal:read'),
+            ...(introspectionResult.data.sandbox_task_id
+                ? { sandbox_task_id: introspectionResult.data.sandbox_task_id }
+                : {}),
+            ...(introspectionResult.data.mcp_allowed_tools
+                ? { mcp_allowed_tools: introspectionResult.data.mcp_allowed_tools }
+                : {}),
         }
     }
 
