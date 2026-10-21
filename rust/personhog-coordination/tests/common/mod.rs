@@ -138,32 +138,47 @@ pub fn start_coordinator_with_deadline(
     strategy: Arc<dyn AssignmentStrategy>,
     cancel: CancellationToken,
 ) -> JoinHandle<Result<()>> {
+    let config = coordinator_config(name, leader_lease_ttl, handoff_deadline);
+    start_coordinator_with_config(store, config, strategy, cancel)
+}
+
+pub fn coordinator_config(
+    name: &str,
+    leader_lease_ttl: i64,
+    handoff_deadline: Duration,
+) -> CoordinatorConfig {
     let keepalive_secs = (leader_lease_ttl as u64 / 3).max(1);
-    let coordinator = Coordinator::new(
-        store,
-        CoordinatorConfig {
-            name: name.to_string(),
-            leader_lease_ttl,
-            keepalive_interval: Duration::from_secs(keepalive_secs),
-            // Short enough that a failover never waits on the leader-key
-            // watch alone.
-            standby_poll_interval: Duration::from_millis(500),
-            run_retry_backoff: Duration::from_millis(10),
-            backoff_decay_window: Duration::from_secs(300),
-            rebalance_debounce_interval: Duration::from_millis(100),
-            reconcile_interval: Duration::from_millis(500),
-            // Callers default this to a day: these tests deliberately
-            // park handoffs mid-phase to assert what the protocol does
-            // with them, and a live deadline would replace the state
-            // under test. The cancellation test passes a short one
-            // explicitly.
-            handoff_deadline,
-            warming_deadline: Duration::from_secs(86_400),
-            max_txn_ops: 128,
-        },
-        strategy,
-        None,
-    );
+    CoordinatorConfig {
+        name: name.to_string(),
+        leader_lease_ttl,
+        keepalive_interval: Duration::from_secs(keepalive_secs),
+        // Short enough that a failover never waits on the leader-key
+        // watch alone.
+        standby_poll_interval: Duration::from_millis(500),
+        run_retry_backoff: Duration::from_millis(10),
+        backoff_decay_window: Duration::from_secs(300),
+        rebalance_debounce_interval: Duration::from_millis(100),
+        reconcile_interval: Duration::from_millis(500),
+        // Callers default this to a day: these tests deliberately
+        // park handoffs mid-phase to assert what the protocol does
+        // with them, and a live deadline would replace the state
+        // under test. The cancellation test passes a short one
+        // explicitly.
+        handoff_deadline,
+        warming_deadline: Duration::from_secs(86_400),
+        max_txn_ops: 128,
+        migration_pre_flip_deadline: Duration::from_secs(86_400),
+        migration_debounce_interval: Duration::from_millis(10),
+    }
+}
+
+pub fn start_coordinator_with_config(
+    store: Arc<PersonhogStore>,
+    config: CoordinatorConfig,
+    strategy: Arc<dyn AssignmentStrategy>,
+    cancel: CancellationToken,
+) -> JoinHandle<Result<()>> {
+    let coordinator = Coordinator::new(store, config, strategy, None);
     let token = cancel.child_token();
     tokio::spawn(async move {
         coordinator.run(token).await;

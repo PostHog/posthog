@@ -1926,63 +1926,23 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "Defaults to true."
         ),
     )
-
-
-MAX_FOR_YOU_REPORTS = 20
-
-
-class SignalReportsForYouQuerySerializer(serializers.Serializer):
-    limit = serializers.IntegerField(
-        required=False,
-        default=5,
-        min_value=1,
-        max_value=MAX_FOR_YOU_REPORTS,
-        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
-    )
-    offset = serializers.IntegerField(
-        required=False,
-        default=0,
-        min_value=0,
-        help_text=(
-            "How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same "
-            "query are slices of one ranked list. Defaults to 0."
-        ),
-    )
     exclude = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),
         required=False,
         default=list,
-        max_length=MAX_FOR_YOU_REPORTS,
+        max_length=100,
         help_text=(
-            "Report ids to leave out of `results` and `count`, for example the reports a briefing already "
-            "shows, as repeated parameters or comma-separated. The other reports keep their order."
+            "Report ids to leave out of `results` and `count`, for example the reports a client already "
+            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
         ),
     )
-    include_unowned = serializers.BooleanField(
+    include_unlisted = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
-            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
-            "one person, so a surface that only shows a person's own work passes false. Defaults to true."
-        ),
-    )
-
-
-class SignalReportsForYouResponseSerializer(serializers.Serializer):
-    results = SignalReportListSerializer(
-        many=True,
-        help_text=(
-            "One page of the open, actionable reports that matter most to the current user, in the inbox "
-            "priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, "
-            "reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` "
-            "is false. The Today briefing ranks reports the same way."
-        ),
-    )
-    count = serializers.IntegerField(
-        help_text=(
-            "How many open, actionable reports are for the current user, on every page together, "
-            "without the `exclude` ids. Counted over the same set as `results`, so it follows "
-            "`include_unowned` too."
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
         ),
     )
 
@@ -2561,7 +2521,10 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
-        if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+        } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
 
         if (
@@ -2621,6 +2584,11 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             "observed_value": None,
             "baseline_value": None,
             "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+            **(
+                {"comparison": None, "matches": None, "error": None}
+                if obj.type == SignalReportArtefact.ArtefactType.CHECK_OBSERVATION
+                else {}
+            ),
         }
 
 
@@ -3071,6 +3039,7 @@ class SignalReportTaskActionSerializer(serializers.Serializer):
         choices=ReportTaskActionKind.choices,
         help_text=(
             "The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. "
+            "`make_it_green` fixes failing CI on the report's open pull request and stops without merging it. "
             "`suggested_prompt` sends one of the prompts the report suggests."
         ),
     )
