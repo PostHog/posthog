@@ -1940,6 +1940,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // The shell re-renders the detail with a refreshed `selectedReport`; re-gate polling on the new status.
         if (props.report !== oldProps.report) {
             actions.setReport(props.report ?? null)
+            if (props.report?.status !== oldProps.report?.status) {
+                actions.loadReportChecks()
+            }
         }
     }),
 
