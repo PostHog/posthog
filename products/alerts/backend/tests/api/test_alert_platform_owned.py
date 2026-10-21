@@ -1,6 +1,9 @@
+from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -13,8 +16,12 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration
-from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.api import get_configuration, update_configuration
+from products.alerts_platform.backend.facade.contracts import (
+    InvalidPlatformAlertEdit,
+    PlatformAlertConfigurationEdit,
+    SourceKind,
+)
 
 
 def _iso(moment: datetime) -> str:
@@ -124,26 +131,51 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert view is not None
         return view
 
-    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
-            platform_edit = self.client.patch(
-                f"/api/projects/{self.team.id}/platform_alerts/{self.copy_id}/",
-                {"name": "Edited on the platform"},
-                format="json",
+    def _edit_on_the_platform(
+        self, change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]
+    ) -> None:
+        # The platform API does not serve insight copies yet, so this calls the edit it would make.
+        with team_scope(self.team.id):
+            update_configuration(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                change=change,
             )
+
+    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
+        self._edit_on_the_platform(lambda stored: replace(stored, name="Edited on the platform"))
         insight_edit = self.client.patch(
             f"{self.url}/{self.alert.id}/",
             {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
             format="json",
         )
 
-        assert platform_edit.status_code == status.HTTP_200_OK, platform_edit.json()
         assert insight_edit.status_code == status.HTTP_200_OK, insight_edit.json()
         assert insight_edit.json()["name"] == "Edited on the platform"
         copy = self._copy()
         assert (copy.name, copy.source_config["condition"]["threshold"]["bounds"]) == (
             "Edited on the platform",
             {"upper": 200},
+        )
+
+    def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(self) -> None:
+        def percentage_bound(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
+            threshold = {"type": "percentage", "bounds": {"upper": 0.5}}
+            condition = {**stored.source_config["condition"], "threshold": threshold}
+            return replace(stored, source_config={**stored.source_config, "condition": condition})
+
+        with pytest.raises(InvalidPlatformAlertEdit):
+            self._edit_on_the_platform(percentage_bound)
+
+        self.alert.refresh_from_db()
+        assert self.alert.threshold is not None
+        assert (
+            self.alert.threshold.configuration["type"],
+            self._copy().source_config["condition"]["threshold"]["type"],
+        ) == (
+            "absolute",
+            "absolute",
         )
 
     def test_an_edit_the_platform_cannot_run_is_refused_on_both_rows(self) -> None:

@@ -12,6 +12,7 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
+from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
@@ -123,7 +124,7 @@ def mirror_platform_edit(
     """Locks the insight row of an alert edited through the platform API, and returns its writer."""
     alert = (
         AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
-        .select_related("threshold")
+        .select_related("threshold", "insight")
         # A copy lives on the project's team. An insight alert in one of its environments is never
         # handed over, so the copy of one is the insight stack's and refuses the edit.
         .filter(team_id=team_id, id=legacy_configuration_id)
@@ -139,6 +140,18 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
     if edit.source_config["insight_id"] != alert.insight_id:
         raise InvalidPlatformAlertEdit("source_config", "An insight alert cannot move to another insight.")
     condition = edit.source_config[SOURCE_CONDITION_KEY]
+    try:
+        # The rules the insight API applies, so the insight stack never holds a pair it cannot check.
+        validate_alert_config(
+            alert.insight.query,
+            condition["comparison"],
+            alert.config,
+            condition["threshold"],
+            alert.calculation_interval,
+            detector_config=alert.detector_config,
+        )
+    except ValueError as error:
+        raise InvalidPlatformAlertEdit("source_config", str(error)) from error
     update_fields = ["name", "condition", "schedule_restriction"]
     if edit.enabled != alert.enabled:
         # The shadow evaluation still runs this row, so an on or off moves its state the way the insight API does.

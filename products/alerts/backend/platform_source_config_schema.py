@@ -28,6 +28,9 @@ class InsightPlatformAlertCondition(BaseModel):
         ...,
         description="How the value is compared: as it is, or as an increase or decrease from the previous interval.",
     )
+    detector: None = Field(
+        default=None, description="Always null. The platform owns threshold alerts only, so no detector applies."
+    )
 
 
 class InsightPlatformAlertSourceConfig(BaseModel):
