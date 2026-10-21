@@ -33,6 +33,7 @@ from rest_framework.views import APIView
 from posthog.api.oauth import cimd
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
+from posthog.security.url_validation import matches_hostname_pattern
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (
@@ -76,6 +77,15 @@ def _window_retry_after(window_seconds: int) -> int:
     return window_seconds - (int(time.time()) % window_seconds)
 
 
+def _claimed_client_domain(client_id: str) -> str | None:
+    if not cimd.is_cimd_client_id(client_id):
+        return None
+    domain = urlparse(client_id).hostname
+    if not domain or not matches_hostname_pattern(domain):
+        return None
+    return domain
+
+
 class RegionProxyThrottle(IPThrottle):
     """Per-IP cap on forwarding a request to the other region.
 
@@ -117,6 +127,21 @@ class ClientRegistrationThrottle(BaseThrottle):
     # CIMDRegistrationThrottle distinguishes its domain limit.
     error_message: str = "Too many registration checks for this client. Try again later."
 
+    @staticmethod
+    def _capture_refusal(endpoint: str, client_id: str) -> None:
+        """Name the domain that the client_id claims, never the partner that owns the client_id.
+
+        The endpoint is unauthenticated, so any caller can send any client_id. Per-partner
+        reporting trusts the partner fields, so filling them from a claim would let any caller
+        make a real partner look rate limited.
+        """
+        capture_provisioning_event(
+            "rate_limited",
+            "rate_limited",
+            endpoint=endpoint,
+            claimed_client_domain=_claimed_client_domain(client_id),
+        )
+
     def allow_request(self, request: Request, view: APIView) -> bool:
         client_id = request.data.get("client_id") or ""
         if not client_id:
@@ -124,7 +149,7 @@ class ClientRegistrationThrottle(BaseThrottle):
         window_index = int(time.time()) // CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS
         key = f"{CLIENT_REGISTRATION_RATE_LIMIT_PREFIX}{sha256(client_id.encode()).hexdigest()}:{window_index}"
         if _fixed_window_count(key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > CLIENT_REGISTRATION_RATE_LIMIT_MAX:
-            capture_provisioning_event("rate_limited", "rate_limited", endpoint="client_registration")
+            self._capture_refusal("client_registration", client_id)
             return False
 
         ident = self.get_ident(request)
@@ -134,7 +159,7 @@ class ClientRegistrationThrottle(BaseThrottle):
         if _fixed_window_count(ip_key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > (
             CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX
         ):
-            capture_provisioning_event("rate_limited", "rate_limited", endpoint="client_registration_ip")
+            self._capture_refusal("client_registration_ip", client_id)
             self.error_message = "Too many registration checks from this address. Try again later."
             return False
         return True
