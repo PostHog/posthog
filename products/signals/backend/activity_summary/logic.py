@@ -24,6 +24,8 @@ from products.signals.backend.models import UserActivitySummary
 # Fewer rendered lines than this since the last update say too little to change the summary.
 MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
+# A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
+RETRY_BACKOFF = datetime.timedelta(hours=6)
 # The watermark is inclusive in the stored summary, so the next read starts just after it.
 _WATERMARK_STEP = datetime.timedelta(microseconds=1)
 
@@ -55,14 +57,35 @@ def _input_start(watermark: datetime.datetime | None, now: datetime.datetime) ->
     return earliest if watermark is None else max(earliest, watermark + _WATERMARK_STEP)
 
 
+def _back_off(
+    team_id: int, user_id: int, stored: UserActivitySummary | None, next_eligible_at: datetime.datetime
+) -> None:
+    # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
+    if stored is not None:
+        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(next_eligible_at=next_eligible_at)
+        return
+    UserActivitySummary.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        user_id=user_id,
+        defaults={"status": UserActivitySummary.Status.SKIPPED, "next_eligible_at": next_eligible_at},
+    )
+
+
 def update_activity_summary(
-    team_id: int, user_id: int, *, dry_run: bool = False, force: bool = False
+    team_id: int,
+    user_id: int,
+    *,
+    dry_run: bool = False,
+    force: bool = False,
+    min_units: int = MIN_UNITS,
+    min_update_interval: datetime.timedelta = MIN_UPDATE_INTERVAL,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
     Reads only the inputs newer than the stored watermark, or the last `WINDOW_DAYS` on a first
     run. A failed update records the error and keeps the stored summary and the watermark. With
     `dry_run`, the model is still called but nothing is written. `force` ignores `next_eligible_at`.
+    A skip for too few units and a failed update set `next_eligible_at` to `RETRY_BACKOFF` from now.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -77,7 +100,9 @@ def update_activity_summary(
     tasks = user_tasks(team_id, user_id, start, now)
     activity = user_activity(team_id, user_id, start, now)
     rendered = build_input(tasks, activity, as_of=now, seed=sampling_seed(now.date().isoformat(), team_id, user_id))
-    if rendered is None or rendered.units < MIN_UNITS:
+    if rendered is None or rendered.units < min_units:
+        if not dry_run:
+            _back_off(team_id, user_id, stored, now + RETRY_BACKOFF)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,
@@ -128,7 +153,11 @@ def update_activity_summary(
         UserActivitySummary.objects.for_team(team_id).update_or_create(
             team_id=team_id,
             user_id=user_id,
-            defaults={**accounting, "status": UserActivitySummary.Status.FAILED},
+            defaults={
+                **accounting,
+                "status": UserActivitySummary.Status.FAILED,
+                "next_eligible_at": now + RETRY_BACKOFF,
+            },
         )
         return result
 
@@ -145,7 +174,7 @@ def update_activity_summary(
             "prompt_version": PROMPT_VERSION,
             "render_version": RENDER_VERSION,
             "input_watermark": watermark,
-            "next_eligible_at": now + MIN_UPDATE_INTERVAL,
+            "next_eligible_at": now + min_update_interval,
         },
     )
     return result

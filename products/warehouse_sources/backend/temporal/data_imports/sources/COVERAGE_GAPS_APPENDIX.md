@@ -7152,9 +7152,9 @@ Diffed against: <https://developers.lattice.com/reference>
 - [x] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
 - [x] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
 - [x] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
-- [ ] `GET /v1/user/{id}/tasks` — task records tied to goals and users, commonly wanted for follow-through analysis (medium)
+- [x] `GET /v1/user/{id}/tasks` — task records tied to goals and users, commonly wanted for follow-through analysis (medium)
 - [x] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
-- [ ] `GET /v1/user/{id}/customAttributes (+ /v1/customAttribute/{id}, /v1/customAttributeValue/{id})` — custom HR attributes per user plus the lookup that decodes their ids - the main segmentation dimension (medium)
+- [x] `GET /v1/user/{id}/customAttributes (+ /v1/customAttribute/{id}, /v1/customAttributeValue/{id})` — custom HR attributes per user plus the lookup that decodes their ids - the main segmentation dimension (medium)
 - [ ] `GET /v1/question/{id} and /v1/questionRevision/{id}` — lookup resolving question ids carried on reviews and feedback (fetch-by-id only, no list endpoint) (low)
 - [ ] `GET /v1/competency/{id}` — competency lookup referenced by review questions and ratings (low)
 

@@ -28,6 +28,7 @@ from products.experiments.backend.health.checks.multiple_variants import (
     multiple_variants_share,
     multiple_variants_share_skip,
 )
+from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic, new_flag_no_traffic_skip
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_skip
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm, srm_skip
@@ -88,6 +89,12 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         name="Release conditions that force a variant",
         find=forced_variant_release_condition,
         skip=forced_variant_skip,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC,
+        name="Feature flag traffic",
+        find=new_flag_no_traffic,
+        skip=new_flag_no_traffic_skip,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NO_METRIC,

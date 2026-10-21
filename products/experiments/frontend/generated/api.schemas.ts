@@ -2277,6 +2277,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `split_changed_mid_run` - Split Changed Mid Run
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `new_flag_no_traffic` - New Flag No Traffic
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2296,6 +2297,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     SplitChangedMidRun: 'split_changed_mid_run',
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
 } as const
 
 /**
@@ -2357,7 +2359,8 @@ export interface ExperimentHealthFindingApi {
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2393,6 +2396,7 @@ export interface ExperimentHealthFindingApi {
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `new_flag_no_traffic` - New Flag No Traffic
  * * `no_metric` - No Metric
  * * `zero_exposures` - Zero Exposures
  * * `srm` - Srm
@@ -2410,6 +2414,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
     NoMetric: 'no_metric',
     ZeroExposures: 'zero_exposures',
     Srm: 'srm',
@@ -2443,6 +2448,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm

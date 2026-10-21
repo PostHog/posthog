@@ -3747,6 +3747,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         OK = "ok"
         FAILED = "failed"
+        # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
+        SKIPPED = "skipped"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
