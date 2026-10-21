@@ -225,6 +225,19 @@ describe('metricsFacetRailLogic', () => {
 
         expect(metricsAttributesRetrieve).toHaveBeenCalledTimes(1)
         expect(metricsAttributeValuesRetrieve).toHaveBeenCalledTimes(1)
+
+        // Hidden rail: ticks do not poll the keys, and reopening the rail refreshes them once.
+        jest.mocked(metricsAttributesRetrieve).mockClear()
+        viewer.actions.setLiveRefresh(true)
+        logic.actions.setRailCollapsed(true)
+        viewer.actions.liveRefreshTick()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(metricsAttributesRetrieve).not.toHaveBeenCalled()
+
+        logic.actions.setRailCollapsed(false)
+        await expectLogic(logic).toDispatchActions(['loadAttributeKeysSuccess'])
+        expect(metricsAttributesRetrieve).toHaveBeenCalledTimes(1)
+        viewer.actions.setLiveRefresh(false)
         expandedValues.unmount()
         collapsedValues.unmount()
     })

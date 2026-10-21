@@ -21,6 +21,7 @@ export interface metricsFacetRailLogicValues {
     dateFrom: string | null // metricsViewerLogic
     dateTo: string | null // metricsViewerLogic
     filterGroup: UniversalFiltersGroup // metricsViewerLogic
+    liveRefresh: boolean // metricsViewerLogic
     metricName: string // metricsViewerLogic
     timezone: string // metricsViewerLogic
     attributeKeys: string[]
@@ -115,7 +116,10 @@ export type metricsFacetRailLogicType = MakeLogicType<
 export const metricsFacetRailLogic = kea<metricsFacetRailLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'FacetRail', 'metricsFacetRailLogic']),
     connect(() => ({
-        values: [metricsViewerLogic, ['metricName', 'dateFrom', 'dateTo', 'timezone', 'currentTeamId', 'filterGroup']],
+        values: [
+            metricsViewerLogic,
+            ['metricName', 'dateFrom', 'dateTo', 'timezone', 'currentTeamId', 'filterGroup', 'liveRefresh'],
+        ],
         actions: [metricsViewerLogic, ['setFilterGroup', 'liveRefreshTick']],
     })),
     actions({
@@ -205,9 +209,16 @@ export const metricsFacetRailLogic = kea<metricsFacetRailLogicType>([
         },
         retryAttributeKeys: () => actions.loadAttributeKeys(values.attributeKeysScope),
         // A rolling range moves with each refresh, so new attributes can appear in it. A load still in
-        // flight is left to finish, because a restart would discard its result.
+        // flight is left to finish, because a restart would discard its result. A hidden rail does not
+        // poll, because the toggle keeps this logic mounted.
         liveRefreshTick: () => {
-            if (!values.attributeKeysLoading) {
+            if (!values.railCollapsed && !values.attributeKeysLoading) {
+                actions.loadAttributeKeys(values.attributeKeysScope)
+            }
+        },
+        // Reopening catches up on the ticks the hidden rail skipped.
+        setRailCollapsed: ({ railCollapsed }) => {
+            if (!railCollapsed && values.liveRefresh && !values.attributeKeysLoading) {
                 actions.loadAttributeKeys(values.attributeKeysScope)
             }
         },
