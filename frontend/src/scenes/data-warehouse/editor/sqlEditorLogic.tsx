@@ -919,6 +919,9 @@ export interface sqlEditorLogicActions {
     fixIndexUsageWithAI: (prompt: string) => {
         prompt: string
     }
+    formatQuery: () => {
+        value: true
+    }
     initialize: () => {
         value: true
     }
@@ -1467,6 +1470,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
+        formatQuery: true,
         setInProgressViewEdit: (viewId: string, historyId: string) => ({
             viewId,
             historyId,
@@ -1943,6 +1947,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             reportAIQueryPromptOpen: () => {
                 posthog.capture('ai_query_prompt_open')
+            },
+            formatQuery: () => {
+                void props.editor?.getAction('editor.action.formatDocument')?.run()
             },
             applyIndexQuickfix: ({ quickfix }) => {
                 const editor = props.editor
