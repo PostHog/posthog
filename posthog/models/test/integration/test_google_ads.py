@@ -10,7 +10,7 @@ from django.test import override_settings
 
 import requests
 
-from posthog.models.integration import GoogleAdsIntegration, Integration
+from posthog.models.integration import GoogleAdsIntegration, GoogleAdsQuotaExhaustedError, Integration
 
 
 class TestGoogleAdsIntegrationModel(BaseTest):
@@ -154,3 +154,21 @@ class TestGoogleAdsIntegrationModel(BaseTest):
             GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
 
         assert mock_request.call_count == 3
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.google_ads.capture_exception")
+    @patch("posthog.models.integration.google_ads.requests.request")
+    def test_accessible_accounts_raises_quota_exhausted_on_429(self, mock_request, mock_capture_exception):
+        # A 429 RESOURCE_EXHAUSTED used to fall into the generic non-200 branch, which captures an
+        # error-tracking issue and raises a bare "There was an internal error" — indistinguishable
+        # from a real bug. It must instead raise a distinct error callers can catch, and skip
+        # capture_exception, since a quota limit isn't something to page on.
+        mock_request.return_value = MagicMock(
+            status_code=429,
+            text='{"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource has been exhausted (e.g. check quota)."}}',
+        )
+
+        with pytest.raises(GoogleAdsQuotaExhaustedError):
+            GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        mock_capture_exception.assert_not_called()
