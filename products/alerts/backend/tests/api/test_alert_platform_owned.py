@@ -89,6 +89,9 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         }
         past_the_end = self._row("retrieve", "?checks_offset=5")
         assert (past_the_end["checks_total"], past_the_end["checks"]) == (3, [])
+        # A check made at the window's end, to the microsecond, is inside it.
+        up_to_a_check = self._row("retrieve", f"?checks_date_to={_iso(self._at(60))}")
+        assert [check["created_at"] for check in up_to_a_check["checks"]] == [_iso(self._at(60)), _iso(self._at(90))]
 
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)

@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertSnapshot,
     PlatformCheckEventPage,
     PlatformCheckPage,
+    PlatformLastCheck,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.logic import platform_alert_events
@@ -194,6 +195,26 @@ def history_by_legacy_id(
     }
     histories = platform_alert_events.history(team_id, legacy_by_platform_id, since=since, until=until)
     return {legacy_by_platform_id[platform_id]: history for platform_id, history in histories.items()}
+
+
+def last_check_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformLastCheck]:
+    """The newest check of each named alert the platform owns, keyed by the source's id.
+
+    An alert the platform does not own is left out, as in `runtime_by_legacy_id`.
+    """
+    if not legacy_configuration_ids:
+        return {}
+    legacy_by_platform_id = {
+        platform_id: legacy_id
+        for platform_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", "legacy_configuration_id")
+        if legacy_id is not None
+    }
+    checks = platform_alert_events.last_checks(team_id, legacy_by_platform_id)
+    return {legacy_by_platform_id[platform_id]: check for platform_id, check in checks.items()}
 
 
 def notable_checks_by_legacy_id(

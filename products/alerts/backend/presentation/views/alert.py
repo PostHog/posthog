@@ -1,7 +1,6 @@
 import json
 import uuid
 from datetime import datetime
-from functools import partial
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -920,7 +919,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # A handed-over copy is the platform's now, and a revived copy would lose its state.
         if instance.enabled and not instance.platform_owned:
             transaction.on_commit(
-                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
 
@@ -1059,7 +1058,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         if enable_now and not instance.platform_owned:
             transaction.on_commit(
-                partial(follow_insight_alert, team_id=instance.team_id, alert_id=instance.id), robust=True
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
 

@@ -1,4 +1,3 @@
-from functools import partial
 from textwrap import dedent
 from typing import Any, Literal, Union, cast
 
@@ -474,6 +473,8 @@ class UpsertAlertTool(MaxTool):
                     # Rolls back the insight row, so neither row takes an edit the platform rejects.
                     transaction.set_rollback(True)
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
+            elif enabled_changed and action.enabled:
+                transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
         return None
 
     @staticmethod
@@ -667,6 +668,6 @@ class UpsertAlertTool(MaxTool):
         )
         handed_over = on_created(alert, timezone.now())
         if alert.enabled and not handed_over:
-            transaction.on_commit(partial(follow_insight_alert, alert), robust=True)
+            transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
 
         return alert

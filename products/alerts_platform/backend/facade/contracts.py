@@ -382,7 +382,8 @@ class HandbackRefusal(StrEnum):
     FIRING = "firing"
     # A platform check may be running and could record or notify after the handback.
     CHECK_DUE = "check_due"
-    # A handback carries one alert on an interval cadence. A calendar schedule or grouped alerts stay.
+    # A handback carries one alert. Grouped alerts stay, and so does a calendar schedule its source
+    # does not run.
     NOT_PORTABLE = "not_portable"
 
 
@@ -427,8 +428,15 @@ class PlatformAlertHistory:
     last_checked_at: datetime
     # None when the last check in the window succeeded.
     last_error_message: str | None
-    # What the last check in the window measured, or None when it measured nothing.
-    last_value: float | None = None
+
+
+@frozen
+class PlatformLastCheck:
+    """The newest check of an alert the platform owns."""
+
+    checked_at: datetime
+    # None when the check measured nothing.
+    value: float | None
 
 
 @frozen

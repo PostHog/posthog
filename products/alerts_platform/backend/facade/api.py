@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEventPage,
     PlatformCheckPage,
     PlatformHandback,
+    PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceKind,
 )
@@ -78,11 +79,14 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
 
 def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
 ) -> PlatformHandback | HandbackRefusal:
     """Hands a copied alert back to its source, or says why the platform keeps it."""
     return platform_lifecycle.give_back_ownership(
-        team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        at=at,
+        source_runs_calendar_schedules=source_runs_calendar_schedules,
     )
 
 
@@ -150,6 +154,16 @@ def history_by_legacy_id(
     return platform_reads.history_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
     )
+
+
+def last_check_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformLastCheck]:
+    """The newest check of each named alert the platform owns, keyed by the source's id.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
 
 
 def notable_checks_by_legacy_id(

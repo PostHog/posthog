@@ -15,7 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.schema_enums import AlertState
+from posthog.schema_enums import AlertCalculationInterval, AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
 from products.alerts.backend.insight_alert_state_machine import apply_platform_state
@@ -104,9 +104,15 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
     )
 
 
+def _is_threshold_alert(alert: AlertConfiguration) -> bool:
+    """The platform evaluates detector and real-time alerts in parallel, but cannot own them yet."""
+    return not alert.detector_config and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
+
+
 def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
-        # Only the alert's own row is locked. Locking the team row would make a hot parent a mutex.
+        # Only the alert's own row is locked: PostgreSQL refuses to lock the nullable threshold join,
+        # and locking the team row would make a hot parent a mutex.
         alert = (
             AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
             .select_related("team", "threshold")
@@ -135,8 +141,10 @@ def in_an_environment(alert: AlertConfiguration) -> bool:
 
 
 def can_move(alert: AlertConfiguration) -> bool:
-    """Whether the platform can own the alert: it evaluates the alert, and no investigation agent reads it."""
-    return platform_upsert_of(alert) is not None and not alert.investigation_agent_enabled
+    """Whether the platform can own the alert: a threshold alert it evaluates, which no investigation agent reads."""
+    return (
+        platform_upsert_of(alert) is not None and _is_threshold_alert(alert) and not alert.investigation_agent_enabled
+    )
 
 
 def has_begun_cutover(team_id: int) -> bool:
@@ -223,7 +231,9 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         if _insight_check_owed(team_id, alert.id, at):
             return RollbackSkip.INSIGHT_CHECK_DUE
 
-        handback = give_back_ownership(team_id=alert.team_id, legacy_configuration_id=alert.id, at=at)
+        handback = give_back_ownership(
+            team_id=alert.team_id, legacy_configuration_id=alert.id, at=at, source_runs_calendar_schedules=True
+        )
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
 
