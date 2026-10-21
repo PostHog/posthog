@@ -108,7 +108,7 @@ fi
 
 # 7. Allowlisted toolchain dirs are readable. Only the ones that already exist —
 #    never create dirs in $HOME as a side effect.
-for d in .cache .npm .cargo "Library/Caches/node-gyp"; do
+for d in .cache .npm .cargo "Library/Caches/node-gyp" "Library/Caches/pnpm"; do
     if [[ ! -d "$HOME/$d" ]]; then
         echo "  --   \$HOME/$d absent, skipping"
         continue
