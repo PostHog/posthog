@@ -44,6 +44,7 @@ import {
     mergeCoalescedRunLog,
     mergeRunArtifacts,
     parsePermissionRequestFrame,
+    readFullThread,
     reconnectDelayMs,
     reconcileRunLog,
     resolveStreamTarget,
@@ -249,7 +250,15 @@ describe('runStreamLogic', () => {
         jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
         jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (taskId, runId, options) => {
             const entries = await api.tasks.runs.getLogEntries(taskId, runId, options)
-            return { entries, offset: 0, count: entries.length, preamble: 0, turnsBefore: 0, indexed: false }
+            return {
+                entries,
+                offset: 0,
+                count: entries.length,
+                preamble: 0,
+                turnsBefore: 0,
+                origin: '',
+                indexed: false,
+            }
         })
         jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
         projectLogic.mount()
@@ -5248,8 +5257,9 @@ describe('runStreamLogic', () => {
             offset: number,
             count: number,
             preamble = 0,
-            turnsBefore = 0
-        ): HistoryPage => ({ entries, offset, count, preamble, turnsBefore, indexed: true })
+            turnsBefore = 0,
+            origin = 'run-1'
+        ): HistoryPage => ({ entries, offset, count, preamble, turnsBefore, origin, indexed: true })
         const turn = (text: string, eventId: string): StoredLogEntry => ({
             ...sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } }),
             event_id: eventId,
@@ -5289,9 +5299,18 @@ describe('runStreamLogic', () => {
                               count: golden.count,
                               preamble: golden.preamble,
                               turnsBefore: golden.turns_before,
+                              origin: 'run-1',
                               indexed: true,
                           }
-                        : { entries: log, offset: 0, count: log.length, preamble: 0, turnsBefore: 0, indexed: false }
+                        : {
+                              entries: log,
+                              offset: 0,
+                              count: log.length,
+                              preamble: 0,
+                              turnsBefore: 0,
+                              origin: '',
+                              indexed: false,
+                          }
                 })
                 const full = runStreamLogic({ streamKey: 'full-read' })
                 const paged = runStreamLogic({ streamKey: 'paged-read' })
@@ -5321,10 +5340,13 @@ describe('runStreamLogic', () => {
                         if (paged.values.olderHistoryState !== 'idle') {
                             break
                         }
+                        const notebookThread = await readFullThread('paged-read')
+                        expect(notebookThread?.threadItems).toEqual(fullItems)
                         paged.actions.loadOlderHistory()
                         await flushPromises()
                     }
                     expect([paged.values.olderHistoryState, paged.values.threadItems]).toEqual(['none', fullItems])
+                    expect(readFullThread('paged-read')).toBeNull()
                 } finally {
                     full.unmount()
                     paged.unmount()
@@ -5402,7 +5424,15 @@ describe('runStreamLogic', () => {
                 const pages: Record<string, HistoryPage> = {
                     latest: page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1),
                     'before:3': page([started, turn('a', 'e-1'), reply('a', 'e-2')], 0, 5),
-                    'start:5': page([reply('c', 'e-5'), turn('d', 'e-6')], 5, 7),
+                    'start:5': page(
+                        [
+                            reply('c', 'e-5'),
+                            { ...notification('_posthog/user_message', { content: 'd' }), event_id: 'e-6' },
+                            turn('d', 'e-7'),
+                        ],
+                        5,
+                        8
+                    ),
                 }
                 jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) => {
                     const key =
@@ -5421,13 +5451,50 @@ describe('runStreamLogic', () => {
                 logic.actions.loadOlderHistory()
                 await flushPromises()
                 await MockStream.latest().emitMessage(reply('c', 'e-5'), '105-0')
+                logic.actions.pushHumanMessage('d')
+                const sent = logic.values.threadItems.findLast(isHuman)?.id
                 await MockStream.latest().emitClose()
                 await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                await MockStream.latest().emitMessage(reply('b', 'e-4'), '104-0')
                 await MockStream.latest().emitOpen()
 
                 expect(reads).toEqual(['latest', 'before:3', 'start:5'])
                 expect(texts(logic.values.threadItems)).toEqual(['a', 'a', 'b', 'b', 'c', 'd'])
+                expect(logic.values.threadItems.findLast(isHuman)?.id).toEqual(sent)
                 expect(logic.values.olderHistoryState).toEqual('none')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('reads the latest turns again when the chain no longer starts at the same run', async () => {
+            jest.useFakeTimers()
+            try {
+                const started = notification('_posthog/run_started', { runId: 'run-1' })
+                const reads: string[] = []
+                jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) => {
+                    reads.push(
+                        options.start !== undefined
+                            ? `start:${options.start}`
+                            : options.before !== undefined
+                              ? `before:${options.before}`
+                              : 'latest'
+                    )
+                    return reads.length === 1
+                        ? page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1)
+                        : page([started, turn('b', 'e-3'), reply('b', 'e-4'), reply('c', 'e-5')], 2, 5, 1, 1, 'run-0')
+                })
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', pagedHistory: true })
+                await flushPromises()
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                await MockStream.latest().emitOpen()
+
+                expect(reads).toEqual(['latest', 'before:3', 'start:5', 'latest'])
+                expect(texts(logic.values.threadItems)).toEqual(['b', 'b', 'c'])
+                expect(logic.values.olderHistoryState).toEqual('idle')
             } finally {
                 jest.useRealTimers()
             }

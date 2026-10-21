@@ -3564,7 +3564,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "presence-gated run, the request marks the stream as watched before "
             "it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only "
             "the latest turns first, add before to page back through older turns, or add start to read every "
-            "entry after the ones a client holds. A Pi run returns its full log without the X-Log headers."
+            "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
+            "with different origins do not match. A Pi run returns its full log without the X-Log headers."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3598,10 +3599,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response["X-Log-Count"] = str(log_slice.count)
                 response["X-Log-Preamble"] = str(log_slice.preamble)
                 response["X-Log-Turns-Before"] = str(log_slice.turns_before)
+                response["X-Log-Origin"] = log_slice.origin
                 # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
                 # headers it cannot read looks like the whole log.
                 response["Access-Control-Expose-Headers"] = (
-                    "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before"
+                    "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before, X-Log-Origin"
                 )
 
         response["Cache-Control"] = "no-cache"

@@ -5086,6 +5086,7 @@ const api = {
                 count: number
                 preamble: number
                 turnsBefore: number
+                origin: string
                 indexed: boolean
             }> {
                 const response = await new ApiRequest()
@@ -5106,6 +5107,7 @@ const api = {
                     count: indexed ? header('X-Log-Count') : entries.length,
                     preamble: header('X-Log-Preamble'),
                     turnsBefore: header('X-Log-Turns-Before'),
+                    origin: response.headers.get('X-Log-Origin') ?? '',
                     indexed,
                 }
             },

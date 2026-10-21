@@ -1,5 +1,7 @@
 import json
+import bisect
 import hashlib
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterator, Sequence
 
 from posthog.dataclasses import frozen
@@ -230,6 +232,7 @@ class _Chain:
             for part_index, part in enumerate(parts)
             for entry in part.summary.human
         ]
+        self._echo_spans = self._unsafe_echo_spans()
 
     def _entries(self, part_index: int) -> list[str]:
         if part_index not in self._loaded:
@@ -266,16 +269,30 @@ class _Chain:
             1 for index, entry in self._human if index < cut and counter.opens_turn(entry.text_key, entry.user_message)
         )
 
+    def _unsafe_echo_spans(self) -> list[tuple[int, int]]:
+        """The index ranges ``(first, last]`` where a cut separates a ``_posthog/user_message`` from the later
+        ``session/update`` form that ``HumanTurnCounter`` pairs with it, merged and sorted. Each later form spends
+        the oldest credit of its text, which pairs the same counts the counter keeps."""
+        credits: defaultdict[str, deque[int]] = defaultdict(deque)
+        spans: list[tuple[int, int]] = []
+        for index, entry in self._human:
+            if entry.user_message:
+                credits[entry.text_key].append(index)
+            elif credits[entry.text_key]:
+                spans.append((credits[entry.text_key].popleft(), index))
+        merged: list[tuple[int, int]] = []
+        for first, last in sorted(spans):
+            if merged and first < merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], last))
+            else:
+                merged.append((first, last))
+        return merged
+
     def echo_safe(self, cut: int) -> bool:
         """Whether the turn rule reads every human message from ``cut`` on the same way with or without the
         messages before it. A ``_posthog/user_message`` before the cut whose echo comes after the cut fails."""
-        full = HumanTurnCounter()
-        page = HumanTurnCounter()
-        for index, entry in self._human:
-            opens_in_full = full.opens_turn(entry.text_key, entry.user_message)
-            if index >= cut and page.opens_turn(entry.text_key, entry.user_message) != opens_in_full:
-                return False
-        return True
+        position = bisect.bisect_left(self._echo_spans, (cut, cut)) - 1
+        return position < 0 or not (self._echo_spans[position][0] < cut <= self._echo_spans[position][1])
 
     def preamble(self, cut: int) -> list[str]:
         """The entries before ``cut`` that still set run state there: the latest entry for each state key (run

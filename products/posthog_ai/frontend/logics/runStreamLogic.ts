@@ -598,6 +598,8 @@ export interface HistoryPage {
     count: number
     preamble: number
     turnsBefore: number
+    /** The first run of the chain the indexes count from; a chain keeps a limited number of runs. */
+    origin: string
     /** False for a full log sent without paging headers: its entries carry no full-log index. */
     indexed: boolean
 }
@@ -609,6 +611,7 @@ export interface HistoryPage {
  */
 export interface HistoryCursor {
     runId: string
+    origin: string
     offset: number
     turnsBefore: number
 }
@@ -1492,6 +1495,49 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
  * is the one echo no persisted copy covers yet, matched by identity because the same words can
  * arrive several times.
  */
+/**
+ * Row keys of optimistic sends, by the saved message that replaced them (`run:event_id`), so the row keeps the
+ * key it rendered with and the thread does not read the saved message as a new anchor.
+ */
+const sentHumanRowKeys = new Map<string, string>()
+
+function savedEntryKey(entry: StoredLogEntry): string | null {
+    return entry.event_id ? `${entry.source_run_id ?? ''}:${entry.event_id}` : null
+}
+
+/**
+ * The thread of the full conversation for a stream whose older history is not all loaded: the full log, with the
+ * stream's live and client entries after it. Null when the stream already holds its full history, so a caller
+ * that needs no read does not wait.
+ */
+export function readFullThread(
+    streamKey: string
+): Promise<{ threadItems: ThreadItem[]; toolInvocations: Map<string, ToolInvocation> }> | null {
+    const logic = runStreamLogic.findMounted({ streamKey })
+    const cursor = logic?.cache.historyCursor as HistoryCursor | undefined
+    const taskId = logic?.values.bootstrappedTaskId
+    const projectId = logic?.values.currentProjectId
+    if (!logic || !cursor || cursor.offset === 0 || !taskId || projectId == null) {
+        return null
+    }
+    return api.tasks.runs.getLogPage(taskId, cursor.runId, { projectId }).then((page) => {
+        const history = normalizeHistory(page.entries, cursor.runId, logic.values.isBootstrapResumeRun)
+        const tail = logic.values.log.entries.filter(({ source }) => source !== 'replay')
+        const folded = foldLogToThread(reconcileRunLog(history, tail, []).entries, {
+            isResumeRun: logic.values.isBootstrapResumeRun,
+            pendingMessage: logic.values.pendingRunMessage,
+            taskId,
+        })
+        const showDebugLogs = logic.values.showDebugLogs
+        return {
+            threadItems: folded.threadItems.filter(
+                (item) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
+            ),
+            toolInvocations: folded.toolInvocations,
+        }
+    })
+}
+
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
@@ -1501,6 +1547,8 @@ export function reconcileRunLog(
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
     const savedHumanCounts = new Map<string, number>()
+    const savedHumanEntries = new Map<string, StoredLogEntry[]>()
+    const matchedSendIds = new Map<string, (string | undefined)[]>()
     const rememberedHumanTexts = new Map<string, number>()
     for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
         const text = persistedHumanText(entry)
@@ -1517,6 +1565,7 @@ export function reconcileRunLog(
             }
         }
         savedHumanCounts.set(text, (savedHumanCounts.get(text) ?? 0) + 1)
+        savedHumanEntries.set(text, [...(savedHumanEntries.get(text) ?? []), entry])
     }
     for (const [tailIndex, tail] of [
         retained,
@@ -1535,6 +1584,11 @@ export function reconcileRunLog(
                 const saved = savedHumanCounts.get(text) ?? 0
                 if (saved > 0) {
                     savedHumanCounts.set(text, saved - 1)
+                    const clientId = entry.notification.params?.clientId
+                    matchedSendIds.set(text, [
+                        ...(matchedSendIds.get(text) ?? []),
+                        typeof clientId === 'string' ? clientId : undefined,
+                    ])
                     continue
                 }
             }
@@ -1575,6 +1629,16 @@ export function reconcileRunLog(
                 entries.push(stored)
             }
         }
+    }
+    // The sends that matched are the latest saved messages of their text, in order.
+    for (const [text, sendIds] of matchedSendIds) {
+        const saved = (savedHumanEntries.get(text) ?? []).slice(-sendIds.length)
+        sendIds.forEach((clientId, index) => {
+            const key = saved[index] ? savedEntryKey(saved[index]) : null
+            if (clientId && key && !sentHumanRowKeys.has(key)) {
+                sentHumanRowKeys.set(key, `client-${clientId}`)
+            }
+        })
     }
     return appendToRunLog(emptyRunLog(), entries)
 }
@@ -2149,7 +2213,8 @@ export function foldLogFromCheckpoint(
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
         const clientId = entry.notification.params?.clientId
         // A saved message that replaces its streamed chunks keeps the first chunk's id, so its row keeps its key.
-        const eventKey = entry.first_event_id || entry.event_id
+        const savedKey = savedEntryKey(entry)
+        const eventKey = (savedKey && sentHumanRowKeys.get(savedKey)) || entry.first_event_id || entry.event_id
         entryKey =
             typeof eventKey === 'string' && eventKey
                 ? eventKey
@@ -4171,21 +4236,29 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (loadedEnd !== undefined) {
                 dropHistoryPrefetch()
             }
-            const page = await readWithRetry(session, () =>
-                session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
-                    const pending = prefetched
-                    prefetched = undefined
-                    if (pending) {
-                        signal.addEventListener('abort', () => cache.disposables.dispose('history-prefetch'), {
-                            once: true,
-                        })
-                        return pending
-                    }
-                    return readHistory(session, signal, loadedEnd)
-                })
-            )
+            const read = (start?: number): Promise<HistoryPage> =>
+                readWithRetry(session, () =>
+                    session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
+                        const pending = prefetched
+                        prefetched = undefined
+                        if (pending) {
+                            signal.addEventListener('abort', () => cache.disposables.dispose('history-prefetch'), {
+                                once: true,
+                            })
+                            return pending
+                        }
+                        return readHistory(session, signal, start)
+                    })
+                )
+            let page = await read(loadedEnd)
             session.check()
-            const continues = loadedEnd !== undefined && page.indexed && page.offset === loadedEnd
+            if (loadedEnd !== undefined && page.indexed && page.origin !== cursor?.origin) {
+                // The chain dropped its oldest run, so the loaded indexes no longer match: read the latest turns again.
+                page = await read()
+                session.check()
+            }
+            const continues =
+                loadedEnd !== undefined && page.indexed && page.origin === cursor?.origin && page.offset === loadedEnd
             rememberLegacyBacklog(session, page.entries.slice(page.preamble), page.offset)
             if (page.indexed) {
                 // A stream backlog replays the run log from its start; the read already holds everything before its end.
@@ -4217,12 +4290,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 ? values.log.entries.filter(({ source }) => source !== 'replay')
                 : values.log.entries
             const retained = echoPersisted ? tail.filter((stored) => stored !== echo) : tail
-            const reconciled = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
-            const log = continues ? appendToRunLog(emptyRunLog(), [...kept, ...reconciled.entries]) : reconciled
+            // The kept entries take part, so a frame the stream sends again after the read is a duplicate of them too.
+            const saved = [...kept.map(({ entry }) => entry), ...history]
+            const log = reconcileRunLog(saved, retained, session.buffer, echoPersisted ? undefined : echo)
             if (values.pagedHistory && page.indexed) {
                 cache.historyEnd = page.count
                 if (!continues) {
-                    setHistoryCursor({ runId: session.runId, offset: page.offset, turnsBefore: page.turnsBefore })
+                    setHistoryCursor({
+                        runId: session.runId,
+                        origin: page.origin,
+                        offset: page.offset,
+                        turnsBefore: page.turnsBefore,
+                    })
                 }
             } else {
                 cache.historyEnd = undefined
@@ -4240,8 +4319,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             )
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
-                ...kept.map(({ entry }) => entry),
-                ...history,
+                ...saved,
                 ...retained.map(({ entry }) => entry),
                 ...session.buffer,
             ])
@@ -4258,7 +4336,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 recoveringLiveTurn &&
                 !turnCompleteBeforeReconcile &&
                 values.turnComplete &&
-                !windowShowsToolCallInFlight(dedupeBufferedAgainstHistory(session.buffer, history))
+                !windowShowsToolCallInFlight(dedupeBufferedAgainstHistory(session.buffer, saved))
             ) {
                 actions.markTurnComplete()
             }
@@ -5677,7 +5755,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     }
                     cache.olderHistoryRequest = undefined
                     cache.disposables.dispose('older-history-request')
-                    if (!page.indexed || page.offset >= cursor.offset) {
+                    // A page from a chain that dropped its oldest run counts from another run. The next history read
+                    // finds the same change and reads the latest turns again, with a new cursor.
+                    if (!page.indexed || page.origin !== current.origin || page.offset >= cursor.offset) {
                         actions.setOlderHistoryState('none')
                         return
                     }

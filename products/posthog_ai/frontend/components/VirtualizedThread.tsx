@@ -388,6 +388,19 @@ function Root<T>({
     )
 
     findVirtualIndexForKeyRef.current = findVirtualIndexForKey
+    // Rows put in front of the items, with the last row unchanged: older history loading above the reader.
+    const committedEdgeKeysRef = useRef<{ first: unknown; last: unknown } | null>(null)
+    const firstItemKey = items.length > 0 ? getItemKey(items[0], 0) : null
+    const lastItemKey = items.length > 0 ? getItemKey(items[items.length - 1], items.length - 1) : null
+    const committedEdgeKeys = committedEdgeKeysRef.current
+    const prepending =
+        committedEdgeKeys !== null &&
+        firstItemKey !== null &&
+        firstItemKey !== committedEdgeKeys.first &&
+        lastItemKey === committedEdgeKeys.last
+    useLayoutEffect(() => {
+        committedEdgeKeysRef.current = { first: firstItemKey, last: lastItemKey }
+    }, [firstItemKey, lastItemKey])
     const virtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: () => scrollRef.current,
@@ -421,7 +434,10 @@ function Root<T>({
                   // bottom, and that internal offset only re-syncs via async scroll events — so the
                   // opening anchor scroll lands, the next measurement batch compensates against the
                   // stale bottom offset, and the landing is yanked straight back down.
-                  anchorTo: itemsLoading || !pinnedRef.current ? ('start' as const) : ('end' as const),
+                  // A prepend end-anchors too, unpinned: the core then keeps the row under the reader at its offset
+                  // before it computes the rendered range, so the visible rows stay mounted (and keep their open
+                  // state) instead of unmounting for a frame until the prepend effect below corrects the scroll.
+                  anchorTo: itemsLoading || (!pinnedRef.current && !prepending) ? ('start' as const) : ('end' as const),
                   // The core's growth compensation (`resizeItem` re-applying a row's growth to the scroll
                   // offset whenever that offset is within this many px of the end) writes `scrollTop`
                   // synchronously, with no scroll-direction check and no knowledge of our pinned flag. At

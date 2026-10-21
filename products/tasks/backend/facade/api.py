@@ -5265,8 +5265,9 @@ _LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
 
 
 def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]]) -> LogPartSummary:
-    """A run log's summary, cached by object size. A log only grows, so its size identifies its content. The
-    cache is an optimization: a cache error counts as a miss, and the summary comes from the log itself."""
+    """A run log's summary, cached under one key per log with the object size it was made from. A log only grows,
+    so its size identifies its content, and a new size replaces the old summary. The cache is an optimization: a
+    cache error counts as a miss, and the summary comes from the log itself."""
     from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -5275,17 +5276,17 @@ def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]
     size = int(head.get("ContentLength", 0)) if head else 0
     if not size:
         return summarize_log_part(entries())
-    key = f"tasks:log-part-summary:v3:{hashlib.sha256(log_url.encode()).hexdigest()}:{size}"
+    key = f"tasks:log-part-summary:v4:{hashlib.sha256(log_url.encode()).hexdigest()}"
     try:
         cached = cache.get(key)
     except Exception:
         logger.warning("task_log_part_summary_cache_read_failed", exc_info=True)
         cached = None
-    if isinstance(cached, LogPartSummary):
-        return cached
+    if isinstance(cached, tuple) and len(cached) == 2 and cached[0] == size and isinstance(cached[1], LogPartSummary):
+        return cached[1]
     summary = summarize_log_part(entries())
     try:
-        cache.set(key, summary, timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+        cache.set(key, (size, summary), timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
     except Exception:
         logger.warning("task_log_part_summary_cache_write_failed", exc_info=True)
     return summary
@@ -5338,7 +5339,8 @@ def read_task_run_conversation_log_slice(
         if content is None:
             return None
         return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
-    parts = _conversation_log_parts([ancestor.log_url for ancestor in run.get_history_chain()])
+    chain = run.get_history_chain()
+    parts = _conversation_log_parts([ancestor.log_url for ancestor in chain])
     if start is not None:
         sliced = slice_log_parts_from(parts, start, tail_bytes)
     else:
@@ -5349,6 +5351,7 @@ def read_task_run_conversation_log_slice(
         count=sliced.count,
         preamble=sliced.preamble,
         turns_before=sliced.turns_before,
+        origin=str(chain[0].id),
     )
 
 
