@@ -4,6 +4,7 @@ import datetime
 from enum import StrEnum
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -21,11 +22,13 @@ from products.signals.backend.activity_summary.summaries import (
     gateway_client,
     summarize,
 )
-from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 # Fewer rendered lines than this since the last update say too little to change the summary.
 MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
+# The `UserActivitySummaryVersion` rows kept per summary. An update deletes the older ones.
+MAX_VERSIONS = 30
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
 RETRY_BACKOFF = datetime.timedelta(hours=6)
 # The error prefixes of an update that raised before it stored a result, before and after the model call.
@@ -82,6 +85,45 @@ def _back_off(
         user_id=user_id,
         defaults={"status": UserActivitySummary.Status.SKIPPED, "next_eligible_at": next_eligible_at},
     )
+
+
+# The fields of a successful update that `UserActivitySummaryVersion` keeps.
+_VERSION_FIELDS = (
+    "summary",
+    "summary_text",
+    "generated_at",
+    "model",
+    "prompt_version",
+    "render_version",
+    "input_watermark",
+    "inputs_used",
+    "tokens_in",
+    "tokens_out",
+    "cost_usd",
+)
+
+
+def _store_version(team_id: int, user_id: int, fields: dict[str, Any], max_versions: int) -> None:
+    """Write a successful update to the summary row and append it as the next version, in one transaction."""
+    with transaction.atomic():
+        # The row lock orders concurrent updates of one pair, so each one takes the next version number.
+        row, _ = (
+            UserActivitySummary.objects.for_team(team_id)
+            .select_for_update()
+            .get_or_create(team_id=team_id, user_id=user_id, defaults={"status": UserActivitySummary.Status.OK})
+        )
+        for name, value in fields.items():
+            setattr(row, name, value)
+        row.version += 1
+        row.save()
+        versions = UserActivitySummaryVersion.objects.for_team(team_id)
+        versions.create(
+            team_id=team_id,
+            summary_row=row,
+            version=row.version,
+            **{name: fields[name] for name in _VERSION_FIELDS},
+        )
+        versions.filter(summary_row=row, version__lte=row.version - max_versions).delete()
 
 
 def record_update_exception(team_id: int, user_id: int, error: BaseException) -> ActivitySummaryUpdate:
@@ -142,6 +184,7 @@ def update_activity_summary(
     force: bool = False,
     min_units: int = MIN_UNITS,
     min_update_interval: datetime.timedelta = MIN_UPDATE_INTERVAL,
+    max_versions: int = MAX_VERSIONS,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
@@ -149,6 +192,7 @@ def update_activity_summary(
     run. A failed update records the error and keeps the stored summary and the watermark. With
     `dry_run`, the model is still called but nothing is written. `force` ignores `next_eligible_at`.
     A skip for too few units and a failed update set `next_eligible_at` to `RETRY_BACKOFF` from now.
+    A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -225,10 +269,10 @@ def update_activity_summary(
             )
             return result
 
-        UserActivitySummary.objects.for_team(team_id).update_or_create(
-            team_id=team_id,
-            user_id=user_id,
-            defaults={
+        _store_version(
+            team_id,
+            user_id,
+            {
                 **accounting,
                 "status": UserActivitySummary.Status.OK,
                 "summary": outcome.summary,
@@ -240,6 +284,7 @@ def update_activity_summary(
                 "input_watermark": watermark,
                 "next_eligible_at": now + min_update_interval,
             },
+            max_versions,
         )
         return result
     except Exception as error:
