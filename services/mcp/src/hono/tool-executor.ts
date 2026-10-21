@@ -60,7 +60,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
-import { getToolIngestedData } from '@/tools/toolDefinitions'
+import { getToolDefinitions, getToolIngestedData } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -1321,7 +1321,7 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
  * schema discovery, tool search, and a mistyped verb are indistinguishable, and
  * an `unknown_tool` rejection records nothing about what was attempted. Both
  * values are value-free by construction (see `describeExecCommand`): the verb comes
- * from the closed grammar and the target from this connection's own catalog, so a
+ * from the closed grammar and the target from the server's tool catalog, so a
  * token outside either is recorded as unrecognized rather than echoed.
  */
 function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState): Record<string, unknown> {
@@ -1334,7 +1334,8 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
         (name) =>
             state.allTools.some((t) => t.name === name) ||
             state.scopeGatedTools.some((t) => t.name === name) ||
-            state.flagGatedTools.some((t) => t.name === name)
+            state.flagGatedTools.some((t) => t.name === name) ||
+            Object.prototype.hasOwnProperty.call(getToolDefinitions(), name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

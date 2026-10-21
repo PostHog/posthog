@@ -879,7 +879,7 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
 
 _NARROWED_TOOLS_SECTION = """# Your tools
 
-This scout's owner picked the PostHog MCP tools it may use. A write through a tool that was not picked comes back refused with `scout_tool_not_granted`. That refusal is final: do not retry it under another tool name or through the API. Say in your close-out what you could not do."""
+This scout's owner picked the PostHog MCP tools it may use. A tool that was not picked comes back refused with `tool_not_granted`, and an API write outside those tools comes back with `scout_tool_not_granted`. These refusals are final: do not retry under another tool name or through the API. Say in your close-out what you could not do."""
 
 
 def _write_access_section(write_scopes: Sequence[str]) -> str:
