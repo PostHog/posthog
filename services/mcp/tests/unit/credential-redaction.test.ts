@@ -243,7 +243,25 @@ describe('credential redaction', () => {
                             line(20, 'FAILED tests/test_deploy.py::test_key'),
                         ],
                     },
-                    { job_id: 2, lines: [line(1, 'INVENTEDnotAkey')] },
+                    {
+                        job_id: 2,
+                        lines: [
+                            line(1, 'INVENTEDnotAkey'),
+                            line(null, '... 40 lines omitted ...'),
+                            line(42, 'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5bC7dE9fG1hJ3kL5mN7pQ9rS1tU3v'),
+                            line(43, 'short'),
+                            line(44, '-----END PRIVATE KEY-----'),
+                            line(45, 'sha256 0123456789abcdef0123456789abcdef0123456789abcdef'),
+                        ],
+                    },
+                    {
+                        job_id: 3,
+                        lines: [
+                            line(null, '... 9 lines omitted ...'),
+                            line(10, 'Zx8Yw7Vu6Ts5Rq4Po3Nm2Lk1Ji0Hg9Fe8Dc7Ba6Zx8Yw7Vu6Ts5Rq4Po3Nm2Lk1J'),
+                            line(11, '##[error]Process completed with exit code 1.'),
+                        ],
+                    },
                 ],
             }
             const context = {
@@ -268,7 +286,25 @@ describe('credential redaction', () => {
                             line(20, 'FAILED tests/test_deploy.py::test_key'),
                         ],
                     },
-                    { job_id: 2, lines: [line(1, 'INVENTEDnotAkey')] },
+                    {
+                        job_id: 2,
+                        lines: [
+                            line(1, 'INVENTEDnotAkey'),
+                            line(null, '... 40 lines omitted ...'),
+                            line(42, '[REDACTED]'),
+                            line(43, '[REDACTED]'),
+                            line(44, '[REDACTED]-----END PRIVATE KEY-----'),
+                            line(45, 'sha256 0123456789abcdef0123456789abcdef0123456789abcdef'),
+                        ],
+                    },
+                    {
+                        job_id: 3,
+                        lines: [
+                            line(null, '... 9 lines omitted ...'),
+                            line(10, '[REDACTED]'),
+                            line(11, '##[error]Process completed with exit code 1.'),
+                        ],
+                    },
                 ],
             })
         }
