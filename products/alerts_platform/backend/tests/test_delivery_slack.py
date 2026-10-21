@@ -207,6 +207,7 @@ class TestSlackTransport(APIBaseTest):
         assert post.call_count == 2
         assert "image" not in [block["type"] for block in post.call_args.kwargs["blocks"]]
         # An edit restates what was posted, so it never names the image again.
+        assert handle is not None and handle.root_content is not None
         assert handle.root_content["blocks"] == post.call_args.kwargs["blocks"]
 
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
