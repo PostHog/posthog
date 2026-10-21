@@ -1,12 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { savedViewsLogic } from 'lib/components/SavedViews/savedViewsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from '../LogsViewer/config/columns'
 import { logsViewerConfigLogic } from '../LogsViewer/config/logsViewerConfigLogic'
-import { logsViewsListLogic } from './logsViewsListLogic'
-import { LogsView } from './logsViewsLogic'
+import { LogsView, logsSavedViewsLogicProps, logsViewsLogic } from './logsViewsLogic'
 
 const TEST_ID = 'test-views'
 
@@ -31,8 +32,9 @@ const makeView = (overrides: Partial<LogsView> = {}): LogsView =>
         ...overrides,
     }) as LogsView
 
-describe('logsViewsListLogic', () => {
-    let logic: ReturnType<typeof logsViewsListLogic.build>
+describe('logsViewsLogic', () => {
+    let logic: ReturnType<typeof logsViewsLogic.build>
+    let savedViews: ReturnType<typeof savedViewsLogic.build>
     let configLogic: ReturnType<typeof logsViewerConfigLogic.build>
     let createdPayload: Record<string, any> | null
 
@@ -54,11 +56,14 @@ describe('logsViewsListLogic', () => {
         initKeaTests()
         configLogic = logsViewerConfigLogic({ id: TEST_ID })
         configLogic.mount()
-        logic = logsViewsListLogic({ id: TEST_ID })
+        logic = logsViewsLogic({ id: TEST_ID })
         logic.mount()
+        savedViews = savedViewsLogic(logsSavedViewsLogicProps(TEST_ID))
+        savedViews.mount()
     })
 
     afterEach(() => {
+        savedViews.unmount()
         logic.unmount()
         configLogic.unmount()
     })
@@ -85,9 +90,9 @@ describe('logsViewsListLogic', () => {
         async (_, currentColumns, expectedColumns) => {
             configLogic.actions.setColumns(currentColumns)
 
-            await expectLogic(logic, () => {
-                logic.actions.setViewName('With columns')
-                logic.actions.saveView()
+            await expectLogic(savedViews, () => {
+                savedViews.actions.setViewName('With columns')
+                savedViews.actions.saveView(logic.values.savePayload)
             }).toDispatchActions(['createView', 'createViewSuccess'])
 
             expect(createdPayload?.name).toEqual('With columns')
@@ -102,7 +107,7 @@ describe('logsViewsListLogic', () => {
         configLogic.actions.setColumns([{ id: 'level', type: 'level' }])
 
         await expectLogic(logic, () => {
-            logic.actions.loadView(makeView({ columns: savedColumns }))
+            savedViews.actions.loadView(makeView({ columns: savedColumns }))
         }).toFinishAllListeners()
 
         expect(configLogic.values.columns).toEqual(expectedColumns)

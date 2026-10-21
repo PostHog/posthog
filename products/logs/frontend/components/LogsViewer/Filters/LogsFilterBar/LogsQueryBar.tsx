@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
-import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
+import { LogsSavedViewsButton } from 'products/logs/frontend/components/LogsViews/LogsSavedViewsButton'
 
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControls } from './LogsFilterBar'
@@ -37,7 +37,7 @@ export const LogsQueryBar = ({
                             <LogsFilterSearch autoFocus={autoFocusSearch} />
                         </div>
                         <FilterHistoryDropdown />
-                        {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
+                        {showSavedViewsButton && <LogsSavedViewsButton id={id} iconOnly />}
                     </div>
                     <div className="flex gap-1.5 min-w-0">
                         <LogsQueryControls />
