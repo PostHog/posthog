@@ -993,6 +993,36 @@ export interface LogsAlertDeleteDestinationApi {
 }
 
 /**
+ * * `native` - Native
+ * * `hog_function` - HogFunction
+ */
+export type DeliveryPathEnumApi = (typeof DeliveryPathEnumApi)[keyof typeof DeliveryPathEnumApi]
+
+export const DeliveryPathEnumApi = {
+    Native: 'native',
+    HogFunction: 'hog_function',
+} as const
+
+export interface LogsAlertDestinationSendApi {
+    /** The HogFunction the message was sent for. It names the lifecycle event that was sent. */
+    hog_function_id: string
+    /** When the send started. */
+    sent_at: string
+    /** Which delivery path sent it. `native` is the stock message sent by the alerts platform. `hog_function` is the destination's HogFunction.
+     *
+     * * `native` - Native
+     * * `hog_function` - HogFunction */
+    path: DeliveryPathEnumApi
+    /** Whether the destination accepted the message. */
+    succeeded: boolean
+    /**
+     * Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, whose reason is in the HogFunction's own logs.
+     * @nullable
+     */
+    error: string | null
+}
+
+/**
  * * `check` - Check
  * * `reset` - Reset
  * * `enable` - Enable
@@ -3302,6 +3332,15 @@ export type LogsAlertsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type LogsAlertsDestinationsSendsListParams = {
+    /**
+     * HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 export type LogsAlertsEventsListParams = {
