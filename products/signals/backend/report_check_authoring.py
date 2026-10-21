@@ -21,6 +21,7 @@ from functools import partial
 from typing import Literal
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
@@ -32,6 +33,7 @@ from products.signals.backend.models import SignalActorKind, SignalReport, Signa
 from products.signals.backend.report_check_agent import agent_check_lane_available
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER
 from products.signals.backend.report_check_research import research_can_reconcile_checks
 from products.signals.backend.report_check_telemetry import capture_report_check_created, capture_report_check_skipped
 from products.signals.backend.report_check_timing import metric_check_ready_at
@@ -45,6 +47,8 @@ from products.signals.backend.report_checks import (
     MetricThresholdConfig,
     authored_monitoring_interval_minutes,
     check_schedule_expires_at,
+    monitoring_interval_minutes,
+    monitoring_window_end,
     parse_check_config,
     soak_minutes_from_gap,
     validate_metric_check_for_write,
@@ -119,7 +123,9 @@ def create_check(
             else now + timedelta(minutes=soak_minutes)
         )
         metric_ready_at = None
-        if kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+        if kind == SignalReportCheck.Kind.METRIC_THRESHOLD and not (
+            stored_config.get("monitoring") and locked_report.effective_status != SignalReport.Status.RESOLVED
+        ):
             metric_ready_at = metric_check_ready_at(stored_config["query"], locked_report.team, now)
             first_run_at = max(first_run_at, metric_ready_at)
             last_run_at = first_run_at + timedelta(minutes=(run_interval_minutes or 0) * max(0, runs_remaining - 1))
@@ -508,7 +514,9 @@ def cancel_check(
     return bool(cancelled)
 
 
-def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime, armed_at: datetime) -> int:
+def _arm_pending_checks(
+    *, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime, armed_at: datetime, monitoring: bool = False
+) -> int:
     """Arm rows individually because each check carries its own soak and schedule.
 
     The measurement origin can precede this write when implementation completes before the status update.
@@ -522,7 +530,24 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
     armed = 0
     for check in pending:
         next_run_at = resolved_at + timedelta(minutes=check.soak_minutes or 0)
-        if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+        interim = (
+            monitoring
+            and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            and bool(check.config.get("monitoring"))
+        )
+        resuming_monitoring = interim and check.last_run_at is not None and check.last_run_at >= resolved_at
+        if interim:
+            last_sample_at = max(resolved_at, check.last_run_at or resolved_at)
+            delay = (
+                MONITORING_ERROR_RETRY_AFTER
+                if resuming_monitoring and check.consecutive_errors > 0
+                else timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes))
+            )
+            next_run_at = min(
+                last_sample_at + delay,
+                monitoring_window_end(resolved_at, check.soak_minutes),
+            )
+        elif check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             try:
                 config = parse_check_config(check.kind, check.config)
                 assert isinstance(config, MetricThresholdConfig)
@@ -531,11 +556,15 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
             except (CheckConfigValidationError, ValueError):
                 # An invalid legacy config must not prevent the report's other checks from arming.
                 pass
-        expires_at = check_schedule_expires_at(
-            next_run_at=next_run_at,
-            run_interval_minutes=check.run_interval_minutes,
-            runs_remaining=check.runs_remaining,
-            start_at=resolved_at,
+        expires_at = (
+            resolved_at + MAX_CHECK_HORIZON
+            if interim
+            else check_schedule_expires_at(
+                next_run_at=next_run_at,
+                run_interval_minutes=check.run_interval_minutes,
+                runs_remaining=check.runs_remaining,
+                start_at=resolved_at,
+            )
         )
         armed += (
             SignalReportCheck.objects.for_team(team_id)
@@ -545,6 +574,7 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
                 next_run_at=next_run_at,
                 measurement_start_at=resolved_at if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD else None,
                 expires_at=expires_at,
+                consecutive_errors=0 if interim and not resuming_monitoring else F("consecutive_errors"),
                 updated_at=armed_at,
             )
         )
@@ -576,4 +606,10 @@ def arm_pending_checks(
             armed_at = resolved_at
         else:
             return 0
-        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at, armed_at=armed_at)
+        return _arm_pending_checks(
+            team_id=team_id,
+            report_id=report_id,
+            resolved_at=resolved_at,
+            armed_at=armed_at,
+            monitoring=status == SignalReport.Status.MONITORING,
+        )

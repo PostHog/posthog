@@ -71,8 +71,6 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             return lifecycle_runner.to_actors_query_options()
         elif isinstance(self.source_runner, FunnelsQueryRunner):
-            # Only plain FunnelsActorsQuery sources land here — correlation modals wrap a
-            # FunnelCorrelationQueryRunner and keep falling through to the empty response.
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
             return funnels_runner.to_actors_query_options()
 

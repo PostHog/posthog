@@ -514,6 +514,16 @@ describe('LogsIngestionConsumer', () => {
             })
         })
 
+        it('marks a team that receives its first logs as having ingested data', async () => {
+            const newTeamId = await createTeam(hub.postgres, team.organization_id, undefined, { ingested_event: false })
+            const newTeam = await getTeam(hub.postgres, newTeamId)
+            const messages = await createKafkaMessages([createLogMessage()], { token: newTeam!.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect((await getTeam(hub.postgres, newTeamId))?.ingested_event).toBe(true)
+        })
+
         it('should produce messages with correct headers', async () => {
             const logData = createLogMessage({ level: 'error', message: 'Critical error' })
             const messages = await createKafkaMessages([logData], {

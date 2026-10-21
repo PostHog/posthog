@@ -1256,6 +1256,8 @@ class TestPromptBuilder(BaseTest):
         # author, so the guidance must keep the untrusted-content boundary — a scout holds
         # write scopes an injected note could otherwise steer.
         assert "include_all_statuses=true" in prompt
+        # A scout that keeps its reports out of the inbox must still find them, or it re-emits each run.
+        assert "include_unlisted=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
         # Report authors need the metric semantics the generated tool shape cannot express on its own:
