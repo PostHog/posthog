@@ -1,3 +1,4 @@
+import re
 import json
 import shlex
 import asyncio
@@ -25,7 +26,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
-    TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
@@ -79,11 +79,7 @@ from products.tasks.backend.temporal.metrics import (
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
-from products.tasks.backend.temporal.observability import (
-    emit_agent_log,
-    log_activity_execution,
-    log_with_activity_context,
-)
+from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
 )
@@ -367,30 +363,6 @@ def _prewarmed_resume_needs_fresh_agent(
         return True
 
 
-def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
-    if not needs_full_history(ctx.origin_product):
-        return False
-
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
-                distinct_id=ctx.distinct_id,
-                groups={"organization": ctx.organization_id},
-                group_properties={"organization": {"id": ctx.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as error:
-        log_with_activity_context(
-            "blobless_signals_clone_flag_check_failed",
-            run_id=ctx.run_id,
-            error=str(error),
-        )
-        return False
-
-
 def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo: bool) -> int | None:
     """The integration to look up a repository-setup snapshot under, or None to clone instead.
 
@@ -669,13 +641,13 @@ def _build_sandbox_tags(
     Tag values must be strings; None values are dropped so we don't emit empty tags.
     Hogland also caps each tag at 64 characters and truncates on its side.
     """
+    workflow_prefix = (activity.info().workflow_id or "").removesuffix(f"-{ctx.task_id}-{ctx.run_id}")
     tags: dict[str, str | int | None] = {
         "task_id": ctx.task_id,
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
         "team_id": ctx.team_id,
-        # The running workflow's real id — a re-derived default would mislabel prefixed dispatches.
-        "workflow_id": activity.info().workflow_id,
+        "workflow_label": re.sub(r"[^A-Za-z0-9_.-]", "-", workflow_prefix)[:63] if workflow_prefix else None,
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
     }
@@ -1186,7 +1158,7 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
-    blobless_clone = _is_blobless_signals_clone_enabled(ctx)
+    blobless_clone = needs_full_history(ctx.origin_product)
 
     with log_activity_execution(
         "clone_repository_in_sandbox",

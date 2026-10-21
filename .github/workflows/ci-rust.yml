@@ -846,6 +846,28 @@ jobs:
                     --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
                     --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
 
+            # A changelog migration grows 4 to 8 partitions while the
+            # writer is paused, so a restarted partition must warm the old
+            # topic's tail itself. Write-once persons are what expose a
+            # warm that skips that tail: with a small person set every key
+            # is rewritten after the flip and the loss is masked.
+            - name: Run the e2e gate growing the changelog with the writer paused
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 5000 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 8 \
+                    --migrate-pause-writer --writer-pause-duration 8s
+
+            # A shrink dissolves the partitions past the new count, and a
+            # holder killed at Sealing leaves its partitions for its peers to
+            # seal. The slow coordinator keeps Sealing long enough to hit.
+            - name: Run the e2e gate shrinking the changelog with a leader killed at Sealing
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 4 \
+                    --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
+
             - name: Dump service logs on failure
               if: failure()
               run: |

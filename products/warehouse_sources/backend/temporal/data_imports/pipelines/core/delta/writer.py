@@ -5,6 +5,8 @@ import contextlib
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
+from django.conf import settings
+
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -333,6 +335,7 @@ class DeltaWriter:
                 if governor.config.mode != "off"
                 else None
             )
+            max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
             async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
@@ -341,6 +344,7 @@ class DeltaWriter:
                         list(normalized_primary_keys),
                         partition_key,
                         commit_metadata=commit_metadata,
+                        max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
                         **upsert_kwargs,
                     )
 
@@ -424,6 +428,7 @@ class DeltaWriter:
                 governor_rss_samples=adm.rss.samples if adm.rss else None,
                 governor_concurrent_upserts=adm.concurrent_upserts,
                 governor_max_concurrent_upserts=adm.rss.max_concurrent if adm.rss else None,
+                row_group_cap_bytes=max_row_group_bytes,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
@@ -758,7 +763,8 @@ class DeltaWriter:
         delta_table = await self._table.get_delta_table(allow_stale=True)
         assert delta_table is not None
 
-        await ensure_table_properties(delta_table, self._logger)
+        merges = write_type == "incremental" and bool(primary_keys)
+        await ensure_table_properties(delta_table, self._logger, merge_batch=data if merges else None)
 
         return delta_table
 
