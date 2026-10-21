@@ -17,7 +17,7 @@ export function ExcludeFromInsightButton({
     check: InsightDataCheckApi
 }): JSX.Element | null {
     const logic = insightDataChecksLogic(insightProps)
-    const { querySource } = useValues(logic)
+    const { querySource, status } = useValues(logic)
     const { excludeFromInsight } = useActions(logic)
 
     if (!check.filter_to_add) {
@@ -29,6 +29,7 @@ export function ExcludeFromInsightButton({
         <Button
             variant="outline"
             size="sm"
+            loading={status === 'checking'}
             disabledReason={
                 fits
                     ? undefined

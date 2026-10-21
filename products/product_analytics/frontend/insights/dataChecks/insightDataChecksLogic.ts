@@ -538,6 +538,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             posthog.capture('insight data check fix applied', { check: check.key, fix: 'posthog_ai' })
         },
         excludeFromInsight: ({ check }) => {
+            // The checks still show the finding until they run again, so a second click would add the rule twice.
+            if (values.status === 'checking') {
+                return
+            }
             const properties =
                 check.filter_to_add &&
                 withPropertyFilter(values.querySource?.properties, check.filter_to_add as AnyPropertyFilter)
