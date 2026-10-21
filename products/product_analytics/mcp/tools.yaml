@@ -67,6 +67,10 @@ tools:
             so a query you just ran through one of the `query-*` tools can be passed straight through.
 
 
+            Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
+            `InsightVizNode`.
+
+
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
 
             - Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.

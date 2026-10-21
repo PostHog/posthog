@@ -14,5 +14,6 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
-    is_mcc_account: GoogleAdsIsMccAccountConfig | None = None
     start_date: str | None = None
+    skip_removed_keywords: bool = config.value(default=config.str_to_bool("false"), converter=config.str_to_bool)
+    is_mcc_account: GoogleAdsIsMccAccountConfig | None = None

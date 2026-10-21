@@ -22,11 +22,7 @@ from posthoganalytics import Posthog
 
 from posthog.ph_client import get_client
 
-from products.tasks.backend.constants import (
-    MCP_EXEC_SKILLS_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-)
+from products.tasks.backend.constants import MCP_EXEC_SKILLS_FEATURE_FLAG
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
 from ..engines.base import EvalEngine
@@ -74,17 +70,6 @@ from .temporal_env import (
 
 logger = logging.getLogger(__name__)
 
-# Exceptions to the blanket "every flag is on" stub the run installs below. These two hand a
-# task run to `run_task_workflow_dispatcher` instead of starting its Temporal workflow inline,
-# and the harness never starts that command — so a forced-on flag leaves every case parked in
-# QUEUED, with nothing to fail it, until the case's poll budget runs out.
-FORCED_OFF_FEATURE_FLAGS = frozenset(
-    {
-        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-        WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    }
-)
-
 
 def eval_feature_enabled(
     key: str, *_args: object, skill_delivery: SkillDelivery = DEFAULT_SKILL_DELIVERY, **_kwargs: object
@@ -92,7 +77,7 @@ def eval_feature_enabled(
     """Stands in for `posthoganalytics.feature_enabled` so evals exercise flagged code paths."""
     if key == MCP_EXEC_SKILLS_FEATURE_FLAG:
         return skill_delivery == "exec"
-    return key not in FORCED_OFF_FEATURE_FLAGS
+    return True
 
 
 def _git(*args: str) -> str | None:
@@ -387,6 +372,9 @@ class SandboxedEvalHarness:
                     # the same per-process queue lets the single eval worker serve both, and keeps
                     # those workflows off a dev worker the same way.
                     GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
+                    # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
+                    # leave every case parked in QUEUED until the case's poll budget runs out.
+                    TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
                     **self.provider.settings_overrides(),
                 )
 

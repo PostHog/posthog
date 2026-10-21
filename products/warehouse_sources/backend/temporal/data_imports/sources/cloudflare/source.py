@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
+    DNS_ANALYTICS_ALL_ZONES_FAILED,
     cloudflare_source,
     validate_credentials as validate_cloudflare_credentials,
 )
@@ -192,6 +193,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.cloudflare.com": "Cloudflare authentication failed. Please check your API token.",
             "403 Client Error: Forbidden for url: https://api.cloudflare.com": "Cloudflare denied access. Please check that your API token has read permissions for this resource.",
+            DNS_ANALYTICS_ALL_ZONES_FAILED: "Cloudflare refused the DNS analytics query for every zone. Please check that your API token has Analytics read permission for your zones.",
         }
 
     @property
