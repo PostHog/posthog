@@ -12,17 +12,18 @@ and to lines older than the cutoff the operator passes, so redacted lines writte
 after the fix are never touched.
 """
 
+import re
 from datetime import datetime
 from typing import Any, Optional
 
 from django.db.models import Q
 
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.client.migration_tools import get_migrations_cluster
+from posthog.clickhouse.client.execute import default_settings, sync_execute
+from posthog.clickhouse.client.migration_tools import collapses_to_all_nodes, get_migrations_cluster
 from posthog.clickhouse.log_entries import LOG_ENTRIES_DATA_TABLE, LOG_ENTRIES_TABLE
 from posthog.dataclasses import frozen
-from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -31,6 +32,9 @@ DESTINATION_TEMPLATE_PREFIXES = ("segment-", "native-")
 # The executors log these as `addLog('debug', '<name>', object)`, which the log
 # sanitizer renders as `<name>, {...json...}`.
 DEBUG_LOG_PREFIXES = ("config, {", "options, {", "headers, {", "requestExtension, {", "fetchOptions, {")
+
+# The cluster, database and table arguments of a Distributed engine, as `system.tables.engine_full` renders them.
+DISTRIBUTED_TARGET = re.compile(r"^Distributed\('([^']*)', '([^']*)', '([^']*)'")
 
 
 @frozen
@@ -101,13 +105,22 @@ def count_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]]) -> 
 
 
 def _log_entries_reads_aux() -> bool:
-    # Deployed regions read `log_entries` through a Distributed table over `log_entries_data` on
-    # the aux cluster. The test schema keeps the rows in a local `log_entries` MergeTree.
+    # Deployed regions and fresh environments read `log_entries` through a Distributed table over
+    # `log_entries_data` on the aux cluster. The test schema keeps the rows in a local `log_entries` MergeTree.
     rows = sync_execute(
-        "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+        "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
         {"database": CLICKHOUSE_DATABASE, "name": LOG_ENTRIES_TABLE},
     )
-    return bool(rows) and rows[0][0] == "Distributed"
+    engine_full = rows[0][0] if rows else ""
+    if not engine_full.startswith("Distributed("):
+        return False
+    target = DISTRIBUTED_TARGET.match(engine_full)
+    if target and target.groups() == (CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_DATABASE, LOG_ENTRIES_DATA_TABLE):
+        return True
+    # Deleting from aux while reads come from elsewhere would leave the lines readable, so refuse.
+    raise RuntimeError(
+        f"`{LOG_ENTRIES_TABLE}` reads {engine_full}, not `{LOG_ENTRIES_DATA_TABLE}` on the aux cluster. Nothing was deleted."
+    )
 
 
 def delete_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]], wait: bool = False) -> None:
@@ -116,13 +129,19 @@ def delete_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]], wa
     args = _args(scope, functions)
     # Waiting on every replica outlasts the client timeout in production, so it runs asynchronously.
     delete_settings = {"lightweight_deletes_sync": 2 if wait else 0}
-    if _log_entries_reads_aux():
-        # The aux cluster is a single shard: one host runs the delete and replication carries it.
+    if not _log_entries_reads_aux():
         # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
-        sql = f"DELETE FROM {LOG_ENTRIES_DATA_TABLE} WHERE {_predicate()}"
-        get_migrations_cluster().any_host_by_role(
-            lambda client: client.execute(sql, args, settings=delete_settings), NodeRole.AUX
-        ).result()
+        sync_execute(f"DELETE FROM {LOG_ENTRIES_TABLE} WHERE {_predicate()}", args, settings=delete_settings)
         return
     # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
-    sync_execute(f"DELETE FROM {LOG_ENTRIES_TABLE} WHERE {_predicate()}", args, settings=delete_settings)
+    sql = f"DELETE FROM {LOG_ENTRIES_DATA_TABLE} WHERE {_predicate()}"
+    if collapses_to_all_nodes():
+        # Single-node installs hold `log_entries_data` on the one node, which carries no aux role.
+        sync_execute(sql, args, settings=delete_settings)
+        return
+    # The aux cluster is a single shard: one host runs the delete and replication carries it.
+    # The raw client skips sync_execute's defaults, and a region-wide function list needs their larger max_query_size.
+    client_settings = {**default_settings(), **delete_settings}
+    get_migrations_cluster().any_host_by_role(
+        lambda client: client.execute(sql, args, settings=client_settings), NodeRole.AUX
+    ).result()
