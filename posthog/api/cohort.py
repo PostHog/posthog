@@ -1786,9 +1786,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _claim_static_population(self, cohort: Cohort) -> None:
         # A query population can run on ClickHouse for hours, and each PATCH would otherwise queue another full run.
-        # Only one run may hold the cohort at a time. The conditional update locks the row, so two concurrent requests
-        # cannot both claim it. The population task clears is_calculating when it finishes, and the stuck-cohort sweep
-        # clears it if the task dies.
+        # The claim sets is_calculating, and a query PATCH gets a 400 until it is cleared. The conditional update locks
+        # the row, so two concurrent requests cannot both claim it. The population task clears is_calculating when it
+        # finishes, and the stuck-cohort sweep clears it if the task dies.
         claimed = Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id, is_calculating=False).update(
             is_calculating=True
         )
@@ -1796,6 +1796,20 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError({"query": ["This cohort is still being populated. Try again when it finishes."]})
         # cohort.save() writes every field, so the in-memory value must match the claim.
         cohort.is_calculating = True
+
+    def _enqueue_query_population(self, cohort: Cohort) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        try:
+            insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+        except Exception as e:
+            # Without a release, every retry is rejected for a run that was never queued.
+            Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=False)
+            cohort.is_calculating = False
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
+            raise ValidationError(
+                {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
+            ) from e
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
@@ -1993,25 +2007,26 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         with transaction.atomic():
             if populate_from_query:
                 self._claim_static_population(cohort)
-            cohort.save()
+                cohort.save()
+            elif cohort.is_static:
+                # A concurrent query PATCH can claim the cohort after this request loaded it. Writing this request's
+                # stale is_calculating would release that claim and let a duplicate population through.
+                cohort.save(
+                    update_fields=[
+                        field.name
+                        for field in Cohort._meta.concrete_fields
+                        if not field.primary_key and field.name != "is_calculating"
+                    ]
+                )
+            else:
+                cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import insert_cohort_from_query
-
             if cohort.is_static and parsed_csv is not None:
                 # You can't update a static cohort using the trend/stickiness thing
                 self._enqueue_csv_ids(parsed_csv, cohort)
             elif populate_from_query:
-                try:
-                    insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
-                except Exception as e:
-                    # Without a release, every retry is rejected for a run that was never queued.
-                    Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=False)
-                    cohort.is_calculating = False
-                    capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
-                    raise ValidationError(
-                        {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
-                    ) from e
+                self._enqueue_query_population(cohort)
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
