@@ -11200,10 +11200,10 @@ Today (7): `accounts`, `cards`, `contacts`, `expense_reports`, `invoice_series`,
 
 Diffed against: <https://docs.slash.com/llms-full.txt>
 
-- [ ] `List account balances (GET /account/{accountId}/balance)` — measure available and posted cash or credit; account rows list balance types without amounts (high)
-- [ ] `List virtual accounts (GET /virtual-account)` — resolve virtualAccountId on cards and transactions for spending and allocation analysis (high)
-- [ ] `List card groups (GET /card-group)` — resolve cardGroupId and compare spending across groups of cards (high)
-- [ ] `List customers (GET /customer)` — resolve legalEntityCustomerId on invoices and analyze billing recipients separately from contacts (high)
+- [x] `List account balances (GET /account/{accountId}/balance)` — measure available and posted cash or credit; account rows list balance types without amounts (high)
+- [x] `List virtual accounts (GET /virtual-account)` — resolve virtualAccountId on cards and transactions for spending and allocation analysis (high)
+- [x] `List card groups (GET /card-group)` — resolve cardGroupId and compare spending across groups of cards (high)
+- [x] `List customers (GET /customer)` — resolve legalEntityCustomerId on invoices and analyze billing recipients separately from contacts (high)
 - [ ] `List cardholders (GET /cardholder)` — analyze the people assigned to corporate cards (medium)
 - [ ] `List legal entities (GET /legal-entity)` — compare business entities available to a user and organize financial reporting across them (medium)
 

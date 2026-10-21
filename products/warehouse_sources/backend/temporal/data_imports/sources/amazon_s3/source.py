@@ -11,17 +11,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
-    normalize_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    folder_fields,
     secret_field,
     source_caption,
     text_field,
+    url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    S3_EXAMPLE_URL,
+    parse_s3_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
@@ -52,17 +55,15 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The bucket and region pick where the stored key is sent, so changing either must re-require it.
-        return ["bucket", "region"]
+        # The URL picks the bucket and region the stored key is sent to, so changing it must re-require the key.
+        return ["url_pattern"]
 
     def object_store_config(self, config: AmazonS3SourceConfig) -> ObjectStoreConfig:
-        return ObjectStoreConfig(
-            provider=ObjectStoreProvider.S3,
-            bucket=config.bucket.strip(),
-            region=config.region.strip(),
+        return ObjectStoreConfig.from_url(
+            ObjectStoreProvider.S3,
+            parse_s3_url(config.url_pattern),
             access_key_id=config.access_key_id.strip(),
             secret_access_key=config.secret_access_key.strip(),
-            prefix=normalize_prefix(config.path),
         )
 
     def discovery_options(self, config: AmazonS3SourceConfig) -> DiscoveryOptions:
@@ -82,9 +83,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    text_field("bucket", "Bucket", "my-company-exports"),
-                    text_field("region", "Region", "us-east-1"),
-                    *folder_fields("bucket"),
+                    url_field(S3_EXAMPLE_URL),
                     text_field("access_key_id", "Access key ID", "AKIA..."),
                     secret_field("secret_access_key", "Secret access key"),
                     *file_option_fields(),
