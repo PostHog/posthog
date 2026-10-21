@@ -2409,7 +2409,7 @@ class CreateSuggestionSerializer(serializers.Serializer):
 
 class AgentReasoningEffortOptionSerializer(DataclassSerializer):
     value = serializers.CharField(help_text="Effort id to pass as agent_reasoning_effort, e.g. 'medium'.")
-    label = serializers.CharField(help_text="Display name, e.g. 'Medium'.")
+    label = serializers.CharField(help_text="Display name, e.g. 'Medium'.")  # type: ignore[assignment]
 
     class Meta:
         dataclass = AgentReasoningEffortOption
@@ -2418,7 +2418,7 @@ class AgentReasoningEffortOptionSerializer(DataclassSerializer):
 
 class AgentModelOptionSerializer(DataclassSerializer):
     model = serializers.CharField(help_text="Model id to pass as agent_model, e.g. 'claude-sonnet-5-5'.")
-    label = serializers.CharField(help_text="Display name, e.g. 'Claude Sonnet 5.5'.")
+    label = serializers.CharField(help_text="Display name, e.g. 'Claude Sonnet 5.5'.")  # type: ignore[assignment]
     runtime_adapter = serializers.CharField(help_text="Runtime that drives the model: 'claude' or 'codex'.")
     supported_efforts = AgentReasoningEffortOptionSerializer(
         many=True, help_text="Reasoning efforts this model supports. Empty when it has no effort setting."
