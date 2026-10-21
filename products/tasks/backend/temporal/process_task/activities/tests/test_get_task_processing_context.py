@@ -34,6 +34,7 @@ from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalid
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
+from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -424,7 +425,7 @@ class TestGetTaskProcessingContextActivity:
     @pytest.mark.parametrize(
         ("slack_integration_id", "flag_outcome", "expected"),
         [
-            (None, True, False),
+            (None, True, None),
             (7, True, True),
             (7, RuntimeError("flag service down"), False),
         ],
@@ -444,6 +445,8 @@ class TestGetTaskProcessingContextActivity:
             )
 
         assert result.slack_agent_design_enabled is expected
+        persisted = TaskRun.objects.get(id=task_run.id).state.get(AGENT_DESIGN_STATE_KEY)
+        assert persisted == (None if slack_integration_id is None else expected)
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_resolves_user_github_integration_without_repository(

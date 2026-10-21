@@ -75,7 +75,10 @@ from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
-from products.tasks.backend.temporal.process_task.activities.feature_flags import resolve_slack_app_agent_design_enabled
+from products.tasks.backend.temporal.process_task.activities.feature_flags import (
+    AGENT_DESIGN_STATE_KEY,
+    resolve_slack_app_agent_design_enabled,
+)
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
@@ -181,7 +184,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
-    slack_agent_design_enabled: bool = False
+    slack_agent_design_enabled: bool | None = None
 
     @property
     def model_access(self) -> ModelAccess:
@@ -856,11 +859,9 @@ def _is_desktop_workspace_warm_enabled(
 
 
 @StepTimer("flag_slack_agent_design")
-def _is_slack_agent_design_enabled(*, slack_integration_id: int | None, run_id: str) -> bool:
-    if slack_integration_id is None:
-        return False
+def _is_slack_agent_design_enabled(*, slack_integration_id: int, creator_distinct_id: str | None, run_id: str) -> bool:
     try:
-        return resolve_slack_app_agent_design_enabled(slack_integration_id, run_id)
+        return resolve_slack_app_agent_design_enabled(slack_integration_id, creator_distinct_id)
     except Exception as e:
         log_with_activity_context("slack_agent_design_flag_check_failed", run_id=run_id, error=str(e))
         return False
@@ -1159,6 +1160,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )  # Ensure we get a boolean value even if the flag is missing
     log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    slack_agent_design_enabled: bool | None = None
+    if input.slack_integration_id is not None:
+        slack_agent_design_enabled = _is_slack_agent_design_enabled(
+            slack_integration_id=input.slack_integration_id,
+            creator_distinct_id=task.created_by.distinct_id,
+            run_id=run_id,
+        )
+        state_updates[AGENT_DESIGN_STATE_KEY] = slack_agent_design_enabled
     include_live_context = state.get("include_live_context") is not False
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
@@ -1474,9 +1483,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
-        slack_agent_design_enabled=_is_slack_agent_design_enabled(
-            slack_integration_id=input.slack_integration_id, run_id=run_id
-        ),
+        slack_agent_design_enabled=slack_agent_design_enabled,
         # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI

@@ -25,34 +25,34 @@ def is_slack_app_agent_design_enabled_for_task_activity(
 ) -> bool:
     """Flag check + persist to TaskRun.state so out-of-workflow callers (e.g.
     forward_pending_message) can read the decision without re-evaluating."""
-    return resolve_slack_app_agent_design_enabled(input.integration_id, input.run_id)
-
-
-def resolve_slack_app_agent_design_enabled(integration_id: int, run_id: str) -> bool:
-    from posthog.models.integration import Integration
-
-    from products.slack_app.backend.feature_flags import is_slack_app_agent_design_enabled
     from products.tasks.backend.models import TaskRun
 
-    try:
-        integration = Integration.objects.select_related("team", "team__organization").get(id=integration_id)
-    except Integration.DoesNotExist:
-        logger.warning("slack_app_agent_design_integration_missing", integration_id=integration_id)
-        enabled = False
-    else:
-        # The run's creator is the person the decision is about, so the gate resolves the
-        # flag against them and an internal rollout can name people by email or cohort the
-        # way every other one does. None when the run has no creator on record.
-        creator_distinct_id = (
-            TaskRun.objects.filter(id=run_id).values_list("task__created_by__distinct_id", flat=True).first()
-        )
-        enabled = is_slack_app_agent_design_enabled(integration, creator_distinct_id)
+    # The run's creator is the person the decision is about, so the gate resolves the
+    # flag against them and an internal rollout can name people by email or cohort the
+    # way every other one does. None when the run has no creator on record.
+    creator_distinct_id = (
+        TaskRun.objects.filter(id=input.run_id).values_list("task__created_by__distinct_id", flat=True).first()
+    )
+    enabled = resolve_slack_app_agent_design_enabled(input.integration_id, creator_distinct_id)
 
     def _persist(state: dict[str, Any]) -> None:
         state[AGENT_DESIGN_STATE_KEY] = enabled
 
     try:
-        TaskRun.mutate_state_atomic(run_id, _persist)
+        TaskRun.mutate_state_atomic(input.run_id, _persist)
     except Exception:
-        logger.exception("slack_app_agent_design_state_persist_failed", run_id=run_id)
+        logger.exception("slack_app_agent_design_state_persist_failed", run_id=input.run_id)
     return enabled
+
+
+def resolve_slack_app_agent_design_enabled(integration_id: int, creator_distinct_id: str | None) -> bool:
+    from posthog.models.integration import Integration
+
+    from products.slack_app.backend.feature_flags import is_slack_app_agent_design_enabled
+
+    try:
+        integration = Integration.objects.select_related("team", "team__organization").get(id=integration_id)
+    except Integration.DoesNotExist:
+        logger.warning("slack_app_agent_design_integration_missing", integration_id=integration_id)
+        return False
+    return is_slack_app_agent_design_enabled(integration, creator_distinct_id)

@@ -1686,8 +1686,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
         server. Returns (sandbox_id, sandbox_url, connect_token). Skipped on continue_as_new."""
         if workflow.patched(_PATCH_ID_NONBLOCKING_PRE_PROVISION):
-            pre_provision_steps = await self._start_pre_provision_steps(run_id)
-            sandbox_output = await self._get_sandbox_after_pre_provision_steps(pre_provision_steps)
+            sandbox_output = await self._get_sandbox_alongside_pre_provision_steps(run_id)
         else:
             await self._run_pre_provision_steps(run_id)
             sandbox_output = await self._get_sandbox_for_repository()
@@ -1783,19 +1782,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             self._early_slack_relay_open = True
 
-    async def _start_pre_provision_steps(self, run_id: str) -> list["asyncio.Task[None]"]:
+    async def _get_sandbox_alongside_pre_provision_steps(self, run_id: str) -> GetSandboxForRepositoryOutput:
         if self._slack_thread_context:
-            self._is_agent_design_enabled = self.context.slack_agent_design_enabled
+            resolved = self.context.slack_agent_design_enabled
+            self._is_agent_design_enabled = (
+                resolved if resolved is not None else await self._resolve_agent_design_flag()
+            )
         sandbox_label = self._sandbox_setup_label()
         await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
         announce = asyncio.create_task(self._announce_run_started(sandbox_label))
-        if self._is_agent_design_enabled and self._slack_thread_context:
+        if self._is_agent_design_enabled:
             self._slack_setup_chain = announce
             self._early_slack_relay_open = True
         track = asyncio.create_task(
             self._track_workflow_event("task_run_started", self._task_run_started_properties(run_id))
         )
-        return [announce, track]
+        try:
+            sandbox_output = await self._get_sandbox_for_repository()
+        except BaseException:
+            await asyncio.gather(announce, track, return_exceptions=True)
+            raise
+        await asyncio.gather(announce, track)
+        return sandbox_output
 
     async def _announce_run_started(self, sandbox_label: str) -> None:
         await self._update_task_run_status("in_progress")
@@ -1805,17 +1813,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._start_slack_agent_design_relay(
                 self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
             )
-
-    async def _get_sandbox_after_pre_provision_steps(
-        self, pre_provision_steps: list["asyncio.Task[None]"]
-    ) -> GetSandboxForRepositoryOutput:
-        try:
-            sandbox_output = await self._get_sandbox_for_repository()
-        except BaseException:
-            await asyncio.gather(*pre_provision_steps, return_exceptions=True)
-            raise
-        await asyncio.gather(*pre_provision_steps)
-        return sandbox_output
 
     def _sandbox_setup_label(self) -> str:
         return "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
@@ -3437,19 +3434,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             return int(integration_id) if integration_id else None
         except (TypeError, ValueError):
+            workflow.logger.warning("slack_app_agent_design_flag_eval_failed", extra={"integration_id": integration_id})
             return None
 
     async def _resolve_agent_design_flag(self) -> bool:
-        if not self._slack_thread_context:
-            return False
-        integration_id = self._slack_thread_context.get("integration_id")
-        if not integration_id:
+        integration_id = self._slack_integration_id()
+        if integration_id is None:
             return False
         try:
             return await workflow.execute_activity(
                 is_slack_app_agent_design_enabled_for_task_activity,
                 IsSlackAppAgentDesignEnabledForTaskActivityInput(
-                    integration_id=int(integration_id),
+                    integration_id=integration_id,
                     run_id=self.context.run_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
