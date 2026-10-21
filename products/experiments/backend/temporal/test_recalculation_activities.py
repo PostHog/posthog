@@ -876,7 +876,8 @@ class TestCalculateActivity(BaseTest):
             # The skip holds across runs, and the entry keeps pointing at the run that really failed.
             ("skipped_again", True, "heal_latest_run", True, True, False, True),
             ("shadow_mode", False, "heal_latest_run", True, False, False, False),
-            ("manual_retry", True, "manual_retry", True, False, False, False),
+            # Only a new calculation key ends a skip, so a manual retry of another metric keeps it.
+            ("manual_retry", True, "manual_retry", True, False, False, True),
             ("metric_changed", True, "heal_latest_run", False, False, False, False),
             ("metric_edited_after_discovery", True, "heal_latest_run", True, False, True, False),
         ]

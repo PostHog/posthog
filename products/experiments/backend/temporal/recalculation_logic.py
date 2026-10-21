@@ -92,8 +92,8 @@ METRIC_WOULD_SKIP_EVENT = "experiment metric would skip"
 _SKIP_HISTORY_RUNS = 2
 _SKIPPED_STEP = "skipped"
 _METRIC_SKIPPED_MESSAGE = (
-    "This metric failed with the same configuration in an earlier run, so it was not calculated again. "
-    "Edit the metric, or select Try again to calculate it."
+    "This metric failed with the same configuration in the last run, so it was not calculated again. "
+    "Change the metric or the experiment to calculate it."
 )
 
 # Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
@@ -243,7 +243,6 @@ def _load_metric_histories(
             MetricHistory(
                 key=MetricKey(experiment_id=recalculation.experiment_id, metric_uuid=metric_uuid),
                 calculation_key=calculation_key,
-                trigger=recalculation.trigger,
                 outcomes=tuple(outcome for outcome in outcomes if outcome is not None),
             )
         )

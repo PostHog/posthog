@@ -6,17 +6,12 @@ and this module only compares values. The checks live in `skip_recalculation_che
 
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Final
 
 import structlog
 
 from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
-
-# ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY. A user who selects "Try again" asks for a real run, so
-# no check skips a metric in that run.
-MANUAL_RETRY_TRIGGER: Final = "manual_retry"
 
 
 @frozen
@@ -41,7 +36,6 @@ class MetricRunOutcome:
 class MetricHistory:
     key: MetricKey
     calculation_key: str
-    trigger: str | None
     # Newest run first.
     outcomes: tuple[MetricRunOutcome, ...]
 
@@ -65,8 +59,6 @@ def find_metric_skips(histories: Sequence[MetricHistory], checks: Sequence[SkipC
     """The first skip that `checks`, in order, return for each metric. Metrics without a skip are absent."""
     skips: dict[MetricKey, MetricSkip] = {}
     for history in histories:
-        if history.trigger == MANUAL_RETRY_TRIGGER:
-            continue
         skip = _first_skip(history, checks)
         if skip is not None:
             skips[history.key] = skip

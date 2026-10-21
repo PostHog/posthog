@@ -5,7 +5,6 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.experiments.backend.metric_calculation.skip_recalculation import (
-    MANUAL_RETRY_TRIGGER,
     MetricHistory,
     MetricKey,
     MetricRunOutcome,
@@ -17,7 +16,6 @@ from products.experiments.backend.metric_calculation.skip_recalculation_checks i
     SKIP_REASON_UNCHANGED_VALIDATION_ERROR,
     skip_unchanged_validation_error,
 )
-from products.experiments.backend.models.experiment import ExperimentMetricsRecalculation
 
 _KEY = "key-now"
 _FAILED_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -32,11 +30,10 @@ def _outcome(error_type: str | None, calculation_key: str | None = _KEY, run: st
     )
 
 
-def _history(*outcomes: MetricRunOutcome, trigger: str | None = "heal_latest_run") -> MetricHistory:
+def _history(*outcomes: MetricRunOutcome) -> MetricHistory:
     return MetricHistory(
         key=MetricKey(experiment_id=1, metric_uuid="m1"),
         calculation_key=_KEY,
-        trigger=trigger,
         outcomes=outcomes,
     )
 
@@ -62,23 +59,17 @@ def _raises(history: MetricHistory) -> MetricSkip | None:
 class TestSkipRecalculation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("first_skip_wins", [_never, _always("a"), _always("b")], "heal_latest_run", "a"),
-            ("raising_check_fails_open", [_raises, _always("b")], "heal_latest_run", "b"),
-            ("only_raising_check_runs_the_metric", [_raises], "heal_latest_run", None),
-            ("no_check_skips", [_never], "heal_latest_run", None),
-            ("manual_retry_never_skips", [_always("a")], MANUAL_RETRY_TRIGGER, None),
+            ("first_skip_wins", [_never, _always("a"), _always("b")], "a"),
+            ("raising_check_fails_open", [_raises, _always("b")], "b"),
+            ("only_raising_check_runs_the_metric", [_raises], None),
+            ("no_check_skips", [_never], None),
         ]
     )
-    def test_find_metric_skips(
-        self, name: str, checks: list[SkipCheck], trigger: str, expected_reason: str | None
-    ) -> None:
-        skips = find_metric_skips([_history(trigger=trigger)], checks)
+    def test_find_metric_skips(self, name: str, checks: list[SkipCheck], expected_reason: str | None) -> None:
+        skips = find_metric_skips([_history()], checks)
 
         key = MetricKey(experiment_id=1, metric_uuid="m1")
         assert (skips[key].reason if key in skips else None) == expected_reason
-
-    def test_manual_retry_trigger_matches_the_model(self) -> None:
-        assert MANUAL_RETRY_TRIGGER == ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY.value
 
     @parameterized.expand(
         [
