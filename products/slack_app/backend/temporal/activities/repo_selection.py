@@ -128,10 +128,12 @@ async def discover_posthog_code_repository_via_agent_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.slack_app.backend.api import post_quota_exhausted_denial
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.repo_selection import (
         RepoSelectionRejectedError,
         RepoSelectionUnavailableError,
+        RepoSelectionUsageLimitError,
         select_repository,
     )
 
@@ -189,6 +191,25 @@ async def discover_posthog_code_repository_via_agent_activity(
             reason="Agent returned an unrecognized repository.",
             repo_research_task_id=research_ids.get("task_id"),
             repo_research_run_id=research_ids.get("run_id"),
+        )
+    except RepoSelectionUsageLimitError:
+        logger.warning("slack_app_repo_selection_usage_limited", channel=channel)
+        await asyncio.to_thread(
+            post_quota_exhausted_denial,
+            integration=integration,
+            slack=SlackIntegration(integration),
+            channel=channel,
+            thread_ts=event.get("thread_ts") or event.get("ts") or "",
+            slack_user_id=event.get("user") or "",
+            context="repo_selection",
+        )
+        return SlackRepoSelectionOutcome(
+            status="failed",
+            repository=None,
+            reason="Team is out of AI credits.",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
+            usage_limited=True,
         )
     except RepoSelectionUnavailableError as exc:
         logger.warning(

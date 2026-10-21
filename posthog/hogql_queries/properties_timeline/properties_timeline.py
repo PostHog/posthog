@@ -103,7 +103,7 @@ class PropertiesTimeline:
             else (property_type == "group" and property_group_type_index == filter.aggregation_group_type_index)
         )
 
-        property_filters = filter.property_groups.flat
+        property_filters = list(filter.property_groups.flat)
         for event in filter.entities:
             property_filters.extend(event.property_groups.flat)
         all_property_identifiers = extract_tables_and_properties(property_filters, team_id=team_id)

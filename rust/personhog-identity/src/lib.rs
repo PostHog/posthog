@@ -5,3 +5,4 @@ pub mod pools;
 pub mod publish;
 pub mod service;
 pub mod storage;
+pub mod warnings;

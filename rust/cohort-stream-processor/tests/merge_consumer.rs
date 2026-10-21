@@ -23,13 +23,14 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono_tz::UTC;
+use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CohortStreamEvent, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
     TransferRoute,
@@ -41,8 +42,9 @@ use cohort_stream_processor::merge::transfer::{
     MergeStateTransfer, PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, Follower,
-    FollowerSet, OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_of, AdmittedSplit, ClaimedSplit, CohortConsumerContext,
+    Follower, FollowerSet, InputGroups, OffsetTracker, PartitionOwnership, PartitionRouter,
+    SplitClaim, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CaptureCascadeSink, CaptureSink, CohortMembershipChange, KafkaMembershipSink,
@@ -50,6 +52,7 @@ use cohort_stream_processor::producer::{
     TransferSink,
 };
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
+use cohort_stream_processor::store::durability::PodOrdinal;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
     TombstoneKey,
@@ -58,6 +61,7 @@ use cohort_stream_processor::workers::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
 use common_kafka::config::KafkaConfig;
+use envconfig::Envconfig;
 use futures::FutureExt;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
@@ -69,7 +73,6 @@ use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde_json::json;
 use tempfile::TempDir;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -244,9 +247,7 @@ fn events_client_config(group: &str) -> ClientConfig {
         .set("group.id", group)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("partition.assignment.strategy", "cooperative-sticky")
-        .set("session.timeout.ms", "6000");
+        .set("auto.offset.reset", "earliest");
     config
 }
 
@@ -453,8 +454,13 @@ async fn produce_merge(producer: &FutureProducer, topic: &str, event: &PersonMer
 }
 
 fn open_store(dir: &TempDir) -> CohortStore {
+    open_store_as(dir, PartitionOwnership::single(NUM_PARTITIONS as u16))
+}
+
+fn open_store_as(dir: &TempDir, ownership: PartitionOwnership) -> CohortStore {
     CohortStore::open(&StoreConfig {
         path: dir.path().join("db"),
+        ownership,
         ..StoreConfig::default()
     })
     .expect("open store")
@@ -541,6 +547,34 @@ impl Groups {
             transfers: format!("cohort-stream-merge-apply-{suffix}"),
         }
     }
+
+    /// The processor config that reads `topics` through these groups.
+    fn config(&self, topics: &Topics) -> Config {
+        let mut config = Config::init_from_hashmap(&HashMap::new()).expect("default config");
+        config.kafka_hosts = bootstrap_servers();
+        config.cohort_stream_events_topic = topics.events.clone();
+        config.kafka_consumer_group = self.events.clone();
+        config.person_merge_events_topic = topics.merges.clone();
+        config.kafka_merge_consumer_group = self.merges.clone();
+        config.cohort_merge_state_transfer_topic = topics.transfers.clone();
+        config.kafka_merge_apply_consumer_group = self.transfers.clone();
+        config
+    }
+}
+
+/// Admits and claims `ownership` through the ownership fence on the groups `config` names, as the
+/// processor does at boot.
+async fn claim(config: Config, ownership: PartitionOwnership) -> ClaimedSplit {
+    let claim = SplitClaim::new(ownership, None).expect("a split outside a reshard");
+    tokio::task::spawn_blocking(move || {
+        let groups = InputGroups::new(&config);
+        AdmittedSplit::try_admit(claim, &groups)
+            .expect("the fence admits the split")
+            .claim(&groups)
+            .expect("claim the owned partitions")
+    })
+    .await
+    .expect("the claim panicked")
 }
 
 fn register_instance(manager: &mut Manager, name: &str) -> [Handle; 3] {
@@ -588,6 +622,7 @@ async fn spawn_instance(
     catalog: CatalogHandle,
     membership_sink: Arc<dyn MembershipSink>,
     handles: [Handle; 3],
+    ownership: PartitionOwnership,
 ) -> Instance {
     let [events_handle, merge_handle, transfer_handle] = handles;
     let kafka_config = producer_kafka_config();
@@ -646,31 +681,24 @@ async fn spawn_instance(
             .create()
             .expect("create transfers follower consumer"),
     );
-    let followers = Arc::new(FollowerSet::new([
+    let claimed = claim(groups.config(topics), ownership).await;
+    FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
-    ]));
+    ])
+    .assign(&claimed)
+    .expect("assign the followers");
 
-    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)
-        .create_with_context(context)
+        .create_with_context(CohortConsumerContext)
         .expect("create events consumer");
-    events_client
-        .subscribe(&[topics.events.as_str()])
-        .expect("subscribe events");
 
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-    let mut tasks = vec![tokio::spawn(run_rebalance_worker(
-        rebalance_rx,
-        dispatcher.clone(),
-        followers,
-        command_tx,
-        events_handle.shutdown_token(),
-    ))];
+    let mut tasks = Vec::new();
 
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
         topics.merges.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_handle,
         100,
@@ -682,6 +710,7 @@ async fn spawn_instance(
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_consumer,
         topics.transfers.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_handle,
         100,
@@ -698,10 +727,10 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        NUM_PARTITIONS as usize,
-        command_rx,
+        &claimed,
         None,
-    );
+    )
+    .expect("assign cohort_stream_events");
     tasks.push(tokio::spawn(events_consumer.process()));
 
     Instance {
@@ -870,6 +899,7 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
             catalog,
             membership,
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
         )
         .await;
         wait_for(
@@ -1008,6 +1038,7 @@ async fn duplicate_merge_message_produces_exactly_one_transfer() {
             catalog,
             Arc::new(CaptureSink::new()),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
         )
         .await;
         wait_for(
@@ -1092,6 +1123,7 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
             catalog,
             Arc::new(CaptureSink::new()),
             handles,
+            PartitionOwnership::single(NUM_PARTITIONS as u16),
         )
         .await;
         wait_for(
@@ -1274,20 +1306,20 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
     .await;
 }
 
+/// Two pods at N=2: each owns one residue class on every input, and a merge whose old and new
+/// persons sit on different pods drains on one and applies on the other, in both directions.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
-async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
+async fn two_pods_complete_merges_across_their_residue_classes() {
     let suffix = Uuid::new_v4();
     let topics = Topics::unique(&suffix);
     let groups = Groups::unique(&suffix);
     with_topics_cleanup(&topics.names(), async {
         topics.create().await;
 
-        let catalog_a = merge_catalog();
-        let catalog_b = merge_catalog();
-        let (_, daily_lsk) = behavioral_lsks(&catalog_a);
+        let (_, daily_lsk) = behavioral_lsks(&merge_catalog());
 
-        let mut manager = Manager::builder("merge-migrate-itest")
+        let mut manager = Manager::builder("merge-split-itest")
             .with_trap_signals(false)
             .build();
         let handles_a = register_instance(&mut manager, "a");
@@ -1295,164 +1327,88 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
         let shutdown = handles_a[0].clone();
         let _monitor = manager.monitor_background();
 
+        let pods = std::num::NonZeroU16::new(2).unwrap();
+        let pod = |ordinal| {
+            PartitionOwnership::new(pods, PodOrdinal::from(ordinal), NUM_PARTITIONS as u16).unwrap()
+        };
         let dir_a = TempDir::new().unwrap();
         let dir_b = TempDir::new().unwrap();
         let sink_a = Arc::new(CaptureSink::new());
         let sink_b = Arc::new(CaptureSink::new());
-
         let a = spawn_instance(
             &topics,
             &groups,
-            open_store(&dir_a),
-            catalog_a,
+            open_store_as(&dir_a, pod(0)),
+            merge_catalog(),
             sink_a.clone(),
             handles_a,
+            pod(0),
         )
         .await;
-        wait_for(
-            "instance A to own every partition",
-            Duration::from_secs(30),
-            || a.owned().len() == NUM_PARTITIONS as usize,
-        )
-        .await;
-
-        let producer = murmur2_producer();
-        let mut alloc = PersonAlloc::new();
-        let mut source_offset = 0i64;
-        let mut seed = |producer: &FutureProducer, topic: &str, person: Uuid| {
-            let offsets = (source_offset, source_offset + 1);
-            source_offset += 2;
-            let topic = topic.to_string();
-            let producer = producer.clone();
-            async move {
-                produce_event(&producer, &topic, person, TS, offsets.0).await;
-                produce_event(&producer, &topic, person, TS, offsets.1).await;
-            }
-        };
-
-        // Batch 1: seed and trigger against A alone, B joins while merges are in flight.
-        let batch1: Vec<(Uuid, Uuid)> = (0..4).map(|_| alloc.cross_partition_pair()).collect();
-        for (p_old, _) in &batch1 {
-            seed(&producer, &topics.events, *p_old).await;
-        }
-        wait_for("batch 1 seed state", Duration::from_secs(60), || {
-            batch1
-                .iter()
-                .all(|(p_old, _)| daily_total(&a.store, daily_lsk, *p_old) == Some(2))
-        })
-        .await;
-        for (p_old, p_new) in &batch1 {
-            produce_merge(&producer, &topics.merges, &merge_event(*p_old, *p_new)).await;
-        }
-
         let b = spawn_instance(
             &topics,
             &groups,
-            open_store(&dir_b),
-            catalog_b,
+            open_store_as(&dir_b, pod(1)),
+            merge_catalog(),
             sink_b.clone(),
             handles_b,
+            pod(1),
         )
         .await;
+        let evens: HashSet<i32> = (0..NUM_PARTITIONS).step_by(2).collect();
+        let odds: HashSet<i32> = (1..NUM_PARTITIONS).step_by(2).collect();
+        assert_eq!(a.owned(), evens);
+        assert_eq!(b.owned(), odds);
 
-        // Wait for a stable, disjoint full split.
-        let (a_owned, b_owned) = {
-            let deadline = Duration::from_secs(60);
-            let start = Instant::now();
-            loop {
-                let a1 = a.owned();
-                let b1 = b.owned();
-                if !b1.is_empty()
-                    && a1.is_disjoint(&b1)
-                    && a1.len() + b1.len() == NUM_PARTITIONS as usize
-                {
-                    tokio::time::sleep(Duration::from_millis(750)).await;
-                    if a.owned() == a1 && b.owned() == b1 {
-                        break (a1, b1);
-                    }
-                }
-                assert!(
-                    start.elapsed() < deadline,
-                    "timed out waiting for the cooperative split to settle (a={}, b={})",
-                    a.owned().len(),
-                    b.owned().len(),
-                );
-                tokio::time::sleep(Duration::from_millis(250)).await;
-            }
-        };
+        let producer = murmur2_producer();
+        let mut alloc = PersonAlloc::new();
+        let on_a = |p: u16| p.is_multiple_of(2);
+        let on_b = |p: u16| p % 2 == 1;
+        let mut pairs = vec![
+            (alloc.next_on(on_a), alloc.next_on(on_b)),
+            (alloc.next_on(on_b), alloc.next_on(on_a)),
+        ];
+        pairs.extend((0..4).map(|_| alloc.cross_partition_pair()));
+        let owner = |person: Uuid| if on_a(part(person)) { &a } else { &b };
 
-        // Batch 2: directed pairs (A→B, B→A) plus generic pairs to cover both transfer directions.
-        let pair_ab = (
-            alloc.next_on(|p| a_owned.contains(&(p as i32))),
-            alloc.next_on(|p| b_owned.contains(&(p as i32))),
-        );
-        let pair_ba = (
-            alloc.next_on(|p| b_owned.contains(&(p as i32))),
-            alloc.next_on(|p| a_owned.contains(&(p as i32))),
-        );
-        let mut batch2 = vec![pair_ab, pair_ba];
-        batch2.extend((0..4).map(|_| alloc.cross_partition_pair()));
-
-        let in_either = |stores: [&CohortStore; 2], person: Uuid| {
-            stores
-                .iter()
-                .filter_map(|store| daily_total(store, daily_lsk, person))
-                .next()
-        };
-
-        for (p_old, _) in &batch2 {
-            seed(&producer, &topics.events, *p_old).await;
+        for (n, (p_old, _)) in pairs.iter().enumerate() {
+            let offset = 2 * n as i64;
+            produce_event(&producer, &topics.events, *p_old, TS, offset).await;
+            produce_event(&producer, &topics.events, *p_old, TS, offset + 1).await;
         }
-        wait_for("batch 2 seed state", Duration::from_secs(60), || {
-            batch2
-                .iter()
-                .all(|(p_old, _)| in_either([&a.store, &b.store], *p_old) == Some(2))
-        })
+        wait_for(
+            "seed state on each old person's pod",
+            Duration::from_secs(60),
+            || {
+                pairs.iter().all(|(p_old, _)| {
+                    daily_total(&owner(*p_old).store, daily_lsk, *p_old) == Some(2)
+                })
+            },
+        )
         .await;
-        for (p_old, p_new) in &batch2 {
+        for (p_old, p_new) in &pairs {
             produce_merge(&producer, &topics.merges, &merge_event(*p_old, *p_new)).await;
         }
-
         wait_for(
-            "every batch 2 merge to complete",
+            "every merge to apply on the new person's pod",
             Duration::from_secs(90),
             || {
-                batch2
-                    .iter()
-                    .all(|(_, p_new)| in_either([&a.store, &b.store], *p_new) == Some(2))
+                pairs.iter().all(|(_, p_new)| {
+                    daily_total(&owner(*p_new).store, daily_lsk, *p_new) == Some(2)
+                })
             },
         )
         .await;
 
-        let total_merges = (batch1.len() + batch2.len()) as i64;
         let merge_verifier = group_verifier(&groups.merges);
         let transfer_verifier = group_verifier(&groups.transfers);
         wait_for(
             "merge commits to cover every merge",
             Duration::from_secs(90),
-            || committed_sum(&merge_verifier, &topics.merges) == total_merges,
+            || committed_sum(&merge_verifier, &topics.merges) == pairs.len() as i64,
         )
         .await;
-        // Batch 1 may produce empty re-drains after migration; batch 2 transfers are deterministic.
         let total_transfers = topic_message_count(&topics.transfers);
-        let transfer_pairs: HashSet<(Uuid, Uuid)> = consume_all(
-            &topics.transfers,
-            total_transfers as usize,
-            Duration::from_secs(30),
-        )
-        .await
-        .iter()
-        .map(|(_, payload)| {
-            let transfer = MergeStateTransfer::decode(payload).expect("decode transfer");
-            (transfer.old_person_uuid, transfer.new_person_uuid)
-        })
-        .collect();
-        for (p_old, p_new) in &batch2 {
-            assert!(
-                transfer_pairs.contains(&(*p_old, *p_new)),
-                "no transfer rode the wire for batch-2 merge {p_old} → {p_new}",
-            );
-        }
         wait_for(
             "transfer commits to cover every transfer",
             Duration::from_secs(90),
@@ -1460,57 +1416,27 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
         )
         .await;
 
-        for (p_old, p_new) in &batch2 {
-            let totals = [
-                daily_total(&a.store, daily_lsk, *p_new),
-                daily_total(&b.store, daily_lsk, *p_new),
-            ];
-            assert!(
-                totals.contains(&Some(2)) && totals.contains(&None),
-                "P_new {p_new} must hold the merged count in exactly one store, got {totals:?}",
-            );
-            assert_eq!(
-                daily_total(&a.store, daily_lsk, *p_old),
-                None,
-                "P_old {p_old} drained in A"
-            );
-            assert_eq!(
-                daily_total(&b.store, daily_lsk, *p_old),
-                None,
-                "P_old {p_old} drained in B"
-            );
-
-            let owner = if a_owned.contains(&(part(*p_old) as i32)) {
-                &a.store
+        for (p_old, p_new) in &pairs {
+            for instance in [&a, &b] {
+                assert_eq!(
+                    daily_total(&instance.store, daily_lsk, *p_old),
+                    None,
+                    "P_old {p_old} drained",
+                );
+            }
+            let other = if std::ptr::eq(owner(*p_new), &a) {
+                &b
             } else {
-                &b.store
+                &a
             };
-            let tombstone = tombstone_for(owner, *p_old)
+            assert_eq!(
+                daily_total(&other.store, daily_lsk, *p_new),
+                None,
+                "P_new {p_new} holds the merged count only on its own pod",
+            );
+            let tombstone = tombstone_for(&owner(*p_old).store, *p_old)
                 .unwrap_or_else(|| panic!("tombstone for {p_old} on its owner's slice"));
             assert_eq!(tombstone.new_person, *p_new);
-        }
-
-        assert_eq!(
-            daily_total(&b.store, daily_lsk, pair_ab.1),
-            Some(2),
-            "the A-drained transfer applied on B",
-        );
-        assert_eq!(
-            daily_total(&a.store, daily_lsk, pair_ba.1),
-            Some(2),
-            "the B-drained transfer applied on A",
-        );
-
-        // Batch 1 raced the migration; any surviving count must be exact (no double-apply).
-        for (_, p_new) in &batch1 {
-            for store in [&a.store, &b.store] {
-                if let Some(total) = daily_total(store, daily_lsk, *p_new) {
-                    assert_eq!(
-                        total, 2,
-                        "batch 1 P_new {p_new} was double-applied despite the dedup",
-                    );
-                }
-            }
         }
 
         let entered: HashSet<String> = sink_a
@@ -1520,7 +1446,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             .filter(|change| change.status == MembershipStatus::Entered)
             .map(|change| change.person_id)
             .collect();
-        for (_, p_new) in &batch2 {
+        for (_, p_new) in &pairs {
             assert!(
                 entered.contains(&p_new.to_string()),
                 "P_new {p_new} entered on the shadow output",

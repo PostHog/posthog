@@ -1,28 +1,35 @@
 //! Runs the batcher state machine on one task and performs its effects.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::error;
 
 use super::in_flight::RequestId;
-use super::key_queues::KeyRun;
-use super::state_machine::{BatcherStateMachine, Effects, FailureCause, SendRequest};
+use super::key_queues::{payload_bytes, KeyRun};
+use super::state_machine::{
+    BatcherSnapshot, BatcherStateMachine, Effects, FailureCause, SendRequest,
+};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
+use crate::debug_recorder::{partition_offsets, record_if, DebugEventKind, DebugRecorder};
 use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
 use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
+
+/// A task that does not answer within this is wedged; the debug API then
+/// falls back to the totals the task last published.
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct StateMachineDriver {
     inputs: mpsc::UnboundedSender<Input>,
@@ -39,6 +46,8 @@ enum Input {
     },
     PartitionsRevoked(Vec<(String, i32)>),
     Shutdown,
+    /// Answered between two actions, so the snapshot is consistent.
+    Snapshot(oneshot::Sender<BatcherSnapshot>),
 }
 
 #[derive(Debug, Default)]
@@ -49,6 +58,21 @@ pub(super) struct Load {
 }
 
 pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
+
+#[derive(Clone)]
+pub(super) struct SnapshotSender(mpsc::UnboundedSender<Input>);
+
+impl SnapshotSender {
+    /// `None` when the task is gone or does not answer in time.
+    pub(super) async fn snapshot(&self) -> Option<BatcherSnapshot> {
+        let (reply, response) = oneshot::channel();
+        self.0.send(Input::Snapshot(reply)).ok()?;
+        tokio::time::timeout(SNAPSHOT_TIMEOUT, response)
+            .await
+            .ok()?
+            .ok()
+    }
+}
 
 pub(super) trait RequestSender: Send + Sync + 'static {
     fn assignment_epoch(&self) -> AssignmentEpoch;
@@ -116,6 +140,9 @@ struct BatcherTask<S, W> {
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
     load: Arc<Load>,
+    recorder: Option<Arc<DebugRecorder>>,
+    /// The worker of each request sent while a recorder is present.
+    debug_requests: HashMap<RequestId, WorkerId>,
 }
 
 enum Event {
@@ -129,6 +156,7 @@ impl StateMachineDriver {
         state: BatcherStateMachine,
         workers: W,
         sender: Arc<S>,
+        recorder: Option<Arc<DebugRecorder>>,
     ) -> (Self, BatcherOutputs) {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
@@ -146,6 +174,8 @@ impl StateMachineDriver {
             completions: completions_tx,
             errors: errors_tx,
             load: Arc::clone(&load),
+            recorder,
+            debug_requests: HashMap::new(),
         };
         let task = tokio::spawn(task.run(state));
         (
@@ -173,6 +203,10 @@ impl StateMachineDriver {
 
     pub(super) fn revoke_sender(&self) -> RevokeSender {
         RevokeSender(self.inputs.clone())
+    }
+
+    pub(super) fn snapshot_sender(&self) -> SnapshotSender {
+        SnapshotSender(self.inputs.clone())
     }
 
     pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
@@ -243,6 +277,14 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
     }
 
     fn handle(&mut self, state: BatcherStateMachine, event: Event) -> BatcherStateMachine {
+        // A snapshot changes nothing and must not replace the pending wakeup.
+        let event = match event {
+            Event::Input(Input::Snapshot(reply)) => {
+                let _ = reply.send(state.snapshot());
+                return state;
+            }
+            event => event,
+        };
         // Read through tokio, so tests on paused time control the clock.
         let now = tokio::time::Instant::now().into_std();
         let mut assigned = false;
@@ -261,7 +303,9 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 state.on_partitions_revoked(now, &partitions)
             }
             Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.workers.candidates()),
+            Event::Input(Input::Snapshot(_)) => unreachable!("answered above"),
             Event::Response(request, Ok(SendOutcome::Accepted(accepted))) => {
+                self.record_resolved(request, accepted, 0);
                 state.on_request_succeeded(now, &self.workers.candidates(), request, accepted)
             }
             Event::Response(
@@ -270,13 +314,16 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                     accepted,
                     unfinished,
                 }),
-            ) => state.on_request_partial(
-                now,
-                &self.workers.candidates(),
-                request,
-                accepted,
-                unfinished,
-            ),
+            ) => {
+                self.record_resolved(request, accepted, unfinished.len());
+                state.on_request_partial(
+                    now,
+                    &self.workers.candidates(),
+                    request,
+                    accepted,
+                    unfinished,
+                )
+            }
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
@@ -284,6 +331,7 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 } else {
                     FailureCause::Fault
                 };
+                self.record_failed(request, cause, failure.messages.len());
                 let requeued = state.on_request_failed(
                     now,
                     &self.workers.candidates(),
@@ -374,11 +422,37 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
         } else {
             SendKind::Fresh
         };
+        let routing_keys = send.runs.len();
         let mut messages = Vec::new();
         for run in send.runs {
             sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
+        counter!(
+            "ingestion_consumer_batcher_requests_sent_total",
+            "worker" => send.worker.clone()
+        )
+        .increment(1);
+        counter!(
+            "ingestion_consumer_batcher_messages_sent_total",
+            "worker" => send.worker.clone()
+        )
+        .increment(messages.len() as u64);
+        if self.recorder.is_some() {
+            self.debug_requests
+                .insert(send.request, send.worker.clone());
+        }
+        record_if(&self.recorder, || DebugEventKind::RequestSent {
+            request_id: send.request.as_u64(),
+            worker: send.worker.to_string(),
+            messages: messages.len(),
+            routing_keys,
+            bytes: payload_bytes(&messages),
+            replay: send.class.replay,
+            budgeted: send.soft_budget.is_some(),
+            assignment_epoch: send.class.assignment_epoch,
+            spans: partition_offsets(&messages),
+        });
         let options = SendOptions {
             replay: send.class.replay,
             soft_budget: send.soft_budget,
@@ -387,6 +461,31 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
         let request = send.request;
         self.responses
             .push(async move { (request, response.await) }.boxed());
+    }
+
+    fn record_resolved(&mut self, request: RequestId, accepted: u32, unfinished: usize) {
+        if let Some(worker) = self.debug_requests.remove(&request) {
+            record_if(&self.recorder, || DebugEventKind::RequestResolved {
+                request_id: request.as_u64(),
+                worker: worker.to_string(),
+                accepted,
+                unfinished,
+            });
+        }
+    }
+
+    fn record_failed(&mut self, request: RequestId, cause: FailureCause, messages: usize) {
+        if let Some(worker) = self.debug_requests.remove(&request) {
+            record_if(&self.recorder, || DebugEventKind::RequestFailed {
+                request_id: request.as_u64(),
+                worker: worker.to_string(),
+                cause: match cause {
+                    FailureCause::Busy => "busy",
+                    FailureCause::Fault => "fault",
+                },
+                messages,
+            });
+        }
     }
 }
 
@@ -402,14 +501,12 @@ mod tests {
     use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
 
-    use tokio::sync::oneshot;
-
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
     use crate::batcher::state_machine::RequestBudget;
     use crate::batcher::test_support::{message, offsets};
-    use crate::batcher::worker_assigner::WorkerAssigner;
+    use crate::batcher::worker_assigner::{WorkerAssigner, WorkerInFlight};
     use crate::routing::{Router, RoutingStrategy};
     use crate::transport::{FenceGuard, TransportError};
 
@@ -500,13 +597,36 @@ mod tests {
 
     impl Harness {
         fn new(workers: &[&str], max_requests_per_worker: usize) -> Self {
-            Self::budgeted(workers, max_requests_per_worker, None)
+            Self::build(workers, max_requests_per_worker, None, None)
         }
 
         fn budgeted(
             workers: &[&str],
             max_requests_per_worker: usize,
             budget: Option<RequestBudget>,
+        ) -> Self {
+            Self::build(workers, max_requests_per_worker, budget, None)
+        }
+
+        fn recorded(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+        ) -> (Self, Arc<DebugRecorder>) {
+            let recorder = DebugRecorder::new(64, Duration::from_secs(60));
+            let harness = Self::build(
+                workers,
+                max_requests_per_worker,
+                None,
+                Some(Arc::clone(&recorder)),
+            );
+            (harness, recorder)
+        }
+
+        fn build(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+            budget: Option<RequestBudget>,
+            recorder: Option<Arc<DebugRecorder>>,
         ) -> Self {
             let assigner =
                 WorkerAssigner::new(Router::new(RoutingStrategy::P2c), max_requests_per_worker)
@@ -535,7 +655,7 @@ mod tests {
                 fence: Mutex::new(None),
             });
             let (driver, outputs) =
-                StateMachineDriver::new(state, fake_workers.clone(), Arc::clone(&sender));
+                StateMachineDriver::new(state, fake_workers.clone(), Arc::clone(&sender), recorder);
             Self {
                 driver,
                 outputs,
@@ -820,5 +940,95 @@ mod tests {
         drop(h);
         settle().await;
         assert_eq!(Arc::strong_count(&sender), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_snapshot_answers_through_the_task_with_the_live_load() {
+        let h = Harness::new(&["w"], 4);
+        let snapshots = h.driver.snapshot_sender();
+        h.submit(vec![run("a", &[1]), run("b", &[2])]);
+        settle().await;
+
+        let snapshot = snapshots.snapshot().await.expect("the task answers");
+        assert_eq!(snapshot.keys, 2);
+        assert_eq!(snapshot.claimed_keys, 2);
+        assert_eq!(snapshot.in_flight_requests, 2);
+        assert_eq!(snapshot.in_flight_messages, 2);
+        assert_eq!(snapshot.pending_messages, 0);
+        assert_eq!(
+            snapshot.per_worker,
+            vec![WorkerInFlight {
+                worker: WorkerId::from("w"),
+                requests: 2,
+                messages: 2,
+            }]
+        );
+
+        drop(h);
+        settle().await;
+        assert!(
+            snapshots.snapshot().await.is_none(),
+            "a dropped batcher answers nothing"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn request_events_follow_a_failed_send_and_its_replay() {
+        let (h, recorder) = Harness::recorded(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        let failure = busy(&send, None);
+        send.reply.send(Err(failure)).unwrap();
+        settle().await;
+        tokio::time::advance(BUSY_DELAY).await;
+        settle().await;
+        let replay = h.take_sent().pop().unwrap();
+        replay.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+
+        let events: Vec<String> = recorder
+            .backlog()
+            .into_iter()
+            .map(|event| match event.kind {
+                DebugEventKind::RequestSent {
+                    request_id,
+                    worker,
+                    messages,
+                    routing_keys,
+                    replay,
+                    spans,
+                    ..
+                } => format!(
+                    "sent #{request_id} {worker} {messages} msgs {routing_keys} keys replay={replay} spans={:?}",
+                    spans
+                        .iter()
+                        .map(|span| (span.partition, span.ranges.clone()))
+                        .collect::<Vec<_>>()
+                ),
+                DebugEventKind::RequestFailed {
+                    request_id,
+                    worker,
+                    cause,
+                    messages,
+                } => format!("failed #{request_id} {worker} {cause} {messages} msgs"),
+                DebugEventKind::RequestResolved {
+                    request_id,
+                    worker,
+                    accepted,
+                    unfinished,
+                } => format!("resolved #{request_id} {worker} {accepted}/{unfinished}"),
+                _ => "other".to_string(),
+            })
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                "sent #0 w 1 msgs 1 keys replay=false spans=[(0, [(1, 1)])]",
+                "failed #0 w busy 1 msgs",
+                "sent #1 w 1 msgs 1 keys replay=true spans=[(0, [(1, 1)])]",
+                "resolved #1 w 1/0",
+            ]
+        );
     }
 }

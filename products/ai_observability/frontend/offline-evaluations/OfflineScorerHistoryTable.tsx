@@ -1,6 +1,7 @@
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { OfflineHistoryPageApi, OfflineHistoryPointApi } from '../generated/api.schemas'
@@ -23,12 +24,13 @@ export function OfflineScorerHistoryTable({
 }): JSX.Element {
     return (
         <LemonTable<OfflineHistoryPointApi>
+            className="@max-[50rem]/scorer-history:[&_colgroup]:hidden @max-[50rem]/scorer-history:[&_table]:table-auto"
             rowKey={(point) => `${point.experiment.id}:${point.summary.scorer.id}`}
             dataSource={page?.results || []}
             loading={loading || !page}
             size="small"
             tableLayout="fixed"
-            emptyState="No results in this period. Try another version or date range."
+            emptyState="No experiments match these filters."
             columns={[
                 {
                     title: 'Experiment',
@@ -59,9 +61,20 @@ export function OfflineScorerHistoryTable({
                     },
                 },
                 {
+                    title: 'Tags',
+                    key: 'tags',
+                    width: '24%',
+                    render: (_, point) => (
+                        <div className="min-w-0 max-w-64">
+                            <ObjectTags tags={point.experiment.tags} staticOnly maxVisibleTags={2} wrap />
+                        </div>
+                    ),
+                },
+                {
                     title: 'Execution',
                     key: 'execution',
-                    width: '20%',
+                    className: '@max-[50rem]/scorer-history:hidden',
+                    width: '16%',
                     render: (_, point) => (
                         <div className="truncate text-xs">
                             <TZLabel time={point.experiment.started_at} />
@@ -71,13 +84,14 @@ export function OfflineScorerHistoryTable({
                 {
                     title: 'Score',
                     key: 'score',
-                    width: '16%',
+                    width: '12%',
                     render: (_, point) => <OfflineScoreSummaryDisplay summary={point.summary} />,
                 },
                 {
                     title: 'Coverage',
                     key: 'coverage',
-                    width: '36%',
+                    className: '@max-[40rem]/scorer-history:hidden',
+                    width: '20%',
                     render: (_, { summary }) => (
                         <Tooltip
                             title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.missing_result_count} missing`}

@@ -197,6 +197,7 @@ def build_check_run_note(check: SignalReportCheck, config: AgentCheckConfig) -> 
         "`passed` (the evidence meets the bar and the expectation holds), `failed` (it meets the bar "
         "and the expectation does not hold), `inconclusive` with a `reason` (the evidence cannot settle "
         "it), or `errored` (a tool or model call failed). That call is the only thing that closes the check.",
+        "Before you record `failed`, do what your instructions say about a failed check on a resolved report.",
     ]
     return "\n".join(lines)
 
@@ -442,7 +443,8 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
     # this module reaches only when a check is actually due (see the same deferral in
     # `scout_harness/views.py`).
     from products.signals.backend.report_check_authoring import cancel_check  # noqa: PLC0415
-    from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict  # noqa: PLC0415
+    from products.signals.backend.report_check_evaluation import CheckVerdict  # noqa: PLC0415
+    from products.signals.backend.report_check_execution import record_check_verdict  # noqa: PLC0415
     from products.signals.backend.temporal.agentic.scout_scheduler import start_check_signals_scout_run  # noqa: PLC0415
 
     now = now or timezone.now()

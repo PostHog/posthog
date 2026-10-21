@@ -32,12 +32,12 @@ if typing.TYPE_CHECKING:
 BILLING_LIMIT_EXPIRED_REASON = "billing_limit_expired"
 
 _SLOT_DROPPED_MESSAGE = (
-    "Change data capture stopped because this team has been over its data warehouse billing limit for "
+    "Change data capture stopped because this team has been over its Sources billing limit for "
     "14 days, and PostHog keeps captured changes for 14 days. PostHog dropped the replication slot. "
     "Once you're back under the limit, use Repair CDC to recreate it and re-sync your tables."
 )
 _SLOT_KEPT_MESSAGE = (
-    "Change data capture stopped loading because this team has been over its data warehouse billing "
+    "Change data capture stopped loading because this team has been over its Sources billing "
     "limit for 14 days, and PostHog keeps captured changes for 14 days. The replication slot was not "
     "dropped. Once you're back under the limit, your tables re-sync on their own."
 )

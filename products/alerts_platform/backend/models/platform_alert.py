@@ -8,13 +8,17 @@ configuration already holds in this app. The prefix names what the rows are for:
 source configures on the shared platform, rather than one product's own table.
 """
 
+from typing import Any
+
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 from products.alerts_platform.backend.facade.contracts import Grouping
 from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
@@ -33,7 +37,7 @@ def source_kind_choices() -> list[tuple[str, str]]:
     return PlatformAlertConfigurationSourceKind.choices
 
 
-class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
+class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
     Evaluation-level state lives here rather than on `PlatformAlert`, because a failed check
@@ -104,6 +108,15 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
+
+    activity_logging_on_delete = True
+
+    def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
+        # A copy its source owns is not logged, so its writes skip the read of the row before the update.
+        # Backfills and source edits write those copies one row at a time.
+        if self.owner != PlatformAlertOwner.PLATFORM:
+            return False, None
+        return super()._should_log_activity_for_update(**kwargs)
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.
@@ -213,5 +226,34 @@ class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["configuration", "grouping_key", "provider", "channel_target", "episode_started_at"],
                 name="platform_alert_thread_one_per_conversation",
+            )
+        ]
+
+
+class PlatformAlertDeliveryPath(TeamScopedRootMixin, UUIDModel):
+    """The path one firing of one group delivers through, fixed by the first delivery about it.
+
+    The path is read from the alert's destinations at send time, and those can change mid-firing.
+    Without this row a firing sent through HogFunctions could resolve natively, and an incident
+    manager would hold the first incident open, because the two paths key incidents differently.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(
+        PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="delivery_paths"
+    )
+
+    grouping_key = models.CharField(max_length=255, default="", db_default="")
+    episode_started_at = models.DateTimeField()
+    path = models.CharField(max_length=16, choices=DeliveryPath.choices)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "alerts_platformalertdeliverypath"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuration", "grouping_key", "episode_started_at"],
+                name="platform_alert_delivery_path_one_per_episode",
             )
         ]

@@ -1,12 +1,16 @@
+import time
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError, connection
 from django.utils import timezone
 
+import psycopg
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -26,7 +30,10 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.observation_requests import (
     _SWEEP_CURSOR_KEY,
     MAX_SESSION_END_WAIT,
+    RequestSession,
+    RequestSessionState,
     _complete_page,
+    _unanswered_reason,
     complete_settled_requests,
     recording_viewer_access,
     request_progress,
@@ -309,6 +316,58 @@ class TestRequestProgress(APIBaseTest):
         self.assertEqual(progress.settled, settled)
 
 
+class TestUnansweredReason:
+    @parameterized.expand(
+        [
+            ("answered", RequestSessionState.SUCCEEDED, "started", "", []),
+            (
+                "credits_used_up",
+                RequestSessionState.SKIPPED,
+                "skipped_quota",
+                None,
+                [
+                    "Your organization's Replay Vision credits for this period are used up, so the session wasn't scanned."
+                ],
+            ),
+            (
+                "too_short_keeps_the_measurement",
+                RequestSessionState.INELIGIBLE,
+                "started",
+                "too_short:Only 3.2s long; min is 5s",
+                ["The session was too short to analyze. Only 3.2s long; min is 5s."],
+            ),
+            (
+                "too_large_drops_raw_error_text",
+                RequestSessionState.INELIGIBLE,
+                "started",
+                "too_large:RECORDING_TOO_LARGE blocks=412",
+                ["This recording is too large to render as a video, so there was nothing to watch."],
+            ),
+            (
+                "failed_scan",
+                RequestSessionState.FAILED,
+                "started",
+                "provider_rejected:400 from provider",
+                ["The AI provider wouldn't analyze this recording's video."],
+            ),
+            ("never_started", RequestSessionState.FAILED, "failed", None, ["The scan failed to start."]),
+            ("lost", RequestSessionState.LOST, "started", "", ["The scan ran out of time before it finished."]),
+        ]
+    )
+    def test_names_why_the_step_got_no_answer(
+        self,
+        _name: str,
+        state: RequestSessionState,
+        scan_outcome: str,
+        error_reason: str | None,
+        expected: list[str],
+    ) -> None:
+        observation = None if error_reason is None else ReplayObservation(error_reason=error_reason)
+        session = RequestSession(session_id="s1", scan_outcome=scan_outcome, state=state, observation=observation)
+
+        assert _unanswered_reason(session) == expected
+
+
 class TestCompleteSettledRequests(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -377,6 +436,53 @@ class TestCompleteSettledRequests(APIBaseTest):
         ]
         assert ReplayObservationRequest.objects.for_team(self.team.id).filter(completed_at__isnull=True).count() == 0
         assert cache.get(_SWEEP_CURSOR_KEY) is None
+
+    def _fail_second_page_read(self, cause: type[Exception]) -> Any:
+        page_reads = 0
+
+        def wrapper(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+            nonlocal page_reads
+            if sql.startswith("SELECT") and '"completed_at" IS NULL' in sql and "LIMIT" in sql:
+                page_reads += 1
+                if page_reads == 2:
+                    raise OperationalError("statement failed") from cause()
+            return execute(sql, params, many, context)
+
+        return connection.execute_wrapper(wrapper)
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_nearly_spent_query_budget_announces_nothing(self, produce: MagicMock) -> None:
+        request = self._request({"s1": "skipped_quota"})
+
+        assert complete_settled_requests(query_deadline=time.time() + 5) == 0
+
+        produce.assert_not_called()
+        request.refresh_from_db()
+        assert request.completed_at is None
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_canceled_statement_ends_the_tick_and_keeps_its_cursor(self, _produce: MagicMock) -> None:
+        first = self._request({"s1": "skipped_quota"})
+        second = self._request({"s2": "skipped_quota"})
+
+        with self._fail_second_page_read(psycopg.errors.QueryCanceled):
+            assert complete_settled_requests() == 1
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.completed_at is not None
+        assert second.completed_at is None
+        assert cache.get(_SWEEP_CURSOR_KEY) == (first.created_at.isoformat(), str(first.id))
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_other_database_errors_still_fail_the_sweep(self, _produce: MagicMock) -> None:
+        self._request({"s1": "skipped_quota"})
+        self._request({"s2": "skipped_quota"})
+
+        with self._fail_second_page_read(psycopg.errors.AdminShutdown), pytest.raises(OperationalError):
+            complete_settled_requests()
 
     @parameterized.expand(
         [

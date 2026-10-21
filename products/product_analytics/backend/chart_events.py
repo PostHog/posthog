@@ -61,14 +61,12 @@ class ChartEvents:
         query: str,
         *,
         where: ast.Expr,
-        prewhere: ast.Expr | None = None,
         sample: ast.SampleExpr | None = None,
         **placeholders: ast.Expr,
     ) -> ast.SelectQuery:
         """`query`, a select from the events table, set to read these events with `where`."""
         select = cast(ast.SelectQuery, parse_select(query, placeholders=placeholders))
         select.select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias=self.alias, sample=sample)
-        select.prewhere = prewhere
         select.where = where
         return select
 

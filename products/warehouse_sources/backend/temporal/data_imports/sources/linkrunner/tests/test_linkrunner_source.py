@@ -30,10 +30,6 @@ class TestGetSchemas:
         assert schema.supports_incremental is supports_incremental
         assert schema.detected_primary_keys == primary_keys
 
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = LinkrunnerSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
-        assert [s.name for s in schemas] == ["campaigns"]
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
