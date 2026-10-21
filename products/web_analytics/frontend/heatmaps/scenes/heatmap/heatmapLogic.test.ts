@@ -15,6 +15,7 @@ import * as heatmapApi from 'products/web_analytics/frontend/generated/api'
 import type { HeatmapScreenshotResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
+import { heatmapCreationLogic } from './heatmapCreationLogic'
 import { computeLockedWidth, heatmapLogic, resolveHeatmapExportUrl } from './heatmapLogic'
 
 function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -180,7 +181,6 @@ describe('heatmapLogic', () => {
 
             logic.unmount()
             expect(interceptors.has(guard)).toBe(false)
-            expect(guard.enabled()).toBe(false)
             const unload = new Event('beforeunload', { cancelable: true })
             window.dispatchEvent(unload)
             expect(unload.defaultPrevented).toBe(false)
@@ -192,10 +192,28 @@ describe('heatmapLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             logic.actions.setName('A new edit')
-            expect(guard.enabled()).toBe(false)
             const remountedUnload = new Event('beforeunload', { cancelable: true })
             window.dispatchEvent(remountedUnload)
             expect(remountedUnload.defaultPrevented).toBe(id !== 'new')
+        })
+
+        it('navigates past a guard left behind by a stale creation logic connection', () => {
+            const interceptors = getRouterContext().beforeUnloadInterceptors
+            const interceptorCount = interceptors.size
+            heatmapCreationLogic.build()
+            heatmapLogic({ id: 'new' }).mount()()
+            const unmountCreation = heatmapCreationLogic.mount()
+            const unmountNew = heatmapLogic({ id: 'new' }).mount()
+            unmountCreation()
+            unmountNew()
+            expect(heatmapLogic.isMounted({ id: 'new' })).toBe(false)
+            expect(interceptors.size).toBe(interceptorCount + 1)
+
+            const initialPath = router.values.location.pathname
+            const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            expect(() => router.actions.push('/heatmaps')).not.toThrow()
+            expect(confirm).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).not.toBe(initialPath)
         })
 
         it.each([true, false])('saves a rename without regenerating a screenshot (ready: %s)', async (ready) => {

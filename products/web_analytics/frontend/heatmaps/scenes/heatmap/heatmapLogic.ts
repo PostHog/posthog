@@ -953,7 +953,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation): boolean =>
-            logic.props.id !== 'new' &&
             heatmapLogic.findMounted(logic.props) === logic &&
             logic.values.hasUnsavedChanges &&
             (!newLocation || newLocation.pathname !== router.values.location.pathname),
