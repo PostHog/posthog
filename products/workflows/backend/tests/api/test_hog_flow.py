@@ -117,6 +117,14 @@ def _secret_input_template() -> dict:
         {"key": "url", "type": "string", "label": "URL", "secret": False, "hidden": False, "required": True},
         {"key": "api_key", "type": "string", "label": "API key", "secret": True, "hidden": False, "required": False},
         {
+            "key": "headers",
+            "type": "dictionary",
+            "label": "Headers",
+            "secret": False,
+            "hidden": False,
+            "required": False,
+        },
+        {
             "key": "secret_headers",
             "type": "dictionary",
             "label": "Secret headers",
@@ -6887,16 +6895,19 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("string", {}, "api_key", "SUPER-SECRET"),
+            ("string", {}, "api_key", "SUPER-SECRET", {"secret": True}),
             (
                 "dictionary_without_templating",
                 {"secret_headers": {"value": {"Authorization": "Bearer SUPER-SECRET"}}},
                 "secret_headers",
                 {"Authorization": "Bearer SUPER-SECRET"},
+                {"secret": True, "value": {"Authorization": "********"}},
             ),
         ]
     )
-    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(self, _name, extra_inputs, key, stored_value):
+    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(
+        self, _name, extra_inputs, key, stored_value, masked
+    ):
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows", self._flow_payload(extra_inputs=extra_inputs)
         )
@@ -6907,7 +6918,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         retrieve = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
         for body in (create.json(), retrieve.json()):
             inputs = self._function_inputs(body)
-            assert inputs[key] == {"secret": True}
+            assert inputs[key] == masked
             assert inputs["url"]["value"] == "https://example.com"
 
         # The plaintext never reaches a project member, including through the list the web app reads.
@@ -6945,6 +6956,45 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == expected_stored
+
+    @parameterized.expand(
+        [
+            (
+                "add_entry",
+                {"A": "********", "B": "********", "C": "c-new"},
+                False,
+                {"A": "a-old", "B": "b-old", "C": "c-new"},
+            ),
+            ("rotate_entry", {"A": "a-new", "B": "********"}, False, {"A": "a-new", "B": "b-old"}),
+            ("remove_entry", {"A": "********"}, False, {"A": "a-old"}),
+            # A failed validation keeps the raw inputs, so the masks must still turn back into stored values.
+            ("add_entry_lenient_save", {"A": "********", "C": "c-new"}, True, {"A": "a-old", "C": "c-new"}),
+        ]
+    )
+    def test_secret_header_edit_keeps_the_entries_it_does_not_change(
+        self, _name, edited_entries, invalid_url, expected_stored
+    ):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._flow_payload(extra_inputs={"secret_headers": {"value": {"A": "a-old", "B": "b-old"}}}),
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        inputs = self._function_inputs(body)
+        assert inputs["secret_headers"] == {"secret": True, "value": {"A": "********", "B": "********"}}
+        inputs["secret_headers"] = {"secret": True, "value": edited_entries}
+        if invalid_url:
+            inputs["url"] = {"value": "{event.properties.url", "templating": "hog"}
+
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": body["actions"], "edges": body["edges"]}
+        )
+        assert patch_res.status_code == 200, patch_res.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["secret_headers"]["value"] == expected_stored
 
     def test_metadata_only_update_leaves_secret_intact(self):
         # A PATCH that carries no actions must not clear the stored secret.
