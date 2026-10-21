@@ -1535,12 +1535,21 @@ describe('Hogflow Executor', () => {
                 `)
             })
 
+            const caughtUp = { inCohort: false, caughtUp: true }
             it.each([
-                ['an entered trigger while the person is in the cohort', 'entered', true, false, false, null, true],
+                [
+                    'an entered trigger while the person is in the cohort',
+                    'entered',
+                    { inCohort: true, caughtUp: null },
+                    false,
+                    false,
+                    null,
+                    true,
+                ],
                 [
                     'an entered trigger after the person left the cohort',
                     'entered',
-                    false,
+                    { inCohort: false, caughtUp: null },
                     true,
                     false,
                     'left cohort 42',
@@ -1549,17 +1558,36 @@ describe('Hogflow Executor', () => {
                 [
                     'a left trigger after the person rejoined the cohort',
                     'left',
-                    true,
+                    { inCohort: true, caughtUp: null },
                     true,
                     false,
                     'rejoined cohort 42',
                     true,
                 ],
-                // The membership writer lags the trigger consumer, so a mismatch before any match is a pending write.
+                // The person can leave before any read sees them in, so the version stamp is what shows freshness.
+                [
+                    'an entered trigger whose row is past the trigger version',
+                    'entered',
+                    caughtUp,
+                    false,
+                    false,
+                    'left cohort 42',
+                    true,
+                ],
+                // The membership writer lags the trigger consumer, so these reads can still show the old state.
                 [
                     'an entered trigger the table has not caught up with',
                     'entered',
+                    { inCohort: false, caughtUp: null },
                     false,
+                    false,
+                    null,
+                    undefined,
+                ],
+                [
+                    'a left trigger whose row is older than the trigger version',
+                    'left',
+                    { inCohort: false, caughtUp: false },
                     false,
                     false,
                     null,
@@ -1576,10 +1604,13 @@ describe('Hogflow Executor', () => {
                     if (lookupFails) {
                         lookup.mockRejectedValue(new Error('behavioral cohorts db unreachable'))
                     } else {
-                        lookup.mockResolvedValue(membership as boolean | null)
+                        lookup.mockResolvedValue(membership)
                     }
                     const invocation = createExampleHogFlowInvocation(hogFlow, {
-                        event: { ...createHogExecutionGlobals().event, properties: { name: 'John Doe' } },
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            properties: { name: 'John Doe', $membership_version: '2026-10-20 10:00:00.000000' },
+                        },
                     })
                     if (confirmedBefore) {
                         invocation.state.cohortTriggerConfirmed = true
@@ -1595,7 +1626,7 @@ describe('Hogflow Executor', () => {
                     } else {
                         expect(result.metrics.map((m) => m.metric_name)).not.toContain('early_exit')
                     }
-                    expect(lookup).toHaveBeenCalledWith(hogFlow.team_id, 'person_id', 42)
+                    expect(lookup).toHaveBeenCalledWith(hogFlow.team_id, 'person_id', 42, '2026-10-20 10:00:00.000000')
                     expect(result.invocation.state.cohortTriggerConfirmed).toBe(confirmedAfter)
                 }
             )
@@ -1603,7 +1634,7 @@ describe('Hogflow Executor', () => {
             it('does not look up cohort membership when the exit condition ignores the trigger', async () => {
                 hogFlow.exit_condition = 'exit_only_at_end'
                 hogFlow.trigger = { type: 'cohort', cohort_id: 42, transition: 'entered' }
-                const lookup = jest.spyOn(cohortMembershipRepository, 'getCohortMembership').mockResolvedValue(false)
+                const lookup = jest.spyOn(cohortMembershipRepository, 'getCohortMembership').mockResolvedValue(null)
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
                     event: { ...createHogExecutionGlobals().event, properties: { name: 'John Doe' } },
                 })

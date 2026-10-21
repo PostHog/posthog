@@ -11,6 +11,8 @@ import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { HogFlow } from '../schema/hogflow'
+import { PRODUCER_VERSION_FORMAT } from '../services/cohort-membership/sweeper.service'
+import { COHORT_MEMBERSHIP_VERSION_PROPERTY } from '../services/cohorts/cohort-membership-repository'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
@@ -206,7 +208,14 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
                 globals.event = {
                     ...globals.event,
                     event: COHORT_MEMBERSHIP_CHANGED_EVENT,
-                    properties: { cohort_id: change.cohort_id, status: change.status },
+                    properties: {
+                        cohort_id: change.cohort_id,
+                        status: change.status,
+                        // An off-format stamp can't be bound into the `::timestamp` comparison.
+                        ...(change.last_updated && PRODUCER_VERSION_FORMAT.test(change.last_updated)
+                            ? { [COHORT_MEMBERSHIP_VERSION_PROPERTY]: change.last_updated }
+                            : {}),
+                    },
                 }
                 events.push(globals)
             })

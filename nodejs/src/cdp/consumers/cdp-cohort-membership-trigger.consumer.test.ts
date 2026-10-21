@@ -52,7 +52,12 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         const matching = await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
         await insertHogFlow(hub.postgres, cohortFlow(42, 'left'))
         await insertHogFlow(hub.postgres, cohortFlow(7, 'entered'))
-        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const change = createCohortMembershipEvent({
+            team_id: team.id,
+            cohort_id: 42,
+            status: 'entered',
+            last_updated: '2026-10-20 10:00:00.123456',
+        })
 
         const globals = await processor._parseKafkaBatch([createKafkaMessage(change)])
         const { invocations, backgroundTask } = await processor.processBatch(globals)
@@ -63,6 +68,11 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         expect(invocation.functionId).toBe(matching.id)
         expect(invocation.state.personId).toBe(change.person_id)
         expect(invocation.state.event.event).toBe(COHORT_MEMBERSHIP_CHANGED_EVENT)
+        expect(invocation.state.event.properties).toEqual({
+            cohort_id: 42,
+            status: 'entered',
+            $membership_version: '2026-10-20 10:00:00.123456',
+        })
         expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
     })
 

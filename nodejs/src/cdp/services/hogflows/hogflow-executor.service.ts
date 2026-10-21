@@ -23,7 +23,11 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import {
+    COHORT_MEMBERSHIP_VERSION_PROPERTY,
+    CohortMembershipRepository,
+    StoredCohortMembership,
+} from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
@@ -491,8 +495,8 @@ export class HogFlowExecutorService {
      * for a "left" one. Undefined when there is no trustworthy answer, which leaves the run alone.
      *
      * The membership writer and the trigger consumer read each change independently, so the table can still
-     * hold the state from before the change that started this run. A mismatch counts only after the table
-     * has once shown the person matching.
+     * hold the state from before the change that started this run. A read counts only once the table has
+     * caught up with that change.
      */
     private async matchesCohortTrigger(
         invocation: CyclotronJobInvocationHogFlow,
@@ -502,12 +506,14 @@ export class HogFlowExecutorService {
         if (!personUuid) {
             return undefined
         }
-        let inCohort: boolean | null
+        const triggerVersion = invocation.state.event?.properties?.[COHORT_MEMBERSHIP_VERSION_PROPERTY]
+        let membership: StoredCohortMembership | null
         try {
-            inCohort = await this.cohortMembershipRepository.getCohortMembership(
+            membership = await this.cohortMembershipRepository.getCohortMembership(
                 invocation.hogFlow.team_id,
                 personUuid,
-                trigger.cohort_id
+                trigger.cohort_id,
+                typeof triggerVersion === 'string' ? triggerVersion : undefined
             )
         } catch (error) {
             // No answer is not "no longer in the cohort", so the run carries on and the next wake checks again.
@@ -519,16 +525,17 @@ export class HogFlowExecutorService {
             return undefined
         }
 
-        const confirmed = invocation.state.cohortTriggerConfirmed === true
-        // A missing row means out of the cohort, except on a "left" trigger before confirmation: there it can
-        // also mean the writer has not recorded the person joining yet.
-        const outOfCohort = inCohort === false || (inCohort === null && confirmed)
-        const matches = trigger.transition === 'entered' ? inCohort === true : outOfCohort
-        if (matches) {
-            invocation.state.cohortTriggerConfirmed = true
-            return true
+        const inCohort = membership?.inCohort ?? null
+        const rowMatches = trigger.transition === 'entered' ? inCohort === true : inCohort === false
+        // The row's version stamp shows whether the writer has applied the change that started this run.
+        // Without a stamp, only a read that matches the trigger shows it, because the change flips the state.
+        const caughtUp = invocation.state.cohortTriggerConfirmed === true || (membership?.caughtUp ?? rowMatches)
+        if (!caughtUp) {
+            return undefined
         }
-        return confirmed ? false : undefined
+        invocation.state.cohortTriggerConfirmed = true
+        // Once the table has caught up, a missing row means out of the cohort.
+        return trigger.transition === 'entered' ? inCohort === true : inCohort !== true
     }
 
     /**
