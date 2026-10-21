@@ -13766,14 +13766,6 @@ snapshots:
         hash: v1.k794b7964.730f63a37031a8670713c04b565dee44eb0daf7ca1739d3ec65fb46cf1fb6022.P67NSd6TYkZMOWMhgH7gK0ia88hUc1NU3u0rPO5Gn08
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-with-all-selected--light:
         hash: v1.k794b7964.c8a802919fbe8b57ddd3484e0736960c6e7aef3e5236f3518ad5d78b5de0741f.qL7rlejiasuC6pwlUE5inv_GZ1tjujnDGsZQk48MiHI
-    scenes-app-people-delete-cohort-dialog--blocked--dark:
-        hash: v1.k794b7964.3047015a473f1973f8fc3716286e62fca90219b94817d1d01071fc3b5d2b38a7.jlHL-UHmMnZvoFY33Vp-JdEH3j-OqE50BMioduxOrO4
-    scenes-app-people-delete-cohort-dialog--blocked--light:
-        hash: v1.k794b7964.da4bdedb2385609dd8ff54b6dc9ce5c8173f49501def312976f677496316e917.69g97ERsYYr1r_jBUMG4fVTZut2JmNzayNJ9hENVKWo
-    scenes-app-people-delete-cohort-dialog--nothing-uses-it--dark:
-        hash: v1.k794b7964.1036b577e333ae40ff2ee8c0e2609ceec376629b7346bd75de99ecc961506f3e.DDcGYkamva7AsNLt4uq1aaDwe994LzINpnYXJn4yQkM
-    scenes-app-people-delete-cohort-dialog--nothing-uses-it--light:
-        hash: v1.k794b7964.428bcd8a708c88c2a7d7b1a818acb2519b725b4c2e7bac2645c017f07f9edff4.dJ49PgER13-hNZHFarklzAbYeGH9-1TQLUQiJc_xr_E
     scenes-app-people-cohorts-blocking-workflows-modal--delete-blocked--dark:
         hash: v1.k794b7964.ef919a6aca9609d0783731ec8bc26d8d09efaf8b1c2474d7ccb02bb6fac50aa6.qIa0KtoTlo_FBuI5D_yGUKkRZllRs4Y6MIDRn-rtV-g
     scenes-app-people-cohorts-blocking-workflows-modal--delete-blocked--light:
@@ -13786,6 +13778,14 @@ snapshots:
         hash: v1.k794b7964.93a91a7c721456ea858c7daaca50b9e0e139a6cca3d4c5561766af6bdff0d446.iOwqrGTMXmqca1y1fXUHy1yrC6IAU1MG2Bp2QwUcMF0
     scenes-app-people-cohorts-blocking-workflows-modal--locked-from-details--light:
         hash: v1.k794b7964.a85e4e8e15e396a695ac820e7b5f12e090749678a37337d68f58c8ef2f3c84d1.mdB_yxx_jxgQdKnZ9yx0MqpZLGLVed12nt-qc_rElNs
+    scenes-app-people-delete-cohort-dialog--blocked--dark:
+        hash: v1.k794b7964.c207f2f246162cf80000cb96c0c0f06737241e7e12dee6130dd8dc2725ef0ce3.-UK9Q9-7WHMmUvLvgyX1h9LivGg52iquGoWPDQ0zciI
+    scenes-app-people-delete-cohort-dialog--blocked--light:
+        hash: v1.k794b7964.9e91d17bbcfb8bf7865a8df4d0869edbde76b4c5b51ad8f687ee420aee31cb10.D6nWe3lKUJ-W-J6gJMfdFAUrsqEETyaF9WlUVIjqAJs
+    scenes-app-people-delete-cohort-dialog--nothing-uses-it--dark:
+        hash: v1.k794b7964.1036b577e333ae40ff2ee8c0e2609ceec376629b7346bd75de99ecc961506f3e.DDcGYkamva7AsNLt4uq1aaDwe994LzINpnYXJn4yQkM
+    scenes-app-people-delete-cohort-dialog--nothing-uses-it--light:
+        hash: v1.k794b7964.428bcd8a708c88c2a7d7b1a818acb2519b725b4c2e7bac2645c017f07f9edff4.dJ49PgER13-hNZHFarklzAbYeGH9-1TQLUQiJc_xr_E
     scenes-app-people-groups--groups--dark:
         hash: v1.k794b7964.43aff64914fff6a42e75760dd43d3a6a389992009b996d68255cdf1edfaa4c08.J_2LUzPOjqGdvly-10vw0UsY8tOJAv6Jt76dYvjl7Gs
     scenes-app-people-groups--groups--light:
