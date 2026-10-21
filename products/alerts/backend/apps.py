@@ -21,11 +21,11 @@ class AlertsConfig(AppConfig):
             emit_alert_transition_events,
             list_delivery_destination_groups,
         )
-        from products.alerts.backend.platform_alert_legacy_events import (  # noqa: PLC0415
+        from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
+        from products.alerts.backend.platform_hooks import (  # noqa: PLC0415
             emit_insight_legacy_events,
             insight_chart_image,
         )
-        from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.delivery import (  # noqa: PLC0415
             register_delivery_path_chooser,
