@@ -169,6 +169,22 @@ describe('insightDataChecksLogic', () => {
         expect(sentSources.at(-1)).toEqual(source)
     })
 
+    const PAID = { kind: NodeKind.EventsNode, event: 'paid' }
+    const ACTION = { kind: NodeKind.ActionsNode, id: 1 }
+    it.each([
+        ['events combined into one series', { kind: NodeKind.GroupNode, operator: 'OR', nodes: [PAID] }],
+        ['an action', ACTION],
+        ['an action combined with an event', { kind: NodeKind.GroupNode, operator: 'OR', nodes: [PAID, ACTION] }],
+    ])('checks a chart with %s', async (_name, series) => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        const source = { kind: NodeKind.TrendsQuery, series: [series] }
+        insightDataLogic(props).actions.setQuery({ kind: NodeKind.InsightVizNode, source } as InsightVizNode)
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(sentSources.at(-1)).toEqual(source)
+    })
+
     it('checks again after a refresh of the chart that ends during a check', async () => {
         const first = holdTheFirstAnswer()
         turnTheFlagOn()
