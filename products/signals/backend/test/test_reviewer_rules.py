@@ -79,6 +79,17 @@ class TestReviewerRules(BaseTest):
             == []
         )
 
+    def test_login_only_removal_survives_identity_change(self) -> None:
+        UserSocialAuth.objects.create(
+            user=self.member, provider="github", uid="renamed-reviewer", extra_data={"login": "previous-login"}
+        )
+        self.write(self.other)
+        self.write(SuggestedReviewerEntry(github_login="previous-login"), edit=ReviewerEdit(action="remove"))
+        assert self.rules.read().corrections.excluded[0].user_uuid == str(self.member.uuid)
+        self.member.social_auth.filter(provider="github").update(extra_data={"login": "current-login"})
+        self.write(SuggestedReviewerEntry(user_uuid=str(self.member.uuid), github_login="current-login"))
+        assert self.rules.read().reviewers == ()
+
     def test_pin_preserves_only_the_person_added_and_a_later_removal_reverses_it(self) -> None:
         self.write(self.other)
         self.write(self.me, edit=ReviewerEdit(action="add"))
@@ -216,6 +227,23 @@ class TestReviewerRules(BaseTest):
         assert snapshot.corrections.needs_review is not logged
         assert not snapshot.corrections.confirmed
         assert not snapshot.corrections.pinned
+
+    def test_unresolved_legacy_identity_requires_review(self) -> None:
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False):
+            self.write(SuggestedReviewerEntry(github_login="former-login"))
+            self.write(edit=ReviewerEdit(action="replace"))
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            user=self.user,
+            scope="SignalReport",
+            item_id=str(self.report.id),
+            activity="suggested_reviewers_changed",
+            detail={"changes": [{"field": "suggested_reviewers", "before": ["former-login"], "after": []}]},
+        )
+        self.write(self.other)
+        snapshot = self.rules.read()
+        assert snapshot.reviewers == ()
+        assert snapshot.corrections.needs_review
 
     def test_login_exclusion_still_applies_after_member_resolution(self) -> None:
         UserSocialAuth.objects.create(
