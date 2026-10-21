@@ -78,7 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health_findings, get_experiment_health_inputs
+from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
@@ -911,7 +911,9 @@ class EnterpriseExperimentsViewSet(
     def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Health check findings for this experiment: problems in its configuration and its feature flag
-        that keep it from producing trustworthy results, each with a fix.
+        that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+        each check, so a check that found no problem can be told from one that did not apply or could
+        not read an input.
 
         The checks here read the experiment, its flag, its linked metrics, and the changes of the
         flag's variant split since launch. The checks that read exposure counts come with the
@@ -944,12 +946,12 @@ class EnterpriseExperimentsViewSet(
         `assigned_by_property` replaces `all_conditions_pinned`.
         """
         experiment: Experiment = self.get_object()
-        findings = get_experiment_health_findings(
+        health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
         )
-        return Response(ExperimentHealthSerializer({"findings": findings}).data)
+        return Response(ExperimentHealthSerializer(health).data)
 
     @extend_schema(
         request=None,
