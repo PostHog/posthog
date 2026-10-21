@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withToolHooks } from '@/tools/tool-hooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
@@ -144,7 +144,7 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 const result = await context.api.request<Schemas.HogFlow>({
                     method: 'POST',
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
-                    body,
+                    body: await transformRequestBody(hooks_workflowsCreate, context, params, body),
                 })
                 return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
             }
@@ -178,7 +178,7 @@ const workflowsDataSuggestionsCreate = (): ToolBase<
                 const result = await context.api.request<Schemas.DataSuggestionBuildResponse>({
                     method: 'POST',
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
-                    body,
+                    body: await transformRequestBody(hooks_workflowsDataSuggestionsCreate, context, params, body),
                 })
                 const filtered = pickResponseFields(result, [
                     'status',
@@ -903,7 +903,7 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
                 const result = await context.api.request<Schemas.HogFlowUpdate>({
                     method: 'PATCH',
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-                    body,
+                    body: await transformRequestBody(hooks_workflowsUpdate, context, params, body),
                 })
                 return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
             }
