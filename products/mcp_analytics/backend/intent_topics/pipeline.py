@@ -101,8 +101,11 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> Ru
         seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in intents], now=window_end)
         to_emit = embedding_sync.select_intents_to_emit(intents, seen)
         emitted = embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+        # The row version is the read time, not window_end, so a rerun of the same window replaces the
+        # counts it read before. It is taken before the read so that, of two runs, the later read wins.
+        read_at = datetime.now(tz=UTC)
         hourly = corpus.fetch_hourly_calls(team, since=window_start, until=window_end)
-        rollups.insert_hourly_calls(team.pk, hourly, now=window_end)
+        rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise

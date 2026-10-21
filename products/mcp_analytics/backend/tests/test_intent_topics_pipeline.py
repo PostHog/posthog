@@ -2,13 +2,14 @@ import os
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
-from datetime import timedelta  # noqa: E402
+from datetime import UTC, datetime, timedelta  # noqa: E402
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
 from unittest.mock import patch  # noqa: E402
 
 import numpy as np  # noqa: E402
 
+from posthog.hogql.parser import parse_select  # noqa: E402
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
@@ -18,6 +19,7 @@ from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # 
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin  # noqa: E402
 from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour
+from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment  # noqa: E402
 from products.mcp_analytics.backend.tests.test_intent_topics_clustering import skip_without_umap  # noqa: E402
 
 NOW = recent_hour(days_ago=0)
@@ -66,6 +68,45 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
             (intent_hash("new intent"), "query-trends", 2),
             (intent_hash("already embedded"), "query-trends", 1),
         ]
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_replaying_a_window_after_late_events_replaces_its_counts(self, _mock_emit) -> None:
+        def call(minutes_ago: int, session: str) -> None:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="a",
+                timestamp=NOW - timedelta(minutes=minutes_ago),
+                properties={
+                    "$mcp_tool_name": "query-trends",
+                    "$mcp_intent": "plot signups",
+                    "$mcp_session_id": session,
+                },
+            )
+
+        start = NOW - timedelta(hours=1)
+        call(50, "s1")
+        flush_persons_and_events()
+        pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+        call(40, "s2")
+        call(30, "s3")
+        flush_persons_and_events()
+        pipeline.run_sync(self.team, window_start=start, window_end=NOW)
+
+        hourly = execute_hogql_query(
+            query=parse_select(
+                "SELECT calls, length(conversation_hashes) FROM {hourly}",
+                placeholders={"hourly": rollups.hourly_calls_source(since=start, until=NOW)},
+            ),
+            team=self.team,
+        ).results
+        _insert_assignment(self.team.pk, intent_hash("plot signups"), "topic-a")
+        rollups.rebuild_topic_daily(team_id=self.team.pk, window_start=start, window_end=NOW, now=datetime.now(tz=UTC))
+        daily = execute_hogql_query(
+            query="SELECT calls, length(conversation_hashes) FROM posthog.mcp_intent_topic_daily", team=self.team
+        ).results
+
+        assert (hourly, daily) == ([(3, 3)], [(3, 3)])
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
     def test_skips_without_consent(self, mock_emit) -> None:
