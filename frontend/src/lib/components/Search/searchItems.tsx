@@ -142,7 +142,7 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
             break
         case 'feature_flag':
             name = safeString(result.extra_fields.key) || result.result_id
-            href = `/feature_flags/${result.result_id}`
+            href = `/feature-flags/${result.result_id}`
             break
         case 'experiment':
             name = safeString(result.extra_fields.name) || result.result_id

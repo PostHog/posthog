@@ -256,16 +256,25 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
 
         client = _load_client_with_transient_retry(config_dict)
     else:
+        resolved = credentials_service.get_secrets(
+            [
+                "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY",
+                "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID",
+                "GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL",
+                "GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI",
+                "GOOGLE_ADS_DEVELOPER_TOKEN",
+            ]
+        )
         credentials = service_account.Credentials.from_service_account_info(
             {
-                "private_key": config.private_key,
-                "private_key_id": config.private_key_id,
-                "token_uri": config.token_uri,
-                "client_email": config.client_email,
+                "private_key": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY"],
+                "private_key_id": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
+                "token_uri": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI"],
+                "client_email": resolved["GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
             },
             scopes=["https://www.googleapis.com/auth/adwords"],
         )
-        client = GoogleAdsClient(credentials=credentials, developer_token=config.developer_token)
+        client = GoogleAdsClient(credentials=credentials, developer_token=resolved["GOOGLE_ADS_DEVELOPER_TOKEN"])
     return client
 
 

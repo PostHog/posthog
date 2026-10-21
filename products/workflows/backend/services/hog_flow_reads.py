@@ -8,11 +8,14 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Count, F, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
 from django_filters import BooleanFilter, FilterSet
+
+from posthog.api.tagged_item import current_tag_names
+from posthog.models import TaggedItem
 
 from products.workflows.backend.facade.contracts import (
     Workflow,
@@ -235,7 +238,14 @@ def _list_queryset(
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet:
-    queryset = HogFlow.objects.filter(team_id=team_id).select_related("created_by")
+    queryset = (
+        HogFlow.objects.filter(team_id=team_id)
+        .select_related("created_by")
+        # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
+        .prefetch_related(
+            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+        )
+    )
 
     pending = (
         WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposalStatus.SUGGESTED)
@@ -288,6 +298,13 @@ def _list_queryset(
     if query.trigger:
         queryset = queryset.filter(trigger__contains=query.trigger)
 
+    if query.tags:
+        queryset = queryset.filter(
+            id__in=TaggedItem.objects.for_model(HogFlow)
+            .filter(tag__team_id=team_id, tag__name__in=query.tags)
+            .values("object_uuid")
+        )
+
     if user_access_control is not None:
         queryset = user_access_control.filter_queryset_by_access_level(
             queryset, include_all_if_admin=include_all_if_admin
@@ -316,11 +333,19 @@ def _list_queryset(
     # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
     regex_pattern = re.escape(query.search).replace(r"\ ", r"[\s\-_]*")
 
-    # Name and description are small columns, while the step search has to read every workflow's `actions`
+    # Name, description and tags are small, while the step search has to read every workflow's `actions`
     # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by
     # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
     # workflow name, is still found.
-    by_name = Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern)
+    by_name = (
+        Q(name__iregex=regex_pattern)
+        | Q(description__iregex=regex_pattern)
+        | Q(
+            id__in=TaggedItem.objects.for_model(HogFlow)
+            .filter(tag__team_id=team_id, tag__name__iregex=regex_pattern)
+            .values("object_uuid")
+        )
+    )
     if queryset.filter(by_name).exists():
         return queryset.filter(by_name)
     return queryset.filter(Q(_action_content_matches(regex_pattern)))
@@ -377,6 +402,7 @@ def _to_workflow(
         email_sending_paused_by=flow.email_sending_paused_by,
         email_sending_resumed_at=flow.email_sending_resumed_at,
         user_access_level=access_level,
+        tags=tuple(sorted(current_tag_names(flow))),
         pending_suggestions=getattr(flow, "pending_suggestions", None),
         suggestions_enabled=getattr(flow, "suggestions_enabled", None),
     )
