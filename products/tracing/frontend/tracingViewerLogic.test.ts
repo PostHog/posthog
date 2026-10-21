@@ -7,6 +7,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+
 import { makeSpan } from './__mocks__/span'
 import { traceViewLogic } from './components/TraceView/traceViewLogic'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
@@ -273,6 +275,26 @@ describe('tracingViewerLogic', () => {
         view.actions.selectSpan('AA01')
         press()
         expect(view.values.selectedSpanId).toBe('AA01')
+    })
+
+    it('leaves J to the full-screen logs viewer while it is open over the drawer', () => {
+        const view = traceViewLogic({ id: traceViewId('default') })
+        const press = (): void => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+        }
+        logic.actions.openTrace('trace-x', { spanId: 'aa01' })
+        view.actions.setSpans([
+            makeSpan({ uuid: 'AA01', span_id: 'AA01', trace_id: 'trace-x' }),
+            makeSpan({ uuid: 'BB02', span_id: 'BB02', trace_id: 'trace-x' }),
+        ])
+
+        logsViewerModalLogic.actions.openLogsViewerModal()
+        press()
+        expect(view.values.selectedSpanId).toBe('AA01')
+
+        logsViewerModalLogic.actions.closeLogsViewerModal()
+        press()
+        expect(view.values.selectedSpanId).toBe('BB02')
     })
 
     it('steps only the most recently opened view when two have span keys', () => {
