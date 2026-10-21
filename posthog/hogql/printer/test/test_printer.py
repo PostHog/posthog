@@ -3307,6 +3307,8 @@ class TestPrinter(BaseTest):
             ("toDateTime('2026-10-20 00:00:00', 'UTC')",),
             ("toDateTime('2026-10-20T00:00:00Z')",),
             ("toDate('2026-10-20')",),
+            ("toDate('2026<10>20')",),
+            ("toDate('2026{10}20')",),
             ("toDateTime(properties.created_at)",),
         ]
     )

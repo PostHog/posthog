@@ -145,7 +145,7 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 NULL_ON_FAILURE_DATE_PARSERS = frozenset(
     {"parseDateTime64BestEffortOrNull", "parseDateTime64BestEffortUSOrNull", "toDateOrNull"}
 )
-TEMPLATE_PLACEHOLDER_CHARACTERS = re.compile(r"[{}<>]")
+TEMPLATE_PLACEHOLDER_TOKEN = re.compile(r"[{<][^{}<>]*[A-Za-z_][^{}<>]*[}>]")
 
 
 class ClickHousePrinter(BasePrinter):
@@ -353,7 +353,7 @@ class ClickHousePrinter(BasePrinter):
         if (
             isinstance(first_arg, ast.Constant)
             and isinstance(first_arg.value, str)
-            and TEMPLATE_PLACEHOLDER_CHARACTERS.search(first_arg.value)
+            and TEMPLATE_PLACEHOLDER_TOKEN.search(first_arg.value)
         ):
             raise QueryError(
                 f"{node.name}() can't read '{first_arg.value}' as a date. "
