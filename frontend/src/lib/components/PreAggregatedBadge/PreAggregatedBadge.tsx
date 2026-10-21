@@ -88,6 +88,7 @@ export function PreAggregatedBadge({
         return null
     }
 
+    const showFreshness = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTED_AT]
     const Icon = isPrecomputed ? IconDatabaseBolt : IconBolt
     const iconClassName = isPrecomputed ? 'text-muted w-4 h-4' : 'text-warning w-4 h-4'
 
@@ -96,7 +97,11 @@ export function PreAggregatedBadge({
             interactive
             title={
                 isPrecomputed ? (
-                    <PrecomputedTooltip onDisable={onDisable} computedAt={computedAt} stale={stale} />
+                    <PrecomputedTooltip
+                        onDisable={onDisable}
+                        computedAt={showFreshness ? computedAt : undefined}
+                        stale={showFreshness && stale}
+                    />
                 ) : (
                     <PreAggregatedTooltip />
                 )
