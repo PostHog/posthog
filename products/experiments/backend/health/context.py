@@ -200,6 +200,18 @@ class ConditionSetTraffic:
 
 
 @frozen
+class PauseHistory:
+    """The experiment's latest pause or resume since launch, from its activity log. The experiment's Pause and Resume
+    write these entries, from the page, the API or MCP. A flag disabled or enabled anywhere else, such as on the flag
+    page, writes none."""
+
+    launched_at: datetime
+    team_timezone: str
+    # The time of the latest entry when it is a pause. None when it is a resume, or the experiment has no entry.
+    paused_at: datetime | None
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -229,6 +241,8 @@ class HealthContext:
     flag_history: FlagHistory | FlagHistoryNotChecked | None
     # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
     condition_set_traffic: ConditionSetTraffic | None
+    # None when not loaded or unknown. Only the health endpoint loads it, and only for a paused experiment.
+    pause_history: PauseHistory | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
 
@@ -374,5 +388,6 @@ def load_health_context(
         exposures=exposures,
         flag_history=flag_history,
         condition_set_traffic=None,
+        pause_history=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )

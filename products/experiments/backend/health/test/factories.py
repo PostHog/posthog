@@ -28,6 +28,7 @@ RUNNING_CONTEXT = HealthContext(
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,
+    pause_history=None,
     excluded_variant_keys=frozenset(),
 )
 
