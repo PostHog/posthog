@@ -70,7 +70,6 @@ async def run_credential_refresh_loop(
             next_refresh_seconds = result.next_refresh_seconds
         except Exception as e:
             if is_cancelled_exception(e):
-                workflow.deprecate_patch("tasks-credential-refresh-propagate-cancel")
                 raise
             # Non-fatal: keep the run alive and retry on the default cadence.
             workflow.logger.warning(f"Sandbox credential refresh failed (non-fatal): {e}")
