@@ -9394,10 +9394,10 @@ Today (13): `customers`, `locations`, `orders`, `picklists`, `products`, `purcha
 
 Diffed against: <https://picqer.com/en/api>
 
-- [ ] `/stockhistory` — every stock movement in and out of the warehouse with old/new levels, reason and change_type - the core inventory event stream (high)
-- [ ] `/shipments (also /picklists/{idpicklist}/shipments)` — actual outbound shipments with carrier and tracking; picklists alone can't answer ship-rate or carrier-mix questions (high)
-- [ ] `/warehouses/{idwarehouse}/stock and /products/{idproduct}/stock` — current stock level per product per warehouse; the products table has no per-warehouse quantities (high)
-- [ ] `/return_reasons` — lookup resolving the reason ID carried on the returns we already sync (high)
+- [x] `/stockhistory` — every stock movement in and out of the warehouse with old/new levels, reason and change_type - the core inventory event stream (high)
+- [x] `/shipments (also /picklists/{idpicklist}/shipments)` — actual outbound shipments with carrier and tracking; picklists alone can't answer ship-rate or carrier-mix questions (high)
+- [x] `/warehouses/{idwarehouse}/stock and /products/{idproduct}/stock` — current stock level per product per warehouse; the products table has no per-warehouse quantities (high)
+- [x] `/return_reasons` — lookup resolving the reason ID carried on the returns we already sync (high)
 - [ ] `/return_statuses` — lookup resolving the status ID on synced returns (high)
 - [ ] `/backorders` — unfulfillable order lines - the standard stockout/backorder analysis (medium)
 - [ ] `/picklists/batches` — batch-picking grouping over picklists; needed for picker throughput and batch efficiency (medium)
@@ -12202,10 +12202,10 @@ Today (3): `assets`, `scans`, `vulnerabilities`
 
 Diffed against: <https://developer.tenable.com/reference/exports-assets-request-export>
 
-- [ ] `plugins (GET /plugins/plugin)` — lookup resolving the plugin_id carried on every synced vulnerability finding to name, family, CVE, CVSS and VPR (high)
-- [ ] `scan history (GET /scans/{scan_id}/history)` — each individual run of a scan with status and timing; the scans table alone has no run-level history (high)
-- [ ] `compliance findings export (POST /compliance/export + status/chunks)` — audit/compliance results, the second half of Tenable's findings data alongside vulnerabilities (high)
-- [ ] `tag values (GET /tags/values)` — lookup table for the asset tags used to slice every asset and vulnerability report (high)
+- [x] `plugins (GET /plugins/plugin)` — lookup resolving the plugin_id carried on every synced vulnerability finding to name, family, CVE, CVSS and VPR (high)
+- [x] `scan history (GET /scans/{scan_id}/history)` — each individual run of a scan with status and timing; the scans table alone has no run-level history (high)
+- [x] `compliance findings export (POST /compliance/export + status/chunks)` — audit/compliance results, the second half of Tenable's findings data alongside vulnerabilities (high)
+- [x] `tag values (GET /tags/values)` — lookup table for the asset tags used to slice every asset and vulnerability report (high)
 - [ ] `tag categories (GET /tags/categories)` — parent dimension for tag values, needed to group tags into category/value pairs (medium)
 - [ ] `plugin families (GET /plugins/families)` — grouping dimension for plugins, standard breakdown axis in vulnerability reporting (medium)
 - [ ] `networks (GET /networks)` — lookup resolving the network_id on assets and scanners (medium)

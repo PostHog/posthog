@@ -1,15 +1,18 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId } from 'react'
 
 import { Accordion, Button, Dot, Popover, PopoverContent, PopoverTrigger, Text } from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
 import type { InsightLogicProps } from '~/types'
 
 import type { InsightDataChecksCoverageApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { DataChecksFeedback } from './DataChecksFeedback'
+import { dataChecksFeedbackLogic } from './dataChecksFeedbackLogic'
 import { DATA_CHECK_NAMES } from './dataCheckText'
 import { InsightDataCheckRow } from './InsightDataCheckRow'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
@@ -45,6 +48,10 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
     const logic = insightDataChecksLogic(insightProps)
     const { visibleChecks, checkedQuery, result, status } = useValues(logic)
     const { loadDataChecks, reportDataChecksViewed } = useActions(logic)
+    const { user } = useValues(userLogic)
+    const userId = user?.uuid ?? ''
+    // Mounted outside the popover content, so a half-written note survives the popover closing.
+    useMountedLogic(dataChecksFeedbackLogic({ userId }))
     const titleId = useId()
 
     return (
@@ -102,6 +109,9 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
                     >
                         Try again
                     </Button>
+                )}
+                {(status === 'passed' || status === 'warning' || status === 'problem') && (
+                    <DataChecksFeedback userId={userId} />
                 )}
             </PopoverContent>
         </Popover>
