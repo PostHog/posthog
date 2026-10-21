@@ -1190,6 +1190,8 @@ class ErrorTrackingIssueSummary(TeamScopedRootMixin, UUIDModel):
     input_hash = models.CharField(max_length=64)
     model = models.CharField(max_length=128)
     generated_at = models.DateTimeField()
+    # When the inputs were last compared with `input_hash`. The regenerate interval runs from here.
+    checked_at = models.DateTimeField()
 
     class Meta:
         db_table = "posthog_errortrackingissuesummary"

@@ -7,8 +7,6 @@ import time
 from datetime import datetime
 from uuid import UUID
 
-from django.utils import timezone
-
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import issue_summaries
 from products.error_tracking.backend.models import ErrorTrackingIssueSummary
@@ -52,27 +50,24 @@ def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
     False means nothing will change soon, so the caller should not wait.
     """
     stored = issue_summaries.get_issue_summary(team_id, issue_id)
-    if not issue_summaries.regeneration_due(stored, timezone.now()):
-        return False
-    if not issue_summaries.issue_summaries_enabled(team_id):
-        return False
-    if not issue_summaries.is_ai_data_processing_approved(team_id):
+    if issue_summaries.generation_blocked(team_id, stored) is not None:
         return False
     generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
     return True
 
 
 def wait_for_issue_summary(
-    team_id: int, issue_id: UUID | str, *, generated_after: datetime | None, timeout_seconds: float
+    team_id: int, issue_id: UUID | str, *, checked_after: datetime | None, timeout_seconds: float
 ) -> contracts.ErrorTrackingIssueSummary | None:
-    """Poll for a summary generated after `generated_after`, or any summary when it is None.
+    """Poll for a summary generated or confirmed unchanged after `checked_after`, or any summary when it is None.
 
-    Returns None at the timeout. The background task keeps running.
+    Pass the time taken just before `start_issue_summary_generation`. Returns None at the timeout.
+    The background task keeps running.
     """
     deadline = time.monotonic() + timeout_seconds
     while True:
         summary = issue_summaries.get_issue_summary(team_id, issue_id)
-        if summary is not None and (generated_after is None or summary.generated_at > generated_after):
+        if summary is not None and (checked_after is None or summary.checked_at > checked_after):
             return _to_summary(summary)
         remaining = deadline - time.monotonic()
         if remaining <= 0:

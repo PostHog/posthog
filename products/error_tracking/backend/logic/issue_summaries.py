@@ -1,8 +1,7 @@
 """Generate, store and read the model-written summary of an issue.
 
-Every trigger calls `get_or_generate_issue_summary`: a read through the API or MCP, and later the
-lifecycle workflows. It returns the stored summary when no new one is due, so callers need no
-freshness logic of their own.
+Every trigger calls `get_or_generate_issue_summary`, directly or through the Celery task. It returns
+the stored summary when no new one is due, so callers need no freshness logic of their own.
 """
 
 import json
@@ -162,7 +161,18 @@ def get_issue_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueS
 
 
 def regeneration_due(summary: ErrorTrackingIssueSummary | None, now: datetime) -> bool:
-    return summary is None or now - summary.generated_at >= ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL
+    return summary is None or now - summary.checked_at >= ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL
+
+
+def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -> IssueSummaryOutcome | None:
+    """The reason no generation can start now, or None when one can."""
+    if not issue_summaries_enabled(team_id):
+        return IssueSummaryOutcome.DISABLED
+    if not is_ai_data_processing_approved(team_id):
+        return IssueSummaryOutcome.AI_NOT_APPROVED
+    if not regeneration_due(stored, timezone.now()):
+        return IssueSummaryOutcome.FRESH
+    return None
 
 
 def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
@@ -184,12 +194,8 @@ def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSu
 
 def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     stored = get_issue_summary(team_id, issue_id)
-    if not issue_summaries_enabled(team_id):
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.DISABLED, summary=stored)
-    if not is_ai_data_processing_approved(team_id):
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.AI_NOT_APPROVED, summary=stored)
-    if not regeneration_due(stored, timezone.now()):
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
+    if (blocked := generation_blocked(team_id, stored)) is not None:
+        return IssueSummaryResult(outcome=blocked, summary=stored)
     if not _claim_generation(team_id, issue_id):
         return IssueSummaryResult(outcome=IssueSummaryOutcome.IN_PROGRESS, summary=stored)
 
@@ -203,6 +209,8 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     if isinstance(inputs, IssueSummaryOutcome):
         return IssueSummaryResult(outcome=inputs, summary=stored)
     if stored is not None and stored.input_hash == inputs.input_hash:
+        stored.checked_at = timezone.now()
+        ErrorTrackingIssueSummary.objects.for_team(team_id).filter(id=stored.id).update(checked_at=stored.checked_at)
         return IssueSummaryResult(outcome=IssueSummaryOutcome.UNCHANGED, summary=stored)
 
     budget_key = f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}"
@@ -232,6 +240,7 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
 
     category = infer_issue_category(team_id, inputs.prompt)
+    generated_at = timezone.now()
     try:
         summary, _ = ErrorTrackingIssueSummary.objects.for_team(team_id).update_or_create(
             issue_id=issue_id,
@@ -240,7 +249,8 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
                 "content": {**response.model_dump(), "category": category.value if category else None},
                 "input_hash": inputs.input_hash,
                 "model": ISSUE_SUMMARY_MODEL,
-                "generated_at": timezone.now(),
+                "generated_at": generated_at,
+                "checked_at": generated_at,
             },
         )
     except IntegrityError:

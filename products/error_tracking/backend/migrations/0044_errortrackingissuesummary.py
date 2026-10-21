@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
                 ("input_hash", models.CharField(max_length=64)),
                 ("model", models.CharField(max_length=128)),
                 ("generated_at", models.DateTimeField()),
+                ("checked_at", models.DateTimeField()),
                 (
                     "issue",
                     models.OneToOneField(

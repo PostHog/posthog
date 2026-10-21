@@ -9,9 +9,10 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.redis import TEST_clear_clients
-from posthog.token_bucket import Budget, TEST_reset_scripts, consume
+from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume
 
 from products.error_tracking.backend.facade import summaries as summaries_facade
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
@@ -140,6 +141,19 @@ class TestIssueSummaryGeneration(BaseTest):
         assert request["response_format"]["json_schema"]["strict"] is True
         assert self.decide.call_args.args[0].privacy_mode is True
 
+    @parameterized.expand(
+        [
+            ("lock_unavailable", "get_client", {"side_effect": RedisError("down")}),
+            ("budget_unavailable", "consume", {"return_value": BucketUnavailable(error="down")}),
+        ]
+    )
+    def test_generates_when_redis_is_down(self, _name: str, target: str, patch_kwargs: dict[str, Any]) -> None:
+        self.enterContext(patch.object(issue_summaries, target, **patch_kwargs))
+
+        result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert result.outcome == IssueSummaryOutcome.GENERATED
+
     def _drain_budget(self) -> None:
         tiny = Budget(burst=1, per_hour=1)
         self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_BUDGET", tiny))
@@ -192,6 +206,39 @@ class TestIssueSummaryGeneration(BaseTest):
         assert result.summary is None
         assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand(
+        [
+            ("cap_denied", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
+            (
+                "llm_raises",
+                lambda test: test.client_mock.with_options.return_value.chat.completions.create.configure_mock(
+                    side_effect=TimeoutError("slow")
+                ),
+                IssueSummaryOutcome.MODEL_ERROR,
+            ),
+            (
+                "llm_invalid_output",
+                lambda test: test.client_mock.with_options.return_value.chat.completions.create.configure_mock(
+                    return_value=_completion("not json")
+                ),
+                IssueSummaryOutcome.INVALID_OUTPUT,
+            ),
+        ]
+    )
+    def test_failure_keeps_stale_summary(self, _name: str, arrange: Any, expected: IssueSummaryOutcome) -> None:
+        with time_machine.travel(NOW, tick=False):
+            get_or_generate_issue_summary(self.team.id, self.issue.id)
+        self._release_lock()
+        self.inputs = IssueSummaryInputs(prompt="Exception: TypeError", input_hash="hash-2")
+
+        with time_machine.travel(NOW + timedelta(hours=25), tick=False):
+            arrange(self)
+            result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert result.outcome == expected
+        assert result.summary is not None
+        assert result.summary.input_hash == "hash-1"
+
     def test_concurrent_first_read_does_not_generate_again(self) -> None:
         concurrent_outcomes: list[IssueSummaryOutcome] = []
 
@@ -221,8 +268,13 @@ class TestIssueSummaryGeneration(BaseTest):
         self._release_lock()
         self.inputs = IssueSummaryInputs(prompt="Exception: TypeError", input_hash=new_hash)
 
-        with time_machine.travel(NOW + later, tick=False):
+        with (
+            time_machine.travel(NOW + later, tick=False),
+            patch.object(summaries_facade.generate_error_tracking_issue_summary, "delay") as delay,
+        ):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) is False
+        delay.assert_not_called()
 
         assert result.outcome == expected
         assert result.summary is not None
@@ -255,6 +307,25 @@ class TestIssueSummaryGeneration(BaseTest):
         ):
             assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) == queued
         assert delay.called == queued
+
+    @parameterized.expand(
+        [
+            ("any_summary", None, True),
+            ("checked_after_request", NOW - timedelta(seconds=1), True),
+            ("checked_at_request", NOW, False),
+        ]
+    )
+    def test_wait_returns_only_a_summary_checked_after_the_request(
+        self, _name: str, checked_after: datetime | None, found: bool
+    ) -> None:
+        with time_machine.travel(NOW, tick=False):
+            get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        summary = summaries_facade.wait_for_issue_summary(
+            self.team.id, self.issue.id, checked_after=checked_after, timeout_seconds=0
+        )
+
+        assert (summary is not None) == found
 
     def test_start_generation_skips_a_fresh_summary(self) -> None:
         get_or_generate_issue_summary(self.team.id, self.issue.id)
