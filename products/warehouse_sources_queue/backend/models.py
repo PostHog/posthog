@@ -360,3 +360,43 @@ class QueueSchedulerDecision(models.Model):
         indexes = [
             models.Index(fields=["observed_at"], name="qsd_observed_at_idx"),
         ]
+
+
+class QueueJobStep(UUIDModel):
+    """Append-only step log of a workflow job (``sdk/workflows.py``).
+
+    One row per ended step execution. A completed step (``succeeded`` or ``skipped``) has at most
+    one row, so a later attempt of the job reads its result instead of running the step again.
+    Partitioned on ``job_created_at``, the job's own partition key. All access is via raw SQL in
+    ``core/job_steps.py``.
+    """
+
+    class State(models.TextChoices):
+        SUCCEEDED = "succeeded", "succeeded"
+        FAILED = "failed", "failed"
+        SKIPPED = "skipped", "skipped"
+
+    job_id = models.UUIDField()
+    job_created_at = models.DateTimeField()
+    step_key = models.CharField(max_length=200)
+    state = models.CharField(max_length=16, choices=State.choices)
+    job_attempt = models.SmallIntegerField()
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField()
+    result = models.JSONField(null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+
+    __repr__ = sane_repr("job_id", "step_key", "state", "job_attempt")
+
+    class Meta:
+        db_table = "queuejobstep"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job_id", "job_created_at", "step_key"],
+                condition=models.Q(state__in=["succeeded", "skipped"]),
+                name="qjstep_completed_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["job_id", "step_key"], name="qjstep_job_key_idx"),
+        ]

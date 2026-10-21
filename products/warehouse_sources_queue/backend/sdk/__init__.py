@@ -24,6 +24,7 @@ from products.warehouse_sources_queue.backend.core.generic_jobs import (
     RetryHistory,
 )
 from products.warehouse_sources_queue.backend.core.health import HealthState, start_health_server
+from products.warehouse_sources_queue.backend.core.job_steps import StepRecord, StepState
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     BATCH_TABLE,
     LEASE_TABLE,
@@ -59,6 +60,20 @@ from products.warehouse_sources_queue.backend.sdk.jobs import (
     Retry,
     Success,
 )
+from products.warehouse_sources_queue.backend.sdk.workflows import (
+    STEP_RESULT_MAX_BYTES,
+    NonRetryableStepError,
+    StepFailed,
+    StepKeyError,
+    StepPolicy,
+    StepResultError,
+    WorkflowContext,
+    WorkflowDefinition,
+    WorkflowHandler,
+    WorkflowRetry,
+    get_workflow,
+    workflow,
+)
 
 __all__ = [
     "BATCH_TABLE",
@@ -69,6 +84,7 @@ __all__ = [
     "PARTITION_PRUNING_INTERVAL",
     "RECOVERY_GRACE_SECONDS",
     "STATUS_TABLE",
+    "STEP_RESULT_MAX_BYTES",
     "TAKEOVER_STALE_THRESHOLD_SECONDS",
     "ActiveRunRef",
     "BatchConsumer",
@@ -92,6 +108,7 @@ __all__ = [
     "JobHandler",
     "JobLiveness",
     "JobsTable",
+    "NonRetryableStepError",
     "Outcome",
     "OverlapPolicy",
     "OwnershipLostError",
@@ -101,9 +118,21 @@ __all__ = [
     "RetryHistory",
     "RunActivitySummary",
     "SchedulerStateTable",
+    "StepFailed",
+    "StepKeyError",
+    "StepPolicy",
+    "StepRecord",
+    "StepResultError",
+    "StepState",
     "Success",
+    "WorkflowContext",
+    "WorkflowDefinition",
+    "WorkflowHandler",
+    "WorkflowRetry",
+    "get_workflow",
     "latest_status_lateral",
     "make_consumer_metrics",
     "overlap_allows",
     "start_health_server",
+    "workflow",
 ]

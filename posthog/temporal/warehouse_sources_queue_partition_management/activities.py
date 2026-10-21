@@ -18,7 +18,10 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 
 logger = structlog.get_logger(__name__)
 
-PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobstatus"]
+PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobstatus", "queuejobstep"]
+# The range partition key of each table, when it is not created_at. A step row sits in its job's
+# partition, so it leaves at retention together with the job.
+_PARTITION_KEY_COLUMNS = {"queuejobstep": "job_created_at"}
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000
@@ -177,6 +180,10 @@ def _partition_ddl_database_url() -> str:
     return settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL or settings.WAREHOUSE_SOURCES_DATABASE_URL
 
 
+def _partition_key_column(table: str) -> str:
+    return _PARTITION_KEY_COLUMNS.get(table, "created_at")
+
+
 def _list_partitions(conn: psycopg.Connection, table: str) -> list[str]:
     return [
         row[0]
@@ -232,7 +239,7 @@ def _expire_default_partition_rows(
                 DELETE FROM {partition_name}
                 WHERE ctid = ANY(ARRAY(
                     SELECT ctid FROM {partition_name}
-                    WHERE created_at < %(created_before)s
+                    WHERE {_partition_key_column(table)} < %(created_before)s
                     LIMIT %(limit)s
                 ))
                 """,
@@ -355,7 +362,8 @@ def _find_partition_alerts(conn: psycopg.Connection, today: date, failed_default
                 # failed. The scan has no created_at index to use, and a default partition can hold days of rows.
                 if partition_name in failed_default_expiries:
                     row = conn.execute(
-                        f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE created_at < %s)", [stuck_before_at]
+                        f"SELECT EXISTS (SELECT 1 FROM {partition_name} WHERE {_partition_key_column(table)} < %s)",
+                        [stuck_before_at],
                     ).fetchone()
                     if row and row[0]:
                         stuck.append(f"• `{partition_name}`: rows created before {stuck_before.isoformat()}")
