@@ -6,7 +6,7 @@ import graphlib
 from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import quote, quote_plus, urlparse
+from urllib.parse import parse_qsl, quote, quote_plus, urlparse, urlsplit, urlunsplit
 
 from django.db import IntegrityError
 
@@ -1203,6 +1203,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             path = endpoint.get("path", "")
             # Resolve via the shared helper so the probe hits the same host the sync will.
             url = resolve_request_url(base_url, path)
+            display_url = _url_without_query(url)
             # Replay the configured query params and request body so the probe
             # matches what the sync sends — an endpoint that needs them shouldn't
             # answer differently at probe vs sync time.
@@ -1224,13 +1225,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 # str(exc) here is the raw urllib3 "HTTPSConnectionPool(...): Read timed out" dump,
                 # which isn't actionable — surface the configured timeouts instead.
                 return False, (
-                    f"Resource {resource['name']!r}: timed out reaching {url} "
+                    f"Resource {resource['name']!r}: timed out reaching {display_url} "
                     f"(connect timeout {PROBE_CONNECT_TIMEOUT}s, read timeout {PROBE_READ_TIMEOUT}s). "
                     "The endpoint may be slow or temporarily unreachable — check the URL and try again."
                 )
             except Exception:
                 return False, (
-                    f"Resource {resource['name']!r}: could not reach {url}. "
+                    f"Resource {resource['name']!r}: could not reach {display_url}. "
                     "Check that the URL is correct and the endpoint is reachable."
                 )
 
@@ -1243,12 +1244,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 if response.status_code in (401, 403):
                     message = (
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                        f"HTTP {response.status_code} from {url} — check the configured auth credentials."
+                        f"HTTP {response.status_code} from {display_url} — check the configured auth credentials."
                     )
                     # Redact the credential from the echoed body before surfacing it: an upstream
                     # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
                     # its 401/403 error, and the snippet would otherwise leak it into a user message.
-                    snippet = _redact_secrets(_read_capped_text(response), auth_secret_values(probe_auth))
+                    snippet = _redact_secrets(
+                        _read_capped_text(response),
+                        (*auth_secret_values(probe_auth), *_url_embedded_secrets(url, probe_params)),
+                    )
                     if snippet:
                         message += f" The upstream responded: {snippet}"
                     return False, message
@@ -1698,6 +1702,34 @@ def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
             if key not in columns or columns[key] == "null":
                 columns[key] = _json_type_label(value)
     return [{"name": name, "type": type_label} for name, type_label in columns.items()]
+
+
+def _url_without_query(url: str) -> str:
+    # A URL can carry a credential in its userinfo or query string (`?access_token=...`). Those values
+    # are not auth secrets that `_redact_secrets` knows about, so drop both from echoed URLs.
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2], query="", fragment=""))
+
+
+_URL_SECRET_PARAM_MARKERS = ("token", "key", "secret", "password", "auth", "sig")
+
+
+def _url_embedded_secrets(url: str, params: dict[str, Any] | None = None) -> tuple[str, ...]:
+    # Only credential-looking params: redacting every query value would mangle the snippet wherever a
+    # short value such as `1` appears. Static endpoint params are merged into the sent URL, so they
+    # can be echoed back the same way as a query string typed into the path.
+    parts = urlsplit(url)
+    pairs = list(parse_qsl(parts.query))
+    for key, value in (params or {}).items():
+        for item in value if isinstance(value, list | tuple) else (value,):
+            if item is not None:
+                pairs.append((str(key), str(item)))
+    secrets = [
+        value for key, value in pairs if value and any(marker in key.lower() for marker in _URL_SECRET_PARAM_MARKERS)
+    ]
+    # Either half of the userinfo can be the credential (`https://<api_key>@host` is common).
+    secrets.extend(part for part in (parts.username, parts.password) if part)
+    return tuple(secrets)
 
 
 def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:

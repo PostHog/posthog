@@ -486,6 +486,20 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
+export const ExperimentVariantNotesSchema = z
+    .record(z.string(), z.string())
+    .describe(
+        'Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant.'
+    )
+    .optional()
+
+export const ExperimentVariantScreenshotMediaIdsSchema = z
+    .record(z.string(), z.array(z.string()))
+    .describe(
+        'Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose "experiment", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant.'
+    )
+    .optional()
+
 // Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
 // alias set the generated experiment tools accept via their tools.yaml overrides.
 export const ExperimentResultsGetSchema = z.preprocess(
@@ -534,7 +548,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )

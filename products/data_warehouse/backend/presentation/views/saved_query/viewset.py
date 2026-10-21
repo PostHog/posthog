@@ -315,7 +315,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
         the editor explain why the incremental option is unavailable before anything is saved.
         """
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         body = incremental_config.CheckIncrementalSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -332,7 +336,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         result = check_incremental_eligibility(
             data["query"],
             config,
-            database=Database.create_for(team_id=self.team_id, user=cast(User, request.user)),
+            database=definition_database(self.team_id, user=cast(User, request.user)),
         )
         return response.Response(
             incremental_config.IncrementalEligibilitySerializer(
