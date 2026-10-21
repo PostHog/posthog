@@ -25,7 +25,7 @@ use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
 use crate::partition_budget::BudgetLimits;
-use crate::rebalance::{PartitionHook, RebalanceContext};
+use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
 use crate::settlement::{self, ChargedSlice, Commit, Pause, Settlement};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -966,7 +966,8 @@ impl IngestionConsumer {
     }
 
     fn pause_partition(&self, topic_partition: &TopicPartition) {
-        match self.consumer.pause(&partition_list(topic_partition)) {
+        let tpl = partition_list(topic_partition);
+        match self.consumer.pause(&tpl).and_then(|()| partition_error(&tpl)) {
             Ok(()) => self.fetching.paused(topic_partition),
             Err(err) => error!(
                 topic = %topic_partition.topic,
@@ -978,7 +979,8 @@ impl IngestionConsumer {
     }
 
     fn resume_partition(&self, topic_partition: &TopicPartition) {
-        match self.consumer.resume(&partition_list(topic_partition)) {
+        let tpl = partition_list(topic_partition);
+        match self.consumer.resume(&tpl).and_then(|()| partition_error(&tpl)) {
             Ok(()) => self.fetching.resumed(topic_partition),
             Err(err) => error!(
                 topic = %topic_partition.topic,
