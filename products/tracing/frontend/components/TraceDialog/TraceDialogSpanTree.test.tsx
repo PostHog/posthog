@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -8,6 +8,7 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { compareRowKey } from 'products/tracing/frontend/compareUtils'
 import type { Span } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
@@ -74,5 +75,38 @@ describe('TraceDialogSpanTree', () => {
                 'B span'
             )
         )
+    })
+
+    // Fails when the highlight dims by the wrong key, or dims a folded chain that hides a span of the
+    // operation, which would tell the person the operation is not in there.
+    it('dims the rows outside the highlighted operation', async () => {
+        const view = traceViewLogic({ id: 'span-tree-test' })
+        view.mount()
+        view.actions.showTrace(null, 'operations')
+        // ROOT > A, B and B > C > D > E > F, where A and D are the operation and C to E fold into a chain.
+        view.actions.setSpans([
+            span('ROOT', ''),
+            { ...span('A', 'ROOT'), name: 'cache GET' },
+            span('B', 'ROOT'),
+            span('C', 'B'),
+            { ...span('D', 'C'), name: 'cache GET' },
+            span('E', 'D'),
+            span('F', 'E'),
+        ])
+        view.actions.highlightOperation(compareRowKey({ service_name: 'agent-worker', name: 'cache GET' }))
+
+        render(
+            <Provider>
+                <BindLogic logic={traceViewLogic} props={{ id: 'span-tree-test' }}>
+                    <TraceDialogSpanTree openedFrom={null} openedAtUs={null} />
+                </BindLogic>
+            </Provider>
+        )
+
+        await screen.findByText('cache GET')
+        const isDimmed = (name: string): boolean => screen.getByText(name).classList.contains('opacity-40')
+        expect(isDimmed('cache GET')).toBe(false)
+        expect(isDimmed('C span › … › E span')).toBe(false)
+        expect([isDimmed('ROOT span'), isDimmed('B span'), isDimmed('F span')]).toEqual([true, true, true])
     })
 })

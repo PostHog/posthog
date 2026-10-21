@@ -13,6 +13,7 @@ import { tracingSpansTraceAiEventsRetrieve } from 'products/tracing/frontend/gen
 
 import { makeSpan } from '../../__mocks__/span'
 import { EMPTY_TRACE_IDENTITY } from '../../traceIdentity'
+import type { SpanInspectorTab } from '../../types'
 import { traceViewLogic } from '../TraceView/traceViewLogic'
 import { TraceDrawer, type TraceDrawerProps } from './TraceDrawer'
 
@@ -38,10 +39,10 @@ describe('TraceDrawer', () => {
         captureSpy.mockRestore()
     })
 
-    const renderDrawer = (props: Partial<TraceDrawerProps>): void => {
+    const renderDrawer = (props: Partial<TraceDrawerProps>, tab: SpanInspectorTab = 'attributes'): void => {
         const view = traceViewLogic({ id: 'trace-drawer-test' })
         view.mount()
-        view.actions.showTrace(null, 'attributes')
+        view.actions.showTrace(null, tab)
         render(
             <Provider>
                 <TraceDrawer
@@ -149,6 +150,29 @@ describe('TraceDrawer', () => {
 
         expect(screen.queryByText('Trace unavailable')).toBeNull()
         expect(unavailableCaptures()).toEqual([])
+    })
+
+    // Fails when the view stops passing the trace's spans to the inspector: the Operations tab then
+    // disappears and the inspector falls back to Attributes.
+    it('shows the operations of the trace in an inspector tab', () => {
+        renderDrawer(
+            {
+                spans: [
+                    makeSpan({ trace_id: 'abc123', span_id: 'span-1', is_root_span: true }),
+                    makeSpan({
+                        trace_id: 'abc123',
+                        span_id: 'span-2',
+                        parent_span_id: 'span-1',
+                        is_root_span: false,
+                        name: 'SELECT orders',
+                    }),
+                ],
+            },
+            'operations'
+        )
+
+        expect(screen.getByText('Operations')).toBeInTheDocument()
+        expect(screen.getByText('2 operations · 2 spans')).toBeInTheDocument()
     })
 
     it('shows a retryable error when the AI events fetch fails and there are no spans', async () => {

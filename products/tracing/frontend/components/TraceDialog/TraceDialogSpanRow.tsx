@@ -23,6 +23,8 @@ export interface TraceDialogSpanRowProps {
     /** Set only on the span that emitted the record the dialog was opened from. */
     openedAtUs: number | null
     openedFrom: TraceDialogSource | null
+    /** The row is outside the operation the Operations tab highlights. */
+    isDimmed: boolean
     /** How many spans sit under this one. Zero for a span with no children. */
     descendantCount: number
     isCollapsed: boolean
@@ -53,6 +55,7 @@ export function TraceDialogSpanRow({
     isSelected,
     openedAtUs,
     openedFrom,
+    isDimmed,
     descendantCount,
     isCollapsed,
     onSelect,
@@ -76,7 +79,7 @@ export function TraceDialogSpanRow({
     // A folded chain shows an error when any span in it errored, not only its first.
     const isError = (row.kind === 'chain' ? row.nodes : [node]).some((member) => member.span.status_code === 2)
     const serviceColor = getSeriesColor(serviceColorMap.get(span.service_name) ?? 0)
-    const barColor = isError ? ERROR_COLOR : serviceColor
+    const barColor = isDimmed ? 'var(--border)' : isError ? ERROR_COLOR : serviceColor
     const openedAtPct =
         openedAtUs != null && openedFrom ? Math.min(Math.max(percentOfTrace(openedAtUs, timeline), 0), 100) : null
 
@@ -166,7 +169,8 @@ export function TraceDialogSpanRow({
                         'relative truncate font-mono',
                         (isError || isMissingParent) && 'text-danger',
                         chainLast && 'text-secondary',
-                        isSelected && 'font-semibold'
+                        isSelected && 'font-semibold',
+                        isDimmed && 'opacity-40'
                     )}
                     translate="no"
                 >

@@ -11,7 +11,9 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import posthog from 'posthog-js'
 
+import { isAiEventSpan } from 'products/tracing/frontend/aiEventSpans'
 import { buildSpanTree, parseTimestampUs, type SpanNode } from 'products/tracing/frontend/spanTree'
 import { buildServiceColorMap } from 'products/tracing/frontend/TraceWaterfallView'
 import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
@@ -20,7 +22,12 @@ import type { Span, SpanInspectorTab } from 'products/tracing/frontend/types'
 import {
     buildTraceDialogRows,
     countDescendantsById,
+    firstOperationSpan,
+    markOperationSubtrees,
+    operationRowMatches,
+    revealSpanInRows,
     rowSpanNode,
+    type TraceDialogReveal,
     type TraceDialogRow,
 } from '../TraceDialog/traceDialogRows'
 
@@ -31,6 +38,9 @@ const spanKeyOwners: symbol[] = []
 export interface TraceViewLogicProps {
     id: string
 }
+
+/** Where the view sits. Pinned: sent as the `surface` property of analytics events, so keep the values stable. */
+export type TraceViewSurface = 'drawer' | 'trace_dialog'
 
 export interface TraceViewTree {
     roots: SpanNode[]
@@ -60,10 +70,15 @@ export interface traceViewLogicValues {
     }
     chosenInspectorTab: SpanInspectorTab | null
     collapsedSpanIds: Set<string>
+    firstOperationRowIndex: number
     flatSpans: SpanNode[]
     fullChildListSpanIds: Set<string>
+    highlightedOperationKey: string | null
     missingParentSpanId: string | null
     openChainIds: Set<string>
+    operationRowMatches: boolean[] | null
+    operationSpans: Span[]
+    operationSubtreeMarks: Set<SpanNode> | null
     pinnedSpan: Span | null
     pinnedSpanId: string | null
     selectedSpan: Span | null
@@ -90,8 +105,18 @@ export interface traceViewLogicActions {
     expandSelectedSpan: () => {
         value: true
     }
+    highlightOperation: (
+        operationKey: string | null,
+        surface?: TraceViewSurface
+    ) => {
+        operationKey: string | null
+        surface: TraceViewSurface | null
+    }
     keepSelectionOnScreen: () => {
         value: true
+    }
+    revealSpans: (reveal: TraceDialogReveal) => {
+        reveal: TraceDialogReveal
     }
     selectNextSpan: () => {
         value: true
@@ -154,6 +179,15 @@ export interface traceViewLogicMeta {
             selectedSpan: Span | null,
             sessionErrorBadgesEnabled: boolean
         ) => SpanInspectorTab
+        operationSubtreeMarks: (spanTree: TraceViewTree, highlightedOperationKey: string | null) => Set<SpanNode> | null
+        operationRowMatches: (
+            spanRows: TraceDialogRow[],
+            highlightedOperationKey: string | null,
+            operationSubtreeMarks: Set<SpanNode> | null,
+            collapsedSpanIds: Set<string>
+        ) => boolean[] | null
+        firstOperationRowIndex: (operationRowMatches: boolean[] | null) => number
+        operationSpans: (spans: Span[]) => Span[]
         serviceColorMap: (spans: Span[]) => Map<string, number>
         timeline: (spans: Span[]) => TraceViewTimeline
         summary: (spans: Span[]) => TraceViewSummary
@@ -190,6 +224,11 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
         setInspectorTab: (tab: SpanInspectorTab) => ({ tab }),
         enableSpanKeys: (containerSelector: string) => ({ containerSelector }),
         disableSpanKeys: true,
+        highlightOperation: (operationKey: string | null, surface?: TraceViewSurface) => ({
+            operationKey,
+            surface: surface ?? null,
+        }),
+        revealSpans: (reveal: TraceDialogReveal) => ({ reveal }),
     }),
     reducers({
         spans: [
@@ -224,6 +263,11 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
                     }
                     return next
                 },
+                revealSpans: (collapsed, { reveal }) => {
+                    const next = new Set(collapsed)
+                    reveal.collapsedSpanIds.forEach((spanId) => next.delete(spanId))
+                    return next
+                },
             },
         ],
         fullChildListSpanIds: [
@@ -231,6 +275,7 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
             {
                 showTrace: () => new Set<string>(),
                 showAllChildren: (shown, { spanId }) => new Set(shown).add(spanId),
+                revealSpans: (shown, { reveal }) => new Set([...shown, ...reveal.fullChildListSpanIds]),
             },
         ],
         // Chains fold by default, so this holds the opened ones.
@@ -245,6 +290,7 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
                     }
                     return next
                 },
+                revealSpans: (opened, { reveal }) => new Set([...opened, ...reveal.chainIds]),
             },
         ],
         // A tab the person picked sticks while they move between spans. Until they pick one, the
@@ -254,6 +300,18 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
             {
                 showTrace: (_, { tab }) => tab,
                 setInspectorTab: (_, { tab }) => tab,
+            },
+        ],
+        // The `compareRowKey` of the operation whose spans the tree highlights. The key only has a meaning
+        // against the spans of one trace, so opening a trace clears it. The Operations tab is the only place
+        // that explains the dimmed rows, so a switch to another tab clears it too. A switch to the Operations
+        // tab itself keeps it, so that a caller can select the tab after the highlight.
+        highlightedOperationKey: [
+            null as string | null,
+            {
+                highlightOperation: (_, { operationKey }) => operationKey,
+                showTrace: () => null,
+                setInspectorTab: (key, { tab }) => (tab === 'operations' ? key : null),
             },
         ],
     }),
@@ -333,6 +391,32 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
             (chosen: SpanInspectorTab | null, selectedSpan: Span | null, errorsTabEnabled: boolean): SpanInspectorTab =>
                 chosen ?? (errorsTabEnabled && selectedSpan?.status_code === 2 ? 'errors' : 'logs'),
         ],
+        // The spans of the highlighted operation and their ancestors, so that a row that hides a match stays bright.
+        operationSubtreeMarks: [
+            (s) => [s.spanTree, s.highlightedOperationKey],
+            (spanTree: TraceViewTree, operationKey: string | null): Set<SpanNode> | null =>
+                operationKey ? markOperationSubtrees(spanTree.roots, operationKey) : null,
+        ],
+        // Worked out once per change of rows or key, not per rendered row, because a "more" row stands for
+        // whole subtrees and J and K re-render the rows on screen.
+        operationRowMatches: [
+            (s) => [s.spanRows, s.highlightedOperationKey, s.operationSubtreeMarks, s.collapsedSpanIds],
+            (
+                spanRows: TraceDialogRow[],
+                operationKey: string | null,
+                subtreeMarks: Set<SpanNode> | null,
+                collapsedSpanIds: Set<string>
+            ): boolean[] | null =>
+                operationKey && subtreeMarks
+                    ? operationRowMatches(spanRows, operationKey, subtreeMarks, collapsedSpanIds)
+                    : null,
+        ],
+        firstOperationRowIndex: [
+            (s) => [s.operationRowMatches],
+            (matches: boolean[] | null): number => matches?.indexOf(true) ?? -1,
+        ],
+        // AI event rows are synthetic and have no operation of their own.
+        operationSpans: [(s) => [s.spans], (spans: Span[]): Span[] => spans.filter((span) => !isAiEventSpan(span))],
         serviceColorMap: [(s) => [s.spans], (spans: Span[]): Map<string, number> => buildServiceColorMap(spans)],
         timeline: [
             (s) => [s.spans],
@@ -403,6 +487,39 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
         },
         disableSpanKeys: () => {
             cache.disposables.dispose('spanKeys')
+        },
+        highlightOperation: ({ operationKey, surface }) => {
+            if (!operationKey) {
+                return
+            }
+            // pinned: analytics event name, so renaming it breaks the insights built on it
+            posthog.capture('tracing trace operation highlighted', { surface })
+            // The first span of a large operation often sits past a child cap, in a folded chain, or under
+            // a collapsed span. Open what hides it, so that the tree has a row to scroll to. The selection
+            // stays where it is, because the inspector shows the Operations tab the person is using.
+            const { roots, nodesById } = values.spanTree
+            const target = firstOperationSpan(roots, operationKey)
+            if (!target) {
+                return
+            }
+            const reveal = revealSpanInRows(roots, target, {
+                collapsedSpanIds: values.collapsedSpanIds,
+                fullChildListSpanIds: values.fullChildListSpanIds,
+                openChainIds: values.openChainIds,
+                pinned: (values.pinnedSpanId && nodesById.get(values.pinnedSpanId)) || null,
+            })
+            // One action that only opens. The toggle actions flip state, and the trace dialog counts them as the
+            // person's own collapse toggles.
+            if (reveal.collapsedSpanIds.length + reveal.fullChildListSpanIds.length + reveal.chainIds.length > 0) {
+                actions.revealSpans(reveal)
+            }
+        },
+        // The missing-parent notice replaces the whole inspector, Operations tab included, so a highlight
+        // left in place would dim rows with nothing on screen to explain it.
+        selectSpan: () => {
+            if (values.missingParentSpanId && values.highlightedOperationKey) {
+                actions.highlightOperation(null)
+            }
         },
         selectNextSpan: () => {
             actions.spanStepped()
