@@ -3,12 +3,14 @@ import datetime
 from typing import cast
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.models.organization import Organization, _start_billing_active_sync_workflow
 from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+    RESYNC_SIGNAL,
     reconcile_organization_active_state,
     sync_organization_active_state,
 )
@@ -129,6 +131,20 @@ class TestSyncActiveStateReceiver(BaseTest):
 
 
 class TestStartBillingActiveSyncWorkflow(BaseTest):
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_signals_a_running_sync_instead_of_replacing_it(self, connect_mock):
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        connect_mock.side_effect = AsyncMock(return_value=client)
+
+        _start_billing_active_sync_workflow(str(self.organization.pk))
+
+        kwargs = client.start_workflow.call_args.kwargs
+        assert kwargs["id"] == f"billing-org-active-sync-{self.organization.pk}"
+        assert kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
+        assert kwargs["start_signal"] == RESYNC_SIGNAL
+        assert "id_reuse_policy" not in kwargs
+
     @patch("posthog.models.organization.BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS", 0.01)
     @patch("posthog.models.organization.logger")
     @patch("posthog.temporal.common.client.async_connect")

@@ -108,28 +108,44 @@ async def reconcile_organization_active_state_activity(_inputs: ReconcileOrganiz
             raise Exception(f"Organization active state reconciliation failed: {type(e).__name__}: {str(e)[:200]}")
 
 
+RESYNC_SIGNAL = "resync"
+
+
 @workflow.defn(name="sync-organization-active-state-to-billing")
 class SyncOrganizationActiveStateWorkflow(PostHogWorkflow):
+    """One run per organization; a flip during a run signals it to sync again, so no stale POST lands last."""
+
+    def __init__(self) -> None:
+        self._resync_requested = False
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SyncOrganizationActiveStateInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
         return SyncOrganizationActiveStateInputs(**loaded)
 
+    @workflow.signal(name=RESYNC_SIGNAL)
+    def resync(self) -> None:
+        self._resync_requested = True
+
     @workflow.run
     async def run(self, inputs: SyncOrganizationActiveStateInputs) -> None:
-        await workflow.execute_activity(
-            sync_organization_active_state_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=common.RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                backoff_coefficient=2.0,
-                maximum_interval=timedelta(minutes=5),
-                maximum_attempts=6,
-            ),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
+        while True:
+            self._resync_requested = False
+            await workflow.execute_activity(
+                sync_organization_active_state_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=common.RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    backoff_coefficient=2.0,
+                    maximum_interval=timedelta(minutes=5),
+                    maximum_attempts=6,
+                ),
+                heartbeat_timeout=timedelta(minutes=1),
+            )
+            if not self._resync_requested:
+                return
 
 
 @workflow.defn(name="reconcile-organization-active-state-to-billing")

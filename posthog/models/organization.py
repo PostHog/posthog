@@ -748,9 +748,10 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
     # Imports deferred to keep the Temporal stack off the model import path.
     import asyncio
 
-    from temporalio.common import WorkflowIDReusePolicy
+    from temporalio.common import WorkflowIDConflictPolicy
 
     from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        RESYNC_SIGNAL,
         SyncOrganizationActiveStateInputs,
         SyncOrganizationActiveStateWorkflow,
     )
@@ -762,10 +763,11 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
             client.start_workflow(
                 SyncOrganizationActiveStateWorkflow.run,
                 SyncOrganizationActiveStateInputs(organization_id=organization_id),
-                # The newest flip wins; the activity re-reads the org, so the survivor converges.
                 id=f"billing-org-active-sync-{organization_id}",
                 task_queue=settings.BILLING_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+                # A running sync gets the signal and syncs again, so two POSTs for one org never race.
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                start_signal=RESYNC_SIGNAL,
             ),
             timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS,
         )
