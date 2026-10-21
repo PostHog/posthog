@@ -98,9 +98,9 @@ class CoverageReport:
         }
 
 
-def _classify(rendered: RenderedInput | None) -> Coverage:
-    tasks = rendered is not None and rendered.n_tasks > 0
-    activity = rendered is not None and rendered.n_activity_lines > 0
+def _classify(rendered: RenderedInput) -> Coverage:
+    tasks = rendered.n_tasks > 0
+    activity = rendered.n_activity_lines > 0
     if tasks and activity:
         return Coverage.BOTH
     if tasks:
