@@ -82,6 +82,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_concurrency": "8",
             "min_units": None,
             "min_update_interval_hours": 0,
+            "max_versions": -3,
             "emit_embeddings": "no",
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
@@ -93,6 +94,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_pairs_per_tick": 5,
             "max_cost_usd_per_day": 1,
             "min_update_interval_hours": 12,
+            "max_versions": 5,
             "capture_events": False,
         },
         ActivitySummaryConfig(
@@ -100,6 +102,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_pairs_per_tick=5,
             max_cost_usd_per_day=1.0,
             min_update_interval_hours=12.0,
+            max_versions=5,
             capture_events=False,
         ),
     ),
