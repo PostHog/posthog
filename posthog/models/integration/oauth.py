@@ -5,7 +5,6 @@ import time
 import base64
 import hashlib
 import secrets
-from dataclasses import field, replace
 from datetime import timedelta
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -19,9 +18,11 @@ from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
@@ -103,10 +104,14 @@ APPLE_ADS_ACL_URL = "https://api.ads.apple.com/v1/acls"
 
 @frozen
 class OauthConfig:
+    """The static part of a provider's OAuth setup.
+
+    It holds no client credentials: this is cached for five minutes, and a cached secret would
+    outlive a rotation. Get those from `OauthIntegration.client_credentials_for_kind` at use time.
+    """
+
     authorize_url: str
     token_url: str
-    client_id: str
-    client_secret: str = field(repr=False)
     scope: str
     id_path: str
     name_path: str
@@ -114,8 +119,6 @@ class OauthConfig:
     token_info_graphql_query: str | None = None
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
-    client_id_fallback: str | None = None
-    client_secret_fallback: str | None = field(default=None, repr=False)
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
@@ -274,13 +277,22 @@ POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(get_oauth_scopes_supported())
 
 
-# nosemgrep: tuple-return-prefer-dataclass -- private helper, both call sites a few lines below in this file
-def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:
-    """Resolve (base_url, client_id, client_secret) for a remote target cell.
+@frozen
+class _PosthogConnectTarget:
+    region: str
+    base_url: str
+    # Names of the credentials, not their values: they resolve at use time, never in a cache.
+    client_id_key: str
+    client_secret_key: str
+
+
+def _posthog_connect_target(region: str | None) -> _PosthogConnectTarget:
+    """Resolve the base URL and the client credential names for a remote target cell.
 
     Raises NotImplementedError for an unknown or unconfigured region so the connect/refresh
     paths fail closed (surfaced to the user as a reconnect error) rather than silently hitting
-    the wrong cell.
+    the wrong cell. The client credentials are checked where they are resolved, in
+    `OauthIntegration.client_credentials_for_kind`.
     """
     normalized = (region or "").upper()
     if normalized == "DEV" and not _POSTHOG_CONNECT_ALLOW_DEV:
@@ -290,33 +302,183 @@ def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:
     targets = {
         "US": (
             settings.POSTHOG_CONNECT_BASE_URL_US,
-            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_US,
-            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US,
+            "POSTHOG_CONNECT_OAUTH_CLIENT_ID_US",
+            "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US",
         ),
         "EU": (
             settings.POSTHOG_CONNECT_BASE_URL_EU,
-            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU,
-            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU,
+            "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU",
+            "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU",
         ),
         "DEV": (
             settings.POSTHOG_CONNECT_BASE_URL_DEV,
-            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV,
-            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV,
+            "POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV",
+            "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV",
         ),
     }
     if normalized not in targets:
         raise NotImplementedError(f"PostHog connect OAuth not supported for region {region!r}")
-    base_url, client_id, client_secret = targets[normalized]
-    if not base_url or not client_id or not client_secret:
+    base_url, client_id_key, client_secret_key = targets[normalized]
+    if not base_url:
         raise NotImplementedError(f"PostHog connect app not configured for region {normalized}")
-    return base_url.rstrip("/"), client_id, client_secret
+    return _PosthogConnectTarget(
+        region=normalized,
+        base_url=base_url.rstrip("/"),
+        client_id_key=client_id_key,
+        client_secret_key=client_secret_key,
+    )
 
 
 def posthog_connect_base_url(region: str | None) -> str:
     """Public base URL of a remote target cell (e.g. https://eu.posthog.com), for callers that
     need to reach its API with a `posthog` integration token. Raises for unknown/unconfigured regions."""
-    base_url, _, _ = _posthog_connect_target(region)
-    return base_url
+    return _posthog_connect_target(region).base_url
+
+
+CREDENTIALS_CALLER = CredentialsCaller.INTEGRATIONS
+
+
+@frozen
+class _ClientCredentialKeys:
+    # Names in the credentials service, and the Django settings that hold them until they move.
+    client_id: str
+    client_secret: str
+    not_configured: str
+
+
+_SALESFORCE_CLIENT_KEYS = _ClientCredentialKeys(
+    client_id="SALESFORCE_CONSUMER_KEY",
+    client_secret="SALESFORCE_CONSUMER_SECRET",
+    not_configured="Salesforce app not configured",
+)
+
+# Every kind whose client credentials are a plain id/secret pair. `posthog` (per region), `slack`
+# (instance settings) and `apple-ads` (a signed secret) resolve in their own branches.
+OAUTH_CLIENT_CREDENTIAL_KEYS: dict[str, _ClientCredentialKeys] = {
+    "salesforce": _SALESFORCE_CLIENT_KEYS,
+    "salesforce-sandbox": _SALESFORCE_CLIENT_KEYS,
+    "pardot": _SALESFORCE_CLIENT_KEYS,
+    "hubspot": _ClientCredentialKeys(
+        client_id="HUBSPOT_APP_CLIENT_ID",
+        client_secret="HUBSPOT_APP_CLIENT_SECRET",
+        not_configured="Hubspot app not configured",
+    ),
+    "google-ads": _ClientCredentialKeys(
+        client_id="GOOGLE_ADS_APP_CLIENT_ID",
+        client_secret="GOOGLE_ADS_APP_CLIENT_SECRET",
+        not_configured="Google Ads app not configured",
+    ),
+    "google-analytics": _ClientCredentialKeys(
+        client_id="GOOGLE_ANALYTICS_APP_CLIENT_ID",
+        client_secret="GOOGLE_ANALYTICS_APP_CLIENT_SECRET",
+        not_configured="Google Analytics app not configured",
+    ),
+    "google-calendar": _ClientCredentialKeys(
+        client_id="GOOGLE_CALENDAR_APP_CLIENT_ID",
+        client_secret="GOOGLE_CALENDAR_APP_CLIENT_SECRET",
+        not_configured="Google Calendar app not configured",
+    ),
+    "google-search-console": _ClientCredentialKeys(
+        client_id="GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID",
+        client_secret="GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET",
+        not_configured="Google Search Console app not configured",
+    ),
+    "google-sheets": _ClientCredentialKeys(
+        client_id="SOCIAL_AUTH_GOOGLE_OAUTH2_KEY",
+        client_secret="SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
+        not_configured="Google Sheets app not configured",
+    ),
+    "youtube-analytics": _ClientCredentialKeys(
+        client_id="YOUTUBE_ANALYTICS_APP_CLIENT_ID",
+        client_secret="YOUTUBE_ANALYTICS_APP_CLIENT_SECRET",
+        not_configured="YouTube Analytics app not configured",
+    ),
+    "snapchat": _ClientCredentialKeys(
+        client_id="SNAPCHAT_APP_CLIENT_ID",
+        client_secret="SNAPCHAT_APP_CLIENT_SECRET",
+        not_configured="Snapchat app not configured",
+    ),
+    "linkedin-ads": _ClientCredentialKeys(
+        client_id="LINKEDIN_APP_CLIENT_ID",
+        client_secret="LINKEDIN_APP_CLIENT_SECRET",
+        not_configured="LinkedIn Ads app not configured",
+    ),
+    "bing-ads": _ClientCredentialKeys(
+        client_id="BING_ADS_CLIENT_ID",
+        client_secret="BING_ADS_CLIENT_SECRET",
+        not_configured="Bing Ads app not configured",
+    ),
+    "intercom": _ClientCredentialKeys(
+        client_id="INTERCOM_APP_CLIENT_ID",
+        client_secret="INTERCOM_APP_CLIENT_SECRET",
+        not_configured="Intercom app not configured",
+    ),
+    "helpscout": _ClientCredentialKeys(
+        client_id="HELPSCOUT_APP_CLIENT_ID",
+        client_secret="HELPSCOUT_APP_CLIENT_SECRET",
+        not_configured="Help Scout app not configured",
+    ),
+    "linear": _ClientCredentialKeys(
+        client_id="LINEAR_APP_CLIENT_ID",
+        client_secret="LINEAR_APP_CLIENT_SECRET",
+        not_configured="Linear app not configured",
+    ),
+    "meta-ads": _ClientCredentialKeys(
+        client_id="META_ADS_APP_CLIENT_ID",
+        client_secret="META_ADS_APP_CLIENT_SECRET",
+        not_configured="Meta Ads app not configured",
+    ),
+    "instagram": _ClientCredentialKeys(
+        client_id="INSTAGRAM_APP_CLIENT_ID",
+        client_secret="INSTAGRAM_APP_CLIENT_SECRET",
+        not_configured="Instagram app not configured",
+    ),
+    "reddit-ads": _ClientCredentialKeys(
+        client_id="REDDIT_ADS_CLIENT_ID",
+        client_secret="REDDIT_ADS_CLIENT_SECRET",
+        not_configured="Reddit Ads app not configured",
+    ),
+    "tiktok-ads": _ClientCredentialKeys(
+        client_id="TIKTOK_ADS_CLIENT_ID",
+        client_secret="TIKTOK_ADS_CLIENT_SECRET",
+        not_configured="TikTok Ads app not configured",
+    ),
+    "clickup": _ClientCredentialKeys(
+        client_id="CLICKUP_APP_CLIENT_ID",
+        client_secret="CLICKUP_APP_CLIENT_SECRET",
+        not_configured="ClickUp app not configured",
+    ),
+    "jira": _ClientCredentialKeys(
+        client_id="ATLASSIAN_APP_CLIENT_ID",
+        client_secret="ATLASSIAN_APP_CLIENT_SECRET",
+        not_configured="Atlassian/Jira app not configured",
+    ),
+    "pinterest-ads": _ClientCredentialKeys(
+        client_id="PINTEREST_ADS_CLIENT_ID",
+        client_secret="PINTEREST_ADS_CLIENT_SECRET",
+        not_configured="Pinterest Ads app not configured",
+    ),
+    "stripe": _ClientCredentialKeys(
+        client_id="STRIPE_APP_CLIENT_ID",
+        client_secret="STRIPE_APP_SECRET_KEY",
+        not_configured="Stripe app not configured",
+    ),
+    "resend": _ClientCredentialKeys(
+        client_id="RESEND_APP_CLIENT_ID",
+        client_secret="RESEND_APP_CLIENT_SECRET",
+        not_configured="Resend app not configured",
+    ),
+}
+
+# Legacy OAuth client credentials kept alive during an app or secret rotation. Refreshes fall back
+# to these when the primary credentials fail, so tokens issued by a since-migrated app keep working
+# until users reconnect. A fallback is used only when its secret is set; an unset id reuses the
+# primary one.
+OAUTH_CLIENT_FALLBACK_KEYS: dict[str, tuple[str, str]] = {
+    "bing-ads": ("BING_ADS_CLIENT_ID_FALLBACK", "BING_ADS_CLIENT_SECRET_FALLBACK"),
+}
+
+SLACK_APP_CLIENT_CREDENTIAL_KEYS = ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"]
 
 
 class OauthIntegration:
@@ -363,28 +525,73 @@ class OauthIntegration:
         # `region` only applies to the `posthog` remote kind, whose endpoints depend on the
         # target cell. cache_for keys on all args, so each (kind, region) pair caches separately;
         # every other kind is called without region and keeps its single cached entry.
-        config = cls._build_oauth_config(kind, region)
-        fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
-        if fallback and fallback.get("client_secret"):
-            config = replace(
-                config,
-                client_secret_fallback=fallback["client_secret"],
-                client_id_fallback=fallback.get("client_id") or config.client_id,
-            )
-        return config
+        return cls._build_oauth_config(kind, region)
+
+    @classmethod
+    def client_credentials_for_kind(cls, kind: str, region: str | None = None) -> common.OauthClientCredentials:
+        """PostHog's OAuth client id and secret for `kind`, read from the credentials service.
+
+        Not cached, on purpose: a rotation must land on the next call, and the service can only tell
+        when an old value is safe to retire if every use reads it again. So call this only where the
+        credentials are sent, never where only the static config is needed.
+
+        Raises NotImplementedError when either value is unset, as the static config used to.
+        """
+        if kind == POSTHOG_CONNECT_KIND:
+            target = _posthog_connect_target(region)
+            values = get_many_or_settings([target.client_id_key, target.client_secret_key], CREDENTIALS_CALLER)
+            client_id, client_secret = values[target.client_id_key], values[target.client_secret_key]
+            not_configured = f"PostHog connect app not configured for region {target.region}"
+        elif kind == "slack":
+            values = get_many_or_instance_settings(SLACK_APP_CLIENT_CREDENTIAL_KEYS, CREDENTIALS_CALLER)
+            client_id, client_secret = values["SLACK_APP_CLIENT_ID"], values["SLACK_APP_CLIENT_SECRET"]
+            not_configured = "Slack app not configured"
+        elif kind == "apple-ads":
+            try:
+                return apple_ads.service_provider_client_credentials()
+            except apple_ads.AppleAdsOauthNotConfigured:
+                raise NotImplementedError("Apple Ads service provider app not configured")
+        elif kind in OAUTH_CLIENT_CREDENTIAL_KEYS:
+            keys = OAUTH_CLIENT_CREDENTIAL_KEYS[kind]
+            values = get_many_or_settings([keys.client_id, keys.client_secret], CREDENTIALS_CALLER)
+            client_id, client_secret = values[keys.client_id], values[keys.client_secret]
+            not_configured = keys.not_configured
+        else:
+            raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
+
+        if not client_id or not client_secret:
+            raise NotImplementedError(not_configured)
+        return common.OauthClientCredentials(client_id=client_id, client_secret=client_secret)
+
+    @classmethod
+    def fallback_client_credentials_for_kind(
+        cls, kind: str, primary: common.OauthClientCredentials
+    ) -> common.OauthClientCredentials | None:
+        """The legacy credentials of a rotated app, or None when `kind` has none configured.
+
+        Read only after the primary credentials fail, so a kind with no fallback costs no reads.
+        """
+        keys = OAUTH_CLIENT_FALLBACK_KEYS.get(kind)
+        if keys is None:
+            return None
+        client_id_key, client_secret_key = keys
+        values = get_many_or_settings([client_id_key, client_secret_key], CREDENTIALS_CALLER)
+        if not values[client_secret_key]:
+            return None
+        return common.OauthClientCredentials(
+            client_id=values[client_id_key] or primary.client_id, client_secret=values[client_secret_key]
+        )
 
     @classmethod
     def _build_oauth_config(cls, kind: str, region: str | None = None) -> OauthConfig:
         if kind == "posthog":
-            base_url, client_id, client_secret = _posthog_connect_target(region)
+            base_url = _posthog_connect_target(region).base_url
             return OauthConfig(
                 authorize_url=f"{base_url}/oauth/authorize",
                 token_url=f"{base_url}/oauth/token",
                 token_info_url=f"{base_url}/oauth/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_revoke_url=f"{base_url}/oauth/revoke",
-                client_id=client_id,
-                client_secret=client_secret,
                 # Default only; authorize_url overrides with the user-selected scopes (plus the
                 # identity scopes). Token exchange/refresh don't send scope, so this is unused there.
                 scope=" ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES]),
@@ -393,60 +600,34 @@ class OauthIntegration:
                 pkce=True,
             )
         if kind == "slack":
-            from_settings = get_instance_settings(
-                [
-                    "SLACK_APP_CLIENT_ID",
-                    "SLACK_APP_CLIENT_SECRET",
-                    "SLACK_APP_SIGNING_SECRET",
-                ]
-            )
-
-            if not from_settings["SLACK_APP_CLIENT_ID"] or not from_settings["SLACK_APP_CLIENT_SECRET"]:
-                raise NotImplementedError("Slack app not configured")
-
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                client_id=from_settings["SLACK_APP_CLIENT_ID"],
-                client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope=POSTHOG_SLACK_SCOPE,
                 id_path="team.id",
                 name_path="team.name",
             )
         elif kind == "salesforce":
-            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
-                raise NotImplementedError("Salesforce app not configured")
-
             return OauthConfig(
                 authorize_url="https://login.salesforce.com/services/oauth2/authorize",
                 token_url="https://login.salesforce.com/services/oauth2/token",
                 token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
-                client_id=settings.SALESFORCE_CONSUMER_KEY,
-                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
                 pkce=True,
             )
         elif kind == "salesforce-sandbox":
-            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
-                raise NotImplementedError("Salesforce app not configured")
-
             return OauthConfig(
                 authorize_url="https://test.salesforce.com/services/oauth2/authorize",
                 token_url="https://test.salesforce.com/services/oauth2/token",
                 token_revoke_url="https://test.salesforce.com/services/oauth2/revoke",
-                client_id=settings.SALESFORCE_CONSUMER_KEY,
-                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
                 pkce=True,
             )
         elif kind == "pardot":
-            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
-                raise NotImplementedError("Salesforce app not configured")
-
             # Account Engagement (formerly Pardot) authorizes against Salesforce, so this reuses the
             # Salesforce connected app rather than registering a second one. It needs its own kind
             # because `pardot_api` is not covered by the `full` scope the `salesforce` kind requests:
@@ -456,24 +637,17 @@ class OauthIntegration:
                 authorize_url="https://login.salesforce.com/services/oauth2/authorize",
                 token_url="https://login.salesforce.com/services/oauth2/token",
                 token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
-                client_id=settings.SALESFORCE_CONSUMER_KEY,
-                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="pardot_api refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
                 pkce=True,
             )
         elif kind == "hubspot":
-            if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
-                raise NotImplementedError("Hubspot app not configured")
-
             return OauthConfig(
                 authorize_url="https://app.hubspot.com/oauth/authorize",
                 token_url="https://api.hubapi.com/oauth/v1/token",
                 token_info_url="https://api.hubapi.com/oauth/v1/access-tokens/:access_token",
                 token_info_config_fields=["hub_id", "hub_domain", "user", "user_id", "scopes"],
-                client_id=settings.HUBSPOT_APP_CLIENT_ID,
-                client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
@@ -493,9 +667,6 @@ class OauthIntegration:
                 name_path="hub_domain",
             )
         elif kind == "google-ads":
-            if not settings.GOOGLE_ADS_APP_CLIENT_ID or not settings.GOOGLE_ADS_APP_CLIENT_SECRET:
-                raise NotImplementedError("Google Ads app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 # forces the consent screen, otherwise we won't receive a refresh token
@@ -503,16 +674,11 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
-                client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
         elif kind == "google-analytics":
-            if not settings.GOOGLE_ANALYTICS_APP_CLIENT_ID or not settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET:
-                raise NotImplementedError("Google Analytics app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 # forces the consent screen, otherwise we won't receive a refresh token
@@ -520,16 +686,11 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
-                client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
         elif kind == "google-calendar":
-            if not settings.GOOGLE_CALENDAR_APP_CLIENT_ID or not settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET:
-                raise NotImplementedError("Google Calendar app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 # forces the consent screen, otherwise we won't receive a refresh token
@@ -537,32 +698,22 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
-                client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
         elif kind == "google-search-console":
-            if not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID or not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET:
-                raise NotImplementedError("Google Search Console app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 additional_authorize_params={"access_type": "offline", "prompt": "consent"},
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
-                client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
         elif kind == "google-sheets":
-            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
-                raise NotImplementedError("Google Sheets app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 # forces the consent screen, otherwise we won't receive a refresh token
@@ -570,16 +721,11 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
-                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
         elif kind == "youtube-analytics":
-            if not settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID or not settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET:
-                raise NotImplementedError("YouTube Analytics app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 # forces the consent screen, otherwise we won't receive a refresh token
@@ -587,8 +733,6 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID,
-                client_secret=settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET,
                 # `yt-analytics.readonly` reads the reports; `youtube.readonly` lists the account's
                 # channels so the user picks one instead of hunting for its ID. Channel reports carry
                 # no revenue metrics, so `yt-analytics-monetary.readonly` is deliberately not asked for.
@@ -601,74 +745,49 @@ class OauthIntegration:
                 name_path="email",
             )
         elif kind == "snapchat":
-            if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
-                raise NotImplementedError("Snapchat app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
                 token_url="https://accounts.snapchat.com/accounts/oauth2/token",
                 token_info_url="https://adsapi.snapchat.com/v1/me",
                 token_info_config_fields=["me.id", "me.email"],
-                client_id=settings.SNAPCHAT_APP_CLIENT_ID,
-                client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
                 scope="snapchat-offline-conversions-api snapchat-marketing-api",
                 id_path="me.id",
                 name_path="me.email",
             )
         elif kind == "linkedin-ads":
-            if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
-                raise NotImplementedError("LinkedIn Ads app not configured")
-
             # Note: We extract user info from id_token JWT instead of calling token_info_url
             # because LinkedIn's /v2/userinfo endpoint has intermittent issues returning
             # REVOKED_ACCESS_TOKEN errors for valid tokens. See JWT extraction below.
             return OauthConfig(
                 authorize_url="https://www.linkedin.com/oauth/v2/authorization",
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
-                client_id=settings.LINKEDIN_APP_CLIENT_ID,
-                client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
             )
         elif kind == "bing-ads":
-            if not settings.BING_ADS_CLIENT_ID or not settings.BING_ADS_CLIENT_SECRET:
-                raise NotImplementedError("Bing Ads app not configured")
-
             return OauthConfig(
                 authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
                 token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
-                client_id=settings.BING_ADS_CLIENT_ID,
-                client_secret=settings.BING_ADS_CLIENT_SECRET,
                 scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
                 id_path="id",
                 name_path="userPrincipalName",
             )
         elif kind == "intercom":
-            if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
-                raise NotImplementedError("Intercom app not configured")
-
             return OauthConfig(
                 authorize_url="https://app.intercom.com/oauth",
                 token_url="https://api.intercom.io/auth/eagle/token",
                 token_info_url="https://api.intercom.io/me",
                 token_info_config_fields=["id", "email", "app.region"],
-                client_id=settings.INTERCOM_APP_CLIENT_ID,
-                client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
                 scope="",
                 id_path="id",
                 name_path="email",
             )
         elif kind == "helpscout":
-            if not settings.HELPSCOUT_APP_CLIENT_ID or not settings.HELPSCOUT_APP_CLIENT_SECRET:
-                raise NotImplementedError("Help Scout app not configured")
-
             return OauthConfig(
                 authorize_url="https://secure.helpscout.net/authentication/authorizeClientApplication",
                 token_url="https://api.helpscout.net/v2/oauth2/token",
                 token_info_url="https://api.helpscout.net/v2/users/me",
-                client_id=settings.HELPSCOUT_APP_CLIENT_ID,
-                client_secret=settings.HELPSCOUT_APP_CLIENT_SECRET,
                 # Help Scout grants the authorizing user's full Mailbox API access and takes no
                 # scope parameter on the authorize URL.
                 scope="",
@@ -680,9 +799,6 @@ class OauthIntegration:
                 opaque_state=True,
             )
         elif kind == "linear":
-            if not settings.LINEAR_APP_CLIENT_ID or not settings.LINEAR_APP_CLIENT_SECRET:
-                raise NotImplementedError("Linear app not configured")
-
             return OauthConfig(
                 authorize_url="https://linear.app/oauth/authorize",
                 # Linear skips its approval screen once the app is authorized, and that screen holds
@@ -697,31 +813,21 @@ class OauthIntegration:
                     "data.viewer.organization.name",
                     "data.viewer.organization.urlKey",
                 ],
-                client_id=settings.LINEAR_APP_CLIENT_ID,
-                client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
             )
         elif kind == "meta-ads":
-            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
-                raise NotImplementedError("Meta Ads app not configured")
-
             return OauthConfig(
                 authorize_url=f"https://www.facebook.com/{common.META_GRAPH_API_VERSION}/dialog/oauth",
                 token_url=f"https://graph.facebook.com/{common.META_GRAPH_API_VERSION}/oauth/access_token",
                 token_info_url=f"https://graph.facebook.com/{common.META_GRAPH_API_VERSION}/me",
                 token_info_config_fields=["id", "name", "email"],
-                client_id=settings.META_ADS_APP_CLIENT_ID,
-                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read",
                 id_path="id",
                 name_path="name",
             )
         elif kind == "instagram":
-            if not settings.INSTAGRAM_APP_CLIENT_ID or not settings.INSTAGRAM_APP_CLIENT_SECRET:
-                raise NotImplementedError("Instagram app not configured")
-
             # Same Facebook Login endpoints as Meta Ads, and the credentials may even be the same
             # Meta app, but the two grants request different scopes so they stay separate kinds.
             # The token response carries no account identifier, so id/name come from `/me`.
@@ -730,21 +836,14 @@ class OauthIntegration:
                 token_url=f"https://graph.facebook.com/{common.META_GRAPH_API_VERSION}/oauth/access_token",
                 token_info_url=f"https://graph.facebook.com/{common.META_GRAPH_API_VERSION}/me",
                 token_info_config_fields=["id", "name"],
-                client_id=settings.INSTAGRAM_APP_CLIENT_ID,
-                client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
                 scope=INSTAGRAM_OAUTH_SCOPE,
                 id_path="id",
                 name_path="name",
             )
         elif kind == "reddit-ads":
-            if not settings.REDDIT_ADS_CLIENT_ID or not settings.REDDIT_ADS_CLIENT_SECRET:
-                raise NotImplementedError("Reddit Ads app not configured")
-
             return OauthConfig(
                 authorize_url="https://www.reddit.com/api/v1/authorize",
                 token_url="https://www.reddit.com/api/v1/access_token",
-                client_id=settings.REDDIT_ADS_CLIENT_ID,
-                client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
                 scope="read adsread adsconversions history adsedit",
                 id_path="reddit_user_id",  # We'll extract this from JWT
                 # ads-api /me returns the human-readable username under the granted ads scopes
@@ -756,87 +855,56 @@ class OauthIntegration:
                 additional_authorize_params={"duration": "permanent"},
             )
         elif kind == "tiktok-ads":
-            if not settings.TIKTOK_ADS_CLIENT_ID or not settings.TIKTOK_ADS_CLIENT_SECRET:
-                raise NotImplementedError("TikTok Ads app not configured")
-
             return OauthConfig(
                 authorize_url="https://business-api.tiktok.com/portal/auth",
                 token_url="https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
-                client_id=settings.TIKTOK_ADS_CLIENT_ID,
-                client_secret=settings.TIKTOK_ADS_CLIENT_SECRET,
                 scope="",
                 id_path="data.advertiser_ids",
                 name_path="data.advertiser_ids",
             )
         elif kind == "clickup":
-            if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
-                raise NotImplementedError("ClickUp app not configured")
-
             return OauthConfig(
                 authorize_url="https://app.clickup.com/api",
                 token_url="https://api.clickup.com/api/v2/oauth/token",
                 token_info_url="https://api.clickup.com/api/v2/user",
                 token_info_config_fields=["user.id", "user.email"],
-                client_id=settings.CLICKUP_APP_CLIENT_ID,
-                client_secret=settings.CLICKUP_APP_CLIENT_SECRET,
                 scope="",
                 id_path="user.id",
                 name_path="user.email",
             )
         elif kind == "jira":
-            if not settings.ATLASSIAN_APP_CLIENT_ID or not settings.ATLASSIAN_APP_CLIENT_SECRET:
-                raise NotImplementedError("Atlassian/Jira app not configured")
-
             return OauthConfig(
                 authorize_url="https://auth.atlassian.com/authorize",
                 additional_authorize_params={"audience": "api.atlassian.com", "prompt": "consent"},
                 token_url="https://auth.atlassian.com/oauth/token",
                 token_info_url="https://api.atlassian.com/oauth/token/accessible-resources",
                 token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
-                client_id=settings.ATLASSIAN_APP_CLIENT_ID,
-                client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
                 scope="read:jira-work write:jira-work read:jira-user offline_access",
                 id_path="cloud_id",
                 name_path="site_name",
             )
         elif kind == "pinterest-ads":
-            if not settings.PINTEREST_ADS_CLIENT_ID or not settings.PINTEREST_ADS_CLIENT_SECRET:
-                raise NotImplementedError("Pinterest Ads app not configured")
-
             return OauthConfig(
                 authorize_url="https://www.pinterest.com/oauth/",
                 token_url="https://api.pinterest.com/v5/oauth/token",
                 token_info_url="https://api.pinterest.com/v5/user_account",
                 token_info_config_fields=["id", "username", "business_name"],
-                client_id=settings.PINTEREST_ADS_CLIENT_ID,
-                client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
                 scope="ads:read user_accounts:read",
                 id_path="id",
                 name_path="username",
             )
         elif kind == "stripe":
-            if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
-                raise NotImplementedError("Stripe app not configured")
-
-            client_id = settings.STRIPE_APP_CLIENT_ID
-            client_secret = settings.STRIPE_APP_SECRET_KEY
-
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
             )
             return OauthConfig(
                 authorize_url=authorize_url,
                 token_url="https://api.stripe.com/v1/oauth/token",
-                client_id=client_id,
-                client_secret=client_secret,
                 scope="",
                 id_path="stripe_user_id",
                 name_path="account_name",
             )
         elif kind == "resend":
-            if not settings.RESEND_APP_CLIENT_ID or not settings.RESEND_APP_CLIENT_SECRET:
-                raise NotImplementedError("Resend app not configured")
-
             # Resend implements OAuth 2.1: PKCE is required, and access tokens are short-lived
             # (~15m) JWTs while refresh tokens rotate on every use. We register as a confidential
             # client (token_endpoint_auth_method=client_secret_post), so the standard client_secret
@@ -853,8 +921,6 @@ class OauthIntegration:
                 authorize_url="https://api.resend.com/oauth/authorize",
                 token_url="https://api.resend.com/oauth/token",
                 token_revoke_url="https://api.resend.com/oauth/revoke",
-                client_id=settings.RESEND_APP_CLIENT_ID,
-                client_secret=settings.RESEND_APP_CLIENT_SECRET,
                 scope="full_access",
                 pkce=True,
                 id_path="resend_account_id",
@@ -862,32 +928,19 @@ class OauthIntegration:
             )
 
         elif kind == "apple-ads":
-            if not all(
-                (
-                    settings.APPLE_ADS_APP_CLIENT_ID,
-                    settings.APPLE_ADS_APP_TEAM_ID,
-                    settings.APPLE_ADS_APP_KEY_ID,
-                    settings.APPLE_ADS_APP_PRIVATE_KEY,
-                )
-            ):
-                raise NotImplementedError("Apple Ads service provider app not configured")
-
             # Apple's service provider flow, where a PostHog registration acts on behalf of an
             # Apple Ads user who grants access. The first-party flow the warehouse source also
             # supports is a different thing: it uses the customer's own key pair with
             # `client_credentials` and the `searchadsorg` scope, and never reaches this code.
             #
-            # The client secret is signed, not stored: Apple issues no static secret, so each
-            # build mints a fresh ES256 assertion. `oauth_config_for_kind` caches the config for
-            # five minutes, well inside the assertion's own lifetime.
+            # The client secret is signed, not stored: Apple issues no static secret, so
+            # `client_credentials_for_kind` mints a fresh ES256 assertion on every call.
             #
             # The token response carries no account identifier, so id/name come from Apple's ACL
             # endpoint below (see the apple-ads branch in integration_from_oauth_response).
             return OauthConfig(
                 authorize_url="https://appleid.apple.com/auth/oauth2/v2/authorize",
                 token_url=APPLE_ADS_TOKEN_URL,
-                client_id=settings.APPLE_ADS_APP_CLIENT_ID,
-                client_secret=apple_ads.service_provider_client_secret(),
                 scope="searchads",
                 id_path="apple_ads_account_id",
                 name_path="apple_ads_account_name",
@@ -915,6 +968,9 @@ class OauthIntegration:
         team_id: int | None = None,
     ) -> str:
         oauth_config = cls.oauth_config_for_kind(kind, region)
+        # Only the id goes into the URL, but resolving the pair keeps the "not configured" check on
+        # the secret too, so an unusable app fails here instead of after the user has consented.
+        client = cls.client_credentials_for_kind(kind, region)
 
         # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
         # project-scoped, so without this the SPA re-resolves to the user's default team on
@@ -943,13 +999,13 @@ class OauthIntegration:
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
             query_params = {
-                "app_id": oauth_config.client_id,
+                "app_id": client.client_id,
                 "redirect_uri": cls.redirect_uri(kind),
                 "state": state,
             }
         else:
             query_params = {
-                "client_id": oauth_config.client_id,
+                "client_id": client.client_id,
                 "scope": scope,
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
@@ -981,6 +1037,7 @@ class OauthIntegration:
             region = (parse_qs(params.get("state", "")).get("region", [""])[0] or "").upper()
 
         oauth_config = cls.oauth_config_for_kind(kind, region)
+        client = cls.client_credentials_for_kind(kind, region)
 
         code_verifier: str | None = None
         if oauth_config.pkce:
@@ -1002,7 +1059,7 @@ class OauthIntegration:
         if kind == "reddit-ads":
             res = requests.post(
                 oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                auth=HTTPBasicAuth(client.client_id, client.client_secret),
                 data={
                     "code": params["code"],
                     "redirect_uri": OauthIntegration.redirect_uri(kind),
@@ -1015,7 +1072,7 @@ class OauthIntegration:
         elif kind == "pinterest-ads":
             res = requests.post(
                 oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                auth=HTTPBasicAuth(client.client_id, client.client_secret),
                 data={
                     "code": params["code"],
                     "redirect_uri": OauthIntegration.redirect_uri(kind),
@@ -1028,8 +1085,8 @@ class OauthIntegration:
             res = requests.post(
                 oauth_config.token_url,
                 json={
-                    "app_id": oauth_config.client_id,
-                    "secret": oauth_config.client_secret,
+                    "app_id": client.client_id,
+                    "secret": client.client_secret,
                     "auth_code": params["code"],
                 },
                 headers={"Content-Type": "application/json"},
@@ -1041,7 +1098,7 @@ class OauthIntegration:
             # Connect OAuth (client_id+client_secret in body) is a different system.
             res = requests.post(
                 oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                auth=HTTPBasicAuth(client.client_secret, ""),
                 data={
                     "code": params["code"],
                     "grant_type": "authorization_code",
@@ -1053,8 +1110,8 @@ class OauthIntegration:
             res = requests.post(
                 oauth_config.token_url,
                 data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
+                    "client_id": client.client_id,
+                    "client_secret": client.client_secret,
                     "code": params["code"],
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
@@ -1094,11 +1151,12 @@ class OauthIntegration:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind in SALESFORCE_OAUTH_KINDS:
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
+                client = cls.client_credentials_for_kind("salesforce-sandbox")
                 res = requests.post(
                     oauth_config.token_url,
                     data={
-                        "client_id": oauth_config.client_id,
-                        "client_secret": oauth_config.client_secret,
+                        "client_id": client.client_id,
+                        "client_secret": client.client_secret,
                         "code": params["code"],
                         "redirect_uri": OauthIntegration.redirect_uri(kind),
                         "grant_type": "authorization_code",
@@ -1119,7 +1177,7 @@ class OauthIntegration:
                         f"Oauth error for {kind}",
                         response=res.text,
                         status_code=res.status_code,
-                        client_id=oauth_config.client_id,
+                        client_id=client.client_id,
                         redirect_uri=OauthIntegration.redirect_uri(kind),
                         code_prefix=str(params.get("code", ""))[:12],
                         exchange_host="sandbox",
@@ -1133,7 +1191,7 @@ class OauthIntegration:
                     f"Oauth error for {kind}",
                     response=res.text,
                     status_code=res.status_code,
-                    client_id=oauth_config.client_id,
+                    client_id=client.client_id,
                     redirect_uri=OauthIntegration.redirect_uri(kind),
                     code_prefix=str(params.get("code", ""))[:12],
                 )
@@ -1291,7 +1349,7 @@ class OauthIntegration:
             try:
                 from stripe import StripeClient  # noqa: PLC0415
 
-                stripe_client = StripeClient(oauth_config.client_secret)
+                stripe_client = StripeClient(client.client_secret)
                 account = stripe_client.accounts.retrieve(str(integration_id))
                 business_profile = getattr(account, "business_profile", None)
                 business_name = getattr(business_profile, "name", None) if business_profile else None
@@ -1447,8 +1505,9 @@ class OauthIntegration:
             # client_secret_post) and requires client authentication on revocation. Without it
             # the endpoint rejects the request and the grant survives the disconnect. The hint
             # tells the provider which token type it received (RFC 7009).
-            data["client_id"] = oauth_config.client_id
-            data["client_secret"] = oauth_config.client_secret
+            client = self.client_credentials_for_kind(self.integration.kind, region)
+            data["client_id"] = client.client_id
+            data["client_secret"] = client.client_secret
             data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
 
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
@@ -1487,7 +1546,9 @@ class OauthIntegration:
 
         return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
-    def _post_token_refresh(self, oauth_config: OauthConfig, client_id: str, client_secret: str) -> requests.Response:
+    def _post_token_refresh(
+        self, oauth_config: OauthConfig, client: common.OauthClientCredentials
+    ) -> requests.Response:
         # Via the property, so a token that picked up an extra encryption layer is peeled back to
         # the real one instead of being posted to the provider as ciphertext.
         refresh_token = self.integration.refresh_token
@@ -1501,7 +1562,7 @@ class OauthIntegration:
         if kind == "reddit-ads":
             return requests.post(
                 oauth_config.token_url,
-                auth=HTTPBasicAuth(client_id, client_secret),
+                auth=HTTPBasicAuth(client.client_id, client.client_secret),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
@@ -1511,7 +1572,7 @@ class OauthIntegration:
         elif kind == "pinterest-ads":
             return requests.post(
                 oauth_config.token_url,
-                auth=HTTPBasicAuth(client_id, client_secret),
+                auth=HTTPBasicAuth(client.client_id, client.client_secret),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 timeout=10,
             )
@@ -1523,8 +1584,8 @@ class OauthIntegration:
             return requests.post(
                 "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
                 json={
-                    "app_id": client_id,
-                    "secret": client_secret,
+                    "app_id": client.client_id,
+                    "secret": client.client_secret,
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
@@ -1536,8 +1597,8 @@ class OauthIntegration:
             return requests.post(
                 oauth_config.token_url,
                 data={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
+                    "client_id": client.client_id,
+                    "client_secret": client.client_secret,
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                     "scope": oauth_config.scope,
@@ -1551,7 +1612,7 @@ class OauthIntegration:
             # A key derived from the token makes the next attempt replay Stripe's saved response.
             return requests.post(
                 oauth_config.token_url,
-                auth=HTTPBasicAuth(client_secret, ""),
+                auth=HTTPBasicAuth(client.client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 headers={"Idempotency-Key": hashlib.sha256(refresh_token.encode()).hexdigest()},
                 timeout=10,
@@ -1562,8 +1623,8 @@ class OauthIntegration:
             # one, so a wrong guess in either direction costs one extra request on failure instead
             # of a dead integration. Drop the fallback once Apple's behavior is confirmed.
             body = {
-                "client_id": client_id,
-                "client_secret": client_secret,
+                "client_id": client.client_id,
+                "client_secret": client.client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             }
@@ -1587,8 +1648,8 @@ class OauthIntegration:
             return requests.post(
                 token_url,
                 data={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
+                    "client_id": client.client_id,
+                    "client_secret": client.client_secret,
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
@@ -1635,6 +1696,9 @@ class OauthIntegration:
         """
         region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
         oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
+        # Resolved before anything changes on the integration: a credentials service failure is
+        # never this integration's fault, so it must not leave the integration marked as failed.
+        client = self.client_credentials_for_kind(self.integration.kind, region)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -1643,7 +1707,7 @@ class OauthIntegration:
         config: dict = {}
         used_fallback = False
         try:
-            res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
+            res = self._post_token_refresh(oauth_config, client)
             config = self._parse_token_refresh_response(res)
         except model.UndecryptedIntegrationSecretError:
             # The stored refresh token can't be read, so there is nothing to refresh with and no
@@ -1660,15 +1724,14 @@ class OauthIntegration:
         # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
         # credentials can refresh. Retry with the fallback pair — including when the primary hit a
         # network error — so they keep working until they reconnect.
-        if (
-            res is None or res.status_code != 200 or not config.get("access_token")
-        ) and oauth_config.client_secret_fallback:
+        fallback_client = (
+            self.fallback_client_credentials_for_kind(self.integration.kind, client)
+            if res is None or res.status_code != 200 or not config.get("access_token")
+            else None
+        )
+        if fallback_client is not None:
             try:
-                res = self._post_token_refresh(
-                    oauth_config,
-                    oauth_config.client_id_fallback or oauth_config.client_id,
-                    oauth_config.client_secret_fallback,
-                )
+                res = self._post_token_refresh(oauth_config, fallback_client)
                 config = self._parse_token_refresh_response(res)
                 used_fallback = True
             except requests.RequestException as e:
