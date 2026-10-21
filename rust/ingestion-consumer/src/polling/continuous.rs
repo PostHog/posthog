@@ -34,8 +34,10 @@ impl ContinuousPolling {
         }
     }
 
-    pub(crate) fn admits(&mut self, building: Charge) -> bool {
-        let at_limit = self.limits.reached(self.uncommitted.total() + building);
+    /// The poll in progress is not counted, so the uncommitted charge can
+    /// pass the limit by one poll.
+    pub(crate) fn admits(&mut self) -> bool {
+        let at_limit = self.limits.reached(self.uncommitted.total());
         if at_limit && !self.at_limit {
             counter!("ingestion_consumer_in_flight_limit_reached_total").increment(1);
         }

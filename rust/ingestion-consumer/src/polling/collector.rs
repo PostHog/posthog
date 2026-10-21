@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use common_kafka_consumer::{Charge, TopicPartition};
+use common_kafka_consumer::TopicPartition;
 use metrics::counter;
 use rdkafka::message::Message;
 use tokio::time::Instant;
@@ -43,21 +43,12 @@ impl Collector {
         self.deadline
     }
 
-    pub(crate) fn charge(&self) -> Charge {
-        self.poll.as_ref().map_or(Charge::ZERO, PollBuilder::charge)
-    }
-
     pub(crate) fn take_ready(&mut self, now: Instant) -> Option<CollectedBatch> {
         let poll = self.poll.as_ref()?;
         let timed_out = self.deadline.is_some_and(|deadline| deadline <= now);
-        if timed_out || self.is_full(poll) {
-            self.take()
-        } else {
-            None
+        if !timed_out && !self.is_full(poll) {
+            return None;
         }
-    }
-
-    pub(crate) fn take(&mut self) -> Option<CollectedBatch> {
         self.deadline = None;
         self.poll.take().map(PollBuilder::finish)
     }
@@ -187,7 +178,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_removed_partition_leaves_the_poll_and_its_charge() {
+    fn a_removed_partition_leaves_the_poll() {
         let mut collector = collector(100, 0);
         let now = Instant::now();
         collector.add(&message(0, 10, 5), now);
@@ -199,7 +190,7 @@ pub(crate) mod tests {
 
         assert_eq!(removed, 2);
         let batch = collector
-            .take()
+            .take_ready(now + Duration::from_millis(500))
             .expect("partition 1 and the redelivery stay");
         assert_eq!(batch.accumulator.message_count(), 2);
         assert_eq!(offsets(&batch, 0), Some((10, 10)));
@@ -215,7 +206,8 @@ pub(crate) mod tests {
         collector.remove_partitions(&[TopicPartition::new("events", 0)]);
 
         assert_eq!(collector.deadline(), None);
-        assert_eq!(collector.charge(), Charge::ZERO);
-        assert!(collector.take().is_none());
+        assert!(collector
+            .take_ready(Instant::now() + Duration::from_secs(1))
+            .is_none());
     }
 }

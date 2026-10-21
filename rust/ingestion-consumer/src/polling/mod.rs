@@ -86,7 +86,7 @@ impl PollingStrategy {
         self.accepting_new_batches
             && match &mut self.strategy {
                 Strategy::Capped(capped) => capped.admits(),
-                Strategy::Continuous(continuous) => continuous.admits(self.collector.charge()),
+                Strategy::Continuous(continuous) => continuous.admits(),
             }
     }
 
@@ -158,7 +158,7 @@ impl PollingStrategy {
                 return Some(Step::Commit(commit));
             }
         }
-        if let Some(collected) = self.take_poll(now) {
+        if let Some(collected) = self.collector.take_ready(now) {
             return Some(Step::Submit(collected));
         }
         let drained = match &self.strategy {
@@ -166,21 +166,6 @@ impl PollingStrategy {
             Strategy::Continuous(continuous) => continuous.is_empty(),
         };
         (!self.accepting_new_batches && drained).then_some(Step::Stop)
-    }
-
-    fn take_poll(&mut self, now: Instant) -> Option<CollectedBatch> {
-        if let Some(collected) = self.collector.take_ready(now) {
-            return Some(collected);
-        }
-        let at_limit = match &mut self.strategy {
-            Strategy::Capped(_) => false,
-            Strategy::Continuous(continuous) => !continuous.admits(self.collector.charge()),
-        };
-        if at_limit {
-            self.collector.take()
-        } else {
-            None
-        }
     }
 }
 
@@ -384,12 +369,15 @@ mod tests {
     }
 
     #[test]
-    fn the_continuous_strategy_submits_at_the_in_flight_limit_and_reads_again_after_a_commit() {
-        let mut harness = Harness::continuous(2);
+    fn the_continuous_strategy_stops_reading_one_poll_past_its_limit_until_a_commit() {
+        let mut harness = Harness::continuous(1);
 
-        harness.receive(0, &[0]);
-        assert!(harness.step().is_none());
-        harness.receive(0, &[1]);
+        harness.receive(0, &[0, 1]);
+        assert!(
+            harness.poller.reading(),
+            "the poll in progress is not counted"
+        );
+        harness.after_the_batch_timeout();
         assert_eq!(harness.submit(), HashMap::from([(p(0), (0, 1))]));
         assert!(!harness.poller.reading());
 

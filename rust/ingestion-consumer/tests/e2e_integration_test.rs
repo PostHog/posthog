@@ -3088,7 +3088,7 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
     .await;
     let p0 = TopicPartition::new(&topic, 0);
     let guard = harness.workers[0].block().await;
-    let backlog: Vec<(&str, usize)> = (0..20).map(|seq| ("user-a", seq)).collect();
+    let backlog: Vec<(&str, usize)> = (0..120).map(|seq| ("user-a", seq)).collect();
 
     produce_in_one_transaction(&topic, 0, "tok", &backlog).await;
     wait_until(
@@ -3100,15 +3100,15 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(
         harness.ledger.held(&p0).offsets,
-        5,
-        "a ready backlog stops at the limit, under the partition budget and the batch size"
+        50,
+        "a ready backlog stops one poll of the batch size past the limit"
     );
 
     drop(guard);
     wait_until(
         Duration::from_secs(10),
         "reading to resume and drain",
-        || harness.workers[0].count() == 20,
+        || harness.workers[0].count() == 120,
     )
     .await;
 

@@ -114,10 +114,6 @@ impl PartitionDeliveries {
         self.charges
             .push((Offset(delivery.offset), delivery.charge));
     }
-
-    fn charge(&self) -> Charge {
-        self.charges.iter().map(|(_, charge)| *charge).sum()
-    }
 }
 
 /// One collected poll, ready to charge and submit.
@@ -182,7 +178,6 @@ pub(crate) struct PollBuilder {
     accumulator: Accumulator,
     partitions: HashMap<TopicPartition, PartitionDeliveries>,
     stats: BatchStats,
-    charge: Charge,
     started_ms: i64,
     current_topic: Option<Arc<str>>,
 }
@@ -193,7 +188,6 @@ impl PollBuilder {
             accumulator: Accumulator::default(),
             partitions: HashMap::new(),
             stats: BatchStats::new(),
-            charge: Charge::ZERO,
             started_ms: current_time_ms(),
             current_topic: None,
         }
@@ -205,10 +199,6 @@ impl PollBuilder {
 
     pub(crate) fn payload_bytes(&self) -> usize {
         self.stats.total_bytes
-    }
-
-    pub(crate) fn charge(&self) -> Charge {
-        self.charge
     }
 
     pub(crate) fn add(&mut self, message: &impl Message) {
@@ -250,7 +240,6 @@ impl PollBuilder {
             kafka_ts,
             lag_ms,
         };
-        self.charge += delivery.charge;
         let key = TopicPartition::new(topic.to_string(), partition);
         match self.partitions.get_mut(&key) {
             Some(deliveries) => deliveries.record(&delivery),
@@ -287,7 +276,6 @@ impl PollBuilder {
         };
         let partition = topic_partition.partition;
         self.accumulator.remove_partition(Partition(partition));
-        self.charge -= deliveries.charge();
         self.stats.total_bytes -= deliveries.payload_bytes;
         self.stats
             .message_lags_ms
