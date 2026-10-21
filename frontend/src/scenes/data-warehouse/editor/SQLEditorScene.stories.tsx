@@ -756,16 +756,10 @@ export const BICalculatedMeasureEditor: Story = {
         const expression = await modal.findByRole('textbox', { name: 'Calculated field expression' })
         expression.focus()
         // Monaco resolves keybindings from keyCode, and userEvent.keyboard sends keyCode 0
-        expression.dispatchEvent(
-            new KeyboardEvent('keydown', {
-                key: ' ',
-                code: 'Space',
-                keyCode: 32,
-                ctrlKey: true,
-                bubbles: true,
-                cancelable: true,
-            })
-        )
+        const pressInEditor = (init: KeyboardEventInit & { keyCode: number }): void => {
+            expression.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }))
+        }
+        pressInEditor({ key: ' ', code: 'Space', keyCode: 32, ctrlKey: true })
         await waitFor(
             () => {
                 const suggestions = canvasElement.ownerDocument.querySelector('.suggest-widget.visible')
@@ -774,7 +768,9 @@ export const BICalculatedMeasureEditor: Story = {
             },
             { timeout: 5000 }
         )
-        await userEvent.keyboard('{Escape}')
+        // A keyCode 0 Escape skips Monaco and reaches the modal, which then closes
+        pressInEditor({ key: 'Escape', code: 'Escape', keyCode: 27 })
+        await waitFor(() => expect(canvasElement.ownerDocument.querySelector('.suggest-widget.visible')).toBeNull())
     },
 }
 
