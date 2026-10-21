@@ -85,6 +85,7 @@ class TestEmittedRow(SimpleTestCase):
             assert kwargs["document_id"] == "r1"
             assert kwargs["timestamp"] == self.CREATED_AT
             assert kwargs["metadata"] == expected_metadata
+            assert kwargs["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
 
     def test_each_rendering_gets_its_own_row(self) -> None:
         rows = {kwargs["rendering"]: kwargs["content"] for kwargs in self._emit(tombstone=False)}
