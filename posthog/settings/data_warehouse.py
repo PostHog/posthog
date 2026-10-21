@@ -173,11 +173,6 @@ DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COM
 DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES = get_from_env(
     "DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES", 16 * 1024 * 1024, type_cast=int
 )
-# deltalite keeps the primary keys of the data files that a merge reads or writes in a per-process cache,
-# so a later merge into the same table decides most files without a read from object storage. The cache
-# size comes from the DELTALITE_PROBE_CACHE_BYTES environment variable. False makes every merge read each
-# candidate file again, and needs a deltalite build that has the probe cache.
-DATA_WAREHOUSE_DELTALITE_PROBE_CACHE = get_from_env("DATA_WAREHOUSE_DELTALITE_PROBE_CACHE", True, type_cast=str_to_bool)
 # A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
 # this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
 DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
