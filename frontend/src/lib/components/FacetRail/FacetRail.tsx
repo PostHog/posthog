@@ -15,15 +15,21 @@ import { FacetGroupItem, facetsByGroup, filterFacetsByName } from './facetGroups
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
 
+interface AddFacetGroupTypes {
+    attribute: TaxonomicFilterGroupType
+    resourceAttribute: TaxonomicFilterGroupType
+}
+
 export interface FacetRailProps<T extends FacetGroupItem> {
-    product: CustomFacetsProduct
+    /** Omit, with `addFacetGroupTypes`, for a product without custom facets: the rail then hides the add button. */
+    product?: CustomFacetsProduct
     facets: T[]
     /** Renders one facet. A facet that the name search hides still renders, so its logic stays mounted. */
     renderFacet: (facet: T, hidden: boolean) => JSX.Element
     facetNameSearch: string
     onFacetNameSearchChange: (value: string) => void
     onCollapsedChange: (collapsed: boolean) => void
-    addFacetGroupTypes: { attribute: TaxonomicFilterGroupType; resourceAttribute: TaxonomicFilterGroupType }
+    addFacetGroupTypes?: AddFacetGroupTypes
     /** Persisted width keys. Frozen: a change resets every user's saved rail width. */
     resizerLogicKey: string
     resizerPersistPrefix: string
@@ -45,8 +51,6 @@ export function FacetRail<T extends FacetGroupItem>({
     dataAttrPrefix,
 }: FacetRailProps<T>): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
-    const { addCustomFacet } = useActions(customFacetsLogic({ product }))
-    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic({ product }))
 
     const resizerLogicProps: ResizerLogicProps = useMemo(
         () => ({
@@ -87,22 +91,11 @@ export function FacetRail<T extends FacetGroupItem>({
                     onChange={onFacetNameSearchChange}
                     data-attr={`${dataAttrPrefix}-search`}
                 />
-                {customFacetsEnabled && (
-                    <TaxonomicStringPopover
-                        groupType={addFacetGroupTypes.attribute}
-                        groupTypes={[addFacetGroupTypes.attribute, addFacetGroupTypes.resourceAttribute]}
-                        placeholder={null}
-                        size="small"
-                        icon={<IconPlus />}
-                        tooltip="Add custom facet"
-                        disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
-                        data-attr={`${dataAttrPrefix}-add`}
-                        onChange={(value, groupType) =>
-                            addCustomFacet(
-                                value,
-                                groupType === addFacetGroupTypes.resourceAttribute ? 'resourceAttribute' : 'attribute'
-                            )
-                        }
+                {product && addFacetGroupTypes && (
+                    <AddCustomFacetButton
+                        product={product}
+                        groupTypes={addFacetGroupTypes}
+                        dataAttrPrefix={dataAttrPrefix}
                     />
                 )}
             </div>
@@ -125,5 +118,36 @@ export function FacetRail<T extends FacetGroupItem>({
             </div>
             <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
         </div>
+    )
+}
+
+function AddCustomFacetButton({
+    product,
+    groupTypes,
+    dataAttrPrefix,
+}: {
+    product: CustomFacetsProduct
+    groupTypes: AddFacetGroupTypes
+    dataAttrPrefix: string
+}): JSX.Element | null {
+    const { addCustomFacet } = useActions(customFacetsLogic({ product }))
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic({ product }))
+    if (!customFacetsEnabled) {
+        return null
+    }
+    return (
+        <TaxonomicStringPopover
+            groupType={groupTypes.attribute}
+            groupTypes={[groupTypes.attribute, groupTypes.resourceAttribute]}
+            placeholder={null}
+            size="small"
+            icon={<IconPlus />}
+            tooltip="Add custom facet"
+            disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
+            data-attr={`${dataAttrPrefix}-add`}
+            onChange={(value, groupType) =>
+                addCustomFacet(value, groupType === groupTypes.resourceAttribute ? 'resourceAttribute' : 'attribute')
+            }
+        />
     )
 }
