@@ -13,7 +13,7 @@
             "description": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema."
         },
         "expected_reviewers": {
-            "description": "State returned by reviewer_state before selection began. Required when reviewer corrections are enabled.",
+            "description": "Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.",
             "properties": {
                 "corrections_id": {
                     "anyOf": [

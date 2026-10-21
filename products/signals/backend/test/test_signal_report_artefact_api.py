@@ -66,6 +66,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
     def _list_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
 
+    def _assignment(self, report: SignalReport) -> dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()["reviewer_assignment"]
+
     def _detail_url(self, report_id: str, artefact_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/{artefact_id}/"
 
@@ -135,24 +140,26 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             )
         assert response.status_code == 200, response.json()
         assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == [str(other.uuid)]
-        assert response.json()["reviewer_assignment"]["confirmed"] is False
+        assert "reviewer_assignment" not in response.json()
+        assert self._assignment(report)["confirmed"] is False
 
     @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
     def test_confirm_requires_the_displayed_state_and_does_not_repeat_membership(self, _flag) -> None:
         report = self._create_report()
         self._create_artefact(report, content=[])
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
-        state = self.client.get(self._list_url(str(report.id))).json()["reviewer_assignment"]["state"]
+        state = self._assignment(report)["state"]
         added = self.client.put(url, {"action": "add", "content": [{"user_uuid": str(self.user.uuid)}]}, format="json")
         assert added.status_code == 200, added.json()
         stale = self.client.put(url, {"action": "confirm", "content": [], "expected_reviewers": state}, format="json")
         assert stale.status_code == 409
-        state = added.json()["reviewer_assignment"]["state"]
+        state = self._assignment(report)["state"]
         confirmed = self.client.put(
             url, {"action": "confirm", "content": [], "expected_reviewers": state}, format="json"
         )
         assert confirmed.status_code == 200, confirmed.json()
-        assert confirmed.json()["reviewer_assignment"]["confirmed"] is True
+        assert self._assignment(report)["confirmed"] is True
+        assert "reviewer_assignment" not in self.client.get(self._list_url(str(report.id))).json()
         assert confirmed.json()["id"] == added.json()["id"]
         assert self._reviewers_count(report) == 2
 
@@ -170,7 +177,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
     def test_failed_selection_from_user_attributed_api_preserves_recipients(self, _flag) -> None:
         report = self._create_report()
         self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
-        state = self.client.get(self._list_url(str(report.id))).json()["reviewer_assignment"]["state"]
+        state = self._assignment(report)["state"]
         response = self.client.post(
             self._list_url(str(report.id)),
             {
@@ -1242,9 +1249,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             )
             assert human_edit.status_code == status.HTTP_200_OK, human_edit.json()
 
-            state = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewer_state/").json()[
-                "state"
-            ]
+            state = self._assignment(report)["state"]
             automatic_edit = self.client.post(
                 self._list_url(str(report.id)),
                 {

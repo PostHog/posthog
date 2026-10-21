@@ -596,15 +596,15 @@ def test_create_implementation_task_rejects_a_changed_reviewer_list(organization
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("has_automatic_reviewer", [False, True])
+@pytest.mark.parametrize("has_automatic_reviewer,enrolled", [(False, True), (True, True), (False, False)])
 def test_human_pin_does_not_authorize_automatic_execution(
-    organization: Organization, team: Team, has_automatic_reviewer: bool
+    organization: Organization, team: Team, has_automatic_reviewer: bool, enrolled: bool
 ) -> None:
     editor = _create_org_member_with_github("editor@example.com", organization, "example-editor")
     reviewer = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
     with (
-        patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
+        patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=enrolled),
         patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False),
     ):
         SignalReportArtefact.append_status(
@@ -632,6 +632,7 @@ def test_human_pin_does_not_authorize_automatic_execution(
 
     with (
         patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
+        patch("products.signals.backend.auto_start.assignment_writer_enabled", return_value=True),
         patch("products.signals.backend.auto_start._resolve_triggering_user", return_value=None) as resolve_editor,
         patch("products.signals.backend.auto_start._resolve_autostart_assignee", return_value=None) as resolve_reviewer,
         patch("products.signals.backend.auto_start._resolve_autostart_fallback_user", return_value=None),

@@ -143,13 +143,13 @@ const InboxReportArtefactsListSchema = () => {
 
 const inboxReportArtefactsList = (): ToolBase<
     ReturnType<typeof InboxReportArtefactsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.SignalReportArtefactListResponse>>
+    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>>
 > => ({
     name: 'inbox-report-artefacts-list',
     schema: InboxReportArtefactsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalReportArtefactListResponse>({
+        const result = await context.api.request<Schemas.PaginatedSignalReportArtefactList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
             query: {

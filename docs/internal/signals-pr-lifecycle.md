@@ -166,16 +166,17 @@ A reviewer edit is not a work claim or permission to execute a task.
 
 The same artefact table stores `reviewer_corrections`, with pins, exclusions, confirmation, and a history-review marker.
 Corrections and membership are saved atomically with the existing actor and process attribution.
-Old corrections are recovered only from reviewer deltas matched to activity records.
+The first protected reviewer write recovers old corrections from reviewer deltas matched to activity records, under the report lock.
+It saves the result once. Reads use saved corrections; before recovery, they mark reports with old human edits as needing review.
+During rollout, automatic task start and PR owner selection wait for that recovery.
 A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
 ### Write contract
 
-Automatic callers read `reviewer_assignment.state` before selection.
-The report and artefact-list responses include this state for API callers.
+Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
+This is the only API response that includes correction state.
 The web app does not need it for targeted add/remove requests.
-`GET /signals/reports/{id}/reviewer_state/` remains available to other callers.
 Send both `reviewers_id` and `corrections_id` as `expected_reviewers`.
 The write rejects an old state under the report lock.
 These IDs cover assignment state, not changes to research evidence.
@@ -183,6 +184,7 @@ These IDs cover assignment state, not changes to research evidence.
 Human add/remove requests name only the people changed.
 They apply to current membership so unrelated concurrent edits survive.
 Replacement and confirmation require the state the person saw.
+Read the reviewer artefact named by that state when preparing either operation.
 Clients can send explicit `targets` with an add/remove action while retaining a full `content` list for older servers.
 Protected reports reject full replacements without state; older Desktop/mobile clients must update before rollout.
 

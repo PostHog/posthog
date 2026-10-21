@@ -221,12 +221,24 @@ class TestReviewerRules(BaseTest):
                     ]
                 },
             )
+        pending = self.rules.read()
+        assert pending.corrections.needs_review
+        assert pending.state.corrections_id is None
+        assert self.report.artefacts.count() == 2
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False):
+            self.write(self.me, proposal=ReviewerProposal(expected_state=pending.state, source="research"))
+        assert self.rules.read().reviewers == (self.other,)
+        assert self.report.artefacts.count() == 2
         self.write(self.me)
         snapshot = self.rules.read()
         assert snapshot.reviewers == (() if logged else (self.other,))
         assert snapshot.corrections.needs_review is not logged
         assert not snapshot.corrections.confirmed
         assert not snapshot.corrections.pinned
+        ActivityLog.objects.filter(team_id=self.team.id, item_id=str(self.report.id)).delete()
+        self.write(self.me)
+        assert self.rules.read() == snapshot
+        assert self.report.artefacts.filter(type="reviewer_corrections").count() == 1
 
     def test_unresolved_legacy_identity_requires_review(self) -> None:
         with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False):

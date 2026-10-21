@@ -31,7 +31,7 @@ from products.signals.backend.artefact_schemas import (
     ReviewerState,
     SuggestedReviewerEntry,
 )
-from products.signals.backend.assignment_flags import assignment_side_effects_allowed
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -1427,6 +1427,14 @@ async def maybe_autostart_implementation_task(
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
+    if (
+        assignment.state.corrections_id is None
+        and assignment.corrections.needs_review
+        and await database_sync_to_async(assignment_writer_enabled)(team_id)
+    ):
+        return AutostartOutcome(
+            status="blocked", reason="Older reviewer edits need recovery before automatic execution"
+        )
     if assignment.state.corrections_id is not None:
         reviewers_content, triggering_user_id = await _latest_reviewers_content(report_id)
         if triggering_user_id is None and (
