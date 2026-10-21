@@ -1200,11 +1200,15 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         [
             ("query", "https://api.example.com", "/users?status=active&access_token=inline-secret-123"),
             ("userinfo", "https://reader:inline-secret-123@api.example.com", "/users"),
+            ("username_only", "https://inline-secret-123@api.example.com", "/users"),
+            ("static_param", "https://api.example.com", "/users", {"api_key": "inline-secret-123"}),
         ]
     )
-    def test_auth_rejection_omits_url_credentials(self, _name, base_url, path):
+    def test_auth_rejection_omits_url_credentials(self, _name, base_url, path, params=None):
         manifest = _minimal_manifest(base_url)
         manifest["resources"][0]["endpoint"]["path"] = path
+        if params:
+            manifest["resources"][0]["endpoint"]["params"] = params
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         body = b"forbidden: https://api.example.com/users?access_token=inline-secret-123 reader:inline-secret-123"

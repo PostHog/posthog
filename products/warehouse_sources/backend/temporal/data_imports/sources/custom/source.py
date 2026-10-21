@@ -1250,7 +1250,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                     # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
                     # its 401/403 error, and the snippet would otherwise leak it into a user message.
                     snippet = _redact_secrets(
-                        _read_capped_text(response), (*auth_secret_values(probe_auth), *_url_embedded_secrets(url))
+                        _read_capped_text(response),
+                        (*auth_secret_values(probe_auth), *_url_embedded_secrets(url, probe_params)),
                     )
                     if snippet:
                         message += f" The upstream responded: {snippet}"
@@ -1713,17 +1714,21 @@ def _url_without_query(url: str) -> str:
 _URL_SECRET_PARAM_MARKERS = ("token", "key", "secret", "password", "auth", "sig")
 
 
-def _url_embedded_secrets(url: str) -> tuple[str, ...]:
+def _url_embedded_secrets(url: str, params: dict[str, Any] | None = None) -> tuple[str, ...]:
     # Only credential-looking params: redacting every query value would mangle the snippet wherever a
-    # short value such as `1` appears.
+    # short value such as `1` appears. Static endpoint params are merged into the sent URL, so they
+    # can be echoed back the same way as a query string typed into the path.
     parts = urlsplit(url)
+    pairs = list(parse_qsl(parts.query))
+    for key, value in (params or {}).items():
+        for item in value if isinstance(value, list | tuple) else (value,):
+            if item is not None:
+                pairs.append((str(key), str(item)))
     secrets = [
-        value
-        for key, value in parse_qsl(parts.query)
-        if value and any(marker in key.lower() for marker in _URL_SECRET_PARAM_MARKERS)
+        value for key, value in pairs if value and any(marker in key.lower() for marker in _URL_SECRET_PARAM_MARKERS)
     ]
-    if parts.password:
-        secrets.append(parts.password)
+    # Either half of the userinfo can be the credential (`https://<api_key>@host` is common).
+    secrets.extend(part for part in (parts.username, parts.password) if part)
     return tuple(secrets)
 
 
