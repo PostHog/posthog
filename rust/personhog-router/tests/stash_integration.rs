@@ -237,6 +237,7 @@ async fn a_write_for_a_partition_born_in_the_flip_parks_until_its_handoff_drains
         partitions: NUM_PARTITIONS,
         epoch: 2,
         writer_group: String::new(),
+        relay_group: None,
         draining: vec![Generation {
             topic: "personhog_updates_v1".to_string(),
             partitions: old_count,

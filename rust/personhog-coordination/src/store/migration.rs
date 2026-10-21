@@ -151,6 +151,7 @@ impl PersonhogStore {
             partitions: migration.to.partitions,
             epoch: config.epoch + 1,
             writer_group: config.writer_group.clone(),
+            relay_group: config.relay_group.clone(),
             draining,
         };
         let mut record = migration.clone();
@@ -232,6 +233,30 @@ impl PersonhogStore {
         count_call("list_seal_acks");
         let key = self.key(StoreKey::SealAcksPrefix);
         Ok(self.inner.list(&key).await?)
+    }
+
+    /// Name the relay's consumer group, once: false when the config is not
+    /// seeded or already names a different group.
+    pub async fn set_changelog_relay_group(&self, group: &str) -> Result<bool> {
+        count_call("set_changelog_relay_group");
+        let Some((mut config, mod_revision)) =
+            self.get_changelog_config_with_mod_revision().await?
+        else {
+            return Ok(false);
+        };
+        match config.relay_group.as_deref() {
+            Some(existing) => return Ok(existing == group),
+            None => config.relay_group = Some(group.to_string()),
+        }
+        let key = self.key(StoreKey::ChangelogConfig);
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+        Ok(self.inner.txn(txn).await?.succeeded())
     }
 
     /// Drop a drained generation from the config, guarded on its revision.

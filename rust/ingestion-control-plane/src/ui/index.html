@@ -1397,7 +1397,9 @@
           if (this.ui.changelogFormKey !== formKey) {
             this.ui.changelogFormKey = formKey;
             this.ui.changelogError.replaceChildren();
-            this.ui.changelogForm.replaceChildren(view.config ? this.migrationForm(view) : this.seedForm());
+            this.ui.changelogForm.replaceChildren(...(view.config
+              ? [this.migrationForm(view), ...(view.config.relay_group ? [] : [this.relayGroupForm()])]
+              : [this.seedForm()]));
           }
           if (!view.config) {
             this.ui.changelogStatus.replaceChildren(
@@ -1417,9 +1419,9 @@
               ? el("div", { class: "empty" }, "No writer group.")
               : el("table", {},
                   el("thead", {}, el("tr", {},
-                    el("th", {}, "writer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
+                    el("th", {}, "consumer group"), el("th", {}, "partitions"), el("th", {}, "lagging"), el("th", {}, "total lag"),
                     el("th", { title: "A grow's restart replays about this many records per partition; a shrink by k replays about k partitions' worth. Larger replays lengthen the pause." }, "worst partition"))),
-                  el("tbody", {}, [view.writer].map((g) =>
+                  el("tbody", {}, [view.writer, view.relay].filter(Boolean).map((g) =>
                     el("tr", {},
                       el("td", { class: "mono" }, g.group),
                       el("td", { class: "mono" }, g.error ? el("span", { class: "pill bad", title: g.error }, "scan failed") : fmtInt(g.partitions)),
@@ -1430,9 +1432,26 @@
 
         changelogFormKeyOf(view) {
           if (!view.config) return "unseeded";
-          if (view.migration) return `migration:${view.migration.id}:${view.migration.phase}`;
-          if (view.request) return `request:${view.request.id}`;
-          return "idle";
+          const relay = view.config.relay_group ? "relay" : "no-relay";
+          if (view.migration) return `migration:${view.migration.id}:${view.migration.phase}:${relay}`;
+          if (view.request) return `request:${view.request.id}:${relay}`;
+          return `idle:${relay}`;
+        },
+
+        relayGroupForm() {
+          const groupInput = el("input", { type: "text", placeholder: "relay consumer group, e.g. personhog-changelog-relay", style: "width: 360px" });
+          const button = el("button", {}, "Set relay group");
+          button.onclick = () => {
+            const relay_group = groupInput.value.trim();
+            if (!relay_group) return;
+            this.postChangelogAction("api/personhog/changelog/relay-group", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ relay_group }),
+            }, `Set the relay group to ${relay_group}?\n\nRetire then also waits for this group to read a generation to the end, and the relay refuses to start under any other group. It cannot be changed afterward.`);
+          };
+          return el("div", { class: "row", style: "padding: 6px 14px; border-top: 1px solid var(--border)" },
+            el("span", { class: "muted" }, "No relay group:"), groupInput, button);
         },
 
         async postChangelogAction(path, options, confirmText) {
@@ -1538,18 +1557,19 @@
               : el("ul", { class: "mono", style: "margin: 4px 0" }, r.waiting.slice(0, 12).map((w) => el("li", {}, w))));
           }
           for (const g of view.draining) {
-            const w = g.writer;
-            const drained = !w.error && w.partitions > 0 && w.drained_partitions === w.partitions;
+            const groups = [g.writer, g.relay].filter(Boolean);
+            const isDrained = (d) => !d.error && d.partitions > 0 && d.drained_partitions === d.partitions;
+            const drained = groups.every(isDrained);
             const retire = el("button", { disabled: !drained }, `Retire ${g.topic}`);
             retire.onclick = () => this.postChangelogAction("api/personhog/changelog/retire", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ topic: g.topic }),
-            }, `Retire ${g.topic}?\n\nThe writer group has read it to the end. It leaves the config; delete the topic in Terraform afterwards.`);
+            }, `Retire ${g.topic}?\n\nEvery gating group has read it to the end. It leaves the config; delete the topic in Terraform afterwards.`);
             body.append(el("div", { class: "row", style: "margin-top: 6px" },
               el("span", { class: "pill muted mono" }, `${g.topic} (${fmtInt(g.partitions)}, epoch ${fmtInt(g.epoch)}) draining`),
-              el("span", { class: `pill ${w.error ? "bad" : drained ? "good" : "warn"}`, title: w.error || "" },
-                `${w.group}: ${fmtInt(w.drained_partitions)}/${fmtInt(w.partitions)}`),
+              groups.map((d) => el("span", { class: `pill ${d.error ? "bad" : isDrained(d) ? "good" : "warn"}`, title: d.error || "" },
+                `${d.group}: ${fmtInt(d.drained_partitions)}/${fmtInt(d.partitions)}`)),
               retire));
           }
           if (view.history.length > 0) {

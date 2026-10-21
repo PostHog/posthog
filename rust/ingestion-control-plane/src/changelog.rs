@@ -87,6 +87,7 @@ pub struct GroupLag {
 pub struct ChangelogView {
     pub config: Option<ChangelogConfig>,
     pub writer: Option<GroupLag>,
+    pub relay: Option<GroupLag>,
     pub migration: Option<MigrationState>,
     pub request: Option<MigrationRequest>,
     pub history: Vec<MigrationState>,
@@ -101,13 +102,14 @@ pub struct GroupDrain {
     pub error: Option<String>,
 }
 
-/// A draining generation and how far the writer group has read it.
+/// A draining generation and how far each gating group has read it.
 #[derive(Serialize)]
 pub struct DrainingView {
     pub topic: String,
     pub partitions: u32,
     pub epoch: u64,
     pub writer: GroupDrain,
+    pub relay: Option<GroupDrain>,
 }
 
 async fn group_drain(config: &Config, group: &str, topic: &str) -> GroupDrain {
@@ -140,6 +142,17 @@ async fn group_drain(config: &Config, group: &str, topic: &str) -> GroupDrain {
     }
 }
 
+/// Name the relay's consumer group, which retire then waits on as well.
+pub async fn set_relay_group(client: &Client, prefix: &str, group: &str) -> anyhow::Result<()> {
+    if !store(client, prefix)
+        .set_changelog_relay_group(group)
+        .await?
+    {
+        bail!("config/changelog is not seeded, already names another relay group, or moved; refresh and retry");
+    }
+    Ok(())
+}
+
 /// Drop a drained generation from the config; deleting the topic stays a Terraform change.
 pub async fn retire(
     config: &Config,
@@ -156,17 +169,18 @@ pub async fn retire(
     if !live.draining.iter().any(|g| g.topic == topic) {
         bail!("{topic} is not a draining generation");
     }
-    let group = &live.writer_group;
-    let drain = group_drain(config, group, topic).await;
-    if let Some(error) = drain.error {
-        bail!("group {group}: {error}");
-    }
-    if drain.partitions == 0 || drain.drained_partitions < drain.partitions {
-        bail!(
-            "group {group} has read {} of {} partitions of {topic} to the end",
-            drain.drained_partitions,
-            drain.partitions
-        );
+    for group in std::iter::once(&live.writer_group).chain(live.relay_group.as_ref()) {
+        let drain = group_drain(config, group, topic).await;
+        if let Some(error) = drain.error {
+            bail!("group {group}: {error}");
+        }
+        if drain.partitions == 0 || drain.drained_partitions < drain.partitions {
+            bail!(
+                "group {group} has read {} of {} partitions of {topic} to the end",
+                drain.drained_partitions,
+                drain.partitions
+            );
+        }
     }
     if !store.retire_changelog_topic(topic).await? {
         bail!("the config moved; refresh and retry");
@@ -294,6 +308,10 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
                 partitions: generation.partitions,
                 epoch: generation.epoch,
                 writer: group_drain(config, &changelog.writer_group, &generation.topic).await,
+                relay: match &changelog.relay_group {
+                    Some(group) => Some(group_drain(config, group, &generation.topic).await),
+                    None => None,
+                },
             });
         }
     }
@@ -301,9 +319,17 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
         Some(changelog) => Some(group_lag(config, &changelog.writer_group, &changelog.topic).await),
         None => None,
     };
+    let relay = match changelog
+        .as_ref()
+        .and_then(|c| Some((c.relay_group.as_ref()?, &c.topic)))
+    {
+        Some((group, topic)) => Some(group_lag(config, group, topic).await),
+        None => None,
+    };
     Ok(ChangelogView {
         config: changelog,
         writer,
+        relay,
         migration,
         request,
         history,

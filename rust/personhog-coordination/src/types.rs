@@ -327,6 +327,9 @@ pub struct ChangelogConfig {
     pub epoch: u64,
     /// The writer's consumer group; a generation retires only once it has read it to the end.
     pub writer_group: String,
+    /// The changelog relay's consumer group, which retire also waits on once set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_group: Option<String>,
     /// Generations some consumer may still be reading.
     pub draining: Vec<Generation>,
 }
@@ -346,6 +349,7 @@ impl ChangelogConfig {
             partitions,
             epoch: 1,
             writer_group: String::new(),
+            relay_group: None,
             draining: Vec::new(),
         }
     }
