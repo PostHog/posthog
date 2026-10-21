@@ -148,6 +148,12 @@ describe('HogInvocationResultsService', () => {
             ['an ordinary email', false, {}, { code: '482913' }],
             ['a sensitive email', true, {}, undefined],
             ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            [
+                'a recovery stub of an unstamped transactional run',
+                undefined,
+                { event: { event: '$transactional_email' } },
+                undefined,
+            ],
             ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
         ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, variables) => {
             const hogFlow =
@@ -165,7 +171,7 @@ describe('HogInvocationResultsService', () => {
                           })
                           .build()
             const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
-            Object.assign(invocation.state, state)
+            Object.assign(invocation.state, state, { event: { ...invocation.state.event, ...(state as any).event } })
             await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
 
             const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
