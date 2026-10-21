@@ -35,6 +35,10 @@ describe('posthog opt out of messages template', () => {
 
         expect(resumed.error).toBeUndefined()
         expect(resumed.logs.map((log) => log.message)).toContain('Opted out of Product updates.')
+        expect(tester.mockRecipientsManager.markForRefresh).toHaveBeenCalledWith({
+            teamId: 1,
+            identifier: 'sam@example.com',
+        })
         const [url, params] = fetchSpy.mock.calls[0] as [string, requestModule.FetchOptions]
         expect(url).toBe(`${defaultConfig.INTERNAL_API_BASE_URL}/api/projects/1/workflow_message_opt_outs/`)
         expect(parseJSON(params.body!.toString())).toEqual(inputs)

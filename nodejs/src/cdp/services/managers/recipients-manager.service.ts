@@ -55,6 +55,11 @@ export class RecipientsManagerService {
         this.lazyLoader.clear()
     }
 
+    /** Make the next lookup of this recipient read the database, for example right after their preferences change. */
+    public markForRefresh(args: RecipientGetArgs): void {
+        this.lazyLoader.markForRefresh(toKey(args))
+    }
+
     public async get(args: RecipientGetArgs): Promise<RecipientManagerRecipient | null> {
         const key = toKey(args)
         return (await this.lazyLoader.get(key)) ?? null

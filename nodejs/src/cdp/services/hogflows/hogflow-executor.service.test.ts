@@ -126,6 +126,7 @@ describe('Hogflow Executor', () => {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                recipientsManager: { markForRefresh: jest.fn() },
             }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)

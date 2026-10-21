@@ -100,6 +100,7 @@ describe('HogFunctionHandler', () => {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                recipientsManager: { markForRefresh: jest.fn() },
             }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)

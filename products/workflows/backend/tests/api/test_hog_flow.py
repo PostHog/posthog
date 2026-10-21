@@ -37,6 +37,7 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
+from products.messaging.backend.facade.categories import update_category
 from products.messaging.backend.facade.testing import create_message_category_for_test
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
@@ -8506,14 +8507,56 @@ class TestOptOutOfMessagesActionValidation(APIBaseTest):
             ("team_category", "team_category", status.HTTP_201_CREATED),
             ("unknown_category", str(uuid4()), status.HTTP_400_BAD_REQUEST),
             ("no_category", None, status.HTTP_400_BAD_REQUEST),
+            ("transactional_category", "transactional_category", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_saving_the_step_needs_a_category_the_project_has(
+    def test_saving_the_step_needs_a_marketing_category_the_project_has(
         self, _name: str, category_id: str | None, expected: int
     ) -> None:
-        if category_id == "team_category":
-            category_id = str(create_message_category_for_test(team_id=self.team.id, key="updates", name="Updates"))
+        if category_id in ("team_category", "transactional_category"):
+            created = create_message_category_for_test(team_id=self.team.id, key="updates", name="Updates")
+            if category_id == "transactional_category":
+                update_category(self.team.id, created, {"category_type": "transactional"})
+            category_id = str(created)
 
         response = self._save(category_id)
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("draft_save", False), ("strict_save", True)])
+    def test_a_workflow_only_editor_cannot_change_the_opt_out_list(self, _name: str, strict: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="viewer")
+        flow = HogFlow.objects.create(
+            team=self.team, name="Unsubscribe", trigger=_TRIGGER["config"], actions=[_TRIGGER]
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        step = {
+            "id": "opt_out",
+            "name": "opt_out",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-opt-out-of-messages",
+                "inputs": {"category_id": {"value": "$all"}, "identifier": {"value": "{person.properties.email}"}},
+            },
+        }
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {"actions": [_TRIGGER, step]},
+                format="json",
+                headers={"X-PostHog-Client": "mcp"} if strict else None,
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "edit access to all workflows" in str(response.json()), response.json()

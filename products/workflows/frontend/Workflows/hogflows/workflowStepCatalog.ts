@@ -196,6 +196,8 @@ const OPT_OUT_OF_MESSAGES_ACTION_NODE: CreateActionType = {
     name: 'Opt out of messages',
     description: 'Opt the recipient out of a message category, or of all marketing messages.',
     config: { template_id: 'template-posthog-opt-out-of-messages', inputs: {} },
+    // The executor only stops on an explicit abort. A failed opt-out must not continue to a message step.
+    on_error: 'abort',
 }
 
 export interface StepCatalogContext {

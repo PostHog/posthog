@@ -57,6 +57,8 @@ registerAsyncFunction('postHogOptOutOfMessages', {
             body: JSON.stringify(payload),
             timeoutMs: OPT_OUT_TIMEOUT_MS,
         })
+        // A later message step in this worker would otherwise read the cached preferences from before the opt-out.
+        context.refreshRecipientPreferences(payload.identifier)
     },
     mock: (args, logs) => {
         parsePayload(args)

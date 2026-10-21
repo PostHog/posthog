@@ -51,6 +51,7 @@ class WorkflowMessageOptOutResult(models.TextChoices):
     MISSING_IDENTIFIER = "missing_identifier", "Missing identifier"
     NOT_ON_SAVED_WORKFLOW = "not_on_saved_workflow", "Not on the saved workflow"
     CATEGORY_MISSING = "category_missing", "Category missing"
+    CATEGORY_NOT_MARKETING = "category_not_marketing", "Category not marketing"
     WORKFLOW_MISSING = "workflow_missing", "Workflow missing"
 
 
@@ -85,7 +86,8 @@ class WorkflowMessageOptOutViewSet(viewsets.GenericViewSet):
                 description="The saved workflow doesn't opt people out of this category",
             ),
             409: OpenApiResponse(
-                response=WorkflowMessageOptOutResponseSerializer, description="The message category was deleted"
+                response=WorkflowMessageOptOutResponseSerializer,
+                description="The message category was deleted or is transactional",
             ),
             422: OpenApiResponse(
                 response=WorkflowMessageOptOutResponseSerializer, description="The workflow no longer exists"
@@ -146,14 +148,22 @@ def _opt_out(*, team_id: int, hog_flow_id: uuid.UUID, category_id: str, identifi
             category = get_category(team_id, category_id)
         except MessageCategoryMissing:
             return _category_missing()
+        if category.category_type != "marketing":
+            return _respond(
+                WorkflowMessageOptOutResult.CATEGORY_NOT_MARKETING,
+                "Transactional messages ignore opt-outs. Choose a marketing category in the step.",
+                status.HTTP_409_CONFLICT,
+            )
         category_key, preference_id, label = category.key, str(category.id), category.name
 
-    if _is_opted_out(team_id, identifier, preference_id):
-        return _respond(WorkflowMessageOptOutResult.ALREADY_OPTED_OUT, f"Already opted out of {label}.")
+    already_opted_out = _is_opted_out(team_id, identifier, preference_id)
+    # Opt out even when already opted out: a retry after a failed Customer.io sync must queue that sync again.
     try:
         add_opt_out(team_id, identifier, category_key, created_by_id=None)
     except MessageCategoryNotFound:
         return _category_missing()
+    if already_opted_out:
+        return _respond(WorkflowMessageOptOutResult.ALREADY_OPTED_OUT, f"Already opted out of {label}.")
     return _respond(WorkflowMessageOptOutResult.OPTED_OUT, f"Opted out of {label}.")
 
 

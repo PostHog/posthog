@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -13,7 +14,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.test.authentication_checks import covers_authentication
 
 from products.messaging.backend.facade.categories import update_category
-from products.messaging.backend.facade.preferences import list_opt_outs, recipient_preferences
+from products.messaging.backend.facade.preferences import add_opt_out, list_opt_outs, recipient_preferences
 from products.messaging.backend.facade.testing import create_message_category_for_test
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.presentation.views.workflow_message_opt_outs import (
@@ -21,6 +22,7 @@ from products.workflows.backend.presentation.views.workflow_message_opt_outs imp
 )
 
 SECRET = "test-workflow-message-opt-out-jwt"
+_VIEW = "products.workflows.backend.presentation.views.workflow_message_opt_outs"
 
 
 def _step(category_id: str) -> dict[str, Any]:
@@ -78,8 +80,12 @@ class TestWorkflowMessageOptOutsAPI(APIBaseTest):
     def test_opting_out_twice_leaves_one_opt_out(
         self, _name: str, category_id: str | None, category_key: str | None
     ) -> None:
-        first = self._post(category_id=category_id)
-        second = self._post(category_id=category_id)
+        with patch(f"{_VIEW}.add_opt_out", wraps=add_opt_out) as opt_out:
+            first = self._post(category_id=category_id)
+            second = self._post(category_id=category_id)
+
+        # The repeat still writes, so a retry after a failed Customer.io sync queues the sync again.
+        assert opt_out.call_count == 2
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert first.json()["result"] == "opted_out"
@@ -98,6 +104,7 @@ class TestWorkflowMessageOptOutsAPI(APIBaseTest):
             ("category_not_on_the_saved_workflow", "other", "sam@example.com", status.HTTP_403_FORBIDDEN),
             ("deleted_category", "deleted", "sam@example.com", status.HTTP_409_CONFLICT),
             ("empty_identifier", None, "   ", status.HTTP_400_BAD_REQUEST),
+            ("transactional_category", "transactional", "sam@example.com", status.HTTP_409_CONFLICT),
         ]
     )
     def test_refuses_without_opting_anyone_out(
@@ -108,6 +115,8 @@ class TestWorkflowMessageOptOutsAPI(APIBaseTest):
             category_id = str(create_message_category_for_test(team_id=self.team.id, key="other", name="Other"))
         elif category_change == "deleted":
             update_category(self.team.id, UUID(self.category_id), {"deleted": True})
+        elif category_change == "transactional":
+            update_category(self.team.id, UUID(self.category_id), {"category_type": "transactional"})
 
         response = self._post(category_id=category_id, identifier=identifier)
 

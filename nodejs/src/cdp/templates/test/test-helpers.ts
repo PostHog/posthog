@@ -180,6 +180,7 @@ export class TemplateTester {
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()
     public mockInternalFetch = jest.fn()
+    public mockRecipientsManager = { markForRefresh: jest.fn() }
     public mockTeamManager = {
         getTeam: jest.fn().mockResolvedValue({ id: 1 }),
     }
@@ -249,6 +250,7 @@ export class TemplateTester {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                recipientsManager: this.mockRecipientsManager,
             }
         )
     }

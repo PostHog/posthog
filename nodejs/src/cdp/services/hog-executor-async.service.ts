@@ -26,6 +26,7 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
+import { RecipientsManagerService } from './managers/recipients-manager.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
@@ -67,6 +68,7 @@ export interface HogExecutorAsyncDependencies {
     emailService: EmailService
     recipientTokensService: RecipientTokensService
     pushNotificationService: PushNotificationService
+    recipientsManager: Pick<RecipientsManagerService, 'markForRefresh'>
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -274,6 +276,11 @@ export class HogExecutorAsyncService {
                             conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
                             customerAnalyticsAccountsJwt: this.deps.customerAnalyticsAccountsJwt,
                             consumeInlineAsyncBudget,
+                            refreshRecipientPreferences: (identifier) =>
+                                this.deps.recipientsManager.markForRefresh({
+                                    teamId: result.invocation.teamId,
+                                    identifier,
+                                }),
                         },
                         result
                     )

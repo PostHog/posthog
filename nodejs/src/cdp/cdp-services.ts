@@ -511,6 +511,7 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
+            recipientsManager,
         }
     )
 

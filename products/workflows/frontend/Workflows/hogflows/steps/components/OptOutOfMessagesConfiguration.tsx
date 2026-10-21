@@ -23,19 +23,15 @@ export function OptOutOfMessagesConfiguration({
     const { categories, categoriesLoading } = useValues(optOutCategoriesLogic())
     const value = typeof inputs.category_id?.value === 'string' ? inputs.category_id.value : null
 
-    const groups = (['marketing', 'transactional'] as const)
-        .map((type) => ({
-            title: type === 'marketing' ? 'Marketing' : 'Transactional',
-            options: categories
-                .filter((category) => category.category_type === type)
-                .map((category) => ({ label: category.name, value: category.id })),
-        }))
-        .filter((group) => group.options.length > 0)
+    // Transactional sends ignore opt-outs, so only marketing categories can take one.
+    const marketingOptions = categories
+        .filter((category) => category.category_type === 'marketing')
+        .map((category) => ({ label: category.name, value: category.id }))
 
     return (
         <LemonField.Pure
             label="Message category"
-            info="Email, SMS and push steps in this category skip anyone who opted out. All marketing messages covers every marketing category."
+            info="Marketing email, SMS and push steps in this category skip anyone who opted out. Transactional messages still send."
             error={error}
         >
             <LemonSelect<string | null>
@@ -45,7 +41,7 @@ export function OptOutOfMessagesConfiguration({
                 onChange={(categoryId) => setInputs({ ...inputs, category_id: { value: categoryId } })}
                 options={[
                     { options: [{ label: 'All marketing messages', value: ALL_MARKETING_CATEGORY_ID }] },
-                    ...groups,
+                    ...(marketingOptions.length > 0 ? [{ title: 'Marketing', options: marketingOptions }] : []),
                 ]}
                 placeholder="Choose a message category"
                 data-attr="workflow-opt-out-of-messages-category"

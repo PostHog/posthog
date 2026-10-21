@@ -23,6 +23,8 @@ export type AsyncFunctionContext = {
     // per invocation to share the same per-dequeue async-work budget queued calls are capped by.
     // Throws once the budget is exhausted. A no-op for callers that don't enforce a budget.
     consumeInlineAsyncBudget: () => void
+    // Workers cache recipient preferences, so a handler that changes them refreshes the recipient here.
+    refreshRecipientPreferences: (identifier: string) => void
 }
 
 export type AsyncFunctionHandler = {
