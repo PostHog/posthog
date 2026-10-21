@@ -60,7 +60,7 @@ _save_failure_log() {
 #   - Shows a braille spinner with elapsed time while the command runs.
 #   - Below the spinner line, the last line of command output scrolls in-place.
 #   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
-#   - Non-interactive: falls back to a simple "... Label" / "✓ Label" pair.
+#   - Non-interactive: prints "... Label" while it runs, then the status line.
 run_step() {
   local label="$1"
   shift
@@ -72,39 +72,24 @@ run_step() {
   local start_time
   start_time=$(date +%s)
 
-  # Non-interactive fallback
-  if [[ ! -t 1 ]]; then
-    echo -ne "  ... ${label}"
-    if "$@" > "$tmpfile" 2>&1; then
-      echo -e "\r  ${C_GREEN}✓${C_RESET} ${label}"
-    else
-      echo -e "\r  ${C_RED}✗${C_RESET} ${label}  (failed)"
-      _save_failure_log "$label" "$tmpfile"
-      return 1
-    fi
-    return 0
-  fi
-
   "$@" > "$tmpfile" 2>&1 &
   wait_bg_step "$label" $! "$start_time" "$tmpfile"
 }
 
-# Waits for a step running as a background process and reports its outcome.
+# Waits for a step running as a background process and reports its outcome
+# with the same display as run_step.
 # Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
-#   - Interactive: same spinner, elapsed time and log preview as run_step.
-#   - Non-interactive: prints only the final status line.
 wait_bg_step() {
   local label="$1"
   local pid="$2"
   local start_time="$3"
   local tmpfile="$4"
 
-  local clear_line=""
-  local had_output=false
-
-  if [[ -t 1 ]]; then
-    clear_line="\r\033[2K"
+  if [[ ! -t 1 ]]; then
+    echo -ne "  ... ${label}"
+  else
     local frame=0
+    local had_output=false
 
     # Spinner loop
     while kill -0 "$pid" 2>/dev/null; do
@@ -126,7 +111,7 @@ wait_bg_step() {
 
       # Show output preview below spinner
       if [[ -n "$last_line" ]]; then
-        printf "\n    ${C_DIM}%s${C_RESET}" "$last_line"
+        printf "\n\033[2K    ${C_DIM}%s${C_RESET}" "$last_line"
         had_output=true
       else
         had_output=false
@@ -136,9 +121,9 @@ wait_bg_step() {
       sleep 0.08
     done
 
-    # Clear output preview line
+    # Clear output preview line, then move back up to the spinner line
     if [[ "$had_output" == true ]]; then
-      echo -ne "\033[A\033[2K"
+      echo -ne "\r\033[2K\033[A"
     fi
   fi
 
@@ -148,11 +133,9 @@ wait_bg_step() {
 
   # Final status line
   if [[ $exit_code -eq 0 ]]; then
-    printf "${clear_line}  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    # Clear the line below (old output preview may linger)
-    if [[ "$had_output" == true ]]; then printf "\033[2K"; fi
+    printf "\r\033[2K  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
   else
-    printf "${clear_line}  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
+    printf "\r\033[2K  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
     # Save failure log and show last few lines of output on failure
     _save_failure_log "$label" "$tmpfile"
     return $exit_code
