@@ -20,7 +20,6 @@ from products.signals.backend.temporal.safety_filter import SIGNAL_SAFETY_SYSTEM
 
 
 def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> None:
-    model = DEFAULT_SYSTEM_ONE_MODEL
     fallback = bundled_prompt("signals-actionability-issue", "old {description}", "old question", 0.85)
     policy = (
         "When in doubt, classify as ACTIONABLE.\n"
@@ -32,7 +31,7 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
         name=fallback.name,
         version=2,
         prompt=policy,
-        config={"model": model, "question": "new question", "threshold": 0.91},
+        config={"model": DEFAULT_SYSTEM_ONE_MODEL, "question": "new question", "threshold": 0.91},
     )
 
     with (
@@ -45,7 +44,7 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
     assert managed is not None
     assert (managed.policy, managed.model, managed.question, managed.threshold, managed.version, managed.source) == (
         policy,
-        model,
+        DEFAULT_SYSTEM_ONE_MODEL,
         "new question",
         0.91,
         2,
