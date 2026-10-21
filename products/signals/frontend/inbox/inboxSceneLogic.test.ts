@@ -384,9 +384,14 @@ describe('inboxSceneLogic routing', () => {
         logic.actions.loadSelectedReportSuccess(report)
         const afterOpen = Date.now()
         expect(openedEvents(captureSpy)).toHaveLength(0)
+        // kea-disposables runs the poll setup again on a resume, and one without a pause leaves the
+        // first interval running. That leftover interval must not send the open again on each tick.
+        document.dispatchEvent(new Event('visibilitychange'))
 
         await waitForOpenRankRetry()
+        await waitForOpenRankRetry()
 
+        expect(openedEvents(captureSpy)).toHaveLength(1)
         expect(openedEvents(captureSpy)[0]).toMatchObject({
             rank: 1,
             list_size: 1,
