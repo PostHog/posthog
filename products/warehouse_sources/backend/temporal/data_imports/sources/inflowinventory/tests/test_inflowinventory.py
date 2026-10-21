@@ -37,18 +37,22 @@ def _full_page(start_id: int, id_field: str = "productId") -> list[dict[str, Any
 
 
 class TestPagination:
-    def test_cursor_uses_per_endpoint_id_field(self) -> None:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_cursor_uses_per_endpoint_id_field(self, endpoint: str) -> None:
+        config = INFLOWINVENTORY_ENDPOINTS[endpoint]
         last_id = str(PAGE_SIZE - 1)
         result = _driver().run(
-            "customers",
+            endpoint,
             [
-                ScriptedResponse(json=_full_page(0, id_field="customerId")),
-                ScriptedResponse(json=[{"customerId": "9999"}]),
+                ScriptedResponse(json=_full_page(0, id_field=config.id_field)),
+                ScriptedResponse(json=[{config.id_field: "9999"}]),
             ],
         )
 
         assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
         assert result.params("after") == [None, last_id]
+        assert result.paths == [f"/co-123/{config.path}"] * 2
 
     def test_resumes_from_saved_cursor(self) -> None:
         # The unpaginated first page (after absent) must never be fetched on resume.

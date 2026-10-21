@@ -95,7 +95,8 @@ def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
 
 def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
     return (
-        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
+        ErrorTrackingIssue.objects.with_first_seen()
+        .filter(team_id=team_id, id=issue_id)
         .only("id", "name", "description", "status")
         .first()
     )

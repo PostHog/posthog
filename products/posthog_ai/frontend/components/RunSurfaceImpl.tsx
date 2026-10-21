@@ -6,8 +6,8 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
-import { retainMountedLogic } from '../logics/retainedLogics'
-import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
+import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
+import { findLiveRunStreamKey, isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
@@ -107,9 +107,16 @@ function RunSurfaceRoot({
     const [floatingInputsHeight, setFloatingInputsHeight] = useState(0)
     const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
     useEffect(() => {
-        if (retainAfterUnmount && !replayOnly && runId && logicKey === runId) {
+        if (
+            retainAfterUnmount &&
+            !replayOnly &&
+            runId &&
+            (logicKey === runId ||
+                isLogicRetained(RETAINED_RUN_STREAMS, logicKey) ||
+                findLiveRunStreamKey(runId) === logicKey)
+        ) {
             retainMountedLogic(
-                'run-stream',
+                RETAINED_RUN_STREAMS,
                 logicKey,
                 runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }),
                 MAX_RETAINED_RUN_STREAMS
@@ -241,7 +248,7 @@ function RunSurfaceThread({
 } = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId, floatingInputsHeight } = useRunSurfaceContext()
     const skin = useThreadSkin()
-    const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
+    const { bootstrapLoading, logBootstrapLoading, runConnectionState, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
@@ -262,7 +269,8 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && !hasThreadItems && streamKey === runId
+    const showSkeleton =
+        (bootstrapLoading || (logBootstrapLoading && !runConnectionState)) && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }

@@ -1879,7 +1879,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (cache.sourceConfigurationKey !== sourceConfigurationKey) {
                     cache.sourceConfigurationKey = sourceConfigurationKey
                     actions.loadDatabase()
-                    actions.reloadAll()
+                    actions.loadSourceValidation()
                 } else if (cache.sourceSyncKey !== sourceSyncKey) {
                     actions.loadDatabase()
                     actions.loadSourceValidation()
