@@ -271,7 +271,8 @@ class MetricsDashboardTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if content is None:
             raise NotFound("This round has no picture.")
         response = HttpResponse(content, content_type="image/png")
-        response["Cache-Control"] = "private, max-age=3600"
+        # A regeneration reuses the round numbers, so a cached picture could show an older generation.
+        response["Cache-Control"] = "private, no-cache"
         return response
 
     @extend_schema(request=None, responses={202: None})

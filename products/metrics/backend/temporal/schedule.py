@@ -13,8 +13,10 @@ from temporalio.client import (
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleSpec,
+    WorkflowExecutionStatus,
 )
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import sync_connect
@@ -91,3 +93,15 @@ def start_regeneration(team_id: int, template_id: str, request: GenerationReques
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         )
     )
+
+
+def generation_running(key: str) -> bool | None:
+    """Whether the generate workflow of the template runs. None when Temporal does not answer."""
+    try:
+        client = sync_connect()
+        description = asyncio.run(client.get_workflow_handle(generate_workflow_id(key)).describe())
+    except RPCError as error:
+        return False if error.status == RPCStatusCode.NOT_FOUND else None
+    except Exception:
+        return None
+    return description.status == WorkflowExecutionStatus.RUNNING

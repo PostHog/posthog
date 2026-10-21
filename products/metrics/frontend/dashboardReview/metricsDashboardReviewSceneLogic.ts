@@ -260,7 +260,15 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
                         return template
                     } catch (error) {
                         lemonToast.error(errorDetail(error, 'Could not regenerate the dashboard.'))
-                        return values.template
+                        // A failed start can still have reset the template and deleted its preview.
+                        try {
+                            return await metricsDashboardTemplatesRetrieve(
+                                String(values.currentTeamId),
+                                values.templateId as string
+                            )
+                        } catch {
+                            return values.template
+                        }
                     }
                 },
             },
@@ -322,7 +330,8 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
             // A review deletes the preview, so the page stops showing it. A failed review keeps it.
             approveTemplateSuccess: (state, { template }) => (template?.status === 'approved' ? null : state),
             rejectTemplateSuccess: (state, { template }) => (template?.status === 'rejected' ? null : state),
-            regenerateTemplateSuccess: (state, { template }) => (template?.status === 'generating' ? null : state),
+            regenerateTemplateSuccess: (state, { template }) =>
+                template && ['pending_review', 'rejected'].includes(template.status) ? state : null,
         },
         // The template of the preview request in flight. A stale request also ends the loader's own loading state.
         previewRequestTemplateId: [

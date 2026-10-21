@@ -331,9 +331,21 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         template.refresh_from_db()
         assert template.status == template_status
 
-    @parameterized.expand([("started", None, 200, "generating"), ("not_started", RuntimeError, 400, "failed")])
+    @parameterized.expand(
+        [
+            ("started", None, None, 200, "generating"),
+            ("not_started", RuntimeError, False, 400, "failed"),
+            ("started_but_the_answer_was_lost", RuntimeError, True, 200, "generating"),
+            ("unknown", RuntimeError, None, 400, "generating"),
+        ]
+    )
     def test_regenerating_discards_the_panels_and_starts_again_from_the_requested_metrics(
-        self, _name: str, start_error: type[Exception] | None, expected_code: int, expected_status: str
+        self,
+        _name: str,
+        start_error: type[Exception] | None,
+        running: bool | None,
+        expected_code: int,
+        expected_status: str,
     ) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
@@ -348,6 +360,7 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
 
         with (
             patch("products.metrics.backend.temporal.schedule.start_regeneration", side_effect=start_error) as start,
+            patch("products.metrics.backend.temporal.schedule.generation_running", return_value=running),
             patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture"),
         ):
             response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/regenerate/")

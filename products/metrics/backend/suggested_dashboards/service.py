@@ -191,7 +191,16 @@ def regenerate(user: User, template_id: str) -> DashboardTemplateSummary:
             ),
         )
     except Exception as error:
+        # Temporal can start the workflow and lose only its answer, so the failure is recorded only when nothing runs.
+        running = schedule.generation_running(template.key)
+        if running:
+            return get_template(str(template.id))
         logger.exception("metrics_suggested_dashboards_regeneration_not_started", template_id=str(template.id))
+        if running is None:
+            # The stale generation sweep fails the template when no workflow finishes it.
+            raise SuggestedDashboardError(
+                "Could not confirm that the generation started. Check this dashboard again in a few minutes."
+            ) from error
         generation.finish_generation(str(template.id), error="The generation could not start.")
         raise SuggestedDashboardError("The generation could not start. Try again.") from error
     return get_template(str(template.id))
