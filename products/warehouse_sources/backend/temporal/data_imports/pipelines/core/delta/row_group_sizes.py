@@ -29,6 +29,8 @@ _MAX_READS = 1024
 _READ_CONCURRENCY = 32
 #: Longest the footer reads of one merge may take. Files not read in time keep their whole size.
 _READ_TIMEOUT_S = 10.0
+#: Footer reads queued or running across all merges. A merge past this reads no footers.
+_MAX_PENDING_READS = 2 * _MAX_READS
 #: Files are immutable, so a footer read once stays correct. About 100 bytes per entry.
 _CACHE_ENTRIES = 100_000
 
@@ -42,8 +44,34 @@ def largest_row_group_bytes(metadata: pq.FileMetaData) -> int:
     return largest
 
 
-def _largest_row_group_of(path: str, filesystem: pafs.FileSystem) -> int:
-    return largest_row_group_bytes(pq.read_metadata(path, filesystem=filesystem))
+class _ReadSlots:
+    """Bounds the footer reads queued or running on the shared executor, over all merges."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._used = 0
+        self._lock = threading.Lock()
+
+    def acquire(self, wanted: int) -> int:
+        with self._lock:
+            granted = max(0, min(wanted, self._limit - self._used))
+            self._used += granted
+            return granted
+
+    def release(self) -> None:
+        with self._lock:
+            self._used -= 1
+
+
+def _read_footer(path: str, filesystem: pafs.FileSystem, expired: threading.Event, slots: _ReadSlots) -> int | None:
+    # A read that its merge stopped waiting for still holds a slot until a worker takes it, so
+    # stalled storage stops new reads instead of growing the queue.
+    try:
+        if expired.is_set():
+            return None
+        return largest_row_group_bytes(pq.read_metadata(path, filesystem=filesystem))
+    finally:
+        slots.release()
 
 
 @frozen
@@ -86,6 +114,7 @@ _CACHE = _FooterCache(_CACHE_ENTRIES)
 
 #: Shared by all merges, so reads that outlive their deadline cannot add threads past this bound.
 _EXECUTOR = ThreadPoolExecutor(max_workers=_READ_CONCURRENCY, thread_name_prefix="row-group-footers")
+_SLOTS = _ReadSlots(_MAX_PENDING_READS)
 
 #: Opens a filesystem for a table that knows the sizes of the given files, so no read needs a HEAD.
 OpenFilesystem = Callable[[Mapping[str, int]], pafs.FileSystem]
@@ -106,6 +135,7 @@ class RowGroupSizeReader:
         open_filesystem: OpenFilesystem | None = None,
         max_reads: int = _MAX_READS,
         executor: ThreadPoolExecutor = _EXECUTOR,
+        slots: _ReadSlots = _SLOTS,
         timeout_s: float = _READ_TIMEOUT_S,
         cache: _FooterCache = _CACHE,
     ) -> None:
@@ -114,6 +144,7 @@ class RowGroupSizeReader:
         self._open_filesystem = open_filesystem or self._delta_filesystem
         self._max_reads = max_reads
         self._executor = executor
+        self._slots = slots
         self._timeout_s = timeout_s
         self._cache = cache
 
@@ -131,18 +162,21 @@ class RowGroupSizeReader:
                 found[path] = cached
             elif len(to_read) < self._max_reads:
                 to_read[path] = size
+        granted = self._slots.acquire(len(to_read))
+        to_read = dict(list(to_read.items())[:granted])
         if not to_read:
             return RowGroupSizes(bytes_by_path=found)
 
         # Add action paths are URI-encoded; the storage handler takes decoded paths.
         storage_paths = {path: urllib.parse.unquote(path) for path in to_read}
         filesystem = self._open_filesystem({storage_paths[path]: size for path, size in to_read.items()})
+        expired = threading.Event()
         futures = {
-            self._executor.submit(_largest_row_group_of, storage_paths[path], filesystem): path for path in to_read
+            self._executor.submit(_read_footer, storage_paths[path], filesystem, expired, self._slots): path
+            for path in to_read
         }
         done, not_done = wait(futures, timeout=self._timeout_s)
-        for future in not_done:
-            future.cancel()
+        expired.set()
 
         failed = 0
         for future in done:
@@ -150,7 +184,10 @@ class RowGroupSizeReader:
             if future.exception() is not None:
                 failed += 1
                 continue
-            largest = min(future.result(), to_read[path])
+            result = future.result()
+            if result is None:
+                continue
+            largest = min(result, to_read[path])
             self._cache.put((self._table_uri, path), largest)
             found[path] = largest
         if failed or not_done:

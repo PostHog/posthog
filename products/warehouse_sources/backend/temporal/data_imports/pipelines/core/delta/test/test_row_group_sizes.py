@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
     RowGroupSizeReader,
     _FooterCache,
+    _ReadSlots,
 )
 
 
@@ -121,3 +122,16 @@ class TestRowGroupSizeReader:
         result = _read({encoded: size}, _Footers())
 
         assert result.bytes_by_path == {encoded: _expected(str(tmp_path / "p=a b" / "file.parquet"))}
+
+    def test_stalled_reads_hold_their_slots_so_later_calls_read_nothing(self, files: dict[str, int]) -> None:
+        many = next(p for p in files if p.endswith("many"))
+        slots = _ReadSlots(1)
+        footers = _Footers(stalled=frozenset({many}))
+        try:
+            stalled = _read(files, footers, slots=slots, timeout_s=0.2)
+            later = _read(files, footers, slots=slots)
+        finally:
+            footers.release.set()
+
+        assert (stalled.bytes_by_path, later.bytes_by_path) == ({}, {})
+        assert footers.read == [many]
