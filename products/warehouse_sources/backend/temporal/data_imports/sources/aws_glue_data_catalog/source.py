@@ -124,6 +124,8 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
                 "Grant `glue:GetJobs`, `glue:GetJobRuns`, `glue:GetCrawlers`, and `glue:ListCrawls` for jobs and crawlers. "
                 "Grant `glue:ListWorkflows` and `glue:GetWorkflowRuns` for workflow runs, "
                 "and `glue:ListDataQualityResults` and `glue:ListDataQualityResultsV2` for data quality results. "
+                "Grant `glue:GetTable` for column statistics, `glue:ListTableOptimizerRuns` for table optimizer runs, "
+                "and `glue:ListSessions` for interactive sessions. "
                 "Lake Formation permissions can also restrict catalog access. "
                 "Enter the access key ID and secret access key. Add a session token for temporary credentials."
             ),
