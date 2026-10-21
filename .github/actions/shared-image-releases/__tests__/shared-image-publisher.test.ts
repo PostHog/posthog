@@ -347,6 +347,37 @@ describe('shared-image publication', () => {
     })
   })
 
+  test.each(['manifest', 'channel'])('exact seed retry after filter change when seed predates %s', async gap => {
+    const entries = tags.get('workers/worker')!
+    entries.clear()
+    if (gap === 'manifest') git('rm', POLICY_PATH)
+    else {
+      const previous = loadPolicy(policy())
+      delete previous.images['posthog-cloud'].channels.worker
+      put(POLICY_PATH, yaml.dump(previous))
+    }
+    const seedRevision = commit()
+    const seedDigest = image(seedRevision)
+    const adoption = {bootstrapPolicyDigest: policyDigest(['worker/**'])}
+    put(POLICY_PATH, policy(['worker/**'], adoption)); commit(); build()
+    const request = {channel: 'posthog-cloud/worker', revision: seedRevision, digest: seedDigest}
+    options.bootstrap = request
+    expect((await publishChannels(options)).find(row => row.channel === request.channel)?.decision).toBe('published')
+    const receipt = path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json')
+    rmSync(receipt)
+    put(POLICY_PATH, policy(['worker/**', 'dependency/**'], adoption)); commit(); build()
+    options.bootstrap = undefined
+    expect((await publishChannels(options)).find(row => row.channel === request.channel)?.decision).toBe('published')
+    expect(entries.get(options.alias)).toBe(options.digest)
+    expect(entries.get(alias(seedRevision))).toBe(seedDigest)
+    external.mockClear()
+    options.bootstrap = request
+    const result = (await publishChannels(options)).find(row => row.channel === request.channel)!
+    expect(result).toMatchObject({decision: 'present', outcome: 'present-at-expected-digest', tag: alias(seedRevision), digest: seedDigest})
+    expect(JSON.parse(readFileSync(receipt, 'utf8'))).toMatchObject({seedRevision, digest: seedDigest, outcome: 'present-at-expected-digest'})
+    expect(external.mock.calls.filter(([executable, args]) => executable === 'helper' && args[1] === 'publish')).toHaveLength(0)
+  })
+
   test.each(['manifest', 'channel', 'missing fingerprint'])('seed predating %s uses the immutable fingerprint until adoption', async mode => {
     const predatesManifest = mode === 'manifest'
     if (predatesManifest) git('rm', POLICY_PATH)

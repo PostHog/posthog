@@ -106,13 +106,14 @@ async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, cont
   const tag = await history.alias(seed.revision)
   if (await history.relation(seed.revision, options.revision) === 'older') throw new Error(`${key}: seed is newer than the executing revision`)
   const seedPolicy = await history.policyAt(seed.revision)
-  if (selectedPolicy(seedPolicy, image, name, channel) === undefined &&
-      channel.bootstrapPolicyDigest !== policyDigest(policy.filters[channel.filter])) {
-    throw new Error(`${key}: bootstrapPolicyDigest must match the reviewed current policy`)
-  }
+  const seedPolicyDigest = selectedPolicy(seedPolicy, image, name, channel)
   const existing = inventory.nonempty ? await registry.read(destination, tag, seed.digest) : undefined
   if (existing && existing.outcome !== 'present-at-expected-digest') {
     throw new Error(`${key}: ${existing.outcome === 'integrity-mismatch' ? 'seed digest conflict' : existing.outcome === 'absent' ? 'seed missing in nonempty destination' : `seed readback unavailable: ${existing.reason ?? 'unknown'}`}`)
+  }
+  if (!existing && seedPolicyDigest === undefined &&
+      channel.bootstrapPolicyDigest !== policyDigest(policy.filters[channel.filter])) {
+    throw new Error(`${key}: bootstrapPolicyDigest must match the reviewed current policy`)
   }
   await verifyImage(registry, existing ? destination : source, seed.digest, seed.revision)
   const publicationResult = existing ?? await registry.publish(source, destination, seed.digest, tag)
