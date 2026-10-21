@@ -7,7 +7,6 @@ from django.http import HttpRequest
 
 import structlog
 from pydantic import BaseModel, Field
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 
@@ -21,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.auth import SessionAuthentication
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
