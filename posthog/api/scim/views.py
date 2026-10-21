@@ -18,26 +18,25 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from scim2_filter_parser.transpilers.django_q_object import get_query
 
-from posthog.dataclasses import frozen
-from posthog.exceptions_capture import capture_exception
-from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
-from posthog.models.identity_provider_config import IdentityProviderConfig
-
-from products.access_control.backend.models.role import Role
-
-from ee.api.scim.auth import SCIMBearerTokenAuthentication
-from ee.api.scim.group import PostHogSCIMGroup
-from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
-from ee.api.scim.utils import (
+from posthog.api.scim.auth import SCIMBearerTokenAuthentication
+from posthog.api.scim.group import PostHogSCIMGroup
+from posthog.api.scim.user import PostHogSCIMUser, SCIMUserConflict
+from posthog.api.scim.utils import (
     detect_identity_provider,
     mask_headers,
     mask_scim_filter,
     mask_scim_payload,
     normalize_scim_operations,
 )
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
-from ee.models.scim_request_log import SCIMRequestLog
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.scim_request_log import SCIMRequestLog
+
+from products.access_control.backend.models.role import Role
 
 logger = structlog.get_logger(__name__)
 

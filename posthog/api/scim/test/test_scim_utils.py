@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from ee.api.scim.utils import (
+from posthog.api.scim.utils import (
     mask_email,
     mask_headers,
     mask_pii_value,
