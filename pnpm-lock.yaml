@@ -533,8 +533,8 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5
       posthog-js-lite:
-        specifier: 4.12.1
-        version: 4.12.1
+        specifier: 4.13.0
+        version: 4.13.0
       sass:
         specifier: ^1.26.2
         version: 1.56.0
@@ -1236,8 +1236,8 @@ importers:
         specifier: ^1.7.11
         version: 1.7.11(react@18.3.1)
       react-grid-layout:
-        specifier: ^2.2.4
-        version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.3.0
+        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
@@ -1754,8 +1754,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.56.1
-        version: 5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: 5.56.2
+        version: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -2652,6 +2652,12 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.0
+      '@testing-library/user-event':
+        specifier: '*'
+        version: 14.6.1(@testing-library/dom@10.4.0)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3096,9 +3102,12 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
       react-grid-layout:
-        specifier: ^2.2.4
-        version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.3.0
+        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
       '@testing-library/react':
         specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3183,6 +3192,9 @@ importers:
 
   products/dashboards:
     dependencies:
+      '@floating-ui/react':
+        specifier: ^0.27.19
+        version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
         version: 0.12.3(react@18.3.1)
@@ -3228,6 +3240,9 @@ importers:
       react-grid-layout:
         specifier: ^2.2.4
         version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-intersection-observer:
+        specifier: ^9.5.3
+        version: 9.5.3(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -4465,6 +4480,9 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4634,12 +4652,18 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.0
       '@testing-library/jest-dom':
         specifier: '*'
         version: 5.17.0
       '@testing-library/react':
         specifier: '*'
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/user-event':
+        specifier: '*'
+        version: 14.6.1(@testing-library/dom@10.4.0)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4964,6 +4988,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-window:
+        specifier: '*'
+        version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@testing-library/react':
         specifier: ^14.3.1
@@ -5759,8 +5786,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.22.2
-        version: '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.23.0
+        version: '@posthog/mcp@0.23.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -5795,11 +5822,11 @@ importers:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
       posthog-js-lite:
-        specifier: 4.12.1
-        version: 4.12.1
+        specifier: 4.13.0
+        version: 4.13.0
       posthog-node:
-        specifier: ^5.56.1
-        version: 5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: ^5.56.2
+        version: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -10981,15 +11008,6 @@ packages:
   '@posthog/browser-common@0.9.5':
     resolution: {integrity: sha512-oXnBgZvM8UQ84IcBLfGP0WSGd9rA0PCGR37H8Pw0NszJRwxwbJnFXIUih0pvI/ze2eGmzkIEC9i3SwC+bMAgjQ==}
 
-  '@posthog/core@1.51.2':
-    resolution: {integrity: sha512-z3fPR/RdOgTYWdHQnZZm81CCgljDxsrMsSz72Jpd2vJAtycsRYKOlMXdP8+55yM3WYeVU1wOyF9BldWsIABr+A==}
-
-  '@posthog/core@1.57.2':
-    resolution: {integrity: sha512-dfxeSjUvR+j4M7odvyf/KVdcKTZZ87u/l9swJtDt9vFkI2km3RhEveOkIHtFcZEQ1cllx7YaKJfdw6c8zfIEvg==}
-
-  '@posthog/core@1.59.0':
-    resolution: {integrity: sha512-KRq26v5fXYnwV5wqTAXzPyQLCrBzzhK78QRl7UyEaPFZ4RPmVo1pBObRDbK350ah+8hTfQPanu5mM8c4CaSn5g==}
-
   '@posthog/core@1.59.1':
     resolution: {integrity: sha512-P39YgzQVDh6oz6wAzQXEnoHgTYpM7gifonmVKq1scAJco79h31XmmNVurRq9tTmmyIrr1uX8FHT0riCsyfV9AQ==}
 
@@ -11018,8 +11036,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.22.2':
-    resolution: {integrity: sha512-mTG9qU03vVD0SPtf2hl+SStEVVSRRnYWNvbHb9wOqkOSLk/jjMEkmeTDkh6QRUifv0LgHg2C/syNiX501mAyEQ==}
+  '@posthog/mcp@0.23.0':
+    resolution: {integrity: sha512-pGWHFn3gXVcThM/fF8QgHf01SBdwQgOgv+HmWhMEzR63iJdCsy8sfD+b2ZTU0ZODAeTMmbwzRvJLc371/WWjvQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -11043,12 +11061,6 @@ packages:
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
-
-  '@posthog/types@1.412.4':
-    resolution: {integrity: sha512-Q7lV9O9TbLngjOYw1ucm3bS3tn48xb1B4ZQdDy8gv7yfKe99hCTeWYG4xZ36nJM80VxpTF9TriiJt5hngDOkBg==}
-
-  '@posthog/types@1.415.1':
-    resolution: {integrity: sha512-7Qs2wcqipl8KcFpIkIKE1Wcj1djX4dEB3cfq907HrNpKK7/xKh3U4N4bkOD6h9+8j3SxWWrj9JNpE8CZXsE35w==}
 
   '@posthog/types@1.416.0':
     resolution: {integrity: sha512-0/9+02s/0uDyrH4G/qUg1yyl6gXUg8Uuxw/PlDad3KLzo9FFS9zS/kAQaEshx/saVGupj1aAy/4EUBxWisBogw==}
@@ -20590,8 +20602,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@4.12.1:
-    resolution: {integrity: sha512-gZGdk1GZlfs042phwlQCX44gNanhkwZFEoEqkOtKc/YWzSokQcvNTDss8fpnvfe083KmRRHnjHosJOv3n8uEaA==}
+  posthog-js-lite@4.13.0:
+    resolution: {integrity: sha512-BGbyrKH4Xh8rxrfyYpleQ+6GWmoT2z+5sw9/SudHLfK7bYbh4HU3IAKbvO4ZTGricSYw/Em5jtN08BIsKq7ZXw==}
 
   posthog-js@1.438.12:
     resolution: {integrity: sha512-hjhvrtqbk6pFlbtNEGk0FrWKKFdeXe/WWA/LppN0f+uDoHKR9/SZJOxUHSVCGYbGTJvNRoDjjQvZuTcq4oKSlg==}
@@ -20604,8 +20616,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.56.1:
-    resolution: {integrity: sha512-TlEeE5OHNbsIje/htLwvmxN45/X0FcMSsln15cHdQqybUGj9Ebd0yyziWec0Fi5YQwMHYCfJPcNdgol/s1lIFA==}
+  posthog-node@5.56.2:
+    resolution: {integrity: sha512-1/qYFNuHkDJJuDHjAvozN/fH/+XdqzlIZ0WCsCYrhUgGNxDBw5M3kZaJaRX0YSPi9tn7PnZFD5eTXg2Z7m5LeQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -21201,6 +21213,12 @@ packages:
 
   react-grid-layout@2.2.4:
     resolution: {integrity: sha512-Eb57FsgOMYOfsUGrMI1ku/FFR+dPNPrE8qo+3hwZubpqVSy4GO9v52DeX50Tl3JDYAlCypP4rmw7Vrqk/zOIvA==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
+  react-grid-layout@2.3.0:
+    resolution: {integrity: sha512-4ofzuR/MlYchp+ixDUVBxH6ybaw+JH51M+rpf675ik/++4Dn0Kax/Vf2Gv/7Z++mV1ZC7mY9UV2sRRycjGjKXQ==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -30512,18 +30530,6 @@ snapshots:
       '@posthog/core': 1.59.1
       '@posthog/types': 1.416.0
 
-  '@posthog/core@1.51.2':
-    dependencies:
-      '@posthog/types': 1.412.4
-
-  '@posthog/core@1.57.2':
-    dependencies:
-      '@posthog/types': 1.415.1
-
-  '@posthog/core@1.59.0':
-    dependencies:
-      '@posthog/types': 1.416.0
-
   '@posthog/core@1.59.1':
     dependencies:
       '@posthog/types': 1.416.0
@@ -30555,10 +30561,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
+  '@posthog/mcp@0.23.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
     dependencies:
-      '@posthog/core': 1.57.2
-      posthog-node: 5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+      '@posthog/core': 1.59.1
+      posthog-node: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
@@ -30570,10 +30576,6 @@ snapshots:
       '@types/react': 18.3.27
 
   '@posthog/siphash@1.1.1': {}
-
-  '@posthog/types@1.412.4': {}
-
-  '@posthog/types@1.415.1': {}
 
   '@posthog/types@1.416.0': {}
 
@@ -42775,9 +42777,9 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@4.12.1:
+  posthog-js-lite@4.13.0:
     dependencies:
-      '@posthog/core': 1.51.2
+      '@posthog/core': 1.59.1
 
   posthog-js@1.438.12(@types/react@18.3.27)(react@18.3.1):
     dependencies:
@@ -42795,9 +42797,9 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
+  posthog-node@5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
     dependencies:
-      '@posthog/core': 1.59.0
+      '@posthog/core': 1.59.1
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       rxjs: 7.8.1
@@ -43609,6 +43611,17 @@ snapshots:
       unlayer-types: 1.521.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      clsx: 2.1.1
+      fast-equals: 4.0.3
+      prop-types: 15.8.1
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+      react-draggable: 4.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-resizable: 3.2.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      resize-observer-polyfill: 1.5.1
+
+  react-grid-layout@2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
       fast-equals: 4.0.3

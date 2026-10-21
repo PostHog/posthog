@@ -26,6 +26,13 @@ from products.experiments.backend.health.context import (
     FlagHistoryNotCheckedReason,
     HealthContext,
 )
+from products.experiments.backend.health.skips import (
+    NEEDS_VARIANTS,
+    CheckSkip,
+    flag_setup_skip,
+    not_applicable,
+    not_checked,
+)
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
 # `finding_variant` on the health finding events.
@@ -71,6 +78,29 @@ def history_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
     if not any(variant.key for variant in flag.variants):
         return None
     return history
+
+
+def flag_history_skip(ctx: HealthContext) -> CheckSkip | None:
+    """The states that `history_to_check` skips, in the order the reader is most likely to act on."""
+    skip = flag_setup_skip(ctx, before_launch=False)
+    if skip is not None or ctx.flag is None:
+        return skip
+    if not any(variant.key for variant in ctx.flag.variants):
+        return not_applicable(NEEDS_VARIANTS)
+    # Only the health endpoint loads the history, and it does for every state that reaches here, so None there
+    # means that the load failed.
+    if ctx.flag_history is None:
+        return not_checked("Couldn't check because the flag history failed to load")
+    return None
+
+
+def flag_change_skip(ctx: HealthContext) -> CheckSkip | None:
+    skip = flag_history_skip(ctx)
+    history = ctx.flag_history
+    # Without the history no change is known. `flag_history_not_readable` reports why.
+    if skip is None and isinstance(history, FlagHistoryNotChecked) and history.reason in _HISTORY_NOT_READ:
+        return not_checked(f"Couldn't check because {not_checked_because(history.reason)}")
+    return skip
 
 
 def flag_history_not_readable(ctx: HealthContext) -> ExperimentHealthFinding | None:

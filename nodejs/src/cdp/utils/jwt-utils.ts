@@ -15,6 +15,8 @@ export enum PosthogJwtAudience {
     WORKFLOW_CLASSIFY = 'posthog:workflows:classify',
     // Must match PosthogJwtAudience.WORKFLOW_VISION_REQUEST in posthog/jwt.py exactly.
     WORKFLOW_VISION_REQUEST = 'posthog:workflows:vision_request',
+    // Must match PosthogJwtAudience.WORKFLOW_ADD_TO_STATIC_COHORT in posthog/jwt.py exactly.
+    WORKFLOW_ADD_TO_STATIC_COHORT = 'posthog:workflows:add_to_static_cohort',
     // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
     CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
     // Must match PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS in posthog/jwt.py exactly.
