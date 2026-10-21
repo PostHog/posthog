@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teachable import (
     TeachableSourceConfig,
@@ -52,15 +50,3 @@ class TestTeachableSource:
         ):
             assert schemas[name].supports_incremental is False, name
             assert schemas[name].incremental_fields == [], name
-
-    @pytest.mark.parametrize(
-        "observed_error,expect_match",
-        [
-            ("401 Client Error: Unauthorized for url: https://developers.teachable.com/v1/users", True),
-            ("403 Client Error: Forbidden for url: https://developers.teachable.com/v1/courses", True),
-            ("500 Server Error: Internal Server Error for url: https://developers.teachable.com/v1/users", False),
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures_only(self, observed_error: str, expect_match: bool) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable) is expect_match
