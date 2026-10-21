@@ -201,8 +201,9 @@ export interface ToolFilterOptions {
     featureFlags?: EvaluatedFlags | undefined
     /**
      * Project IDs the token is restricted to (`scoped_teams` on the API key).
-     * When set, the backend 403s any org-level endpoint, so we drop tools that
-     * need `organization:*` scopes — they'd fail anyway.
+     * When set, the backend 403s every route that names no project, so we drop
+     * tools that need `organization:*` scopes or call such a route. They would
+     * fail anyway.
      */
     scopedTeams?: number[] | undefined
     /** Org's plan entitlements (`available_product_features` keys). Undefined when unresolved. */
@@ -290,6 +291,21 @@ export function toolPassesEntitlementGate(
 }
 
 /**
+ * Whether a tool calls a route under an organization that names no project. The backend refuses
+ * those routes for a project-scoped token. The projects collection is not one of them, because
+ * its routes take the project from the URL or from the user's current project.
+ */
+function callsOrganizationRoute(definition: ToolDefinition): boolean {
+    return (definition.api_operations ?? []).some((operation) => {
+        const path = operation.split(' ')[1] ?? ''
+        return (
+            path.startsWith('/api/organizations/{organization_id}/') &&
+            !path.startsWith('/api/organizations/{organization_id}/projects/')
+        )
+    })
+}
+
+/**
  * Every catalog filter, with the flag gate optional: {@link getToolsForFeatures}
  * drops what the flags hide, {@link getFlagGatedTools} keeps exactly that set.
  */
@@ -345,7 +361,9 @@ function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate
     // project-scoped - the backend would 403 them
     if (scopedTeams && scopedTeams.length > 0) {
         entries = entries.filter(
-            ([_, definition]) => !(definition.required_scopes ?? []).some((scope) => scope.startsWith('organization'))
+            ([_, definition]) =>
+                !(definition.required_scopes ?? []).some((scope) => scope.startsWith('organization')) &&
+                !callsOrganizationRoute(definition)
         )
     }
 
