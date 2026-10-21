@@ -64,8 +64,9 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]:
@@ -2698,6 +2699,35 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
+        # Pausing keeps `is_materialized` and the table but clears the cadence, so it can't retry.
+        paused = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="paused_orders_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+            table=DataWarehouseTable.objects.create(team=self.team, name="paused_orders_rollup", format="Delta"),
+        )
+        # Tiered views keep their cadence on the node only, with the column empty.
+        tiered = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tiered_daily_active_users",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+        )
+        tiered_node = sync_saved_query_to_dag(tiered)
+        assert tiered_node is not None
+        set_declared_target(tiered_node, dt.timedelta(hours=1))
+        for sq in (paused, tiered):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                last_run_at=timezone.now() - dt.timedelta(hours=1),
+            )
+
         # A success breaks the streak, so only the three failures after it count.
         ongoing = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -2727,12 +2757,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         message = mocked_email_messages[0]
         assert message.subject == (
-            f"PostHog: 2 materialized views need action, 3 started failing, 1 is still failing in {self.team.name}"
+            f"PostHog: 3 materialized views need action, 4 started failing, 1 is still failing in {self.team.name}"
         )
         sections = {s["key"]: [v["name"] for v in s["views"]] for s in message.properties["sections"]}
         assert list(sections) == ["action", "new", "ongoing"]
-        assert sorted(sections["action"]) == sorted(name for name, _ in unscheduled_cases)
-        assert sorted(sections["new"]) == sorted(name for name, _ in failed_cases)
+        assert sorted(sections["action"]) == sorted([*(name for name, _ in unscheduled_cases), paused.name])
+        assert sorted(sections["new"]) == sorted([*(name for name, _ in failed_cases), tiered.name])
         assert sections["ongoing"] == ["nightly_revenue_rollup"]
         ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
         assert ongoing_row["failed_runs"] == 3
@@ -2740,7 +2770,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         html = message.html_body
         assert html.count("Not scheduled.") == len(unscheduled_cases)
-        assert html.count("First failed") == len(failed_cases)
+        assert html.count("Paused.") == 1
+        assert html.count("First failed") == len(failed_cases) + 1
         assert "3 failed runs" in html
         assert "select Resume" not in html
 

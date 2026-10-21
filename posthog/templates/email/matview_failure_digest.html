@@ -71,7 +71,10 @@
                             {% if view.suspended %}
                                 <br />
                                 <span style="color: #b91c1c; font-size: 0.9em;">Suspended after repeated failures. Fix the error, then select Resume on the view.</span>
-                            {% elif not view.scheduled %}
+                            {% elif view.schedule == "paused" %}
+                                <br />
+                                <span style="color: #92400e; font-size: 0.9em;">Paused. Choose a sync frequency in the view's materialization settings to restart it.</span>
+                            {% elif view.schedule == "reverted" %}
                                 <br />
                                 <span style="color: #92400e; font-size: 0.9em;">Not scheduled. Materialize the view again to restart it.</span>
                             {% endif %}

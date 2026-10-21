@@ -61,6 +61,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.api import (
+    declared_targets_by_saved_query,
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
 )
@@ -1469,6 +1470,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         )
     }
     new_failure_cutoff = timezone.now() - datetime.timedelta(hours=24)
+    declared_targets = declared_targets_by_saved_query(team_id, all_ids)
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
@@ -1496,11 +1498,16 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
-        # Reverting clears the schedule, so promising a retry here would be false. `is not False`
-        # keeps a never-written flag on the retrying side, as `exclude(deleted=True)` does above.
-        scheduled = sq.is_materialized is not False
+        # `is_materialized` stays True after a pause, so read the cadence and the table instead.
+        # Pausing clears the cadence and keeps the table; reverting clears both.
+        if qid in declared_targets or sq.sync_frequency_interval is not None:
+            schedule = "scheduled"
+        elif sq.table_id is not None:
+            schedule = "paused"
+        else:
+            schedule = "reverted"
         failing_since: datetime.datetime | None = getattr(sq, "failing_since", None) or run_at
-        if suspended or not scheduled:
+        if suspended or schedule != "scheduled":
             section = "action"
         elif failing_since is None or failing_since >= new_failure_cutoff:
             section = "new"
@@ -1517,7 +1524,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "failed_runs": getattr(sq, "failed_runs", None) or 1,
                 "section": section,
                 "suspended": suspended,
-                "scheduled": scheduled,
+                "schedule": schedule,
                 "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
             }
         )
