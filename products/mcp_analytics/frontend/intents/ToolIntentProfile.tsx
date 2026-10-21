@@ -12,6 +12,13 @@ import type {
 } from '~/queries/schema/schema-general'
 
 import { formatNumber } from '../dashboard/formatters'
+import { TopicTrend } from './TopicTrend'
+
+interface MapLinkContext {
+    toolName: string
+    dateFrom: string | null
+    dateTo: string | null
+}
 
 const BAND_LABEL: Record<string, { label: string; tagType: 'success' | 'warning' | 'danger' }> = {
     consolidated: { label: 'Consolidated', tagType: 'success' },
@@ -35,32 +42,23 @@ function Card({ title, help, children }: { title: string; help?: string; childre
     )
 }
 
-function TrendArrow({ trendPp }: { trendPp: number | null }): JSX.Element | null {
-    if (trendPp === null) {
-        return <span className="text-xs text-secondary">new</span>
-    }
-    if (Math.abs(trendPp) < 0.05) {
-        return <span className="text-xs text-secondary">flat</span>
-    }
-    return (
-        <span className={`text-xs ${trendPp > 0 ? 'text-success' : 'text-danger'}`}>
-            {trendPp > 0 ? '▲' : '▼'} {Math.abs(trendPp).toFixed(1)} pp
-        </span>
-    )
-}
-
-function TopicRow({ topic, toolName }: { topic: MCPIntentTopicItem; toolName: string }): JSX.Element {
+function TopicRow({ topic, link }: { topic: MCPIntentTopicItem; link: MapLinkContext }): JSX.Element {
     return (
         <li className="flex flex-col gap-1 text-sm">
             <LinkPrimitive
-                to={urls.mcpAnalyticsIntentMap({ tool: toolName, topic: topic.topic_id })}
+                to={urls.mcpAnalyticsIntentMap({
+                    tool: link.toolName,
+                    topic: topic.topic_id,
+                    dateFrom: link.dateFrom,
+                    dateTo: link.dateTo,
+                })}
                 className="line-clamp-2 break-words"
             >
                 {topic.label}
             </LinkPrimitive>
             <div className="flex items-center gap-2 text-xs text-secondary">
                 <span className="shrink-0">{topic.share_pct.toFixed(1)}%</span>
-                <TrendArrow trendPp={topic.trend_pp} />
+                <TopicTrend trendPp={topic.trend_pp} />
                 {topic.sparkline?.length ? (
                     // The sparkline sizes itself by bucket count; w-full keeps it inside the card.
                     <Sparkline data={topic.sparkline} type="bar" className="h-5 w-full min-w-0 flex-1" name="calls" />
@@ -73,11 +71,11 @@ function TopicRow({ topic, toolName }: { topic: MCPIntentTopicItem; toolName: st
 function DriftGroup({
     title,
     refs,
-    toolName,
+    link,
 }: {
     title: string
     refs: MCPIntentTopicRef[]
-    toolName: string
+    link: MapLinkContext
 }): JSX.Element | null {
     if (refs.length === 0) {
         return null
@@ -89,7 +87,12 @@ function DriftGroup({
                 {refs.map((ref) => (
                     <LinkPrimitive
                         key={ref.topic_id}
-                        to={urls.mcpAnalyticsIntentMap({ tool: toolName, topic: ref.topic_id })}
+                        to={urls.mcpAnalyticsIntentMap({
+                            tool: link.toolName,
+                            topic: ref.topic_id,
+                            dateFrom: link.dateFrom,
+                            dateTo: link.dateTo,
+                        })}
                         className="max-w-full"
                     >
                         <LemonTag className="h-auto max-w-full whitespace-normal">
@@ -115,10 +118,14 @@ function OutlierRow({ outlier }: { outlier: MCPIntentOutlierItem }): JSX.Element
 /** The four things a tool page says about intent: focus, top topics, drift, outliers. */
 export function ToolIntentProfile({
     toolName,
+    dateFrom,
+    dateTo,
     profile,
     loading,
 }: {
     toolName: string
+    dateFrom: string | null
+    dateTo: string | null
     profile: MCPToolIntentProfileQueryResponse | null
     loading: boolean
 }): JSX.Element {
@@ -142,7 +149,8 @@ export function ToolIntentProfile({
     const band = BAND_LABEL[profile.focus.band] ?? BAND_LABEL.mixed
     const drift = profile.drift
     const hasDrift = drift.new.length + drift.growing.length + drift.shrinking.length + drift.gone.length > 0
-    const mapUrl = urls.mcpAnalyticsIntentMap({ tool: toolName })
+    const link: MapLinkContext = { toolName, dateFrom, dateTo }
+    const mapUrl = urls.mcpAnalyticsIntentMap({ tool: toolName, dateFrom, dateTo })
 
     return (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4" data-attr="mcp-tool-intent-profile">
@@ -169,7 +177,7 @@ export function ToolIntentProfile({
             >
                 <ul className="m-0 flex list-none flex-col gap-2 p-0">
                     {profile.results.map((topic) => (
-                        <TopicRow key={topic.topic_id} topic={topic} toolName={toolName} />
+                        <TopicRow key={topic.topic_id} topic={topic} link={link} />
                     ))}
                 </ul>
             </Card>
@@ -179,10 +187,10 @@ export function ToolIntentProfile({
             >
                 {hasDrift ? (
                     <div className="flex flex-col gap-2">
-                        <DriftGroup title="New" refs={drift.new} toolName={toolName} />
-                        <DriftGroup title="Growing" refs={drift.growing} toolName={toolName} />
-                        <DriftGroup title="Shrinking" refs={drift.shrinking} toolName={toolName} />
-                        <DriftGroup title="Gone" refs={drift.gone} toolName={toolName} />
+                        <DriftGroup title="New" refs={drift.new} link={link} />
+                        <DriftGroup title="Growing" refs={drift.growing} link={link} />
+                        <DriftGroup title="Shrinking" refs={drift.shrinking} link={link} />
+                        <DriftGroup title="Gone" refs={drift.gone} link={link} />
                     </div>
                 ) : (
                     <div className="text-sm text-secondary">No topic moved enough to count as drift.</div>

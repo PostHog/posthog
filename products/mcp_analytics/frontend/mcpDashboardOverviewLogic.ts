@@ -405,6 +405,7 @@ export interface mcpDashboardOverviewLogicValues {
     hasProtocolVersionData: boolean
     intentClusterCount: KPIMetric
     intentTopics: MCPIntentTopicsQueryResponse | null
+    intentTopicsFailed: boolean
     intentTopicsLoading: boolean
     interval: IntervalType
     kpiIncompleteTail: boolean
@@ -718,6 +719,15 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
+        // The loader keeps the last topics on failure, so the card needs its own failure flag.
+        intentTopicsFailed: [
+            false,
+            {
+                loadIntentTopics: () => false,
+                loadIntentTopicsSuccess: () => false,
+                loadIntentTopicsFailure: () => true,
+            },
+        ],
         feedbackLoadFailed: [
             false,
             {

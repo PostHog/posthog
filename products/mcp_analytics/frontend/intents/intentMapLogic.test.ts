@@ -2,11 +2,13 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { urls } from '~/scenes/urls'
 import { initKeaTests } from '~/test/init'
 
-import { BASE_POINT_LIMIT, ZOOMED_POINT_LIMIT, intentMapLogic } from './intentMapLogic'
+import { BASE_POINT_LIMIT, TOPIC_POINTS_PAGE_SIZE, ZOOMED_POINT_LIMIT, intentMapLogic } from './intentMapLogic'
 
 jest.mock('lib/api')
 
@@ -59,6 +61,10 @@ describe('intentMapLogic', () => {
         initKeaTests()
         mockQuery.mockReset()
         mockQuery.mockResolvedValue(RESPONSE)
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], {
+            [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true,
+        })
         logic = intentMapLogic()
     })
 
@@ -68,20 +74,22 @@ describe('intentMapLogic', () => {
 
     it('reads tool, topic and dates from the url and loads the map once', async () => {
         logic.mount()
-        router.actions.push(urls.mcpAnalyticsIntentMap({ tool: 'query-trends', topic: 'a' }) + '&date_from=-30d')
+        router.actions.push(
+            urls.mcpAnalyticsIntentMap({ tool: 'query-trends', topic: 'a', dateFrom: '-30d', dateTo: '-1d' })
+        )
 
         await expectLogic(logic).toDispatchActions(['setTool', 'setTopicId', 'setDateFilter', 'loadMapSuccess'])
 
         expect(logic.values.tool).toBe('query-trends')
         expect(logic.values.topicId).toBe('a')
-        expect(logic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: null })
+        expect(logic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: '-1d' })
         expect(mockQuery).toHaveBeenCalledTimes(1)
         expect(mockQuery).toHaveBeenLastCalledWith(
             expect.objectContaining({
                 kind: 'MCPIntentMapQuery',
                 toolName: 'query-trends',
                 topicId: 'a',
-                dateRange: { date_from: '-30d', date_to: null },
+                dateRange: { date_from: '-30d', date_to: '-1d' },
                 limit: BASE_POINT_LIMIT,
             })
         )
@@ -136,5 +144,55 @@ describe('intentMapLogic', () => {
         expect(router.values.searchParams).toEqual(expect.objectContaining({ topic: 'b' }))
         expect(mockQuery).toHaveBeenLastCalledWith(expect.objectContaining({ topicId: 'b', limit: BASE_POINT_LIMIT }))
         expect(mockQuery).toHaveBeenLastCalledWith(expect.not.objectContaining({ bounds: expect.anything() }))
+    })
+
+    it('sends no query while the intent topics flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic.mount()
+        router.actions.push(urls.mcpAnalyticsIntentMap())
+
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+
+        expect(mockQuery).not.toHaveBeenCalled()
+        expect(logic.values.points).toEqual([])
+    })
+
+    it('keeps a failed load apart from an empty map until a load succeeds', async () => {
+        mockQuery.mockRejectedValueOnce(new Error('timeout'))
+        logic.mount()
+        router.actions.push(urls.mcpAnalyticsIntentMap())
+        await expectLogic(logic).toDispatchActions(['loadMapFailure'])
+
+        expect(logic.values.mapError).toBeTruthy()
+
+        logic.actions.loadMap()
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+
+        expect(logic.values.mapError).toBeNull()
+    })
+
+    it('shows the selected topic intents one page at a time', async () => {
+        const many = Array.from({ length: TOPIC_POINTS_PAGE_SIZE * 2 + 5 }, (_, i) => ({
+            ...RESPONSE.results[0],
+            intent_hash: `h${i}`,
+            calls: 1000 - i,
+        }))
+        mockQuery.mockResolvedValue({ ...RESPONSE, results: many })
+        logic.mount()
+        router.actions.push(urls.mcpAnalyticsIntentMap())
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+
+        logic.actions.selectTopic('a')
+        expect(logic.values.visibleTopicPoints.map((p) => p.intent_hash)).toEqual(
+            many.slice(0, TOPIC_POINTS_PAGE_SIZE).map((p) => p.intent_hash)
+        )
+
+        logic.actions.showMoreTopicPoints()
+        logic.actions.showMoreTopicPoints()
+        expect(logic.values.visibleTopicPoints).toHaveLength(many.length)
+
+        logic.actions.selectTopic('b')
+        logic.actions.selectTopic('a')
+        expect(logic.values.visibleTopicPoints).toHaveLength(TOPIC_POINTS_PAGE_SIZE)
     })
 })

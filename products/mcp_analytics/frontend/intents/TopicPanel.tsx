@@ -6,14 +6,15 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { urls } from 'scenes/urls'
 
 import { formatNumber } from '../dashboard/formatters'
-import { intentMapLogic } from './intentMapLogic'
+import { TOPIC_POINTS_PAGE_SIZE, intentMapLogic } from './intentMapLogic'
 import { topicColor } from './intentScatter'
 
 /** Right-hand panel: the topic list as a legend, or the selected topic with its intents. */
 export function TopicPanel(): JSX.Element {
-    const { topics, selectedTopic, selectedTopicPoints, topicId, totalPoints, points, mapLoading } =
+    const { topics, selectedTopic, selectedTopicPoints, visibleTopicPoints, topicId, totalPoints, points, mapLoading } =
         useValues(intentMapLogic)
-    const { selectTopic, setTopicId } = useActions(intentMapLogic)
+    const { selectTopic, setTopicId, showMoreTopicPoints } = useActions(intentMapLogic)
+    const hiddenTopicPoints = selectedTopicPoints.length - visibleTopicPoints.length
 
     if (selectedTopic) {
         return (
@@ -62,7 +63,7 @@ export function TopicPanel(): JSX.Element {
                                 : 'No intents of this topic in the current view. Drag on the map to zoom, or widen the date range.'}
                         </li>
                     ) : (
-                        selectedTopicPoints.map((point) => (
+                        visibleTopicPoints.map((point) => (
                             <li key={point.intent_hash} className="rounded border px-2 py-1 text-sm">
                                 <div className="break-words">{point.intent_text}</div>
                                 <div className="flex flex-wrap items-center gap-1 text-xs text-secondary">
@@ -77,6 +78,20 @@ export function TopicPanel(): JSX.Element {
                             </li>
                         ))
                     )}
+                    {hiddenTopicPoints > 0 ? (
+                        <li>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                fullWidth
+                                center
+                                onClick={() => showMoreTopicPoints()}
+                                data-attr="mcp-intent-topic-show-more"
+                            >
+                                {`Show ${formatNumber(Math.min(hiddenTopicPoints, TOPIC_POINTS_PAGE_SIZE))} more of ${formatNumber(hiddenTopicPoints)}`}
+                            </LemonButton>
+                        </li>
+                    ) : null}
                 </ul>
             </div>
         )

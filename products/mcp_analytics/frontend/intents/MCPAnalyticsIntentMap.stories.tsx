@@ -67,6 +67,8 @@ function pointsAround(topic: (typeof TOPICS)[number], count: number, seed: numbe
 }
 
 const POINTS = TOPICS.flatMap((topic, index) => pointsAround(topic, 18, index * 31))
+// The mocked query endpoint fails for this tool, so a story can show the error screen.
+const FAILING_TOOL = 'tool-with-a-failing-query'
 
 const meta: Meta = {
     title: 'Scenes-App/MCP Analytics/Intent map',
@@ -84,6 +86,9 @@ const meta: Meta = {
                     }
                     if (body?.query?.kind !== 'MCPIntentMapQuery') {
                         return [200, { results: [] }]
+                    }
+                    if (body.query.toolName === FAILING_TOOL) {
+                        return [500, { detail: 'Query timed out' }]
                     }
                     const topicId = body.query.topicId
                     const points = topicId ? POINTS.filter((p) => p.topic_id === topicId) : POINTS
@@ -114,4 +119,8 @@ export const IntentMapOneTopic: Story = {
 
 export const IntentMapFlagOff: Story = {
     parameters: { pageUrl: urls.mcpAnalyticsIntentMap(), featureFlags: [] },
+}
+
+export const IntentMapLoadFailed: Story = {
+    parameters: { pageUrl: urls.mcpAnalyticsIntentMap({ tool: FAILING_TOOL }) },
 }

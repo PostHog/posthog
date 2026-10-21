@@ -1,33 +1,28 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { urls } from 'scenes/urls'
 
 import type { MCPIntentTopicItem, MCPIntentTopicsQueryResponse } from '~/queries/schema/schema-general'
 
+import { TopicTrend } from '../intents/TopicTrend'
 import { formatNumber } from './formatters'
-
-function Trend({ trendPp }: { trendPp: number | null }): JSX.Element {
-    if (trendPp === null) {
-        return <span className="text-xs text-secondary">new</span>
-    }
-    if (Math.abs(trendPp) < 0.05) {
-        return <span className="text-xs text-secondary">flat</span>
-    }
-    return (
-        <span className={`text-xs ${trendPp > 0 ? 'text-success' : 'text-danger'}`}>
-            {trendPp > 0 ? '▲' : '▼'} {Math.abs(trendPp).toFixed(1)} pp
-        </span>
-    )
-}
 
 /** "What agents use your server for": the top intent topics with share and trend, and a way into the map. */
 export function IntentTopicsCard({
     topics,
     loading,
+    failed,
+    onRetry,
+    dateFrom,
+    dateTo,
 }: {
     topics: MCPIntentTopicsQueryResponse | null
     loading: boolean
+    failed: boolean
+    onRetry: () => void
+    dateFrom: string | null
+    dateTo: string | null
 }): JSX.Element {
     const items: MCPIntentTopicItem[] = topics?.results ?? []
     const maxShare = Math.max(1, ...items.map((item) => item.share_pct))
@@ -40,7 +35,7 @@ export function IntentTopicsCard({
             <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-col">
                     <h3 className="mb-0 text-sm font-semibold">What agents use your server for</h3>
-                    {topics ? (
+                    {topics && !failed ? (
                         <span className="text-xs text-secondary">
                             {formatNumber(topics.coverage.calls_assigned)} of{' '}
                             {formatNumber(topics.coverage.calls_with_intent)} calls with an intent have a topic
@@ -48,14 +43,24 @@ export function IntentTopicsCard({
                     ) : null}
                 </div>
                 <LinkPrimitive
-                    to={urls.mcpAnalyticsIntentMap()}
+                    to={urls.mcpAnalyticsIntentMap({ dateFrom, dateTo })}
                     className="text-xs"
                     data-attr="mcp-dashboard-intent-topics-open-map"
                 >
                     Open intent map
                 </LinkPrimitive>
             </div>
-            {loading && !topics ? (
+            {failed && !loading ? (
+                <div
+                    className="flex items-center gap-2 text-sm text-secondary"
+                    data-attr="mcp-dashboard-intent-topics-error"
+                >
+                    <span>Intent topics couldn't load.</span>
+                    <LemonButton size="xsmall" type="secondary" onClick={onRetry}>
+                        Try again
+                    </LemonButton>
+                </div>
+            ) : loading && (!topics || failed) ? (
                 <LemonSkeleton className="h-32" />
             ) : items.length === 0 ? (
                 <div className="text-sm text-secondary">No intent topics yet for this date range.</div>
@@ -65,14 +70,14 @@ export function IntentTopicsCard({
                         <li key={item.topic_id} className="flex flex-col gap-0.5">
                             <div className="flex items-center justify-between gap-2 text-sm">
                                 <LinkPrimitive
-                                    to={urls.mcpAnalyticsIntentMap({ topic: item.topic_id })}
+                                    to={urls.mcpAnalyticsIntentMap({ topic: item.topic_id, dateFrom, dateTo })}
                                     className="min-w-0 truncate"
                                 >
                                     {item.label}
                                 </LinkPrimitive>
                                 <div className="flex shrink-0 items-center gap-2">
                                     <span className="text-xs text-secondary">{item.share_pct.toFixed(1)}%</span>
-                                    <Trend trendPp={item.trend_pp} />
+                                    <TopicTrend trendPp={item.trend_pp} />
                                 </div>
                             </div>
                             <div className="h-1.5 w-full rounded bg-fill-highlight-100">

@@ -38,6 +38,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         intentClusterCount,
         intentTopics,
         intentTopicsLoading,
+        intentTopicsFailed,
         notableSessions,
         sessionRowsLoading,
         harnessRows,
@@ -62,7 +63,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         canShowFeedback,
         feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadIntentTopics } =
+        useActions(mcpDashboardOverviewLogic)
     const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
@@ -99,7 +101,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     protocolVersionRowsLoading ||
                     activityRowsLoading ||
                     toolDailyRowsLoading ||
-                    toolRowsLoading
+                    toolRowsLoading ||
+                    intentTopicsLoading
                 }
             >
                 <McpDateFilter
@@ -160,7 +163,14 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             )}
             {showIntentTopics && (
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
-                    <IntentTopicsCard topics={intentTopics} loading={intentTopicsLoading} />
+                    <IntentTopicsCard
+                        topics={intentTopics}
+                        loading={intentTopicsLoading}
+                        failed={intentTopicsFailed}
+                        onRetry={loadIntentTopics}
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                    />
                 </section>
             )}
             {showUsage && (
