@@ -246,6 +246,7 @@ The write path is gated by `scouts-tool-access` and fails closed when the flag i
 While the flag is on, a run stamps the list on its task at dispatch, and a config edit applies from the next run.
 The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
 The run-context tools include `skill-get` and `skill-file-get`, so even an empty selection can load its skill and reference files without granting skill writes.
+The tool catalogue returns `run_context_tools` for the picker’s always-available group. The picker excludes these from choices and removes redundant entries from saved lists when editing them.
 The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
 The method counts because some actions change state behind a read scope.
 Harness run writes and run-context writes are restricted to the token-bound task’s current run.
