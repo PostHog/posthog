@@ -134297,6 +134297,7 @@ export namespace Schemas {
     export const UploadedMediaListPurpose = {
       Canvas: 'canvas',
       Email: 'email',
+      Experiment: 'experiment',
     } as const;
 
     /**
@@ -134308,6 +134309,7 @@ export namespace Schemas {
     export const UploadedMediaCreateBodyPurpose = {
       Email: 'email',
       Canvas: 'canvas',
+      Experiment: 'experiment',
     } as const;
 
     export type UploadedMediaCreateBody = {
