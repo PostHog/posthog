@@ -570,7 +570,7 @@ export function VisualImageDiffViewer({
             // Skip when the bbox coord space doesn't match the rendered
             // image (size-mismatch case).
             return (
-                <div className="grid grid-cols-1 items-start justify-items-center gap-3 p-3 @3xl/image-diff:grid-cols-2">
+                <div className="grid grid-cols-1 items-start justify-items-center gap-3 p-3 @md/image-diff:grid-cols-2">
                     <ImagePanel
                         url={baselineUrl}
                         label="Before"
