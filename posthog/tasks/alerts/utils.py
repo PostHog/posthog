@@ -396,7 +396,18 @@ def prepare_alert_insight_chart_url(
     return render_alert_insight_chart_url(alert, render_user)
 
 
-def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User | None = None) -> str | None:
+@frozen
+class RenderedInsightChart:
+    """A chart rendered for an alert, by id. The URL that opens it is minted from these when a message
+    goes out, because that URL opens the chart without a login and must not be stored."""
+
+    asset_id: int
+    render_user_id: int
+
+
+def render_alert_insight_chart(
+    alert: AlertConfiguration, render_user: User | None = None
+) -> RenderedInsightChart | None:
     """Render the alerted insight for its Slack destinations, or None when none would show it.
 
     Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None. The render user
@@ -427,12 +438,33 @@ def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User 
                 exception=asset.exception,
             )
             return None
-        return exports.get_delivery_image_url(
-            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
-        )
+        return RenderedInsightChart(asset_id=asset.id, render_user_id=render_user.id)
     except Exception:
         logger.exception("alerts.insight_chart_render_failed", alert_id=str(alert.id))
         return None
+
+
+def insight_chart_url(*, team_id: int, chart: RenderedInsightChart) -> str | None:
+    """The URL a message embeds for a rendered chart, or None when the asset is gone.
+
+    The ids may come back from storage, so the asset is pinned to the user that rendered it.
+    """
+    try:
+        return exports.get_delivery_image_url(
+            team_id=team_id,
+            asset_id=chart.asset_id,
+            expiry_delta=_INSIGHT_CHART_URL_TTL,
+            created_by_id=chart.render_user_id,
+        )
+    except Exception:
+        logger.exception("alerts.insight_chart_url_failed", asset_id=chart.asset_id)
+        return None
+
+
+def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User | None = None) -> str | None:
+    """Render the alerted insight and mint the URL that embeds it, or None when no chart applies."""
+    chart = render_alert_insight_chart(alert, render_user)
+    return insight_chart_url(team_id=alert.team_id, chart=chart) if chart is not None else None
 
 
 def detector_verdict_event_fields(alert_check: AlertCheck) -> dict[str, str]:
