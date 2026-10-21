@@ -30865,6 +30865,8 @@ export namespace Schemas {
     export interface DatabaseSchemaQuery {
       /** Optional direct external data source id for schema introspection */
       connectionId?: string | null;
+      /** Select the native managed Trino catalog instead of the default PostHog catalog. */
+      executionTarget?: ExecutionTarget | null;
       /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
       includeFields?: boolean | null;
       kind?: 'DatabaseSchemaQuery';
