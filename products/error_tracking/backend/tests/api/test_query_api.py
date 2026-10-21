@@ -79,8 +79,14 @@ def test_release_filter_adds_substring_prefilter() -> None:
     assert "JSONExtractKeysAndValuesRaw" in str(filters[1]["key"])
 
 
-def test_build_sparkline_accepts_float_values() -> None:
-    assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
+@parameterized.expand(
+    [
+        ("float values", [1.0, 2.5], 2, [1.0, 2.5]),
+        ("doubled odd resolution adds pairs back together", [1, 0, 2, 3, 0, 1], 3, [1, 5, 1]),
+    ]
+)
+def test_build_sparkline(_name: str, volume_range: list[float], volume_resolution: int, expected: list[float]) -> None:
+    assert build_sparkline({"aggregations": {"volumeRange": volume_range}}, volume_resolution) == expected
 
 
 OLD_FIRST_SEEN = datetime(2026, 4, 1, tzinfo=UTC)
@@ -727,6 +733,36 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             "project": "posthog-js",
             "timestamp": "2026-03-31T09:00:00Z",
         }
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_trend_splits_an_odd_volume_resolution_at_the_midpoint(self) -> None:
+        self.create_issue()
+        for timestamp in [
+            "2026-04-21T12:00:00Z",
+            "2026-04-22T06:00:00Z",
+            "2026-04-22T18:00:00Z",
+            "2026-04-23T12:00:00Z",
+        ]:
+            self.create_exception_event(timestamp=datetime.fromisoformat(timestamp))
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "2026-04-21T00:00:00Z", "date_to": "2026-04-24T00:00:00Z"},
+                "includeSparkline": True,
+                "volumeResolution": 3,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["sparkline"] == [1, 2, 1]
+        assert data["trend"]["previous_occurrences"] == 2
+        assert data["trend"]["current_occurrences"] == 2
+        assert data["trend"]["current_from"] == "2026-04-22T12:00:00+00:00"
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:

@@ -41442,7 +41442,7 @@ export namespace Schemas {
       first_release?: ErrorTrackingLatestRelease;
       /** Compact impact counts. */
       impact?: ErrorTrackingImpact;
-      /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange or volumeResolution is 1. */
+      /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */
       trend?: ErrorTrackingIssueTrend;
       /** Optional compact occurrence sparkline. */
       sparkline?: number[];

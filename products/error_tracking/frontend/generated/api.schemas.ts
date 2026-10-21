@@ -1343,7 +1343,7 @@ export interface ErrorTrackingIssueDetailApi {
     first_release?: ErrorTrackingLatestReleaseApi
     /** Compact impact counts. */
     impact?: ErrorTrackingImpactApi
-    /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange or volumeResolution is 1. */
+    /** Whether the issue is getting worse or better: occurrences in the second half of dateRange against the first half. Absent when the issue has no occurrences in dateRange. */
     trend?: ErrorTrackingIssueTrendApi
     /** Optional compact occurrence sparkline. */
     sparkline?: number[]

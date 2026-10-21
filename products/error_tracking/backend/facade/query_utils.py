@@ -665,24 +665,34 @@ def volume_bucket_records(issue: dict[str, object]) -> list[dict[str, object]]:
     return [record for bucket in volume_buckets if (record := as_record(bucket)) is not None]
 
 
-def build_sparkline(issue: dict[str, object]) -> list[float] | None:
+def build_sparkline(issue: dict[str, object], volume_resolution: int) -> list[float] | None:
     aggregations = as_record(issue.get("aggregations")) or {}
     volume_range = aggregations.get("volumeRange")
+    values: list[float] = []
     if isinstance(volume_range, list):
-        numeric_values: list[float] = []
         for value in volume_range:
             numeric_value = to_number(value)
             if numeric_value is None:
                 return None
-            numeric_values.append(numeric_value)
-        return numeric_values
-    values = [value for record in volume_bucket_records(issue) if (value := to_number(record.get("value"))) is not None]
+            values.append(numeric_value)
+    else:
+        values = [
+            value for record in volume_bucket_records(issue) if (value := to_number(record.get("value"))) is not None
+        ]
+    if len(values) == volume_resolution * 2:
+        # trend_volume_resolution doubled the count, so add each pair of buckets back together.
+        values = [first + second for first, second in zip(values[::2], values[1::2])]
     return values or None
 
 
 # The fewest volume buckets that split the date range into two halves.
 TREND_VOLUME_RESOLUTION = 2
 TREND_CHANGE_FRACTION = 0.25
+
+
+def trend_volume_resolution(volume_resolution: int) -> int:
+    # An odd count has no bucket edge at the midpoint of the date range.
+    return volume_resolution * 2 if volume_resolution % 2 else volume_resolution
 
 
 def trend_direction(

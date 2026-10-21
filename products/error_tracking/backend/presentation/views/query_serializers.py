@@ -431,7 +431,7 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
         required=False,
         help_text=(
             "Whether the issue is getting worse or better: occurrences in the second half of dateRange against the "
-            "first half. Absent when the issue has no occurrences in dateRange or volumeResolution is 1."
+            "first half. Absent when the issue has no occurrences in dateRange."
         ),
     )
     sparkline = serializers.ListField(

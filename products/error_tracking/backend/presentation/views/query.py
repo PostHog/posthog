@@ -65,6 +65,7 @@ from products.error_tracking.backend.facade.query_utils import (
     map_issue_breakdown,
     normalize_volume_resolution,
     pick_fields,
+    trend_volume_resolution,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueBreakdownSerializer,
@@ -169,6 +170,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         volume_resolution = cast(int, params.get("volumeResolution", 0))
         if volume_resolution <= 0:
             volume_resolution = 12 if include_sparkline else TREND_VOLUME_RESOLUTION
+        volume_resolution = normalize_volume_resolution(volume_resolution)
         issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
         if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -177,7 +179,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             issueId=issue_id,
             dateRange=DateRange(**date_range),
             filterTestAccounts=filter_test_accounts,
-            volumeResolution=normalize_volume_resolution(volume_resolution),
+            volumeResolution=trend_volume_resolution(volume_resolution),
             limit=1,
             orderBy="last_seen",
             orderDirection="DESC",
@@ -236,7 +238,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "first_release": extract_release(first_event_properties),
                 "impact": build_impact(issue),
                 "trend": build_trend(issue, issue_basics.first_seen),
-                "sparkline": build_sparkline(issue) if include_sparkline else None,
+                "sparkline": build_sparkline(issue, volume_resolution) if include_sparkline else None,
             }
         )
         if include_breakdown:
