@@ -32,12 +32,6 @@ def single_instance_grouping() -> dict[str, object]:
 
 
 # nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
-def destination_type_choices() -> list[tuple[str, str]]:
-    # A callable, so a new destination type does not write a state-only migration for its choice.
-    return DestinationType.choices
-
-
-# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
 def source_kind_choices() -> list[tuple[str, str]]:
     # A callable, so a new source does not write a state-only migration for its choice.
     return PlatformAlertConfigurationSourceKind.choices
@@ -276,7 +270,7 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    type = models.CharField(max_length=32, choices=destination_type_choices)
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
     delivery = models.CharField(max_length=16, choices=Delivery.choices)
     # Encrypted as one document so its value types survive a read. A webhook URL or a routing key is a credential.
     config = EncryptedJSONStringField(default=dict)
