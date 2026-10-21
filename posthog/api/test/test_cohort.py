@@ -670,6 +670,19 @@ email@example.org
         # Verify the persons were actually added to the cohort
         self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
+    def test_static_cohort_patch_with_query_rejected_while_population_in_flight(self, mock_delay: MagicMock):
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        query = {"kind": "ActorsQuery", "properties": []}
+
+        first = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"query": query})
+        second = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"query": query})
+
+        self.assertEqual(first.status_code, 200, first.json())
+        self.assertEqual(second.status_code, 400, second.json())
+        self.assertEqual(second.json()["attr"], "query")
+        mock_delay.assert_called_once_with(cohort.pk, self.team.id)
+
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
         side_effect=insert_cohort_from_filters,

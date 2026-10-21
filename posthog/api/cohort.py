@@ -10,6 +10,7 @@ from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -1783,6 +1784,19 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def _user_access_control(self) -> Optional[UserAccessControl]:
         return getattr(self.context.get("view"), "user_access_control", None)
 
+    def _claim_static_population(self, cohort: Cohort) -> None:
+        # A query population can run on ClickHouse for hours, and each PATCH would otherwise queue another full run.
+        # Only one run may hold the cohort at a time. The conditional update locks the row, so two concurrent requests
+        # cannot both claim it. The population task clears is_calculating when it finishes, and the stuck-cohort sweep
+        # clears it if the task dies.
+        claimed = Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id, is_calculating=False).update(
+            is_calculating=True
+        )
+        if not claimed:
+            raise ValidationError({"query": ["This cohort is still being populated. Try again when it finishes."]})
+        # cohort.save() writes every field, so the in-memory value must match the claim.
+        cohort.is_calculating = True
+
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
@@ -1973,7 +1987,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
-        cohort.save()
+        populate_from_query = (
+            not deleted_state and cohort.is_static and parsed_csv is None and bool(validated_data.get("query"))
+        )
+        with transaction.atomic():
+            if populate_from_query:
+                self._claim_static_population(cohort)
+            cohort.save()
 
         if not deleted_state:
             from posthog.tasks.calculate_cohort import insert_cohort_from_query
@@ -1981,7 +2001,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if cohort.is_static and parsed_csv is not None:
                 # You can't update a static cohort using the trend/stickiness thing
                 self._enqueue_csv_ids(parsed_csv, cohort)
-            elif cohort.is_static and validated_data.get("query"):
+            elif populate_from_query:
                 insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
