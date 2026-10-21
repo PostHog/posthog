@@ -182,6 +182,9 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
             assert path is not None
             with path.open("ab") as handle:
                 handle.write(b'{"kind": "person", "key": "partial"')
+        # A partial report reads each run only up to its cursor, so the half-written line is left out.
+        assert team_scan.finalize(split, partial=True)["complete"] is False
+        assert "partial" not in _report(split)
         for chunk in range(3):
             team_scan.run_chunk(split, chunk, resume=True)
         team_scan.run_postgres(split, resume=False)
@@ -289,42 +292,15 @@ class TestRegroup(SimpleTestCase):
                 [_ghost_person("a", None), _ghost_mapping("a")],
                 {"a": (None, None, None), "ghost-a": (None, None, None)},
             ),
+            # ClickHouse holds the owner's tombstone, so no person row asks to restore it.
+            ("ghost_mapping_without_an_owner_row_stays", [_ghost_mapping("a")], {"ghost-a": (None, None, None)}),
         ]
     )
     def test_cross_key_groups(self, _name: str, rows: list[dict[str, Any]], expected: dict[str, tuple[Any, Any, Any]]):
-        plan = team_scan.ScanPlan(
-            version=team_scan.PLAN_VERSION,
-            team_id=1,
-            team_exists=True,
-            created_at="",
-            purged_at=None,
-            chunks=(),
-            ch_page_rows=1,
-            pg_page_size=1,
-        )
         groups = team_scan._Groups()
         for row in rows:
             groups.observe(row)
 
-        final = [team_scan._regroup(dict(row), groups, plan) for row in rows]
+        final = [team_scan._regroup(dict(row), groups) for row in rows]
 
         assert {r["key"]: (r["verb"], r["group"], r.get("fold_mode")) for r in final if r is not None} == expected
-
-    def test_ghost_mappings_of_a_deleted_team_get_no_verb(self):
-        plan = team_scan.ScanPlan(
-            version=team_scan.PLAN_VERSION,
-            team_id=1,
-            team_exists=False,
-            created_at="",
-            purged_at=None,
-            chunks=(),
-            ch_page_rows=1,
-            pg_page_size=1,
-        )
-        row = _ghost_mapping("a")
-        groups = team_scan._Groups()
-        groups.observe(row)
-
-        final = team_scan._regroup(dict(row), groups, plan)
-
-        assert final is not None and final["verb"] is None
