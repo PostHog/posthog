@@ -936,7 +936,8 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
                 ("session", True),
                 ("personal_key_for_this_project", True),
                 ("personal_key_for_another_project", False),
-                ("project_secret_key_for_this_project", False),
+                ("project_secret_key_for_this_project", True),
+                ("project_secret_key_for_another_project", False),
             )
         ]
     )
@@ -955,7 +956,7 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         )
         token = mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
         claims = jwt.decode(token, options={"verify_signature": False})
-        expected_projects = [self.team.id] if credential == "personal_key_for_this_project" else None
+        expected_projects = None if credential == "session" else [self.team.id]
         self.assertEqual(claims["projects"], expected_projects)
 
     @parameterized.expand([("usage",), ("spend",)])
