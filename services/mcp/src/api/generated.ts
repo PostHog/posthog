@@ -55666,6 +55666,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `ready` - Ready
+     * * `computing` - Computing
+     * * `unavailable` - Unavailable
+     */
+    export type HighlightPinStatusEnum = typeof HighlightPinStatusEnum[keyof typeof HighlightPinStatusEnum];
+
+
+    export const HighlightPinStatusEnum = {
+      Ready: 'ready',
+      Computing: 'computing',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface HighlightPin {
+      /** Key of a number the person keeps on their home. */
+      key: string;
+      /** `ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight or one that is not a trend.
+       *
+       * * `ready` - Ready
+       * * `computing` - Computing
+       * * `unavailable` - Unavailable */
+      status: HighlightPinStatusEnum;
+    }
+
+    /**
      * * `computing` - Computing
      * * `ready` - Ready
      * * `failed` - Failed
@@ -55699,6 +55724,8 @@ export namespace Schemas {
       pulse: HighlightMetric[];
       /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
       items: HighlightItem[];
+      /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
+      pins: HighlightPin[];
     }
 
     /**

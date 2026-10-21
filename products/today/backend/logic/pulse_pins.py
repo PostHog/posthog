@@ -1,5 +1,7 @@
 from pydantic import TypeAdapter, ValidationError
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from ..facade import contracts
 from ..models import TodayPulsePins
 
@@ -19,6 +21,7 @@ def get_pins(*, team_id: int, user_id: int) -> list[contracts.PulsePin]:
 
 
 def set_pins(*, team_id: int, user_id: int, pins: list[contracts.PulsePin]) -> list[contracts.PulsePin]:
+    team_id = resolve_effective_team_id(team_id)
     kept: dict[str, contracts.PulsePin] = {}
     for pin in pins:
         kept.setdefault(pin.key, pin)

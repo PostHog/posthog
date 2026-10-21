@@ -247,6 +247,30 @@ export interface HighlightItemApi {
     source: string
 }
 
+/**
+ * * `ready` - Ready
+ * * `computing` - Computing
+ * * `unavailable` - Unavailable
+ */
+export type HighlightPinStatusEnumApi = (typeof HighlightPinStatusEnumApi)[keyof typeof HighlightPinStatusEnumApi]
+
+export const HighlightPinStatusEnumApi = {
+    Ready: 'ready',
+    Computing: 'computing',
+    Unavailable: 'unavailable',
+} as const
+
+export interface HighlightPinApi {
+    /** Key of a number the person keeps on their home. */
+    key: string
+    /** `ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight or one that is not a trend.
+     *
+     * * `ready` - Ready
+     * * `computing` - Computing
+     * * `unavailable` - Unavailable */
+    status: HighlightPinStatusEnumApi
+}
+
 export interface HighlightsApi {
     /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
      *
@@ -267,6 +291,8 @@ export interface HighlightsApi {
     pulse: HighlightMetricApi[]
     /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
     items: HighlightItemApi[]
+    /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
+    pins: HighlightPinApi[]
 }
 
 export interface PulsePinApi {

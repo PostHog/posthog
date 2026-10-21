@@ -60,6 +60,12 @@ class HighlightMetricReason(LabeledStrEnum):
     PINNED = "pinned", "You keep this on your home"
 
 
+class HighlightPinStatus(LabeledStrEnum):
+    READY = "ready", "Ready"
+    COMPUTING = "computing", "Computing"
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
 class HighlightInterval(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"

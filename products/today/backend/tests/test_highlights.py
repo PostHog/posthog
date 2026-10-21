@@ -168,6 +168,32 @@ class TestBuildHighlights(SimpleTestCase):
             ),
         )
 
+    def test_pins_lead_the_pulse_and_each_pin_reports_its_state(self) -> None:
+        source = HighlightSource(name="metrics", find=lambda _c: HighlightFindings())
+
+        built = highlights.build_highlights(
+            (source,),
+            {"metrics": HighlightFindings(pulse=(metric("offered"), metric("suggested")))},
+            Team(timezone="UTC"),
+            DAY,
+            pins=["insight:pinned", "offered", "insight:slow", "insight:gone"],
+            pinned={"insight:pinned": metric("insight:pinned")},
+            computing={"insight:slow"},
+        )
+
+        self.assertEqual(
+            ([(m.key, m.reason) for m in built.pulse], [(pin.key, pin.status) for pin in built.pins]),
+            (
+                [("insight:pinned", "pinned"), ("offered", "pinned"), ("suggested", None)],
+                [
+                    ("insight:pinned", "ready"),
+                    ("offered", "ready"),
+                    ("insight:slow", "computing"),
+                    ("insight:gone", "unavailable"),
+                ],
+            ),
+        )
+
     @parameterized.expand(
         [
             ("days", HighlightInterval.DAY, None, 3, [date(2026, 10, 10), date(2026, 10, 11), date(2026, 10, 12)]),

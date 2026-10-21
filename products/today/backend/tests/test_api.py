@@ -27,13 +27,14 @@ from posthog.models.personal_api_key import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalReport
-from products.today.backend.logic import highlights
+from products.today.backend.logic import highlights, pinned
 from products.today.backend.logic.highlight_types import Found, Source
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
+    ResolvePinsInputs,
 )
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
@@ -364,6 +365,7 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag),
             patch.object(highlights, "load_sources", return_value=(source,)),
             patch.object(highlights, "sync_connect", connect),
+            patch.object(pinned, "get_key_metrics", return_value=[]),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/today/highlights/")
             if response.status_code == status.HTTP_200_OK and connect.return_value.start_workflow.called:
@@ -380,9 +382,18 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                     )
                     for name in inputs.source_names
                 ]
+                pins = pinned.resolve_pins(
+                    ResolvePinsInputs(
+                        team_id=inputs.team_id,
+                        user_id=inputs.user_id,
+                        local_day=inputs.local_day,
+                        scopes=inputs.scopes,
+                        keys=None,
+                    )
+                )
                 highlights.finalize(
                     FinalizeHighlightsInputs(
-                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results
+                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results, pins=[pins]
                     )
                 )
         return response

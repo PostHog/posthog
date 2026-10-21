@@ -10,6 +10,7 @@ from ..facade.contracts import (
     HighlightItem,
     HighlightMetric,
     HighlightMover,
+    HighlightPin,
     Highlights,
     HighlightValueFormat,
     ImpactNumber,
@@ -33,6 +34,7 @@ from ..facade.enums import (
     HighlightInterval,
     HighlightLabel,
     HighlightMetricReason,
+    HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
@@ -411,6 +413,17 @@ class HighlightItemSerializer(DataclassSerializer):
         }
 
 
+class HighlightPinSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Key of a number the person keeps on their home.")
+    status = serializers.ChoiceField(
+        choices=HighlightPinStatus.choices,
+        help_text="`ready` when the number is in `pulse`. `computing` while its query still runs or it was pinned after these highlights were computed: show a placeholder and load the highlights again later. `unavailable` when it has no number to show, for example a deleted insight or one that is not a trend.",
+    )
+
+    class Meta:
+        dataclass = HighlightPin
+
+
 class HighlightsSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
         choices=HighlightsStatus.choices,
@@ -427,6 +440,10 @@ class HighlightsSerializer(DataclassSerializer):
     items = HighlightItemSerializer(
         many=True,
         help_text="Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first.",
+    )
+    pins = HighlightPinSerializer(
+        many=True,
+        help_text="The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`.",
     )
 
     class Meta:

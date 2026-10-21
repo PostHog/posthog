@@ -567,6 +567,7 @@ const HIGHLIGHTS: HighlightsApi = {
     generated_at: '2026-09-28T18:00:00Z',
     day: '2026-09-28',
     refresh_at: '2026-09-29T00:00:00Z',
+    pins: [],
     pulse: [
         {
             key: 'insight:wKu1pSx2',
@@ -775,7 +776,11 @@ function storyHighlights(): HighlightsApi {
         return metric ? [{ ...metric, reason: 'pinned' as const }] : []
     })
     const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
-    return { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4) }
+    const pins = storyPins.map((pin) => ({
+        key: pin.key,
+        status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
+    }))
+    return { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
 }
 
 function keepNumbers(pins: { key: string; name: string }[]) {

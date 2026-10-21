@@ -70,6 +70,7 @@ export function makeHighlights(overrides: Partial<HighlightsApi> = {}): Highligh
         refresh_at: '2026-10-01T00:00:00Z',
         pulse: [],
         items: [],
+        pins: [],
         ...overrides,
     }
 }

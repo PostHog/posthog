@@ -32,10 +32,28 @@ class HighlightSourceResult:
 
 
 @dataclasses.dataclass(frozen=True)
+class ResolvePinsInputs:
+    team_id: int
+    user_id: int
+    local_day: str
+    scopes: list[str] | None
+    keys: list[str] | None
+
+
+@dataclasses.dataclass(frozen=True)
+class ResolvePinsResult:
+    keys: list[str]
+    found: str
+    pending: list[str]
+    failed: bool
+
+
+@dataclasses.dataclass(frozen=True)
 class FinalizeHighlightsInputs:
     team_id: int
     highlights_id: str
     results: list[HighlightSourceResult]
+    pins: list[ResolvePinsResult] = dataclasses.field(default_factory=list)
 
 
 def highlights_workflow_id(team_id: int, user_id: int, highlights_id: str) -> str:

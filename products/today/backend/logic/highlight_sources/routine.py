@@ -1,4 +1,3 @@
-import time
 from collections.abc import Collection, Sequence
 from datetime import date, timedelta
 from functools import partial
@@ -11,10 +10,9 @@ from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
 from products.dashboards.backend.facade.api import dashboard_insights
 from products.product_analytics.backend.facade.api import get_insight_series
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesPending
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 
 from ...facade import contracts
-from ...facade.contracts import DailyValueNotReady
 from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit
 from ...feature_flags import FRECENCY_RANKING, RECENCY_RANKING, pulse_ranking
 from ..highlight_rules import short
@@ -38,8 +36,6 @@ FRECENCY_TILES = 4
 DASHBOARD_TILES_TRIED = 6
 OPENED_DAYS_WINDOW = 14
 MOVERS_SHOWN = 4
-PINNED_WAIT_SECONDS = 20
-PINNED_POLL_SECONDS = 2
 
 
 @frozen
@@ -50,45 +46,21 @@ class ViewedItem:
 
 
 def find(context: Context) -> Found:
-    pinned = _pinned_metrics(context)
-    shown = {metric.key for metric in pinned}
+    pinned = {pin.key for pin in get_pins(team_id=context.team.id, user_id=context.user.id)}
     budget = FRECENCY_TILES - len(pinned)
     ranking = pulse_ranking(context.user, context.team)
     if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
-        return Found(pulse=(*pinned, *_frecent_metrics(context, ranking, shown, budget)))
+        return Found(pulse=tuple(_frecent_metrics(context, ranking, pinned, budget)))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
         if len(metrics) >= min(ROUTINE_TILES, budget):
             break
-        if f"insight:{item.ref}" in shown:
+        if f"insight:{item.ref}" in pinned:
             continue
-        metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref, viewed=item), None)
+        metric = context.guard(f"routine {item.ref}", partial(insight_metric, context, item.ref, viewed=item), None)
         if metric is not None:
             metrics.append(metric)
-    return Found(pulse=(*pinned, *metrics))
-
-
-def _pinned_metrics(context: Context) -> list[contracts.HighlightMetric]:
-    metrics: list[contracts.HighlightMetric] = []
-    deadline = time.monotonic() + PINNED_WAIT_SECONDS
-    for pin in get_pins(team_id=context.team.id, user_id=context.user.id):
-        short_id = pin.key.removeprefix("insight:")
-        if short_id == pin.key:
-            continue
-        metric = context.guard(f"pinned {short_id}", partial(_pinned_metric, context, short_id, deadline), None)
-        if metric is not None:
-            metrics.append(metric)
-    return metrics
-
-
-def _pinned_metric(context: Context, short_id: str, deadline: float) -> contracts.HighlightMetric | None:
-    while True:
-        try:
-            return _metric(context, short_id, raise_if_pending=True)
-        except InsightSeriesPending:
-            if time.monotonic() + PINNED_POLL_SECONDS > deadline:
-                raise DailyValueNotReady(f"pinned insight {short_id}")
-            time.sleep(PINNED_POLL_SECONDS)
+    return Found(pulse=tuple(metrics))
 
 
 def routine_days(view_days: Sequence[date], today: date, warming_up: bool = False) -> int:
@@ -166,7 +138,7 @@ def _frecent_views(context: Context, ranking: str) -> list[ViewedItem]:
 
 def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -> contracts.HighlightMetric | None:
     if item.kind == "insight":
-        return None if f"insight:{item.ref}" in shown else _metric(context, item.ref, viewed=item)
+        return None if f"insight:{item.ref}" in shown else insight_metric(context, item.ref, viewed=item)
     if not item.ref.isdigit():
         return None
     dashboard = dashboard_insights(
@@ -180,7 +152,7 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
         metric = context.guard(
             f"dashboard {item.ref} tile {tile.insight_short_id}",
             partial(
-                _metric,
+                insight_metric,
                 context,
                 tile.insight_short_id,
                 dashboard=InsightDashboardContext(
@@ -197,7 +169,7 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
     return None
 
 
-def _metric(
+def insight_metric(
     context: Context,
     short_id: str,
     *,

@@ -1,6 +1,6 @@
 import asyncio
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
@@ -23,7 +23,14 @@ from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
 from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
-from ..facade.enums import HighlightInterval, HighlightLabel, HighlightMetricReason, HighlightPriority, HighlightsStatus
+from ..facade.enums import (
+    HighlightInterval,
+    HighlightLabel,
+    HighlightMetricReason,
+    HighlightPinStatus,
+    HighlightPriority,
+    HighlightsStatus,
+)
 from ..feature_flags import pulse_ranking
 from ..models import TodayHighlights
 from ..temporal.inputs import (
@@ -37,6 +44,7 @@ from ..temporal.inputs import (
 from . import pulse_pins
 from .highlight_registry import load_sources
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
+from .pinned import PINNED_METRICS
 
 logger = structlog.get_logger(__name__)
 
@@ -145,9 +153,18 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
-    pinned = [pin.key for pin in pulse_pins.get_pins(team_id=inputs.team_id, user_id=row.user_id)]
+    pins = [pin.key for pin in pulse_pins.get_pins(team_id=inputs.team_id, user_id=row.user_id)]
+    resolved = {key for result in inputs.pins for key in result.keys}
+    still_pending = set(inputs.pins[-1].pending) if inputs.pins else set()
+    pins_failed = any(result.failed for result in inputs.pins)
     highlights = build_highlights(
-        load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day, pinned=pinned
+        load_sources(),
+        found,
+        Team.objects.get(id=inputs.team_id),
+        row.local_day,
+        pins=pins,
+        pinned={metric.key: metric for result in inputs.pins for metric in PINNED_METRICS.validate_json(result.found)},
+        computing={key for key in pins if key in still_pending or pins_failed or key not in resolved},
     )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
@@ -157,7 +174,7 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         else HighlightsStatus.READY
     )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
-    row.failed_sources = bool(failed)
+    row.failed_sources = bool(failed) or any(pin.status == HighlightPinStatus.COMPUTING for pin in highlights.pins)
     row.ready_at = timezone.now()
     row.save(update_fields=["status", "content", "failed_sources", "ready_at"])
     if row.status == HighlightsStatus.READY:
@@ -176,14 +193,17 @@ def build_highlights(
     found: Mapping[str, HighlightFindings],
     team: Team,
     day: date,
-    pinned: Sequence[str] = (),
+    pins: Sequence[str] = (),
+    pinned: Mapping[str, contracts.HighlightMetric] | None = None,
+    computing: Collection[str] = (),
 ) -> contracts.Highlights:
     offered: dict[str, contracts.HighlightMetric] = {}
     for source in sorted(sources, key=lambda source: source.pulse_order):
         for metric in found[source.name].pulse if source.name in found else ():
             offered.setdefault(metric.key, metric)
-    chosen = [replace(offered[key], reason=HighlightMetricReason.PINNED) for key in pinned if key in offered]
-    pulse = [*chosen, *(metric for key, metric in offered.items() if key not in pinned)][:PULSE_TILES]
+    resolved = {**offered, **(pinned or {})}
+    chosen = [replace(resolved[key], reason=HighlightMetricReason.PINNED) for key in pins if key in resolved]
+    pulse = [*chosen, *(metric for key, metric in offered.items() if key not in pins)][:PULSE_TILES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
         status=HighlightsStatus.READY,
@@ -195,6 +215,17 @@ def build_highlights(
             for metric in pulse
         ],
         items=sorted((_item(c) for c in ranked), key=lambda item: item.priority),
+        pins=[
+            contracts.HighlightPin(
+                key=key,
+                status=HighlightPinStatus.READY
+                if key in resolved
+                else HighlightPinStatus.COMPUTING
+                if key in computing
+                else HighlightPinStatus.UNAVAILABLE,
+            )
+            for key in pins
+        ],
     )
 
 

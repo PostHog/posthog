@@ -16,6 +16,7 @@ from .enums import (
     HighlightInterval,
     HighlightLabel,
     HighlightMetricReason,
+    HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
@@ -217,6 +218,12 @@ class PulsePins:
 
 
 @dataclass(frozen=True)
+class HighlightPin:
+    key: str
+    status: HighlightPinStatus
+
+
+@dataclass(frozen=True)
 class Highlights:
     status: HighlightsStatus
     generated_at: datetime | None
@@ -224,6 +231,7 @@ class Highlights:
     refresh_at: datetime
     pulse: list[HighlightMetric]
     items: list[HighlightItem]
+    pins: list[HighlightPin] = field(default_factory=list)
 
 
 class DailyValueNotReady(Exception):
