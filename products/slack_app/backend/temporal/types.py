@@ -120,6 +120,13 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # ephemeral prompt. The classifier ran before the prompt was posted and the
     # answer is in, so the run skips both on the way back through.
     untagged_followup_confirmed: bool = False
+    # True when the workflow was started for a top-level channel message that did not
+    # tag the app. Nothing visible happens until the classifier says PostHog can answer
+    # it and the author's untagged-message mode allows it.
+    untagged_question: bool = False
+    # True when the author already accepted the private offer to answer, so the run
+    # skips the classifier and the offer on the way back through.
+    untagged_question_confirmed: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
@@ -138,6 +145,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.
     fork_source_task_id: str | None = None
+
+    @property
+    def untagged_confirmed(self) -> bool:
+        return self.untagged_followup_confirmed or self.untagged_question_confirmed
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:

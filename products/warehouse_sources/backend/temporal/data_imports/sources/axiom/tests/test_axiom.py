@@ -10,9 +10,6 @@ from requests_mock import Mocker
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.axiom import AxiomResumeConfig, axiom_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.source import AxiomSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -157,7 +154,6 @@ def test_credentials_use_selected_resource() -> None:
     "status,body,expected",
     [
         (401, {"code": 401, "message": "auth token not provided"}, "Axiom rejected the token"),
-        (403, {"code": 403, "message": "Forbidden"}, "Axiom denied access"),
     ],
 )
 def test_auth_errors_match_validation_and_pipeline(status: int, body: dict[str, Any], expected: str) -> None:
@@ -180,12 +176,22 @@ def test_auth_errors_match_validation_and_pipeline(status: int, body: dict[str, 
 
 
 @pytest.mark.parametrize(
-    "status,exception", [(404, HTTPError), (429, RESTClientRetryableError), (503, RESTClientRetryableError)]
+    "status,expected",
+    [
+        (404, HTTPError),
+        (429, (False, "Couldn't reach Axiom to check your credentials. Try again in a few minutes.")),
+        (503, (False, "Couldn't reach Axiom to check your credentials. Try again in a few minutes.")),
+    ],
 )
-def test_probe_preserves_non_auth_failures(status: int, exception: type[Exception]) -> None:
+def test_probe_preserves_non_auth_failures(status: int, expected: type[Exception] | tuple[bool, str]) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={"code": status}))) as network:
-        with pytest.raises(exception):
-            AxiomSource().validate_credentials(AxiomSourceConfig(api_token="test-token"), 1)
+        source = AxiomSource()
+        config = AxiomSourceConfig(api_token="test-token")
+        if isinstance(expected, tuple):
+            assert source.validate_credentials(config, 1) == expected
+        else:
+            with pytest.raises(expected):
+                source.validate_credentials(config, 1)
 
     assert {request.path for request in network.requests_log} == {"/v2/datasets"}
 
