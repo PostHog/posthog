@@ -6,7 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from 'products/logs/frontend/components/LogsViewer/config/columns'
+import {
+    columnsForSavedView,
+    DEFAULT_LOGS_COLUMNS,
+    LogsColumnConfig,
+} from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsViewApi, LogsViewApiFilters } from 'products/logs/frontend/generated/api.schemas'
@@ -159,7 +163,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
                     const created: LogsView = await api.create(`${logsViewsUrl(values.currentTeamId)}/`, {
                         name,
                         filters,
-                        columns,
+                        columns: columnsForSavedView(columns),
                     })
                     lemonToast.success('View saved')
                     return [created, ...values.views]

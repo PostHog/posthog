@@ -63,17 +63,37 @@ describe('logsViewsListLogic', () => {
         configLogic.unmount()
     })
 
-    it('saves the current column configuration with the view', async () => {
-        configLogic.actions.setColumns(CUSTOM_COLUMNS)
+    it.each([
+        ['as is when the API accepts every column', CUSTOM_COLUMNS, CUSTOM_COLUMNS],
+        [
+            'with integer widths and no blank names',
+            [
+                { id: 'timestamp', type: 'timestamp', width: 180.6 },
+                { id: 'col-1', type: 'custom', expression: 'attributes.http.method', name: '   ' },
+                { id: 'col-2', type: 'custom', expression: 'attributes.region', name: ' Region ', width: 5000 },
+                { id: 'message', type: 'message' },
+            ],
+            [
+                { id: 'timestamp', type: 'timestamp', width: 181 },
+                { id: 'col-1', type: 'custom', expression: 'attributes.http.method' },
+                { id: 'col-2', type: 'custom', expression: 'attributes.region', name: 'Region', width: 2000 },
+                { id: 'message', type: 'message' },
+            ],
+        ],
+    ] as [string, LogsColumnConfig[], LogsColumnConfig[]][])(
+        'saving a view sends the current columns %s',
+        async (_, currentColumns, expectedColumns) => {
+            configLogic.actions.setColumns(currentColumns)
 
-        await expectLogic(logic, () => {
-            logic.actions.setViewName('With columns')
-            logic.actions.saveView()
-        }).toDispatchActions(['createView', 'createViewSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.setViewName('With columns')
+                logic.actions.saveView()
+            }).toDispatchActions(['createView', 'createViewSuccess'])
 
-        expect(createdPayload?.name).toEqual('With columns')
-        expect(createdPayload?.columns).toEqual(CUSTOM_COLUMNS)
-    })
+            expect(createdPayload?.name).toEqual('With columns')
+            expect(createdPayload?.columns).toEqual(expectedColumns)
+        }
+    )
 
     it.each([
         ['restores the saved columns', CUSTOM_COLUMNS, CUSTOM_COLUMNS],
