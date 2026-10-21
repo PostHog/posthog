@@ -246,7 +246,7 @@ the row lists both.
 | cloudflare_r2                    | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| clerk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clerk                            | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | clevertap                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse                       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickhouse_cloud                 | HTTP                        | requests                                                        | ✅                          |
@@ -1427,6 +1427,7 @@ doesn't conflict with concurrent PRs.
 - reply_io
 - retail_express
 - retently
+- retreaver
 - ringcentral
 - rocket_chat
 - rocket_matter
