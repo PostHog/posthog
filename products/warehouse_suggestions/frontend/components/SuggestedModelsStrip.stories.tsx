@@ -162,14 +162,20 @@ export default meta
 
 type Story = StoryObj<typeof StripStory>
 
+const DIALOG_SNAPSHOT: Story['parameters'] = {
+    layout: 'fullscreen',
+    testOptions: { viewport: { width: 1300, height: 900 } },
+}
+
 export const Banner: Story = {}
 
 export const BannerNarrow: Story = { args: { width: 'narrow' } }
 
-export const ReviewDialog: Story = { args: { reviewOpen: true } }
+export const ReviewDialog: Story = { args: { reviewOpen: true }, parameters: DIALOG_SNAPSHOT }
 
 export const ReviewDialogViewerWithoutEditAccess: Story = {
     args: { reviewOpen: true, results: [materialize('1', 'customer_monthly_revenue', 1080, { canAct: false })] },
+    parameters: DIALOG_SNAPSHOT,
 }
 
 export const WarmingUp: Story = { args: { results: [], statusOverrides: { days_with_data: 12 } } }
@@ -178,13 +184,17 @@ export const NotEligible: Story = { args: { results: [], statusOverrides: { elig
 
 export const LoadFailed: Story = { args: { failing: true } }
 
-export const ReviewDialogManySuggestions: Story = { args: { reviewOpen: true, results: manySuggestions } }
+export const ReviewDialogManySuggestions: Story = {
+    args: { reviewOpen: true, results: manySuggestions },
+    parameters: DIALOG_SNAPSHOT,
+}
 
 export const MaterializeDialogLongerScheduleUnknownSources: Story = {
     args: {
         results: [materialize('3', 'stripe_invoices_enriched', 1080, { unknownSources: true })],
         openDialogWithInterval: '7day',
     },
+    parameters: DIALOG_SNAPSHOT,
 }
 
 export const MaterializeDialogIncrementalProposal: Story = {
@@ -192,5 +202,5 @@ export const MaterializeDialogIncrementalProposal: Story = {
         results: [materialize('1', 'sessions_by_plan_daily', 2400, { incremental: true })],
         openDialogWithInterval: '24hour',
     },
-    parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] },
+    parameters: { ...DIALOG_SNAPSHOT, featureFlags: [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] },
 }

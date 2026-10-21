@@ -31,7 +31,7 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
             width={820}
             footer={
                 <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 flex-1 text-xs text-muted">
+                    <span className="min-w-0 flex-1 whitespace-normal text-xs text-muted">
                         <span>Based on read counts from the query log. PostHog never reads your query text.</span>
                         {status?.refreshed_at && (
                             <>

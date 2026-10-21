@@ -94,6 +94,11 @@ export default meta
 
 type Story = StoryObj<typeof TableStory>
 
+const dialogSnapshot = (width: number): Story['parameters'] => ({
+    layout: 'fullscreen',
+    testOptions: { viewport: { width, height: 900 } },
+})
+
 export const Banner: Story = {
     args: {
         results: [
@@ -113,6 +118,7 @@ export const ReviewDialog: Story = {
             suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
         ],
     },
+    parameters: dialogSnapshot(1300),
 }
 
 export const ReviewDialogNarrow: Story = {
@@ -124,4 +130,5 @@ export const ReviewDialogNarrow: Story = {
             suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup'),
         ],
     },
+    parameters: dialogSnapshot(520),
 }
