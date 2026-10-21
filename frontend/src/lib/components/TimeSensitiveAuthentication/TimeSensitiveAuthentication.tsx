@@ -77,7 +77,8 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                     enableFormOnSubmit
                 >
                     {!twoFactorRequired ? (
-                        <>
+                        // One child of the spaced form, so the hidden input does not push the password field down
+                        <div>
                             {/* Password managers match a saved login by username, so a lone password field gets a generated password instead */}
                             <input
                                 type="email"
@@ -98,7 +99,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                                     autoFocus
                                 />
                             </LemonField>
-                        </>
+                        </div>
                     ) : null}
 
                     {twoFactorRequired ? (
