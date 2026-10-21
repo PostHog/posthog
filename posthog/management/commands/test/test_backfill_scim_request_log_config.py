@@ -8,8 +8,7 @@ from posthog.models import Organization
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
-
-from ee.models.scim_request_log import SCIMRequestLog
+from posthog.models.scim_request_log import SCIMRequestLog
 
 
 class TestBackfillSCIMRequestLogConfig(BaseTest):
