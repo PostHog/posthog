@@ -93,6 +93,12 @@ class TestDivergenceInspection(DivergenceFixturesMixin, ClickhouseTestMixin, Bas
             "stray": ("stray", None, None),
         }
 
+    def test_inspect_mappings_leaves_ghosts_of_a_deleted_team_alone(self):
+        gone_team_id = self.team.pk + 10_000
+        self._ch_mapping("gone", str(uuid4()), 4, team_id=gone_team_id)
+
+        assert self._flavors(inspect_mappings(gone_team_id, ["gone"])) == {"gone": ("ghost", "team_gone", None)}
+
     def test_command_prints_one_json_row_per_key_with_hashed_distinct_ids(self):
         person = self._pg_person(version=2, distinct_ids=["secret-did-7f3a"])
         self._ch_person(str(person.uuid), 2, {"email": "pg@example.com"})

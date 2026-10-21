@@ -210,3 +210,8 @@ class TestClassifyMapping(SimpleTestCase):
     )
     def test_classifies(self, _name, pg, ch, owner_state, expected):
         assert classify_mapping(pg, ch, ch_owner_pg_state=owner_state) == expected
+
+    def test_ghost_of_a_deleted_team_is_left_alone(self):
+        assert classify_mapping(None, _ch_map(owner="a"), ch_owner_pg_state="absent", team_exists=False) == _v(
+            "ghost", "team_gone", None
+        )
