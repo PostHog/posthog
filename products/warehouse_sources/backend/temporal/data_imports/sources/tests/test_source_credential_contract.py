@@ -90,6 +90,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Ably": "config",
     "AppStoreConnect": "config",
     "AppleSearchAds": "config",
+    "AzureBlob": "config",
     "AzureCostManagement": "config",
     "BigQuery": "driver",
     "BingAds": "database",
@@ -99,6 +100,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "CircleciInsights": "config",
     "CiscoDuo": "config",
     "Clay": "config",
+    "CloudflareR2": "config",
     "Convex": "config",
     "Coveralls": "config",
     "Criteo": "config",
@@ -412,6 +414,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Fieldpulse",
     "GainsightCs",
     "Getdx",
+    "GoogleCloudStorage",
     "GrowthBook",
     "Gusto",
     "Harness",
@@ -464,9 +467,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
 
 # Sources whose probe raises for these answers. Each entry is a defect to fix: the probe must return
 # `(False, message)`. The value lists the answers that raise.
-RAISES: dict[str, str] = {
-    "AmazonS3": "401 500",
-}
+RAISES: dict[str, str] = {}
 
 # Sources whose probe returns no message for these answers. Each entry is a defect to fix: the person
 # sees a generic message that does not say what is wrong.

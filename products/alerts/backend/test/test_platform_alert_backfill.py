@@ -72,7 +72,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
             real_time.id: (2, None, None),
             quarter_hourly.id: (15, None, None),
-            hourly.id: (60, None, None),
+            hourly.id: (60, None, "09:30"),
             daily.id: (60 * 24, "day", "09:30"),
             detector.id: (60 * 24, "day", None),
             ai_detector.id: (60 * 24, "day", None),
