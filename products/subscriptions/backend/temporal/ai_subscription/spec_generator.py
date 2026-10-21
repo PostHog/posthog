@@ -93,6 +93,9 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_START_PLACEHOLDER,
     WINDOW_END_PLACEHOLDER,
 )
+_DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
+_DATE_FUNCTION_LITERAL = re.compile(r"\bto(?:Date|DateTime)\w*\(\s*'([^']*)'")
+_BRACKETED_NAME = re.compile(r"[{<][^{}<>]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 7
@@ -228,6 +231,13 @@ class ReportWindow:
             .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
             .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
         )
+
+
+def unknown_placeholder_tokens(hogql: str) -> list[str]:
+    tokens = [token for token in _DOUBLE_BRACE_TOKEN.findall(hogql) if token not in WINDOW_PLACEHOLDERS]
+    for literal in _DATE_FUNCTION_LITERAL.findall(hogql):
+        tokens.extend(token for token in _BRACKETED_NAME.findall(literal) if f"{{{token}}}" not in tokens)
+    return list(dict.fromkeys(tokens))
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
