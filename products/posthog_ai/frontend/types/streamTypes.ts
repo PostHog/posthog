@@ -116,6 +116,8 @@ export interface RunLifecycleEvent {
 export interface TurnCompleteEvent {
     /** The `runStreamLogic` key the turn streamed under (conversation id or run/task id). */
     streamKey: string
+    /** The task that owns the run, when the stream knows it. */
+    taskId?: string
 }
 
 /** What a send hands its own echo: enough to draw the file before it has an artifact. */

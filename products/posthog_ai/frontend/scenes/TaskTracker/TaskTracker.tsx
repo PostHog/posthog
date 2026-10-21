@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -7,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { taskTurnNotificationLogic } from '../../logics/taskTurnNotificationLogic'
 import { TaskComposer } from './components/TaskComposer'
 import { TaskCreateThread } from './components/TaskCreateThread'
 import { TaskDetailPage } from './components/TaskDetailPage'
@@ -29,6 +30,7 @@ export function TaskTracker({ taskId, titleActions }: TaskTrackerProps): JSX.Ele
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('lg')
     const { activeCreation } = useValues(taskTrackerSceneLogic)
+    useMountedLogic(taskTurnNotificationLogic)
 
     const selectedTaskId = taskId && taskId !== 'new' ? taskId : null
 
