@@ -125,6 +125,39 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         with pytest.raises(CommandError, match="pass resume"):
             call_command("person_consistency", "scan", "--dir", str(scan_dir), stdout=StringIO())
 
+    def test_a_deleted_team_reports_its_clickhouse_leftovers_without_repairs(self):
+        keys = self._build_team()
+        scan_dir = self.scan_root / "scan"
+        with patch.object(team_scan.Team.objects, "filter") as team_filter:
+            team_filter.return_value.exists.return_value = False
+            team_scan.create_plan(scan_dir, self.team.pk)
+
+        call_command("person_consistency", "scan", "--dir", str(scan_dir), stdout=StringIO())
+
+        report = _report(scan_dir)
+        assert {keys["stale"], keys["deleted"], keys["ghost"], "moved", "lost"} <= report.keys()
+        assert set(report.values()) == {("ghost", "team_gone", None, None, ())}
+        summary = json.loads((scan_dir / team_scan.SUMMARY_FILE).read_text())
+        assert set(summary["verbs"]) == {"none"}
+        assert {key for key in summary["classified"] if key.startswith("mapping/ghost/")} == {"mapping/ghost/team_gone"}
+
+    def test_a_second_run_of_a_running_chunk_is_refused(self):
+        self._build_team()
+        scan_dir = self.scan_root / "scan"
+        team_scan.create_plan(scan_dir, self.team.pk, ch_page_rows=2)
+        refusals: list[str] = []
+
+        def start_a_second_run(message: str) -> None:
+            if "page" in message and not refusals:
+                with pytest.raises(team_scan.ScanError, match="in use by another run") as refused:
+                    team_scan.run_chunk(scan_dir, 0, resume=True)
+                refusals.append(str(refused.value))
+
+        cursor = team_scan.run_chunk(scan_dir, 0, resume=False, log=start_a_second_run)
+
+        assert len(refusals) == 1 and cursor.phase == team_scan.DONE
+        assert team_scan.run_chunk(scan_dir, 0, resume=True).phase == team_scan.DONE
+
     def test_chunked_paged_and_interrupted_scan_gives_the_same_report_as_one_run(self):
         self._build_team()
         whole = self.scan_root / "whole"
@@ -149,6 +182,9 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
             assert path is not None
             with path.open("ab") as handle:
                 handle.write(b'{"kind": "person", "key": "partial"')
+        # A partial report reads each run only up to its cursor, so the half-written line is left out.
+        assert team_scan.finalize(split, partial=True)["complete"] is False
+        assert "partial" not in _report(split)
         for chunk in range(3):
             team_scan.run_chunk(split, chunk, resume=True)
         team_scan.run_postgres(split, resume=False)
@@ -256,42 +292,15 @@ class TestRegroup(SimpleTestCase):
                 [_ghost_person("a", None), _ghost_mapping("a")],
                 {"a": (None, None, None), "ghost-a": (None, None, None)},
             ),
+            # ClickHouse holds the owner's tombstone, so no person row asks to restore it.
+            ("ghost_mapping_without_an_owner_row_stays", [_ghost_mapping("a")], {"ghost-a": (None, None, None)}),
         ]
     )
     def test_cross_key_groups(self, _name: str, rows: list[dict[str, Any]], expected: dict[str, tuple[Any, Any, Any]]):
-        plan = team_scan.ScanPlan(
-            version=team_scan.PLAN_VERSION,
-            team_id=1,
-            team_exists=True,
-            created_at="",
-            purged_at=None,
-            chunks=(),
-            ch_page_rows=1,
-            pg_page_size=1,
-        )
         groups = team_scan._Groups()
         for row in rows:
             groups.observe(row)
 
-        final = [team_scan._regroup(dict(row), groups, plan) for row in rows]
+        final = [team_scan._regroup(dict(row), groups) for row in rows]
 
         assert {r["key"]: (r["verb"], r["group"], r.get("fold_mode")) for r in final if r is not None} == expected
-
-    def test_ghost_mappings_of_a_deleted_team_get_no_verb(self):
-        plan = team_scan.ScanPlan(
-            version=team_scan.PLAN_VERSION,
-            team_id=1,
-            team_exists=False,
-            created_at="",
-            purged_at=None,
-            chunks=(),
-            ch_page_rows=1,
-            pg_page_size=1,
-        )
-        row = _ghost_mapping("a")
-        groups = team_scan._Groups()
-        groups.observe(row)
-
-        final = team_scan._regroup(dict(row), groups, plan)
-
-        assert final is not None and final["verb"] is None

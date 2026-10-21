@@ -45,14 +45,14 @@ class DivergenceFixturesMixin:
             timestamp=now(),
         )
 
-    def _ch_mapping(self, distinct_id: str, person_uuid: str, version: int) -> None:
+    def _ch_mapping(self, distinct_id: str, person_uuid: str, version: int, *, team_id: int | None = None) -> None:
         sync_execute(
             BULK_INSERT_PERSON_DISTINCT_ID2,
             [
                 {
                     "distinct_id": distinct_id,
                     "person_id": person_uuid,
-                    "team_id": self.team.pk,
+                    "team_id": team_id or self.team.pk,
                     "is_deleted": 0,
                     "version": version,
                     "_timestamp": now().replace(tzinfo=None),

@@ -12,6 +12,7 @@ import os
 import json
 import stat
 import time
+import fcntl
 import hashlib
 import dataclasses
 from collections import Counter, defaultdict
@@ -319,6 +320,18 @@ class _RunWriter:
         self.files = files
         self.cursor = cursor
         self._handles: dict[str, Any] = {}
+        # A second run would truncate the files under this one. The cursor file is replaced on every page, so the
+        # lock needs its own file; the OS releases it when the process dies.
+        self._lock = files.cursor.with_suffix(".lock").open("w")
+        try:
+            fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self._lock.close()
+            raise ScanError(f"{files.cursor.name} is in use by another run") from None
+        on_disk = load_cursor(files.cursor)
+        if on_disk is not None and on_disk != cursor:
+            self._lock.close()
+            raise ScanError(f"{files.cursor.name} changed while this run started; run it again")
         for name, path, offset in (
             ("rows", files.rows, cursor.rows_bytes),
             ("person_keys", files.person_keys, cursor.person_keys_bytes),
@@ -369,6 +382,7 @@ class _RunWriter:
     def close(self) -> None:
         for handle in self._handles.values():
             handle.close()
+        self._lock.close()
 
 
 def _state(state: Any) -> dict[str, Any] | None:
@@ -461,20 +475,21 @@ def _classify_mappings_page(plan: ScanPlan, after: str, last: str, first: bool) 
     distinct_ids = list(ch)
     pg = observe.pg_mapping_rows(plan.team_id, distinct_ids) if plan.team_exists and distinct_ids else {}
     # Only ghost and diverged mappings need their ClickHouse owner's Postgres state.
-    owners = sorted(
-        {
-            state.winner_person_uuid
-            for distinct_id, state in ch.items()
-            if pg.get(distinct_id) is None or pg[distinct_id].person_uuid != state.winner_person_uuid
-        }
-    )
+    needs_owner = {
+        distinct_id
+        for distinct_id, state in ch.items()
+        if pg.get(distinct_id) is None or pg[distinct_id].person_uuid != state.winner_person_uuid
+    }
+    owners = sorted({ch[distinct_id].winner_person_uuid for distinct_id in needs_owner})
     owner_states = observe.pg_person_states(plan.team_id, owners) if plan.team_exists and owners else {}
     rows: list[dict[str, Any]] = []
     counts: Counter[str] = Counter()
     for distinct_id, ch_state in ch.items():
         pg_row = pg.get(distinct_id)
-        owner_state = observe.person_pg_state(owner_states, ch_state.winner_person_uuid)
-        verdict = classify_mapping(pg_row, ch_state, ch_owner_pg_state=owner_state)
+        owner_state = (
+            observe.person_pg_state(owner_states, ch_state.winner_person_uuid) if distinct_id in needs_owner else None
+        )
+        verdict = classify_mapping(pg_row, ch_state, ch_owner_pg_state=owner_state, team_exists=plan.team_exists)
         counts[_count_key("mapping", verdict)] += 1
         if _reported(verdict):
             rows.append(
@@ -560,7 +575,12 @@ def _next_phase(phase: ChPhase) -> str:
 
 def _load_key_set(paths: Sequence[Path]) -> np.ndarray:
     arrays = [np.fromfile(p, dtype="<u8") for p in paths if p.exists()]
-    return np.unique(np.concatenate(arrays)) if arrays else np.empty(0, dtype="<u8")
+    if not arrays:
+        return np.empty(0, dtype="<u8")
+    # Chunk key files never share keys, so an in-place sort is enough and peaks at half of np.unique's memory.
+    keys = np.concatenate(arrays)
+    keys.sort()
+    return keys
 
 
 def _contains(key_set: np.ndarray, keys: Sequence[int]) -> list[bool]:
@@ -735,11 +755,18 @@ def _run_files(scan_dir: Path, plan: ScanPlan) -> ScanRuns:
 
 
 def _iter_rows(runs: Sequence[RunFiles]) -> Iterator[dict[str, Any]]:
+    """Each run's rows up to its cursor: bytes after it are a page still being written, or one a resume redoes."""
     for run in runs:
-        if not run.rows.exists():
+        cursor = load_cursor(run.cursor)
+        if cursor is None or not run.rows.exists():
             continue
-        with run.rows.open() as handle:
+        read = 0
+        # Binary, so the count is in bytes like the cursor's offset; recorded offsets fall at line ends.
+        with run.rows.open("rb") as handle:
             for line in handle:
+                read += len(line)
+                if read > cursor.rows_bytes:
+                    break
                 yield json.loads(line)
 
 
@@ -794,7 +821,7 @@ class _Groups:
         return "full" if old in self.ghost_mapping_owners else "light"
 
 
-def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, Any] | None:
+def _regroup(row: dict[str, Any], groups: _Groups) -> dict[str, Any] | None:
     """Apply the cross-key decisions to one row. Returns None for a row merged into another."""
     kind, flavor, sub = row["kind"], row["flavor"], row["sub_flavor"]
     if kind == "person":
@@ -827,10 +854,7 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
                 row["fold_mode"] = groups.fold_mode(pair.old)
     elif flavor == "ghost":
         owner = row["evidence"]["ch"]["winner_person_uuid"]
-        if not plan.team_exists:
-            # Like their owners, ghosts of a deleted team are left as they are.
-            row["verb"] = None
-        elif sub == "owner_ghost":
+        if sub == "owner_ghost":
             pair = groups.pair_for_old(owner)
             if pair is not None:
                 row["verb"], row["group"] = "fold", f"fold:{pair.old}>{pair.new}"
@@ -839,7 +863,7 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
                 row["verb"], row["group"] = None, f"ambiguous:{owner}"
             else:
                 # A ghost mapping follows its ghost owner: restored with it, or left with it.
-                row["verb"] = groups.person_verbs.get(owner, row["verb"])
+                row["verb"] = groups.person_verbs.get(owner)
                 if row["verb"] == "restore":
                     row["group"] = f"restore:{owner}"
     return row
@@ -875,7 +899,7 @@ def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
     tmp = scan_dir / (REPORT_FILE + ".tmp")
     with tmp.open("w") as out:
         for row in _iter_rows(runs):
-            final = _regroup(row, groups, plan)
+            final = _regroup(row, groups)
             if final is None:
                 continue
             out.write(json.dumps(final, sort_keys=True) + "\n")
