@@ -35,13 +35,13 @@ export function EvaluationModelPicker(): JSX.Element {
     const footerLink = getModelPickerFooterLink(groups.some((group) => !group.disabledReason))
 
     return (
-        <div className="@container/judge-model bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
+        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
             <h3 className="text-lg font-semibold mb-2">Judge model</h3>
             <p className="text-muted text-sm mb-4">
                 Choose how to judge responses, then select a model from your configured AI providers.
             </p>
 
-            <div className="space-y-4">
+            <div className="@container/judge-model space-y-4">
                 <LemonField.Pure label="Judge method">
                     <LemonSegmentedButton<JudgeMethod>
                         value={judgeMethod}
