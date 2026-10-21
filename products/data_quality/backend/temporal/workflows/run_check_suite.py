@@ -6,6 +6,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from ...logic.contracts import PreparedQuestion
 from ..activities.finalize_check_suite import (
     finalize_check_suite_activity,
     mark_check_suite_empty_activity,
@@ -13,14 +14,18 @@ from ..activities.finalize_check_suite import (
 )
 from ..activities.notify_failing_checks import notify_failing_checks_activity
 from ..activities.prepare_check_suite import prepare_check_suite_activity
+from ..activities.question import finish_question_activity, prepare_question_activity, run_question_chunk_activity
 from ..activities.run_check_batch import run_check_batch_activity
 from ..contracts import (
     BatchOutcome,
     CheckSuiteResult,
     FinalizeCheckSuiteInputs,
+    FinishQuestionInputs,
     MarkSuiteFailedInputs,
     NotifyFailingChecksInputs,
     PreparedSuite,
+    QuestionChunkInputs,
+    QuestionInputs,
     RunCheckBatchInputs,
     RunCheckSuiteInputs,
 )
@@ -50,7 +55,8 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
             )
             suite_run_id = prepared.suite_run_id
 
-            if not prepared.batches:
+            questions_enabled = workflow.patched("data-quality-question-v1")
+            if not prepared.batches and not (questions_enabled and prepared.question_check_ids):
                 return await workflow.execute_activity(
                     mark_check_suite_empty_activity,
                     FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=[]),
@@ -59,6 +65,9 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
                 )
 
             outcomes = await self._run_batches(inputs, prepared)
+            if questions_enabled:
+                for check_id in prepared.question_check_ids:
+                    outcomes.append(await self._run_question(inputs.team_id, prepared.suite_run_id, check_id))
             result: CheckSuiteResult = await workflow.execute_activity(
                 finalize_check_suite_activity,
                 FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=outcomes),
@@ -77,6 +86,33 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
 
         await self._notify_failing_checks(inputs.team_id, result)
         return result
+
+    async def _run_question(self, team_id: int, suite_id: str, check_id: str) -> BatchOutcome:
+        errored = False
+        try:
+            prepared: PreparedQuestion = await workflow.execute_activity(
+                prepare_question_activity,
+                QuestionInputs(team_id=team_id, suite_run_id=suite_id, check_id=check_id),
+                start_to_close_timeout=dt.timedelta(minutes=7),
+                heartbeat_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            for index in range(prepared.chunk_count):
+                await workflow.execute_activity(
+                    run_question_chunk_activity,
+                    QuestionChunkInputs(team_id=team_id, execution_id=prepared.execution_id, chunk_index=index),
+                    start_to_close_timeout=dt.timedelta(minutes=4),
+                    heartbeat_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+        except Exception:
+            errored = True
+        return await workflow.execute_activity(
+            finish_question_activity,
+            FinishQuestionInputs(team_id=team_id, suite_run_id=suite_id, check_id=check_id, errored=errored),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
     async def _notify_failing_checks(self, team_id: int, result: CheckSuiteResult) -> None:
         """Runs after the suite is finished, so a slow or broken fan-out cannot hold it in running."""

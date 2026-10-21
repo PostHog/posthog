@@ -367,8 +367,37 @@ class DataQualitySubjectScheduleSerializer(DataQualityCheckScheduleSerializer):
         return row
 
 
+class QuestionRunResultSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="passed, failed, errored, or skipped.")
+    examined_row_count = serializers.IntegerField(help_text="Source rows covered by completed checkpoints.")
+    failed_row_count = serializers.IntegerField(
+        help_text="Rows below the probability threshold, including null column inputs."
+    )
+    failure_rate = serializers.FloatField(
+        allow_null=True, help_text="Failed divided by examined rows; null without complete nonempty coverage."
+    )
+    unique_input_count = serializers.IntegerField(help_text="Distinct non-null evaluator inputs covered.")
+    reused_decision_count = serializers.IntegerField(help_text="Distinct decisions reused from the validated cache.")
+    new_decision_count = serializers.IntegerField(help_text="Distinct decisions newly published by completed chunks.")
+    completed_chunk_count = serializers.IntegerField(help_text="Durable chunks completed exactly once.")
+    total_chunk_count = serializers.IntegerField(help_text="Chunks in the complete frozen snapshot.")
+    coverage_complete = serializers.BooleanField(
+        help_text="Only complete coverage can pass or fail; partial coverage errors."
+    )
+
+
 @extend_schema_serializer(component_name="DataQualityCheckRun")
 class DataQualityCheckRunSerializer(serializers.ModelSerializer):
+    question_result = serializers.SerializerMethodField(
+        help_text="Question coverage and decision reuse counters; null for SQL checks."
+    )
+
+    @extend_schema_field(QuestionRunResultSerializer(allow_null=True))
+    def get_question_result(self, obj: DataQualityCheckRun) -> dict[str, Any] | None:
+        if obj.check_type != CheckType.QUESTION or not hasattr(obj, "question_execution"):
+            return None
+        return obj.question_execution.result
+
     status = serializers.CharField(read_only=True, help_text="passed, failed, errored, or skipped.")
     # Declared rather than derived: the model field carries no choices, so the schema would otherwise
     # publish check_type as a bare string.
@@ -410,6 +439,7 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
             "id",
             "quality_check",
             "check_name",
+            "question_result",
             "suite_run",
             "subject_type",
             "subject_uuid",

@@ -18,6 +18,7 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunStatus,
     SuiteRunTrigger,
 )
+from products.data_quality.backend.logic.contracts import PreparedQuestion
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.temporal.activities.finalize_check_suite import _finalize
 from products.data_quality.backend.temporal.activities.notify_failing_checks import _notify_failing_checks
@@ -401,6 +402,10 @@ class TestCheckSuiteActivities(BaseTest):
 
 
 class TestRunCheckSuiteWorkflow(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch.object(temporal_workflow, "patched", return_value=True))
+
     def _run(self, prepared: PreparedSuite, activity_results: list) -> tuple[CheckSuiteResult, AsyncMock]:
         execute_activity = AsyncMock(side_effect=[prepared, *activity_results])
         # workflow.logger only resolves inside a real workflow event loop, and these drive the
@@ -413,6 +418,23 @@ class TestRunCheckSuiteWorkflow(BaseTest):
                 RunCheckSuiteInputs(team_id=self.team.id, trigger=SuiteRunTrigger.MANUAL)
             )
         return result, execute_activity
+
+    def test_question_chunks_fold_into_the_existing_suite_results(self) -> None:
+        prepared = PreparedSuite(suite_run_id="s-1", batches=[], question_check_ids=["q-1"])
+        completed = CheckSuiteResult(suite_run_id="s-1", status=SuiteRunStatus.COMPLETED, checks_passed=1)
+        result, execute = self._run(
+            prepared,
+            [PreparedQuestion(execution_id="e-1", chunk_count=2), None, None, BatchOutcome(passed=1), completed],
+        )
+        assert result == completed
+        finalize = next(
+            call.args[1] for call in execute.await_args_list if call.args[0].__name__ == "finalize_check_suite_activity"
+        )
+        assert finalize.outcomes == [BatchOutcome(passed=1)]
+        chunks = [
+            call.args[1] for call in execute.await_args_list if call.args[0].__name__ == "run_question_chunk_activity"
+        ]
+        assert [chunk.chunk_index for chunk in chunks] == [0, 1]
 
     def test_an_empty_suite_skips_the_batch_activities(self) -> None:
         empty = CheckSuiteResult(suite_run_id="s-1", status=SuiteRunStatus.EMPTY)
