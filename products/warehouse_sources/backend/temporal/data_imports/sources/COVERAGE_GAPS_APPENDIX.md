@@ -13377,10 +13377,10 @@ Today (3): `forms`, `reports`, `users`
 
 Diffed against: <https://wufoo.github.io/docs/>
 
-- [ ] `form entries (GET /api/v3/forms/{hash}/entries.json)` — the actual form submission data; without it the source syncs metadata only (high)
-- [ ] `form fields (GET /api/v3/forms/{hash}/fields.json)` — lookup mapping Field1/Field2 entry column ids to human field titles and choice values (high)
-- [ ] `report entries (GET /api/v3/reports/{hash}/entries.json)` — the filtered entry set behind each report we already sync (medium)
-- [ ] `report fields (GET /api/v3/reports/{hash}/fields.json)` — lookup resolving column ids on report entries (medium)
+- [x] `form entries (GET /api/v3/forms/{hash}/entries.json)` — the actual form submission data; without it the source syncs metadata only (high)
+- [x] `form fields (GET /api/v3/forms/{hash}/fields.json)` — lookup mapping Field1/Field2 entry column ids to human field titles and choice values (high)
+- [x] `report entries (GET /api/v3/reports/{hash}/entries.json)` — the filtered entry set behind each report we already sync (medium)
+- [x] `report fields (GET /api/v3/reports/{hash}/fields.json)` — lookup resolving column ids on report entries (medium)
 - [ ] `form entries count (GET /api/v3/forms/{hash}/entries/count.json)` — cheap submission-volume metric per form (low)
 - [ ] `report widgets (GET /api/v3/reports/{hash}/widgets.json)` — the aggregate/chart definitions attached to a report (low)
 - [ ] `form comments (GET /api/v3/forms/{hash}/comments.json)` — entry-level comments for review workflows (low)
