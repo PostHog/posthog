@@ -7,7 +7,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
 import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
-import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
+import { findLiveRunStreamKey, isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
@@ -111,7 +111,9 @@ function RunSurfaceRoot({
             retainAfterUnmount &&
             !replayOnly &&
             runId &&
-            (logicKey === runId || isLogicRetained(RETAINED_RUN_STREAMS, logicKey))
+            (logicKey === runId ||
+                isLogicRetained(RETAINED_RUN_STREAMS, logicKey) ||
+                findLiveRunStreamKey(runId) === logicKey)
         ) {
             retainMountedLogic(
                 RETAINED_RUN_STREAMS,

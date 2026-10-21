@@ -4173,6 +4173,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (props.replayOnly) {
                     return
                 }
+                if (liveRunStreams().get(props.streamKey) !== runId) {
+                    liveRunStreams().delete(props.streamKey)
+                }
                 const previous = sessionNow()
                 if (
                     (previous?.paused &&

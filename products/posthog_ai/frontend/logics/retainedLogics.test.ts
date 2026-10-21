@@ -89,4 +89,12 @@ describe('retainedLogics', () => {
         panelUnmount()
         expect(resolveRunStreamKey('run-b', undefined)).toBeUndefined()
     })
+
+    it('drops an instance from the registry when it streams a run it did not bootstrap', async () => {
+        await streamServing('conversation-1', 'run-a')
+        runStreamLogic({ streamKey: 'conversation-1' }).actions.openSseForRun({ taskId: 'task-1', runId: 'run-b' })
+
+        expect(resolveRunStreamKey('run-a', undefined)).toBeUndefined()
+        expect(resolveRunStreamKey('run-b', undefined)).toBeUndefined()
+    })
 })
