@@ -1,4 +1,5 @@
 import re
+import copy
 import base64
 import dataclasses
 from typing import Any, Optional
@@ -65,7 +66,8 @@ class WufooEntriesPaginator(OffsetPaginator):
             return
         super().update_state(response, data)
         if data:
-            self._previous_first_row = data[0]
+            # Copied because the fan-out adds the parent hash to rows after they are yielded.
+            self._previous_first_row = copy.deepcopy(data[0])
         if data is not None and len(data) > self.limit:
             self._has_next_page = False
 
