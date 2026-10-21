@@ -402,6 +402,8 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
+                              |SignalTrialReportReservation
                               |LegacySignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
@@ -865,6 +867,8 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
+                        |SignalTrialReportReservation
                         |LegacySignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
