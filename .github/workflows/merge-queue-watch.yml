@@ -1,0 +1,42 @@
+name: Merge queue watch
+
+# Prototype. Every 15 minutes, read the last hour of Trunk merge queue test runs and post to
+# #merge-queue-watch-proto when one PR keeps failing or the failure rate spikes. Read only against
+# Trunk. See .github/scripts/merge-queue-watch.mjs for the thresholds.
+
+on:
+    schedule:
+        - cron: '*/15 * * * *'
+    workflow_dispatch: # manual run, for testing and for a bot to start on demand
+
+# Serialize ticks so the cooldown check never races a post from the previous tick.
+concurrency:
+    group: merge-queue-watch
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    SLACK_CHANNEL: 'C0CAYS95ACT' # #merge-queue-watch-proto
+    ALERT_OWNER_SLACK_ID: 'U0BLPNRQBSN'
+
+jobs:
+    watch:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/merge-queue-watch.mjs
+                  sparse-checkout-cone-mode: false
+
+            - name: Check the merge queue
+              env:
+                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  # Incoming-webhook trigger of the investigation workflow. Unset still posts the
+                  # Slack alert and skips the agent.
+                  INVESTIGATION_WEBHOOK_URL: ${{ vars.MERGE_QUEUE_INVESTIGATION_WEBHOOK_URL }}
+              run: node .github/scripts/merge-queue-watch.mjs
