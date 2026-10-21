@@ -78,10 +78,13 @@ class _ExceptionMatch:
     fingerprint: str
     occurrences: int
     exception_list: str | None
+    timestamp: datetime
 
 
 @frozen
 class _ParsedException:
+    fingerprint: str
+    timestamp: datetime
     type: str | None
     value: str | None
     # Stored order: the entry point first and the crash site last.
@@ -119,7 +122,7 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform) -> Missing
                 http_status=group.key.http_status,
                 frames=group.frames,
                 issues=_example_issues(index, matches, issues),
-                example_exception=_example_exception(example, missing_raw_ids) if example else None,
+                example_exception=_example_exception(example, issues, missing_raw_ids) if example else None,
             )
             for index, (group, example) in enumerate(zip(groups, examples))
         ],
@@ -191,7 +194,8 @@ def _exceptions_containing(
                     example_index,
                     properties.$exception_fingerprint AS fingerprint,
                     count() AS occurrences,
-                    argMax(properties.$exception_list, timestamp) AS exception_list
+                    argMax(properties.$exception_list, timestamp) AS exception_list,
+                    max(timestamp) AS last_seen
                 FROM events
                 ARRAY JOIN arrayDistinct(
                     arrayFilter(
@@ -220,8 +224,9 @@ def _exceptions_containing(
             fingerprint=fingerprint,
             occurrences=occurrences,
             exception_list=exception_list,
+            timestamp=timestamp,
         )
-        for example_index, fingerprint, occurrences, exception_list in response.results or []
+        for example_index, fingerprint, occurrences, exception_list, timestamp in response.results or []
         if fingerprint
     ]
 
@@ -280,7 +285,11 @@ def _parsed_example(
             frames = ((exception or {}).get("stacktrace") or {}).get("frames") or []
             if any(frame.get("raw_id") in raw_ids for frame in frames):
                 return _ParsedException(
-                    type=exception.get("type"), value=exception.get("value"), frames=frames[-FRAMES_PER_EXCEPTION:]
+                    fingerprint=match.fingerprint,
+                    timestamp=match.timestamp,
+                    type=exception.get("type"),
+                    value=exception.get("value"),
+                    frames=frames[-FRAMES_PER_EXCEPTION:],
                 )
     return None
 
@@ -296,8 +305,14 @@ def _missing_raw_ids(team_id: int, raw_ids: list[str | None]) -> set[str]:
     )
 
 
-def _example_exception(example: _ParsedException, missing_raw_ids: set[str]) -> MissingSymbolsExampleException:
+def _example_exception(
+    example: _ParsedException, issues: dict[str, MissingSymbolsIssue], missing_raw_ids: set[str]
+) -> MissingSymbolsExampleException:
+    issue = issues.get(example.fingerprint)
     return MissingSymbolsExampleException(
+        issue_id=issue.id if issue else None,
+        fingerprint=example.fingerprint,
+        timestamp=example.timestamp,
         type=example.type,
         value=example.value,
         frames=[

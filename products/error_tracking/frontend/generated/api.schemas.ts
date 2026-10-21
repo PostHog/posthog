@@ -1849,6 +1849,15 @@ export interface MissingSymbolsStackFrameApi {
 
 export interface MissingSymbolsExampleExceptionApi {
     /**
+     * The issue the exception belongs to, or null when no issue owns its fingerprint.
+     * @nullable
+     */
+    issue_id: string | null
+    /** The exception's fingerprint, which the issue page uses to find it. */
+    fingerprint: string
+    /** When the exception happened. */
+    timestamp: string
+    /**
      * The exception type, such as TypeError.
      * @nullable
      */

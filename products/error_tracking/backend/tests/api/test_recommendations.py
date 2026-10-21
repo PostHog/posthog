@@ -591,6 +591,7 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
             },
         )
 
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_source_maps_examples_group_missing_frames_with_the_exceptions_they_appear_in(self):
         chunk_frames = [
             self._make_frame(
@@ -652,6 +653,9 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                             }
                         ],
                         "example_exception": {
+                            "issue_id": str(type_error.id),
+                            "fingerprint": "fp-type-error",
+                            "timestamp": "2026-10-20T12:00:00Z",
                             "type": "TypeError",
                             "value": "Cannot read properties of undefined",
                             "frames": [
@@ -689,6 +693,9 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
                             }
                         ],
                         "example_exception": {
+                            "issue_id": str(fetch_error.id),
+                            "fingerprint": "fp-fetch-error",
+                            "timestamp": "2026-10-20T12:00:00Z",
                             "type": "TypeError",
                             "value": "Failed to fetch",
                             "frames": [

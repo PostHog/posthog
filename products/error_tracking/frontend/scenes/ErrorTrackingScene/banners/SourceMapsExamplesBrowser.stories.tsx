@@ -40,6 +40,9 @@ const EXAMPLES: MissingSymbolsExamplesApi = {
                 },
             ],
             example_exception: {
+                issue_id: '01933f1e-0000-7000-8000-000000000001',
+                fingerprint: 'example-fingerprint',
+                timestamp: '2026-10-20T12:00:00Z',
                 type: 'TypeError',
                 value: "Cannot read properties of undefined (reading 'total')",
                 frames: [
@@ -99,6 +102,7 @@ function Browser(): JSX.Element {
             selectedIndex={selectedIndex}
             onSelect={setSelectedIndex}
             onRetry={() => {}}
+            onOpenException={() => {}}
         />
     )
 }

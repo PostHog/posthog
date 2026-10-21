@@ -57,6 +57,11 @@ class MissingSymbolsStackFrameSerializer(serializers.Serializer):
 
 
 class MissingSymbolsExampleExceptionSerializer(serializers.Serializer):
+    issue_id = serializers.UUIDField(
+        allow_null=True, help_text="The issue the exception belongs to, or null when no issue owns its fingerprint."
+    )
+    fingerprint = serializers.CharField(help_text="The exception's fingerprint, which the issue page uses to find it.")
+    timestamp = serializers.DateTimeField(help_text="When the exception happened.")
     type = serializers.CharField(allow_null=True, help_text="The exception type, such as TypeError.")
     value = serializers.CharField(allow_null=True, help_text="The exception message.")
     frames = MissingSymbolsStackFrameSerializer(

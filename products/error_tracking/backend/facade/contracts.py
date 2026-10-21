@@ -359,6 +359,10 @@ class MissingSymbolsStackFrame:
 
 @dataclass(frozen=True)
 class MissingSymbolsExampleException:
+    # The issue page opens this event from the issue ID, the fingerprint and the timestamp.
+    issue_id: UUID | None
+    fingerprint: str
+    timestamp: datetime
     type: str | None
     value: str | None
     # Most recent call first, the order the issue page shows.

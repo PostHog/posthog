@@ -16,11 +16,13 @@ export function SourceMapsExamplesBrowser({
     selectedIndex,
     onSelect,
     onRetry,
+    onOpenException,
 }: {
     examples: MissingSymbolsExamplesApi
     selectedIndex: number
     onSelect: (index: number) => void
     onRetry: () => void
+    onOpenException: () => void
 }): JSX.Element {
     const selected = examples.results[selectedIndex] ?? examples.results[0]
 
@@ -58,6 +60,7 @@ export function SourceMapsExamplesBrowser({
                             exceptionsLoaded={examples.exceptions_loaded}
                             lookbackHours={examples.lookback_hours}
                             onRetry={onRetry}
+                            onOpenException={onOpenException}
                         />
                     </div>
                 ) : null}

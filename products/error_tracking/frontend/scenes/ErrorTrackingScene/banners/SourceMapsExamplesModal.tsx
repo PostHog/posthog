@@ -77,6 +77,7 @@ export function SourceMapsExamplesModal(): JSX.Element {
                             selectedIndex={selectedExampleIndex}
                             onSelect={selectExample}
                             onRetry={retry}
+                            onOpenException={closeExamples}
                         />
                     )}
                 </DialogBody>
