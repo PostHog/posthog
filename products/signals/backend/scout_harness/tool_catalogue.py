@@ -50,6 +50,8 @@ def scout_tool_access_enabled(team: Team) -> bool:
 
 SCOUT_RUN_CONTEXT_TOOLS = frozenset(
     {
+        "skill-get",
+        "skill-file-get",
         "scout-emit-report",
         "scout-edit-report",
         "scout-emit-signal",

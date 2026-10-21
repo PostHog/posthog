@@ -107,7 +107,6 @@ from products.access_control.backend.facade.api import user_organizations_use_ac
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
-from products.signals.backend.facade.tool_policy import resolve_scout_held_tools
 
 logger = structlog.get_logger(__name__)
 
@@ -2413,6 +2412,9 @@ def _active_access_token_response(
         data["client_id"] = application.client_id
         data["client_name"] = application.name
     if sandbox_task_id is not None:
+        # The policy resolves API routes, which import these views.
+        from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
+
         data["sandbox_task_id"] = str(sandbox_task_id)
         # The MCP server hides and refuses every tool outside this list. The API enforces the
         # same list per operation, so a client that ignores it gains nothing.
