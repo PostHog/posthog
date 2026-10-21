@@ -152,18 +152,20 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
+    @parameterized.expand([("session", status.HTTP_200_OK), ("oauth_token", status.HTTP_429_TOO_MANY_REQUESTS)])
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_session_callers_are_throttled_too(self, mock_get):
+    def test_token_callers_are_throttled_and_the_app_is_not(self, credential, second_status, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
+        headers = {}
+        if credential == "oauth_token":
+            headers = {"HTTP_AUTHORIZATION": f"Bearer {self._oauth_token('billing:read')}"}
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch.object(BillingReadBurstRateThrottle, "rate", "1/minute"),
         ):
-            first = self.client.get(self._url("subscription/"))
-            second = self.client.get(self._url("subscription/"))
-        self.assertEqual(
-            (first.status_code, second.status_code), (status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS)
-        )
+            first = self.client.get(self._url("subscription/"), **headers)
+            second = self.client.get(self._url("subscription/"), **headers)
+        self.assertEqual((first.status_code, second.status_code), (status.HTTP_200_OK, second_status))
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_subscription_is_reshaped_to_the_organization_contract(self, mock_get):
